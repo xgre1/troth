@@ -591,6 +591,26 @@ check_dmg() {
   spctl -a -t open --context context:primary-signature "$dmg" >/dev/null 2>&1 \
     && pass "notarised and accepted by Gatekeeper" || fail "Gatekeeper rejects this image"
 
+  # 7. It has to WORK, not merely be well-formed. Every check above this line
+  #    is hygiene — right files, right signature, no leaked paths — and a
+  #    build shipped past all of them with its engine menu offering two of the
+  #    five engines the operator had paid for, because nothing here had ever
+  #    started the thing and read what it said. The journey scenarios drive
+  #    the bundle's own core through the surfaces a person uses. They run on
+  #    the runtime the bundle ships, against a throwaway HOME.
+  if [ -f tests/journey/run.js ]; then
+    local jout jcode
+    jout="$(node tests/journey/run.js --target "path:$core" 2>&1)"; jcode=$?
+    if [ "$jcode" -eq 0 ]; then
+      pass "journey scenarios pass against this bundle ($(printf '%s' "$jout" | grep -oE '[0-9]+ passed' | tail -1))"
+    else
+      fail "the bundle does not behave:"
+      printf '%s\n' "$jout" | sed -n '/^failing:/,$p' | head -12 | while IFS= read -r l; do note "$l"; done
+    fi
+  else
+    fail "tests/journey/run.js is missing — behaviour is unverified"
+  fi
+
   hdiutil detach "$mnt" >/dev/null 2>&1
 }
 

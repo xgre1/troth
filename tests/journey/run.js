@@ -67,6 +67,15 @@ if (TARGET.startsWith('docker')) {
 // ── local / dmg: resolve where the product's own files live ────────────────
 let ROOT = REPO;
 let detach = null;
+// path:<dir> — any core directory: the staged bundle before it is packaged, an
+// installed /Applications copy, a colleague's checkout. Catches a regression
+// while the build is still running instead of after it ships.
+if (TARGET.startsWith('path:')) {
+  ROOT = TARGET.slice('path:'.length);
+  if (!fs.existsSync(path.join(ROOT, 'bin', 'troth-entity.js'))) {
+    console.error('journey: no core at ' + ROOT); process.exit(2);
+  }
+}
 if (TARGET.startsWith('dmg')) {
   const dmg = TARGET.split(':').slice(1).join(':');
   if (!dmg) { console.error('journey: --target dmg:<path-to-.dmg>'); process.exit(2); }
