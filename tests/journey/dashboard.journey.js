@@ -25,8 +25,17 @@ module.exports.run = async (ctx, check) => {
   }
 
   try {
-    await page.goto('http://127.0.0.1:' + proxy.port + '/ui', { waitMs: 3000 });
+    await page.goto('http://127.0.0.1:' + proxy.port + '/ui', { waitMs: 800 });
     await page.installErrorTrap();
+    // Wait for the page to have DECIDED, not for a fixed number of seconds. The
+    // first-run overlay appears only after boot() has fetched /api/config, and a
+    // three-second sleep was long enough on the machine that wrote this test and
+    // too short inside a container — which reads exactly like the product
+    // behaving differently on Linux. It was the clock.
+    const decided = await page.waitFor(
+      '(document.readyState === "complete") && (!!document.querySelector("#tob.on") || !!document.querySelector("[data-view], .view, main, #app"))',
+      { timeoutMs: 25000 });
+    check('the page finishes deciding what to show', decided, 'still undecided after 25s');
 
     const title = await page.eval('document.title');
     check('the dashboard loads at all', !!title, 'no document title');
@@ -35,11 +44,23 @@ module.exports.run = async (ctx, check) => {
     check('the page renders something a person can read', text.trim().length > 40,
       JSON.stringify(text.slice(0, 120)));
 
-    // A first run must SAY what to do. A dashboard of switches with no
-    // starting point is the exact complaint that produced the onboarding.
-    const guides = /set ?up|get started|onboard|welcome|choose|connect|add (a )?(key|provider|engine)/i.test(text);
-    check('a fresh machine is told how to begin', guides,
-      'nothing that reads like a starting point in: ' + JSON.stringify(text.slice(0, 200)));
+    // A first run must SAY what to do. Asked as the page itself answers it —
+    // the overlay element carries the state — not by pattern-matching prose. A
+    // regex over innerText passed on one machine and failed on another while
+    // the overlay was up in both, which is a test reporting its own vagueness
+    // as a platform difference.
+    const onboardingUp = await page.eval('!!document.querySelector("#tob.on")');
+    const cfg = (await proxy.get('/api/config')).json || {};
+    const configured = !!cfg.onboarding_done ||
+      Object.values(cfg.providers || {}).some(function (p) { return p && p.enabled; });
+    check('a fresh machine is offered setup, not a wall of switches', onboardingUp || configured,
+      'nothing configured and no onboarding overlay');
+    if (onboardingUp) {
+      const tobText = await page.eval('(document.getElementById("tob") || {}).innerText || ""');
+      check('the first step names engines a person can choose',
+        /chatgpt|claude|kimi|api key|local model/i.test(tobText),
+        JSON.stringify(String(tobText).slice(0, 160)));
+    }
 
     // Whatever the page believes about the local stack has to match what the
     // API says — the two disagreeing is the shape every reported defect took.

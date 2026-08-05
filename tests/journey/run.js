@@ -48,10 +48,19 @@ if (TARGET.startsWith('docker')) {
   const tar = path.join(require('os').tmpdir(), 'troth-journey-export.tar');
   console.log('[journey] exporting tracked files (what the public repo actually ships)');
   fs.writeFileSync(tar, execFileSync('git', ['-C', REPO, 'archive', 'HEAD'], { maxBuffer: 1 << 28 }));
+  // Chromium is installed and started here so the dashboard is looked at on
+  // Linux too, not only on the machine that wrote the test. Best-effort: if the
+  // image has no package for it, the browser scenario says so and the rest of
+  // the run is unaffected.
   const script = [
     'set -e',
     'mkdir -p /app && cd /app && tar -xf /export.tar',
     'npm ci --no-audit --no-fund >/tmp/ci.log 2>&1 || { echo "npm ci FAILED"; tail -20 /tmp/ci.log; exit 1; }',
+    '(apt-get update -qq && apt-get install -y -qq chromium >/dev/null 2>&1) || true',
+    'if command -v chromium >/dev/null 2>&1; then ' +
+      'chromium --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage ' +
+      '--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 about:blank ' +
+      '>/tmp/chromium.log 2>&1 & sleep 4; fi',
     'node tests/journey/run.js --target local ' + (FILTER || ''),
   ].join(' && ');
   const args = ['run', '--rm', '--platform', platform, '-v', tar + ':/export.tar:ro',
