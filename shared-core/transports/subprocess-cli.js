@@ -450,7 +450,7 @@ function makeSubprocessCliTransport(opts) {
         // harness sends the loopback dummy; direct keeps key-in-env, never
         // argv, never logged.
         if ((process.env.TROTH_KIMI_VIA_PROXY || '').trim() === '1') {
-          out.ANTHROPIC_BASE_URL = process.env.TROTH_PROXY_URL || 'http://127.0.0.1:8000';
+          out.ANTHROPIC_BASE_URL = require('../dashboard-url.js').proxyBaseUrl();
           out.ANTHROPIC_API_KEY = 'troth-proxy';
         } else {
           out.ANTHROPIC_BASE_URL = 'https://api.kimi.com/coding/';
@@ -458,7 +458,7 @@ function makeSubprocessCliTransport(opts) {
           if (kk) out.ANTHROPIC_API_KEY = kk;
         }
       } else if (engineOverride && !/^claude$/i.test(engineOverride)) {
-        out.ANTHROPIC_BASE_URL = process.env.TROTH_PROXY_URL || 'http://127.0.0.1:8000';
+        out.ANTHROPIC_BASE_URL = require('../dashboard-url.js').proxyBaseUrl();
         if (!out.ANTHROPIC_API_KEY) out.ANTHROPIC_API_KEY = 'troth-proxy';
       }
     }

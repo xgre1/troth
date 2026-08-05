@@ -955,7 +955,7 @@ function start() {
           if (!msg.text && (msg.status === 'aborted' || msg.reason)) {
             const why = String(msg.reason || msg.status || 'no reply');
             const human = why === 'transport_providers_exhausted'
-              ? 'no engine answered — link a subscription or enable a provider (app Settings, or the dashboard at localhost:8000/ui)'
+              ? 'no engine answered — link a subscription or enable a provider (app Settings, or the dashboard at ' + require('../shared-core/dashboard-url.js').dashboardUrl() + ')'
               : (why === 'no_engine_configured' || why === 'transport_no_engine_configured')
               // Not the same as exhausted: nothing was ever set up, so name the
               // one command that fixes it rather than describing the symptom.

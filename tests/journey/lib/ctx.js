@@ -133,6 +133,13 @@ function make({ root, target }) {
       return { port, get: (p) => req('GET', p), post: (p, b) => req('POST', p, b), log: () => log };
     },
 
+    /** Stop every process started so far, keeping the HOME. For restart tests. */
+    async killProxies() {
+      for (const c of children) { try { c.kill('SIGKILL'); } catch (_) {} }
+      children.length = 0;
+      await new Promise((r) => setTimeout(r, 600));
+    },
+
     async cleanup() {
       for (const c of children) { try { c.kill('SIGKILL'); } catch (_) {} }
       await new Promise((r) => setTimeout(r, 200));

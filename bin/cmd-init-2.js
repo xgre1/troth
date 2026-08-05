@@ -138,7 +138,7 @@ if (command === "init") {
 
     // 8. Next steps
     console.log("  \x1b[1mNext steps:\x1b[0m");
-    console.log("    • Open dashboard:  troth ui    (or http://localhost:8000/ui/dashboard.html)");
+    console.log("    • Open dashboard:  troth ui    (or " + require("../shared-core/dashboard-url.js").dashboardUrl("/ui/dashboard.html") + ")");
     console.log("    • Run substrate eval bench:  node benchmarks/substrate-eval-v2.js");
     console.log("    • Add provider keys to ~/.troth/.env  (then `troth start` to enable proxy)");
     if (hasClaude) {

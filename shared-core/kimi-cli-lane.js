@@ -41,7 +41,7 @@ function resolveKimiLane(opts) {
   let base = nz(env.TROTH_KIMI_SUB_BASE);
   if (!base) {
     base = nz(env.TROTH_KIMI_VIA_PROXY) === '1'
-      ? (nz(env.TROTH_PROXY_URL) || 'http://127.0.0.1:8000')
+      ? require('./dashboard-url.js').proxyBaseUrl()
       : DEFAULT_BASE;
   }
 

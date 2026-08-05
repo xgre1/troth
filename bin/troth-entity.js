@@ -367,7 +367,7 @@ function resolveTransport(mode) {
       return makeAnthropicTransport({
         api_key: 'troth-proxy',
         model: m,
-        base_url: process.env.TROTH_PROXY_URL || 'http://127.0.0.1:8000'
+        base_url: require('../shared-core/dashboard-url.js').proxyBaseUrl()
       });
     }
     const { makeCodexOAuthTransport } = require('../shared-core/transports/codex-oauth.js');

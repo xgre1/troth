@@ -1003,7 +1003,10 @@ if (command === "audit") {
   process.exit(2);
 }
 
-require('./cmd-help.js')(__cliCtx);
+// bin/cmd-help.js used to be required here. The help block higher up in this
+// file answers and exits first, so it never ran once — proven by instrumenting
+// it across help, --help, -h and help --advanced. It carried a second copy of
+// the help text that had drifted, still pointing at localhost:8000.
 
 // ===== v6.0 — Autonomous run lifecycle =====
 //

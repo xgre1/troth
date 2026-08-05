@@ -57,7 +57,7 @@ function makeKimiSubTransport(opts) {
     let base = opts.base_url || process.env.TROTH_KIMI_SUB_BASE || null;
     if (!base) {
       base = (process.env.TROTH_KIMI_VIA_PROXY || '').trim() === '1'
-        ? (process.env.TROTH_PROXY_URL || 'http://127.0.0.1:8000')
+        ? require('../dashboard-url.js').proxyBaseUrl()
         : DEFAULT_BASE;
     }
     if (!apiKey) {
