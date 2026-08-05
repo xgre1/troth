@@ -61,6 +61,16 @@ if (TARGET.startsWith('docker')) {
       'chromium --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage ' +
       '--remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 about:blank ' +
       '>/tmp/chromium.log 2>&1 & sleep 4; fi',
+    // --no-unix-tools: hide ps, pgrep, lsof, open, killall. Windows cannot be
+    // emulated here, but the specific thing it does to this product CAN be:
+    // every unix process tool the CLI shells out to is simply absent. Each of
+    // those calls sits in a try/catch, so this is the difference between
+    // believing they degrade and watching them do it.
+    ...(argv.includes('--no-unix-tools')
+      ? ['for t in ps pgrep pkill lsof open killall; do ' +
+         'p=$(command -v $t 2>/dev/null) && mv "$p" "$p.hidden" || true; done',
+         'echo "[journey] unix process tools hidden: $(command -v ps || echo none)"']
+      : []),
     'node tests/journey/run.js --target local ' + (FILTER || ''),
   ].join(' && ');
   const args = ['run', '--rm', '--platform', platform, '-v', tar + ':/export.tar:ro',

@@ -1,0 +1,83 @@
+name: Journey
+
+# The out-of-process suite, on machines the authors do not own.
+#
+# Everything else runs where it was written. This is the only place a real
+# Windows and a real Intel macOS ever see this product, and it costs nothing:
+# public repositories get these runners free. Windows is deliberately
+# non-blocking for now — nobody has ever run the product there, so the first
+# runs are a survey, not a gate. It becomes blocking the moment it is green.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  journey:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    continue-on-error: ${{ matrix.tolerated }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  label: 'Linux',            tolerated: false }
+          - { os: macos-latest,   label: 'macOS (Apple)',    tolerated: false }
+          - { os: macos-13,       label: 'macOS (Intel)',    tolerated: false }
+          - { os: windows-latest, label: 'Windows (survey)', tolerated: true  }
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # The dashboard scenario needs a browser to look with. Every runner ships
+      # Chrome; started headless on the port the CDP client expects. If it fails
+      # to start, that one scenario says so and the rest of the run continues.
+      - name: Start a browser (unix)
+        if: runner.os != 'Windows'
+        run: |
+          BIN="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
+          if [ -z "$BIN" ] && [ -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]; then
+            BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+          fi
+          if [ -n "$BIN" ]; then
+            "$BIN" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
+              --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 about:blank &
+            sleep 5
+          else
+            echo "no browser on this runner — the dashboard scenario will say so"
+          fi
+        shell: bash
+
+      - name: Start a browser (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+          if (Test-Path $chrome) {
+            Start-Process $chrome -ArgumentList '--headless=new','--disable-gpu','--remote-debugging-port=9222','--remote-debugging-address=127.0.0.1','about:blank'
+            Start-Sleep -Seconds 5
+          } else {
+            Write-Host "no Chrome at the expected path — the dashboard scenario will say so"
+          }
+        shell: pwsh
+
+      - name: Journey
+        run: node tests/journey/run.js --target local
+
+      # The unit suite too, so a platform-specific break in either layer shows
+      # up on the platform that has it rather than on the maintainer's laptop.
+      - name: Test suite
+        run: npm test
