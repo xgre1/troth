@@ -842,6 +842,14 @@ const DETERMINISTIC_HANDLERS = {
     // Empty → list.
     if (!args.length) return listBrains();
 
+    // `list` / `ls` → list as well. /help advertises listing as one of the
+    // things this single slash does, so the obvious way to ask for it must not
+    // answer "no sub-brain matching list". A sub-brain actually NAMED list
+    // still resolves first, so no existing switch changes meaning.
+    if (args.length === 1 && /^(list|ls)$/i.test(args[0]) && !resolveTarget(args[0]).row) {
+      return listBrains();
+    }
+
     // /agent stop [group_id] — cancel team dispatch.
     if (args[0] === 'stop') {
       const givenGroup = args[1] || null;
@@ -1069,11 +1077,23 @@ const DETERMINISTIC_HANDLERS = {
   },
 
   usage: async (_parsed, _ctx) => {
+    // Ask the proxy where the OPERATOR configured it, not where it used to
+    // live: the address was hardcoded to localhost:8000 while the proxy
+    // follows its port when 8000 is busy (0.1.8) and the app can be pointed
+    // anywhere, so this reported "not reachable" — and told the operator to
+    // start something already running — on every machine that had moved.
+    let _host = 'localhost', _port = 8000;
+    try {
+      const c = readTrothConfigSafe() || {};
+      if (typeof c.host === 'string' && c.host) _host = c.host;
+      if (c.port) _port = parseInt(c.port, 10) || _port;
+    } catch (_) { /* fall back to the default address */ }
+    const _addr = _host + ':' + _port;
     // Hit the local proxy via Bash — keeps the dependency surface small.
     const bashTool = require('../tools/bash.js');
-    const r = await bashTool.run({ command: 'curl -s --max-time 2 http://localhost:8000/api/stats', timeout: 5000 }, {});
+    const r = await bashTool.run({ command: 'curl -s --max-time 2 http://' + _addr + '/api/stats', timeout: 5000 }, {});
     if (r.error || !r.stdout) {
-      return { ok: true, text: 'Proxy not reachable on localhost:8000 — start it with `troth` (no args) or check `troth status`.' };
+      return { ok: true, text: 'Proxy not reachable on ' + _addr + ' — start it with `troth` (no args) or check `troth status`.' };
     }
     let stats;
     try { stats = JSON.parse(r.stdout); } catch (_) {

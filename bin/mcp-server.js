@@ -73,6 +73,22 @@ const fs = require('fs');
 const http = require('http');
 const HOME = process.env.HOME || require('os').homedir();
 const CONFIG_FILE = path.join(HOME, '.troth', 'config.json');
+// Where the proxy actually is. Every tool below reached http://127.0.0.1:8000
+// literally, while the proxy follows its port when 8000 is busy (0.1.8), the
+// app exports TROTH_PROXY_URL, and the operator can set host/port in the very
+// config file this line above points at — so on any machine that had moved,
+// each of these tools failed and blamed the proxy for being down.
+function proxyBase() {
+  const fromEnv = String(process.env.TROTH_PROXY_URL || '').trim();
+  if (fromEnv) return fromEnv.replace(/\/+$/, '');
+  let host = '127.0.0.1', port = 8000;
+  try {
+    const c = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')) || {};
+    if (typeof c.host === 'string' && c.host) host = c.host;
+    if (c.port) port = parseInt(c.port, 10) || port;
+  } catch (_) { /* defaults */ }
+  return 'http://' + host + ':' + port;
+}
 
 function loadRemoteConfig() {
   try {
@@ -471,7 +487,7 @@ function callTool(name, args) {
         var switchResult = require('child_process').execFileSync('curl', [
           '-sf', '-X', 'POST', '-H', 'Content-Type: application/json',
           '-d', JSON.stringify({ mode: args.mode }),
-          'http://127.0.0.1:8000/api/routing',
+          proxyBase() + '/api/routing',
         ], { stdio: 'pipe', timeout: 5000 }).toString();
         var parsed = JSON.parse(switchResult);
         if (parsed.ok) return toolResponse('Switched to ' + args.mode + ' mode.');
@@ -484,7 +500,7 @@ function callTool(name, args) {
     if (name === 'troth_stats') {
       try {
         var statsResult = require('child_process').execFileSync('curl', [
-          '-sf', 'http://127.0.0.1:8000/api/stats'
+          '-sf', proxyBase() + '/api/stats'
         ], { stdio: 'pipe', timeout: 5000 }).toString();
         var s = JSON.parse(statsResult);
         var summary = 'troth v' + (s.version || '?') + ' Stats:\n' +
@@ -502,7 +518,7 @@ function callTool(name, args) {
       try {
         var limit = args.limit || 20;
         var reflResult = require('child_process').execFileSync('curl', [
-          '-sf', 'http://127.0.0.1:8000/api/memory/reflexions'
+          '-sf', proxyBase() + '/api/memory/reflexions'
         ], { stdio: 'pipe', timeout: 5000 }).toString();
         var data = JSON.parse(reflResult);
         var reflections = (data.reflections || []).slice(0, limit);
@@ -517,7 +533,7 @@ function callTool(name, args) {
     if (name === 'troth_workflow') {
       try {
         var wfResult = require('child_process').execFileSync('curl', [
-          '-sf', 'http://127.0.0.1:8000/api/stats'
+          '-sf', proxyBase() + '/api/stats'
         ], { stdio: 'pipe', timeout: 5000 }).toString();
         var ws = JSON.parse(wfResult);
         var w = ws.workflow;
@@ -536,7 +552,7 @@ function callTool(name, args) {
     if (name === 'troth_cost') {
       try {
         var costResult = require('child_process').execFileSync('curl', [
-          '-sf', 'http://127.0.0.1:8000/api/stats'
+          '-sf', proxyBase() + '/api/stats'
         ], { stdio: 'pipe', timeout: 5000 }).toString();
         var s = JSON.parse(costResult);
         var c = s.cost || {};
@@ -581,14 +597,14 @@ function callTool(name, args) {
         var cleared = [];
         if (args.what === 'workflow' || args.what === 'all') {
           require('child_process').execFileSync('curl', [
-            '-sf', '-X', 'DELETE', 'http://127.0.0.1:8000/api/memory/workflow'
+            '-sf', '-X', 'DELETE', proxyBase() + '/api/memory/workflow'
           ], { stdio: 'pipe', timeout: 5000 });
           cleared.push('workflow state');
         }
         if (args.what === 'reflexions' || args.what === 'all') {
           require('child_process').execFileSync('curl', [
             '-sf', '-X', 'DELETE', '-H', 'X-Confirm-Clear: yes',
-            'http://127.0.0.1:8000/api/memory/reflexions'
+            proxyBase() + '/api/memory/reflexions'
           ], { stdio: 'pipe', timeout: 5000 });
           cleared.push('reflexions');
         }
