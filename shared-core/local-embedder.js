@@ -318,7 +318,12 @@ async function _ensureEmbServer() {
         // macOS resolves them via rpath, where the variable is inert.
       ], { detached: true, stdio: ['ignore', 'ignore', _errFd],
            env: Object.assign({}, process.env, {
-             LD_LIBRARY_PATH: pathE.dirname(BIN) +
+             // `path` (module scope), NOT the pathE bound inside the stderr-log
+             // try-block above: a block-scoped const is invisible here, so this
+             // threw ReferenceError on EVERY spawn and killed the whole server
+             // tier — silently on macOS, where node-llama-cpp covers for it, and
+             // fatally on Linux, where it is the only path there is.
+             LD_LIBRARY_PATH: path.dirname(BIN) +
                (process.env.LD_LIBRARY_PATH ? ':' + process.env.LD_LIBRARY_PATH : '')
            }) });
       try { if (typeof _errFd === 'number') require('fs').closeSync(_errFd); } catch (_) {} // child holds its own dup
@@ -460,13 +465,21 @@ function isAvailable() { return !!_ctx; }
 // status() — for the degraded-recall signal + the "getting your partner ready"
 // download UX + diagnostics.
 function status() {
+  // The GGUF ON DISK is the truth; _dlDone only remembers whether THIS process
+  // did the downloading. Reporting the flag alone meant every restart forgot a
+  // model that was already there: setup offered to install the 333 MB file
+  // sitting in ~/.troth/models, and the `verified` self-test — which the proxy
+  // gates on download_done — never ran again, so a returning operator was told
+  // memory was unproven when it was working. _resolveEmbedModelPath() is the
+  // same lookup ensureContext() loads from, so this agrees with reality.
+  const onDisk = _dlDone || !!_resolveEmbedModelPath();
   return {
     available: !!_ctx,
     unavailable: _unavailable,
     initializing: !!_initPromise && !_ctx && !_unavailable,
-    download_progress: _dlProgress,   // 0..1 model download
-    download_done: _dlDone,
-    downloading: !!_dlPromise && !_dlDone,
+    download_progress: onDisk ? 1 : _dlProgress,   // 0..1 model download
+    download_done: onDisk,
+    downloading: !!_dlPromise && !onDisk,
     model_id: MODEL_ID,
     dim: _dim,
     context_size: CONTEXT_SIZE,

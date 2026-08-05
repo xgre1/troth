@@ -32,6 +32,24 @@ const PROCESS_STARTED_AT = Date.now();
 let _embedVerified = null;
 let _embedVerifyStarted = false;
 
+// Start the proving embed at most once per proxy. Kept as a function because
+// TWO endpoints report `verified` (/api/embed/status and /api/setup/local) and
+// an endpoint that reports a field must be able to produce it: while only the
+// first one started the self-test, any surface polling the other alone showed
+// "not verified" forever, and the dashboard only worked because it happens to
+// poll both. Same class as the config bugs — never depend on a sibling call
+// having been made.
+function kickEmbedVerify() {
+  if (_embedVerifyStarted) return;
+  _embedVerifyStarted = true;
+  try {
+    require("../shared-core/local-embedder.js")
+      .embed("troth memory self-test", { wait: true })
+      .then(function (v) { _embedVerified = !!(v && v.length); })
+      .catch(function () { _embedVerified = false; });
+  } catch (_) { _embedVerified = false; }
+}
+
 // Secret redactor — loaded first so the console wrapper below can scrub
 // credentials out of every log line (and the ring buffer surfaced via
 // /api/logs) before they hit disk or screen. Pure-function module, no
@@ -794,16 +812,8 @@ const server = http.createServer((req, res) => {
           // after the file exists: the first in-process load is ~30s on CPU,
           // so this poll never waits for it.
           if (st.download_done) {
-            if (_embedVerified === true) {
-              st.verified = true;
-            } else if (!_embedVerifyStarted) {
-              _embedVerifyStarted = true;
-              try {
-                emb.embed('troth memory self-test', { wait: true })
-                  .then(function (v) { _embedVerified = !!(v && v.length); })
-                  .catch(function () { _embedVerified = false; });
-              } catch (_) { _embedVerified = false; }
-            }
+            kickEmbedVerify();
+            if (_embedVerified === true) st.verified = true;
           }
           out = st;
         } catch (e) { out = { unavailable: true, error: String(e && e.message || e) }; }
@@ -1807,6 +1817,8 @@ const server = http.createServer((req, res) => {
       try { require.resolve('node-llama-cpp'); inProc = true; } catch (_) {}
 
       let emb = {}; try { emb = require('../shared-core/local-embedder.js').status() || {}; } catch (_) {}
+      // Reports `verified` below, so it starts the self-test too.
+      if (emb.download_done) kickEmbedVerify();
       let chat = {}; try { chat = require('../shared-core/local-chat.js').status() || {}; } catch (_) {}
       const modelsDir = process.env.TROTH_EMBED_DIR || path.join(home3, '.troth', 'models');
       let files = []; try { files = fs.readdirSync(modelsDir); } catch (_) {}
