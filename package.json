@@ -1,0 +1,83 @@
+{
+  "name": "troth",
+  "version": "0.1.9",
+  "description": "Persistent AI partner substrate. Survives every model swap. Cryptographically yours.",
+  "license": "AGPL-3.0-only",
+  "homepage": "https://troth.one",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xgre1/troth.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xgre1/troth/issues"
+  },
+  "author": "Troth <hello@troth.one>",
+  "keywords": [
+    "ai",
+    "ai-agent",
+    "ai-partner",
+    "substrate",
+    "memory",
+    "persistent-memory",
+    "claude-code",
+    "mcp",
+    "local-llm",
+    "ollama",
+    "llama-cpp",
+    "anthropic",
+    "openai",
+    "sovereignty",
+    "multi-provider"
+  ],
+  "bin": {
+    "troth": "bin/troth.js"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "preinstall": "node scripts/preflight.js",
+    "postinstall": "node scripts/postinstall-note.js",
+    "test": "node tests/test-all.js",
+    "test:standards": "node tests/standards/run.js",
+    "verify:resilience": "node tests/smoke/run.js",
+    "smoke": "node tests/smoke/run.js",
+    "doctor": "node bin/troth.js doctor",
+    "test:standalone": "node tests/run-standalone.js",
+    "prepack": "node scripts/prepack-guard.js"
+  },
+  "files": [
+    "bin/",
+    "shared-core/",
+    "proxy/",
+    "adapters/",
+    "scripts/",
+    "plugin/",
+    "benchmarks/",
+    "!benchmarks/datasets",
+    "benchmarks/datasets/README.md",
+    "benchmarks/datasets/qasper/smoke-slice-20.json",
+    "docs/",
+    "tests/",
+    "README.md",
+    "LICENSE",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "LICENSING.md",
+    "THIRD-PARTY-LICENSES"
+  ],
+  "dependencies": {
+    "better-sqlite3": "^12.8.0"
+  },
+  "optionalDependencies": {
+    "node-llama-cpp": "^3.18.1",
+    "node-pty": "^1.0.0",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-javascript": "^0.21.4",
+    "tree-sitter-python": "^0.21.0",
+    "tree-sitter-typescript": "^0.23.2"
+  },
+  "overrides": {
+    "tar": "^7.5.22"
+  }
+}

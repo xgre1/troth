@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "troth",
+  "description": "Troth — a memory and state substrate for AI agents. Shared memory, verifiable event log, portable knowledge atlas, and an open protocol any MCP-compatible agent can implement.",
+  "owner": {
+    "name": "xgre1"
+  },
+  "plugins": [
+    {
+      "name": "troth",
+      "description": "Memory & state substrate for AI agents. Stops forgetting, compounds knowledge across sessions, shares state across tools via the open protocol.",
+      "category": "productivity",
+      "source": "./plugin",
+      "homepage": "https://github.com/xgre1/troth"
+    }
+  ]
+}

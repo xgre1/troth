@@ -1,0 +1,6 @@
+{
+  "name": "troth-bench-multi",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": { "test": "node --test test/*.test.js" }
+}

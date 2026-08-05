@@ -1,0 +1,1 @@
+The server in `server.js` currently exposes `/users` as JSON. Add a new endpoint `/users.csv` that returns the same data as CSV (Content-Type `text/csv`). The CSV must include a header row with columns `id,name,email,role` and one row per user. Run `npm test` to verify. Do not add any new dependencies.

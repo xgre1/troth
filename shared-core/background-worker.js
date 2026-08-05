@@ -1,0 +1,1623 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Background Worker — C6 of Substrate-as-Entity v0.1.
+//
+// Runs inside the cognitive runtime daemon. While the entity is idle,
+// this worker performs the deliberate-without-language work that gives
+// the entity its "always thinking" property: contradiction detection,
+// dormant commitment review, mind snapshot consolidation. None of these
+// require an LLM — they are deterministic substrate operations.
+//
+// Designed to be cheap. Each task runs at a configurable cadence; the
+// worker yields between tasks so the cognitive loop's foreground
+// responsiveness is unaffected. Hard cap on per-cycle wall time means
+// a slow task can never block the runtime.
+//
+// Tasks are pure functions: (substrateView) → { events: [], notes: [] }.
+// Events emitted go through the runtime's event submission path so they
+// land in L1 like any other action.
+
+const DEFAULT_IDLE_THRESHOLD_MS = 60 * 1000;       // act after 1 min idle
+const DEFAULT_TICK_MS           = 30 * 1000;       // re-check every 30 s
+const DEFAULT_PER_CYCLE_BUDGET  = 5 * 1000;        // 5 s wall budget
+
+// ── Built-in deliberation tasks ─────────────────────────────────────────
+
+const taskContradictionScan = {
+  name: 'contradiction_scan',
+  cadence_ms: 5 * 60 * 1000,        // every 5 minutes when idle
+  run: function (view) {
+    // Looks for active commitments whose statements directly negate one
+    // another. Naive textual heuristic — substrate flags candidates,
+    // human resolves. Works without an LLM.
+    const commitments = collectActiveCommitments(view.mind);
+    const conflicts = [];
+    for (let i = 0; i < commitments.length; i++) {
+      for (let j = i + 1; j < commitments.length; j++) {
+        if (likelyContradicts(commitments[i], commitments[j])) {
+          conflicts.push({ a: commitments[i].id, b: commitments[j].id });
+        }
+      }
+    }
+    if (conflicts.length === 0) return { events: [], notes: ['no contradictions detected'] };
+    return {
+      events: conflicts.map((pair) => ({
+        type: 'tool_call',
+        input: {
+          tool_name: 'background_worker.contradiction_flagged',
+          args: pair
+        },
+        output: { status: 'flagged' }
+      })),
+      notes: ['flagged ' + conflicts.length + ' contradiction candidate(s)']
+    };
+  }
+};
+
+const taskDormantReview = {
+  name: 'dormant_commitment_review',
+  cadence_ms: 24 * 60 * 60 * 1000,  // daily
+  run: function (view) {
+    const commitments = collectActiveCommitments(view.mind);
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000; // 30 days
+    const dormant = commitments.filter((c) => {
+      const lastTouched = c.last_touched_at || c.created_at || 0;
+      return typeof lastTouched === 'number' && lastTouched < cutoff;
+    });
+    if (!dormant.length) return { events: [], notes: ['no dormant commitments'] };
+    return {
+      events: [{
+        type: 'tool_call',
+        input: {
+          tool_name: 'background_worker.dormant_surfaced',
+          args: { ids: dormant.map((c) => c.id) }
+        },
+        output: { status: 'surfaced' }
+      }],
+      notes: ['surfaced ' + dormant.length + ' dormant commitment(s) for review']
+    };
+  }
+};
+
+// Periodic substrate-health heartbeat. Counts engrams, scopes, recent
+// dialogue turns, and emits a "state" event the host can render. Uses
+// notify_always:true so the notification surface fires even when no
+// L1 events were produced (signal-of-life value, not just findings).
+const taskStateSummary = {
+  name: 'state_summary',
+  cadence_ms: 5 * 60 * 1000,        // every 5 minutes when idle
+  run: function (view) {
+    let engram_count = 0;
+    let dialogue_count = 0;
+    const scopes = new Map();
+    try {
+      const engram = require('./engram.js');
+      const chameleon = require('./chameleon.js');
+      const dialogueMemory = require('./dialogue-memory.js');
+      const ctx = (view && view.substrate_ctx) || {};
+      if (ctx.agent_id) {
+        const all = engram.listEngrams({ agent_id: ctx.agent_id, cwd: ctx.cwd, limit: 1000 });
+        engram_count = all.length;
+        for (const sc of chameleon.listScopes({ agent_id: ctx.agent_id, cwd: ctx.cwd })) {
+          scopes.set(sc.scope, sc.count);
+        }
+        const turns = dialogueMemory.recentTurns({ agent_id: ctx.agent_id, cwd: ctx.cwd, limit: 50 });
+        dialogue_count = turns.length;
+      }
+    } catch (_) { /* best-effort substrate read */ }
+    return {
+      events: [{
+        type: 'tool_call',
+        input:  { tool_name: 'background_worker.state_summary', args: { engrams: engram_count, dialogue_turns: dialogue_count, scopes: Array.from(scopes.entries()) } },
+        output: { status: 'recorded' }
+      }],
+      notes: ['engrams=' + engram_count + ' dialogue=' + dialogue_count + ' scopes=' + scopes.size],
+      notify_always: true
+    };
+  }
+};
+
+// G3 — idle drift scan. Pulls recent assistant replies from
+// dialogue-memory, scores each against active identity directions, and
+// records a `degradation_alert` (type='decision', input.kind='degradation_alert')
+// per drifting reply. The scan is async (embedding calls), so it runs
+// inside the worker's per-cycle wall budget — drift alerts arrive
+// within one tick of the offending reply.
+//
+// Cadence is intentionally aggressive (every 60s when idle) so a
+// degraded reply surfaces before the user's next turn arrives. Only
+// scans replies the worker hasn't seen yet (cursor by reply id stored
+// in lastRun.dialogue_cursor, which the runtime tracks below).
+const taskDriftScan = {
+  name: 'drift_scan',
+  cadence_ms: 60 * 1000,         // every 1 min when idle
+  run: async function (view) {
+    const ctx = (view && view.substrate_ctx) || {};
+    if (!ctx.agent_id) return { events: [], notes: ['drift_scan: no agent_id in view'] };
+    let dialogue, drift, commitments;
+    try {
+      dialogue    = require('./dialogue-memory.js');
+      drift       = require('./drift-detector.js');
+    } catch (_) { return { events: [], notes: ['drift_scan: required module missing'] }; }
+    // Source the active commitment set from view.mind (same projection
+    // surface ruleHonorRefusal + ruleStructuralDisagreement use). Without
+    // commitments, drift detection has no reference frame.
+    commitments = [];
+    if (view && view.mind && Array.isArray(view.mind.active_projects)) {
+      for (const p of view.mind.active_projects) {
+        if (!p || !Array.isArray(p.constraints)) continue;
+        for (const c of p.constraints) {
+          if (c && (c.commitment_type === 'anchor' || c.commitment_type === 'refusal')) {
+            commitments.push(c);
+          }
+        }
+      }
+    }
+    if (!commitments.length) return { events: [], notes: ['drift_scan: no anchor/refusal commitments yet'] };
+    const turns = dialogue.recentTurns({ agent_id: ctx.agent_id, cwd: ctx.cwd, limit: 20 });
+    if (!turns || !turns.length) return { events: [], notes: ['drift_scan: no recent dialogue'] };
+    // Process the most recent N un-scanned assistant replies. We track
+    // already-scanned IDs in module-private state so the same reply
+    // doesn't get re-scored every tick.
+    const events = [];
+    let scanned = 0, drifts = 0;
+    for (const t of turns) {
+      const replyId = t.id || (t.timestamp + ':' + (t.assistant_text || '').length);
+      if (taskDriftScan._seen.has(replyId)) continue;
+      taskDriftScan._seen.add(replyId);
+      scanned++;
+      try {
+        const verdict = await drift.scoreReply(t.assistant_text || '', { commitments });
+        if (verdict.degraded) {
+          drifts++;
+          const alertId = drift.recordDriftAlert({
+            agent_id: ctx.agent_id, cwd: ctx.cwd, user_id: ctx.user_id,
+            parent_id: t.id || null,
+            reply_text: t.assistant_text,
+            anchor_violations: verdict.anchor_violations,
+            refusal_violations: verdict.refusal_violations
+          });
+          events.push({
+            type: 'tool_call',
+            input:  { tool_name: 'background_worker.drift_alert', args: { alert_id: alertId, reply_id: t.id } },
+            output: { status: 'recorded' }
+          });
+        }
+      } catch (_) { /* embedding host down etc — best-effort */ }
+    }
+    // Cap _seen so a long-running daemon doesn't accumulate IDs forever.
+    if (taskDriftScan._seen.size > 5000) {
+      const arr = Array.from(taskDriftScan._seen);
+      taskDriftScan._seen = new Set(arr.slice(-2000));
+    }
+    return {
+      events,
+      notes: ['drift_scan: scanned=' + scanned + ' drifts=' + drifts],
+      notify_always: scanned > 0
+    };
+  }
+};
+taskDriftScan._seen = new Set();
+
+// G8 — engram garbage collection. Runs once per day per agent: applies
+// salience decay, tombstones below-threshold engrams, consolidates
+// near-duplicates, caps total count. Without this, the engram corpus
+// grows unbounded and stale entries flood the [troth/identity]
+// injection slot. Conservative defaults — `min_salience: 0.15`,
+// `max_count: 5000`, soft tombstone (no hard DELETE).
+const taskEngramGc = {
+  name: 'engram_gc',
+  cadence_ms: 24 * 60 * 60 * 1000,   // daily
+  run: async function (view) {
+    const ctx = (view && view.substrate_ctx) || {};
+    if (!ctx.agent_id) return { events: [], notes: ['engram_gc: no agent_id in view'] };
+    let gc;
+    try { gc = require('./engram-gc.js'); }
+    catch (_) { return { events: [], notes: ['engram_gc: module missing'] }; }
+    try {
+      const r = await gc.gcAgent({
+        agent_id: ctx.agent_id,
+        cwd:      ctx.cwd,
+        user_id:  ctx.user_id || 'default',
+        dry_run:  false,
+        hard_delete: false,
+        verbose:  false
+      });
+      const events = (r.evicted_count > 0 || r.consolidated_count > 0) ? [{
+        type: 'tool_call',
+        input:  { tool_name: 'background_worker.engram_gc',
+                  args: { evicted: r.evicted_count, consolidated: r.consolidated_count, surviving: r.surviving_count } },
+        output: { status: 'completed' }
+      }] : [];
+      return {
+        events,
+        notes: ['engram_gc: starting=' + r.starting_count +
+                ' decayed=' + r.decayed_count +
+                ' evicted=' + r.evicted_count +
+                ' consolidated=' + r.consolidated_count +
+                ' surviving=' + r.surviving_count],
+        notify_always: false
+      };
+    } catch (e) {
+      return { events: [], notes: ['engram_gc threw: ' + (e && e.message || e)] };
+    }
+  }
+};
+
+// Tier 1 / Item A — pattern detector. Scans recent drift alerts +
+// rejected revisions, suggests new anchor commitments when patterns
+// emerge. Substrate observes its own struggles and asks operator
+// "should we tighten this position into an explicit anchor?".
+// Daily cadence — cheap (no embeddings, just SQL grouping).
+const taskAnchorSuggest = {
+  name: 'anchor_suggest',
+  cadence_ms: 24 * 60 * 60 * 1000,   // daily
+  run: async function (view) {
+    const ctx = (view && view.substrate_ctx) || {};
+    if (!ctx.agent_id) return { events: [], notes: ['anchor_suggest: no agent_id in view'] };
+    let mod;
+    try { mod = require('./anchor-suggester.js'); }
+    catch (_) { return { events: [], notes: ['anchor_suggest: module missing'] }; }
+    try {
+      const suggestions = mod.scanForSuggestions({ agent_id: ctx.agent_id });
+      let written = 0;
+      const events = [];
+      for (const s of suggestions) {
+        const id = mod.recordSuggestion({ agent_id: ctx.agent_id, cwd: ctx.cwd, user_id: ctx.user_id, suggestion: s });
+        if (id) {
+          written++;
+          events.push({
+            type: 'tool_call',
+            input: { tool_name: 'background_worker.anchor_suggested',
+                     args: { suggestion_id: id, heuristic: s.heuristic, occurrences: s.occurrences } },
+            output: { status: 'recorded' }
+          });
+        }
+      }
+      return {
+        events,
+        notes: ['anchor_suggest: scanned + wrote ' + written + ' suggestion(s)'],
+        notify_always: written > 0
+      };
+    } catch (e) {
+      return { events: [], notes: ['anchor_suggest threw: ' + (e && e.message || e)] };
+    }
+  }
+};
+
+// Phase F — populate the identity engram pool from observed dialogue.
+// Pre-fix: agent_id='identity' had zero records and no writer (verified
+//). Property #4 of the core design note ("memory as identity,
+// always present") could not fire from a dedicated identity surface.
+// This task scans recent dialogue.turn corpus, extracts conservative
+// candidate identity facts (self-stated preferences, explicit identity
+// statements, project context, recurring tool mentions), filters to
+// facts repeated across ≥2 distinct day-buckets (Trace2Skill threshold),
+// and writes survivors as engrams under agent_id='identity'.
+//
+// Conservative by design: high-precision regex patterns, low-recall.
+// Per Agent 4 audit: no LIWC personality inference, no
+// stylometric trait projection, no demographic stereotypes, no single-
+// mention claims. Better to emit nothing than emit noise.
+//
+// Daily cadence — extraction is read-heavy (last 200 turns) but cheap
+// in CPU and emits at most a handful of writes per run.
+const taskIdentityExtract = {
+  name: 'identity_extract',
+  // autonomous step — DISABLED.
+  // The regex auto-write path is retired (see identity-extract.js
+  // seedFromDialogue comment). Cadence bumped from 24h to a no-op so
+  // the daily wakeup logs the deprecation instead of doing work. Will
+  // be deleted entirely once reflection-tick backfill ships
+  // and we've verified no scheduler still hardcodes this task name.
+  cadence_ms: 24 * 60 * 60 * 1000,
+  run: async function (_view) {
+    return {
+      events: [],
+      notes: ['identity_extract: DEPRECATED — regex auto-write retired by L4 integration point; use update_identity tool (llm_inferred) or wait for Phase 3 reflection-tick backfill']
+    };
+  }
+};
+
+// Phase C — compiled procedures detection. Scans recent tool_call
+// streams grouped by session_id, finds n-grams of tool sequences that
+// recur across ≥2 distinct sessions (Trace2Skill threshold per Agent 3
+// audit), persists them as compiled_procedure ActionRecords.
+// The pre-LLM dispatcher (dispatch.js) reads these to bypass the LLM
+// when a known workflow matches the user's request. Closes the "skills
+// compiled into behavior" gap from the core design note Property #3 + #5.
+//
+// Daily cadence: detection is read-heavy but cheap (in-memory n-gram
+// grouping over ~1000 rows). Idempotent — pre-existing signatures are
+// deduped against agent's compiled_procedure pool, so daily reruns
+// don't bloat the substrate.
+const taskProcedureCompile = {
+  name: 'procedure_compile',
+  cadence_ms: 24 * 60 * 60 * 1000,   // daily
+  run: async function (view) {
+    const ctx = (view && view.substrate_ctx) || {};
+    if (!ctx.agent_id) return { events: [], notes: ['procedure_compile: no agent_id in view'] };
+    let pc;
+    try { pc = require('./procedure-compiler.js'); }
+    catch (_) { return { events: [], notes: ['procedure_compile: module missing'] }; }
+    try {
+      const r = pc.recordProcedures({
+        agent_id: ctx.agent_id,
+        cwd:      ctx.cwd,
+        user_id:  ctx.user_id || 'default',
+        limit:    1000,
+        min_sessions: 2
+      });
+      const writtenN = (r.written && r.written.length) || 0;
+      const events = writtenN > 0 ? [{
+        type: 'tool_call',
+        input: {
+          tool_name: 'background_worker.procedure_compiled',
+          args: { written: writtenN, detected: r.detected_count, deduped: r.deduped_count }
+        },
+        output: { status: 'completed' }
+      }] : [];
+      return {
+        events,
+        notes: ['procedure_compile: detected=' + r.detected_count +
+                ' deduped=' + r.deduped_count +
+                ' written=' + writtenN],
+        notify_always: writtenN > 0
+      };
+    } catch (e) {
+      return { events: [], notes: ['procedure_compile threw: ' + (e && e.message || e)] };
+    }
+  }
+};
+
+// PLR graduation phase 2 — periodic reviewer that converts
+// reconsolidation_candidate observations (emitted by the Stop hook
+// reconsolidation-watch.mjs) into actual reconsolidate() supersede
+// writes when consensus passes a high-confidence gate.
+//
+// Why background, not inline in the hook: the original Brain-as-
+// the substrate design work calls for "autonomous overwrite within 10
+// minutes" — a periodic task at this cadence meets the time window
+// while keeping the safety property the hook chose: enough evidence
+// must accumulate before any superseding write lands. Single-turn
+// Jaccard signal is too noisy; consensus across multiple turns is the
+// gate. Without a corrected new_statement (the hook only detects
+// contradiction, not the truth), we write the superseder at
+// tier='flagged' so the injector skips both prior and superseder —
+// the substrate forgets the wrong fact without claiming a new one.
+const taskReconsolidationReview = {
+  name: 'reconsolidation_review',
+  cadence_ms: 6 * 60 * 60 * 1000,   // 6 hours — within the paper's 10-min window in spirit, but cheaper
+  run: async function (view) {
+    const ctx = (view && view.substrate_ctx) || {};
+    let lr;
+    try { lr = require('./lability-reconsolidation.js'); }
+    catch (_) { return { events: [], notes: ['plr_review: module missing'] }; }
+    const stateMod = require('./state.js');
+    const ar = require('./action-record.js');
+    const lookbackMs = 24 * 60 * 60 * 1000;   // 24h of candidates
+    const since = Date.now() - lookbackMs;
+
+    let candidates = [];
+    try {
+      candidates = stateMod.queryActions({
+        type: 'decision', cwd: ctx.cwd || null, since, limit: 500, order: 'desc'
+      }) || [];
+    } catch (e) {
+      return { events: [], notes: ['plr_review: queryActions threw: ' + (e && e.message || e)] };
+    }
+
+    // Group candidates by targeted engram_id; track distinct turns +
+    // contradiction kinds per group. excerpts holds prior-statement
+    // slices (what the substrate believed); contradicting_excerpts holds
+    // assistant-turn slices (what disagreed with the prior). Both feed
+    // the Phase 3 corrected-fact extractor below.
+    const groups = new Map();
+    for (const row of candidates) {
+      let inp; try { inp = (typeof row.input === 'string') ? JSON.parse(row.input) : row.input; } catch (_) { continue; }
+      if (!inp || inp.kind !== 'reconsolidation_candidate') continue;
+      const sig = inp.signals || {};
+      const eid = sig.engram_id;
+      if (!eid) continue;
+      let g = groups.get(eid);
+      if (!g) { g = { eid, votes: 0, distinct_ts: new Set(), kinds: new Set(), excerpts: [], contradicting_excerpts: [] }; groups.set(eid, g); }
+      g.votes++;
+      g.distinct_ts.add(Math.floor((row.timestamp || 0) / 60000));   // minute-bucket
+      if (sig.contradiction_kind) g.kinds.add(sig.contradiction_kind);
+      let outp; try { outp = (typeof row.output === 'string') ? JSON.parse(row.output) : row.output; } catch (_) { outp = null; }
+      if (outp && outp.prior_statement_excerpt) g.excerpts.push(outp.prior_statement_excerpt);
+      if (outp && outp.contradicting_text_excerpt) g.contradicting_excerpts.push(outp.contradicting_text_excerpt);
+    }
+
+    // Consensus gate: two-tier — polarity_flip gets the original
+    // 3-vote / 2-turn threshold (strong contradiction signal);
+    // topic_mismatch needs 6 votes / 3 turns (noisier signal,
+    // requires stronger consensus).: prior gate required
+    // polarity_flip exclusively which left lifetime.supersedes=0 in
+    // production despite legitimate topic-drift contradictions
+    // accumulating. Two-tier gate keeps safety (topic_mismatch alone
+    // never triggers from a single noise spike) while operationalizing
+    // the reconsolidation chain mechanism.
+    const MIN_VOTES_POLARITY  = 3;
+    const MIN_TURNS_POLARITY  = 2;
+    const MIN_VOTES_TOPIC     = 6;
+    const MIN_TURNS_TOPIC     = 3;
+    const executed = [];
+    const skipped = [];
+    for (const g of groups.values()) {
+      const isPolarity = g.kinds.has('polarity_flip');
+      const minVotes = isPolarity ? MIN_VOTES_POLARITY : MIN_VOTES_TOPIC;
+      const minTurns = isPolarity ? MIN_TURNS_POLARITY : MIN_TURNS_TOPIC;
+      if (g.votes < minVotes || g.distinct_ts.size < minTurns) {
+        skipped.push({
+          eid: g.eid, votes: g.votes, turns: g.distinct_ts.size,
+          reason: isPolarity ? 'polarity_consensus_below_threshold' : 'topic_consensus_below_threshold'
+        });
+        continue;
+      }
+      // Skip engrams that are themselves already part of a supersession
+      // chain (don't reconsolidate a reconsolidation).
+      let prior; try { prior = stateMod.getAction && stateMod.getAction(g.eid); } catch (_) { prior = null; }
+      if (!prior) { skipped.push({ eid: g.eid, reason: 'prior_not_found' }); continue; }
+      let priorOut; try { priorOut = (typeof prior.output === 'string') ? JSON.parse(prior.output) : prior.output; } catch (_) { priorOut = null; }
+      if (!priorOut) { skipped.push({ eid: g.eid, reason: 'prior_output_unparseable' }); continue; }
+      if (priorOut.tier === 'flagged') { skipped.push({ eid: g.eid, reason: 'already_flagged' }); continue; }
+      if (priorOut.lifetime && priorOut.lifetime.supersedes) { skipped.push({ eid: g.eid, reason: 'already_in_chain' }); continue; }
+
+      // Phase 3 corrected-fact path (opt-in via TROTH_PLR_PHASE3=1
+      // until production-validated). When enabled AND a driver is
+      // configured AND the evidence is rich enough, ask an LLM to
+      // extract the corrected fact from the contradicting excerpts.
+      // On any failure → fall through to the safe phase-1 flagged
+      // template below, preserving "retire-the-prior, don't claim a
+      // new fact" semantics.
+      const phase3Enabled = process.env.TROTH_PLR_PHASE3 === '1';
+      const driver = phase3Enabled
+        ? (typeof lr.makeReconsolidationDriverFromEnv === 'function'
+            ? lr.makeReconsolidationDriverFromEnv()
+            : null)
+        : null;
+      let priorStmt = (typeof prior.output === 'string')
+        ? (function () { try { return (JSON.parse(prior.output) || {}).statement || ''; } catch (_) { return ''; } })()
+        : (prior.output && prior.output.statement) || '';
+      let correctedStatement = null;
+      let extractMode = 'flag_only';
+      if (driver && priorStmt && g.contradicting_excerpts && g.contradicting_excerpts.length) {
+        try {
+          const r = await lr.extractCorrectedStatement({
+            prior_statement: priorStmt,
+            contradicting_excerpts: g.contradicting_excerpts,
+            driver
+          });
+          if (r && r.ok && r.corrected_statement) {
+            correctedStatement = r.corrected_statement;
+            extractMode = 'phase3_corrected';
+          } else {
+            extractMode = 'flag_only_extract_failed:' + (r && r.reason || 'unknown');
+          }
+        } catch (_) {
+          extractMode = 'flag_only_extract_threw';
+        }
+      }
+
+      // Build the supersede statement: phase-3 corrected fact when
+      // available, else phase-1 flagged template (paper-aligned overwrite,
+      // safety-aligned non-claim).
+      const stamp = new Date().toISOString().slice(0, 10);
+      const newStatement = correctedStatement
+        ? correctedStatement
+        : ('[reconsolidated ' + stamp + '] prior contradicted by '
+            + g.votes + ' action(s) across ' + g.distinct_ts.size + ' distinct turn(s); '
+            + 'no corrected fact provided by the contradiction signal — flagged so the injector stops surfacing the prior.');
+
+      let resultId;
+      try {
+        resultId = lr.reconsolidate({
+          state: stateMod, prior_engram: prior, new_statement: newStatement,
+          // Flag-only path: the successor is a META-LINE ("[reconsolidated …]
+          // prior contradicted by N actions"), NOT a fact — it exists only to
+          // carry the supersedes pointer. It MUST be tier='flagged' so recall
+          // and the identity envelope skip it (both exclude flagged); at the
+          // default 'working' it leaked as a recallable "identity fact" (audit
+          // bug #8). The phase-3 corrected fact IS the new canonical statement,
+          // so it stays 'working' and surfaces normally.
+          tier: correctedStatement ? 'working' : 'flagged',
+          agent_id: ctx.agent_id || prior.agent_id || null,
+          cwd: ctx.cwd || prior.cwd || null,
+          user_id: ctx.user_id || prior.user_id || 'default',
+          reason: correctedStatement
+            ? 'consensus_contradiction_review:phase3_corrected'
+            : 'consensus_contradiction_review'
+        });
+      } catch (e) { resultId = null; }
+      if (!resultId) { skipped.push({ eid: g.eid, reason: 'reconsolidate_returned_null' }); continue; }
+
+      executed.push({
+        eid: g.eid, new_id: resultId,
+        votes: g.votes, turns: g.distinct_ts.size,
+        mode: extractMode,
+        corrected: !!correctedStatement
+      });
+    }
+
+    const events = [];
+    let phase3Hits = 0;
+    for (const e of executed) {
+      if (e.corrected) phase3Hits++;
+      events.push({
+        type: 'tool_call',
+        input: {
+          tool_name: 'background_worker.reconsolidation_executed',
+          args: {
+            engram_id: e.eid, new_id: e.new_id,
+            votes: e.votes, distinct_turns: e.turns,
+            mode: e.mode, corrected: !!e.corrected
+          }
+        },
+        output: { status: 'completed' }
+      });
+    }
+    return {
+      events,
+      notes: ['plr_review: candidates=' + candidates.length +
+              ' groups=' + groups.size +
+              ' executed=' + executed.length +
+              ' phase3=' + phase3Hits +
+              ' skipped=' + skipped.length],
+      notify_always: executed.length > 0
+    };
+  }
+};
+
+// Schema-Delta graduation phase 1 — periodic discovery of
+// recent action sequences that match a compiled_procedure schema
+// ≥80%. Emits schema_delta_candidate decisions per match (sequence
+// ids + schema_ref + parameter_overrides + score). NO write redirect
+// yet — that's phase 2 (active-session heuristic per paper spec) and
+// requires a sequence-completion abstraction the cognitive-runtime
+// doesn't have today. Phase 1 closes the discovery half: substrate
+// becomes aware of repeat patterns + dispatcher / replay can later
+// consume the candidates to compress on next occurrence.
+const taskSchemaDeltaCompress = {
+  name: 'schema_delta_compress',
+  cadence_ms: 12 * 60 * 60 * 1000,   // twice daily — pattern density grows slowly
+  run: async function (view) {
+    const ctx = (view && view.substrate_ctx) || {};
+    if (!ctx.agent_id) return { events: [], notes: ['schema_delta: no agent_id in view'] };
+    let sd;
+    try { sd = require('./schema-delta.js'); }
+    catch (_) { return { events: [], notes: ['schema_delta: module missing'] }; }
+    const stateMod = require('./state.js');
+    const ar = require('./action-record.js');
+    const lookbackMs = 24 * 60 * 60 * 1000;
+    const since = Date.now() - lookbackMs;
+
+    // Pull recent tool_call records + the compiled_procedure pool.
+    let recent = [], schemas = [];
+    try {
+      recent = stateMod.queryActions({
+        type: 'tool_call', agent_id: ctx.agent_id, cwd: ctx.cwd || null,
+        since, limit: 500, order: 'asc'
+      }) || [];
+      schemas = stateMod.queryActions({
+        type: 'commitment', agent_id: ctx.agent_id, limit: 200, order: 'desc'
+      }) || [];
+    } catch (e) {
+      return { events: [], notes: ['schema_delta: queryActions threw: ' + (e && e.message || e)] };
+    }
+    // Filter schemas to compiled_procedure rows.
+    const procSchemas = [];
+    for (const row of schemas) {
+      let outp; try { outp = (typeof row.output === 'string') ? JSON.parse(row.output) : row.output; } catch (_) { continue; }
+      if (outp && outp.commitment_type === 'compiled_procedure') procSchemas.push(row);
+    }
+    if (recent.length < 3 || procSchemas.length === 0) {
+      return { events: [], notes: ['schema_delta: nothing to scan (recent=' + recent.length + ' schemas=' + procSchemas.length + ')'] };
+    }
+
+    // Group recent into sequences — gap > 5 min ends a sequence.
+    const SEQ_GAP_MS = 5 * 60 * 1000;
+    const sequences = [];
+    let cur = [];
+    let lastTs = 0;
+    for (const row of recent) {
+      const ts = row.timestamp || 0;
+      if (cur.length && (ts - lastTs) > SEQ_GAP_MS) {
+        if (cur.length >= 3) sequences.push(cur);
+        cur = [];
+      }
+      cur.push(row);
+      lastTs = ts;
+    }
+    if (cur.length >= 3) sequences.push(cur);
+
+    // Pull already-emitted candidate sequence ids (idempotency — don't
+    // re-emit for the same sequence).
+    let prevCands = [];
+    try {
+      prevCands = stateMod.queryActions({
+        type: 'decision', agent_id: ctx.agent_id, cwd: ctx.cwd || null,
+        since: Date.now() - 7 * 24 * 60 * 60 * 1000, limit: 500, order: 'desc'
+      }) || [];
+    } catch (_) {}
+    const emittedSets = new Set();
+    for (const row of prevCands) {
+      let inp; try { inp = (typeof row.input === 'string') ? JSON.parse(row.input) : row.input; } catch (_) { continue; }
+      if (!inp || inp.kind !== 'schema_delta_candidate') continue;
+      const ids = (inp.signals && inp.signals.sequence_ids) || [];
+      if (ids.length) emittedSets.add(ids.join('|'));
+    }
+
+    // Match each sequence; emit candidates for fresh matches.
+    const events = [];
+    let matched = 0;
+    for (const seq of sequences) {
+      const seqIds = seq.map(r => r.id).join('|');
+      if (emittedSets.has(seqIds)) continue;
+      let match;
+      try { match = sd.matchingSchema({ actions: seq, schemas: procSchemas, threshold: 0.80 }); }
+      catch (_) { match = null; }
+      if (!match) continue;
+      let delta;
+      try { delta = sd.compressToDelta(seq, match); }
+      catch (_) { delta = null; }
+      if (!delta || !delta.ok) continue;
+      matched++;
+      events.push({
+        type: 'tool_call',
+        input: {
+          tool_name: 'background_worker.schema_delta_candidate',
+          args: {
+            sequence_ids: seq.map(r => r.id),
+            schema_ref: delta.schema_ref,
+            schema_score: delta.schema_score,
+            original_count: delta.original_count,
+            delta_size: delta.delta_size
+          }
+        },
+        output: { status: 'completed' }
+      });
+    }
+    return {
+      events,
+      notes: ['schema_delta: sequences=' + sequences.length +
+              ' procs=' + procSchemas.length +
+              ' matched=' + matched],
+      notify_always: matched > 0
+    };
+  }
+};
+
+// G11 — substrate backup automation. Weekly export of L1 state via
+// substrate-backup.exportArchive. Keeps last 4 bundles in
+// ~/.troth/backups/, prunes older. Zero-cost ACID snapshot — SQLite
+// online backup is safe while substrate keeps writing.
+const taskBackup = {
+  name: 'substrate_backup',
+  cadence_ms: 7 * 24 * 60 * 60 * 1000,   // weekly
+  run: async function (view) {
+    const ctx = (view && view.substrate_ctx) || {};
+    let backup, fs2, path2, os2;
+    try {
+      backup = require('./substrate-backup.js');
+      fs2 = require('fs'); path2 = require('path'); os2 = require('os');
+    } catch (_) { return { events: [], notes: ['backup: module missing'] }; }
+    const dir = path2.join(process.env.HOME || os2.homedir(), '.troth', 'backups');
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const bundle = path2.join(dir, 'substrate-' + stamp);
+    try {
+      const r = backup.exportArchive({ out_path: bundle });
+      // Prune — keep last 4
+      try {
+        const all = fs2.readdirSync(dir)
+          .filter(n => n.startsWith('substrate-'))
+          .map(n => ({ n, ts: fs2.statSync(path2.join(dir, n)).mtimeMs }))
+          .sort((a, b) => b.ts - a.ts);
+        for (const old of all.slice(4)) {
+          fs2.rmSync(path2.join(dir, old.n), { recursive: true, force: true });
+        }
+      } catch (_) {}
+      return {
+        events: [{
+          type: 'tool_call',
+          input:  { tool_name: 'background_worker.substrate_backup', args: { bundle } },
+          output: { status: r.ok ? 'completed' : 'failed' }
+        }],
+        notes: ['backup: ' + (r.ok ? 'wrote bundle ' + bundle : 'failed: ' + (r.error || 'unknown'))],
+        notify_always: true
+      };
+    } catch (e) {
+      return { events: [], notes: ['backup threw: ' + (e && e.message || e)] };
+    }
+  }
+};
+
+// orchestration review — surveys recent market_run /
+// market_winner / role_worker_spawned decisions, looks for patterns
+// (e.g. "qwen wins on bug-fix tasks", "frontend role times out under
+// claude-haiku"), and proposes role-registry tweaks. Cheap SQL group-by
+// on action_records; no embeddings. Daily cadence.
+const taskOrchestrationReview = {
+  name: 'orchestration_review',
+  cadence_ms: 24 * 60 * 60 * 1000,   // daily
+  run: async function (view) {
+    const ctx = (view && view.substrate_ctx) || {};
+    let state;
+    try { state = require('./state.js'); }
+    catch (_) { return { events: [], notes: ['orchestration_review: state missing'] }; }
+    try {
+      const since = Date.now() - 7 * 24 * 60 * 60 * 1000; // last 7 days
+      const wins = state.queryActions({
+        type: 'decision', limit: 200, since,
+        agent_id: 'race-supervisor'
+      }) || [];
+      const orches = state.queryActions({
+        type: 'decision', limit: 200, since,
+        agent_id: 'orchestrator'
+      }) || [];
+      const totalRuns  = wins.filter(r =>
+        r && r.input && r.input.kind === 'market_run').length;
+      const totalWins  = wins.filter(r =>
+        r && r.input && r.input.kind === 'market_winner').length;
+      const totalSpawns = orches.filter(r =>
+        r && r.input && r.input.kind === 'role_worker_spawned').length;
+      if (!totalRuns && !totalSpawns) {
+        return { events: [], notes: ['orchestration_review: no race/orchestrate activity in 7d'] };
+      }
+      // Provider win-rate from market_winner records.
+      const providerWins = {};
+      for (const w of wins) {
+        if (!w.input || w.input.kind !== 'market_winner') continue;
+        const p = w.input.winner_provider;
+        if (!p) continue;
+        providerWins[p] = (providerWins[p] || 0) + 1;
+      }
+      return {
+        events: [{
+          type: 'tool_call',
+          input:  { tool_name: 'background_worker.orchestration_review',
+                    args: { runs: totalRuns, wins: totalWins, spawns: totalSpawns,
+                            providerWins } },
+          output: { status: 'completed' }
+        }],
+        notes: ['orchestration_review: 7d runs=' + totalRuns +
+                ' wins=' + totalWins +
+                ' role_spawns=' + totalSpawns +
+                (Object.keys(providerWins).length ?
+                  ' provider_wins=' + JSON.stringify(providerWins) : '')],
+        notify_always: false
+      };
+    } catch (e) {
+      return { events: [], notes: ['orchestration_review threw: ' + (e && e.message || e)] };
+    }
+  }
+};
+
+// graduate — DMN spontaneous activation.
+// Scans recent action_records, finds disconnected pairs with high
+// token similarity, persists hypothesis decision records. Daily
+// cadence; cheap (Jaccard, no embeddings).
+const taskHypothesisGeneration = {
+  name: 'hypothesis_generation',
+  cadence_ms: 24 * 60 * 60 * 1000,
+  run: async function (view) {
+    const ctx = (view && view.substrate_ctx) || {};
+    if (!ctx.agent_id) return { events: [], notes: ['hypothesis_generation: no agent_id in view'] };
+    let hg, state;
+    try {
+      hg = require('./hypothesis-generator.js');
+      state = require('./state.js');
+    } catch (_) { return { events: [], notes: ['hypothesis_generation: module missing'] }; }
+    try {
+      const since = Date.now() - 7 * 24 * 60 * 60 * 1000; // last 7 days
+      const candidates = hg.findHypotheses({
+        state, agent_id: ctx.agent_id, cwd: ctx.cwd,
+        since, lookback: 100, threshold: 0.50
+      });
+      let written = 0;
+      const events = [];
+      for (const c of candidates) {
+        const id = hg.recordHypothesis({
+          state, candidate: c,
+          agent_id: ctx.agent_id, cwd: ctx.cwd, user_id: ctx.user_id || 'default'
+        });
+        if (id) {
+          written++;
+          events.push({
+            type: 'tool_call',
+            input: { tool_name: 'background_worker.hypothesis_recorded',
+                     args: { hypothesis_id: id, similarity: c.similarity, a_id: c.a_id, b_id: c.b_id } },
+            output: { status: 'recorded' }
+          });
+        }
+      }
+      return {
+        events,
+        notes: ['hypothesis_generation: candidates=' + candidates.length + ' written=' + written],
+        notify_always: written > 0
+      };
+    } catch (e) {
+      return { events: [], notes: ['hypothesis_generation threw: ' + (e && e.message || e)] };
+    }
+  }
+};
+
+// taskPurposeRefresh.
+// Refreshes a single 'system:current_focus' engram every 5 min idle.
+// Reads (project_thesis + open goals + active commitments + recent
+// decisions) and composes a short rule-templated summary: what we're
+// working on, why per thesis, next step, what we avoid. Substrate-
+// internal scope so it doesn't pollute model_visible recall directly;
+// entity binary prefix provider mounts it explicitly via a
+// <current_focus> block on every turn.
+//
+// Rule-templated (not LLM-generated) per substrate-as-mind discipline:
+// the summary is deterministic concat of substrate-state fields, no
+// faculty call. If you want richer prose, the LLM can re-read the raw
+// engrams via troth_engram_search.
+//
+// Older current_focus engrams auto-superseded via existing PLR pattern
+// (Step A's listEngrams filter hides them from default view).
+const taskPurposeRefresh = {
+  name: 'purpose_refresh',
+  cadence_ms: 5 * 60 * 1000,   // 5 min idle
+  run: async function (view) {
+    const ctx = (view && view.substrate_ctx) || {};
+    const cwd = ctx.cwd || process.cwd();
+    let projectId;
+    try {
+      projectId = require('./project-id.js').resolveProjectId(cwd);
+    } catch (_) { projectId = '__ephemeral__'; }
+    if (projectId === '__ephemeral__') {
+      return { events: [], notes: ['purpose_refresh: ephemeral cwd, skipped'] };
+    }
+    const engram = require('./engram.js');
+    const state  = require('./state.js');
+    const ar     = require('./action-record.js');
+    // Read substrate state — all read-only.
+    let thesisCount = 0, openGoals = [], recentDecisions = [];
+    try {
+      const allIdentity = engram.listEngrams({ audience: 'model_visible', limit: 50 }) || [];
+      thesisCount = allIdentity.filter(e =>
+        e && e.scope === 'project_thesis:' + projectId).length;
+    } catch (_) {}
+    try {
+      const tg = require('./typed-goal.js');
+      openGoals = (tg.listGoals({ status: 'open', limit: 3 }) || []).map(g => g.statement);
+    } catch (_) {}
+    try {
+      const rows = state.queryActions({ type: 'decision', cwd, limit: 5, order: 'desc' }) || [];
+      recentDecisions = rows.map(r => {
+        let o; try { o = typeof r.input === 'string' ? JSON.parse(r.input) : r.input; } catch (_) { o = {}; }
+        return (o && o.kind) ? o.kind : null;
+      }).filter(Boolean);
+    } catch (_) {}
+    // Compose. Short, structured.
+    const lines = [];
+    lines.push('project: ' + projectId);
+    if (thesisCount > 0) lines.push('thesis: loaded (' + thesisCount + ' anchor(s))');
+    else lines.push('thesis: NONE for this project — operator should: troth thesis set');
+    if (openGoals.length) {
+      lines.push('open: ' + openGoals.slice(0, 3).map(g => String(g).slice(0, 100)).join(' | '));
+    } else {
+      lines.push('open: (no goals)');
+    }
+    if (recentDecisions.length) lines.push('recent: ' + recentDecisions.join(','));
+    const summary = lines.join('\n');
+    // Find any previous current_focus for this project to mark as superseded.
+    let prevId = null;
+    try {
+      const prev = engram.listEngrams({ audience: 'substrate_internal', limit: 20, include_superseded: false }) || [];
+      const match = prev.find(e => e && e.scope === 'system:current_focus:' + projectId);
+      if (match) prevId = match.id;
+    } catch (_) {}
+    const id = engram.recordEngram({
+      agent_id:    ctx.agent_id || 'background-worker',
+      cwd, user_id: ctx.user_id || 'default',
+      statement:   summary,
+      scope:       'system:current_focus:' + projectId,
+      source:      'background_worker.purpose_refresh',
+      audience:    'substrate_internal',
+      memory_class:'operational',
+      parent_id:   prevId,
+      // If a prior current_focus exists, this write supersedes it (Step A's
+      // listEngrams filter will hide the older one from default reads).
+      extra_output: prevId ? { lifetime: { supersedes: prevId, reason: 'periodic_refresh' } } : undefined,
+      auto_verify: false
+    });
+    if (!id) return { events: [], notes: ['purpose_refresh: write failed'] };
+    return {
+      events: [],
+      notes: ['purpose_refresh: project=' + projectId + ' thesis=' + thesisCount +
+              ' openGoals=' + openGoals.length + ' recentDecisions=' + recentDecisions.length]
+    };
+  }
+};
+
+// taskWorkingMemoryConsolidation.
+//
+// Real cognition consolidates salient working-memory moments to long-term
+// during attention spikes / sleep. The substrate's dialogue.turn rows are
+// working memory; without consolidation, anything more than 3 turns back
+// disappears from the prefix unless it happened to become a commitment.
+//
+// This task scans recent dialogue turns and auto-promotes high-emphasis
+// moments (CAPS, intensifiers, repetition, profanity — same heuristic
+// engram.detectEmphasis uses at write-time) to scope='consolidated:dialogue'
+// engrams. Source authority = 'plr_evolved' (substrate-derived from
+// operator's own words, not regex extraction; not direct operator action
+// via update_identity tool either — sits between).
+//
+// Watermark: written as a substrate_internal engram with
+// scope='system:wm_consolidation:watermark'. Read at task start to find
+// last-processed timestamp; written at task end with the latest dialogue
+// ts processed. Idempotent: re-running with the same watermark is a no-op.
+const taskWorkingMemoryConsolidation = {
+  name: 'wm_consolidation',
+  cadence_ms: 10 * 60 * 1000,   // 10 min — slower than purpose_refresh,
+                                // gives turns time to accumulate
+  run: async function (view) {
+    const ctx = (view && view.substrate_ctx) || {};
+    const engram = require('./engram.js');
+    const state  = require('./state.js');
+    // Find watermark — last processed dialogue ts.
+    let watermark = 0;
+    try {
+      const marks = engram.listEngrams({ audience: 'substrate_internal', limit: 10 }) || [];
+      const lastMark = marks
+        .filter(e => e && e.scope === 'system:wm_consolidation:watermark')
+        .sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
+      if (lastMark && lastMark.statement) {
+        const m = lastMark.statement.match(/processed_through:\s*(\d+)/);
+        if (m) watermark = parseInt(m[1], 10) || 0;
+      }
+    } catch (_) {}
+    // Fallback: if no watermark, look back 1 hour to avoid first-run
+    // mass-promotion of weeks of dialogue.
+    if (!watermark) watermark = Date.now() - 60 * 60 * 1000;
+    // Pull dialogue.turn rows newer than watermark.
+    let turns = [];
+    try {
+      const rows = state.queryActions({
+        type: 'tool_call',
+        limit: 200,
+        order: 'desc'
+      }) || [];
+      turns = rows
+        .filter(r => {
+          if (!r || r.timestamp <= watermark) return false;
+          let inp;
+          try { inp = typeof r.input === 'string' ? JSON.parse(r.input) : r.input; }
+          catch (_) { return false; }
+          return inp && inp.tool_name === 'dialogue.turn';
+        });
+    } catch (_) { turns = []; }
+    if (!turns.length) {
+      return { events: [], notes: ['wm_consolidation: no new turns since ' + new Date(watermark).toISOString()] };
+    }
+    // Dedup guard. This loop previously had a comment
+    // promising "skip if substantially-duplicate fragment was already
+    // promoted" but NO code implementing it, and it writes with
+    // auto_verify:false (engram.js:156) which disables engram-verify's
+    // Jaccard dedup — so every tick re-promoted the SAME emphasized
+    // fragment. Live DB showed one fragment promoted 12× (scope
+    // consolidated:dialogue). Grounded in our ingested research
+    // (AI-Memory-Consolidation-Implementation-Details.md §3.4: an identical
+    // assertion is a storage NO-OP, not a new row). We dedup on the exact
+    // promoted statement, seeded from BOTH the existing consolidated:dialogue
+    // pool (catches prior-run copies — the watermark resets per run) AND
+    // this batch. Exact-match (not embedding) is the right tool here: the
+    // promoted statement is deterministically 'operator emphasized: '+fragment,
+    // so identical user emphasis yields a byte-identical statement.
+    const _seenPromoted = new Set();
+    try {
+      const existingPromoted = engram.listEngrams({
+        scope: 'consolidated:dialogue', limit: 500
+      }) || [];
+      for (const e of existingPromoted) {
+        const s = e && e.statement;
+        if (s) _seenPromoted.add(String(s).trim());
+      }
+    } catch (_) { /* best-effort; empty set just means no prior-run dedup */ }
+
+    // Score each turn's user_text on emphasis; promote if >= 0.3.
+    let promoted = 0;
+    let skippedDup = 0;
+    let latestTs = watermark;
+    for (const row of turns) {
+      latestTs = Math.max(latestTs, row.timestamp);
+      let inp;
+      try { inp = typeof row.input === 'string' ? JSON.parse(row.input) : row.input; }
+      catch (_) { continue; }
+      const userText = (inp && inp.args && inp.args.user_text) || '';
+      if (!userText || userText.length < 12) continue;
+      const boost = engram.detectEmphasis(userText);
+      if (boost < 0.3) continue;
+      const fragment = String(userText).slice(0, 280).trim();
+      const promotedStatement = 'operator emphasized: ' + fragment;
+      // NO-OP if this exact emphasized statement is already promoted (prior
+      // run or earlier in this batch). Prevents the duplicate-spam pile-up.
+      if (_seenPromoted.has(promotedStatement)) { skippedDup++; continue; }
+      _seenPromoted.add(promotedStatement);
+      const wrote = engram.recordEngram({
+        agent_id: ctx.agent_id || 'background-worker',
+        cwd: row.cwd || ctx.cwd || null,
+        user_id: row.user_id || ctx.user_id || 'default',
+        statement: promotedStatement,
+        scope: 'consolidated:dialogue',
+        source: 'background_worker.wm_consolidation',
+        source_authority: 'plr_evolved',
+        // detectEmphasis runs again inside recordEngram — final salience
+        // is 1.0 + boost. Caller's salience here would be additive; we
+        // intentionally pass undefined so the write-time emphasis stamp
+        // is the single source of truth.
+        auto_verify: false
+      });
+      if (wrote) promoted++;
+    }
+    // Update watermark.
+    try {
+      engram.recordEngram({
+        agent_id: ctx.agent_id || 'background-worker',
+        statement: 'processed_through: ' + latestTs,
+        //  renamed from 'system:wm_consolidation:watermark'.
+        // The 'system:' prefix doesn't match engram.js:_isInternal (which
+        // keys on 'internal:'), so the watermark was routed to
+        // model_visible/episodic and leaked into /context as
+        // "processed_through: <ms>" — pure bookkeeping noise the partner
+        // surfaced as a memory. 'internal:' routes it to
+        // substrate_internal/operational where it belongs.
+        scope: 'internal:wm_watermark',
+        source: 'background_worker.wm_consolidation',
+        source_authority: 'plr_evolved',
+        auto_verify: false,
+        salience: 0.1
+      });
+    } catch (_) {}
+    return {
+      events: [],
+      notes: ['wm_consolidation: scanned=' + turns.length + ' promoted=' + promoted + ' skipped_dup=' + skippedDup +
+              ' watermark→' + new Date(latestTs).toISOString()]
+    };
+  }
+};
+
+// taskEmbeddingBackfill.
+//
+// Walks engrams missing embeddings (engram_embeddings JOIN miss),
+// embeds in small batches, stores in the cache table. Background-only,
+// fail-silent: if embedding_host is down or returns errors, the task
+// records the issue in notes and exits without affecting any other
+// substrate path. Cadence is conservative (15 min idle) because
+// embedding calls have meaningful latency and we don't want to spam
+// the host.
+//
+// Why a background task vs synchronous-at-write-time:
+//   recordEngram is on the hot write path (every commitment, dialogue
+//   turn, etc). Embedding in-process there would add ~11ms+ per write and
+//   tie writes to model availability. Background backfill is the standard
+//   substrate-as-mind pattern (taskDriftScan, taskEngramGc, etc).
+
+// Clean per-class semantic text for a recallable record. Mirrors what each
+// recall.recall class surfaces (commitment→statement, lesson→text, dialogue
+// turn→user+assistant, procedure→name+triggers) so the vector matches what
+// recall ranks on. Deliberately NOT toSearchText (that prepends type/agent_id/
+// cwd metadata which would pollute the embedding).
+function embedTextForRow(row) {
+  let out = {}, inp = {};
+  try { out = typeof row.output === 'string' ? JSON.parse(row.output) : (row.output || {}); } catch (_) {}
+  try { inp = typeof row.input === 'string'  ? JSON.parse(row.input)  : (row.input  || {}); } catch (_) {}
+  if (out && out.statement) return String(out.statement);          // commitment / identity / anchor
+  if (out && out.text)      return String(out.text);               // lesson (semantic)
+  if (inp && inp.tool_name === 'dialogue.turn') {                  // episodic turn
+    const u = (inp.args && inp.args.user_text) || '';
+    const a = (out && out.assistant_text) || '';
+    const t = (u + ' ' + a).trim();
+    if (t) return t;
+  }
+  if (out && out.name) {                                           // compiled_procedure
+    const trig = Array.isArray(out.trigger_keywords) ? out.trigger_keywords.join(' ')
+               : (out.trigger_keywords || '');
+    return (out.name + ' ' + trig).trim();
+  }
+  return '';
+}
+
+const taskEmbeddingBackfill = {
+  name: 'embedding_backfill',
+  // Short cadence so it keeps draining the backlog across idle windows; once
+  // the index is fully populated this is a single cheap "no missing" query.
+  // The outer loop only runs tasks after idleThresholdMs of no foreground
+  // activity, so this never competes with the operator.
+  cadence_ms: 30 * 1000,
+  run: async function (view) {
+    const state    = require('./state.js');
+    const embedder = require('./local-embedder.js');
+    // Time-budgeted drain: embed in chunks until the backlog is empty OR this
+    // run has spent ~10s, then yield. ~90 texts/sec on CPU (faster on Metal)
+    // → a ~128K first-run index drains over a series of idle windows. The
+    // embedder runs in-process (no host); first run blocks on the one-time
+    // model download (background/idle — acceptable). Absent dependency →
+    // embed returns null and we stop quietly (recall stays lexical).
+    const RUN_BUDGET_MS = 10 * 1000;
+    const CHUNK = 128;
+    const t0 = Date.now();
+    let embedded = 0, failed = 0, scanned = 0, more = false;
+    while (Date.now() - t0 < RUN_BUDGET_MS) {
+      // Scan the FULL recallable corpus (episodic/semantic/identity/procedural),
+      // not just commitment-engrams — recall's pool is dominated by episodic +
+      // semantic, which must have vectors or semantic rerank stays blind.
+      // Pass MODEL_ID → also re-embeds rows from a PREVIOUS model (swap migration).
+      const rows = state.listRecallableMissingEmbeddings(CHUNK, embedder.MODEL_ID);
+      if (!rows.length) { more = false; break; }
+      more = rows.length === CHUNK;
+      // Extract the clean per-class semantic text (NOT toSearchText — that
+      // prepends type/agent_id/cwd metadata that pollutes the vector).
+      const work = [];
+      for (const row of rows) {
+        scanned++;
+        const text = embedTextForRow(row);
+        if (!text) { failed++; continue; }
+        work.push({ id: row.id, statement: text });
+      }
+      if (!work.length) break;
+      // Documents are embedded raw (role:'document'); the query side adds the
+      // Qwen3 Instruct/Query wrapper. wait:true — the backfill may load the model.
+      const vecs = await embedder.embedBatch(work.map(w => w.statement), { role: 'document' });
+      let anyOk = false;
+      for (let i = 0; i < work.length; i++) {
+        const vec = vecs[i];
+        if (Array.isArray(vec) && vec.length) {
+          anyOk = true;
+          const ok = state.setEmbedding(work[i].id, vec, { model: embedder.MODEL_ID });
+          if (ok) embedded++; else failed++;
+        } else {
+          failed++;
+        }
+      }
+      // Embedder unavailable (node-llama-cpp missing or still downloading):
+      // a whole chunk came back null → stop this run, try again next cadence.
+      if (!anyOk) {
+        return { events: [], notes: ['embedding_backfill: embedder not ready (downloading/unavailable) — staying lexical this cycle'] };
+      }
+    }
+    if (scanned === 0) {
+      return { events: [], notes: ['embedding_backfill: no missing embeddings'] };
+    }
+    return {
+      events: [],
+      notes: ['embedding_backfill: embedded=' + embedded + ' failed=' + failed +
+              ' this_run' + (more ? ' (more remaining)' : ' (backlog drained)')]
+    };
+  }
+};
+
+//  reshape: taskProjectBootstrap REMOVED — file convention
+// (.troth-config/) was external-config-on-top-of-substrate. Substrate
+// carries thesis content directly via operator_confirmed identity
+// engrams (no file ingest layer).
+// taskPurposeRefresh KEPT because the substrate_internal current_focus
+// engram it writes is useful as a snapshot the PreCompact hook reads.
+// It's not surfaced as its own prefix block — operator can recall it
+// via troth_engram_search when interested.
+// autonomous-mode step — dormancy warning. Reads inheritance_directive's
+// dormancy_threshold_ms + presence freshness. If presence is within
+// 20% of the threshold (i.e. 80% of the way to silent dead-man-switch
+// trip), writes an operator_surface engram at notify-tier so the
+// operator sees "your partner is about to lock itself" BEFORE the
+// substrate goes dormant. De-dupes against any unconsumed warning in
+// the last 6h so a stale operator doesn't get spammed.
+const taskDormancyWarn = {
+  name: 'dormancy_warn',
+  cadence_ms: 60 * 60 * 1000,   // 1h — adjust via override if needed
+  run: async function (view) {
+    const deps = (view && view._deps) || {};
+    let presence, bootstrap, surface, eng;
+    try {
+      presence  = deps.presence  || require('./presence.js');
+      bootstrap = deps.bootstrap || require('./bootstrap.js');
+      surface   = deps.surface   || require('./operator-surface.js');
+      eng       = deps.engram    || require('./engram.js');
+    } catch (_) {
+      return { events: [], notes: ['dormancy_warn: required module missing'] };
+    }
+    let directive;
+    try { directive = bootstrap.getActiveInheritanceDirective(); }
+    catch (_) { directive = null; }
+    if (!directive) {
+      return { events: [], notes: ['dormancy_warn: no inheritance_directive (no dead-man-switch armed)'] };
+    }
+    const threshold = directive.dormancy_threshold_ms || (30 * 24 * 60 * 60 * 1000); // 30d fallback
+    const fresh = presence.presenceFreshness(threshold);
+    if (!fresh) {
+      return { events: [], notes: ['dormancy_warn: presenceFreshness returned null'] };
+    }
+    // age_ms only present when proof exists. No proof = already dormant by definition.
+    const ageMs = (typeof fresh.age_ms === 'number') ? fresh.age_ms : threshold;
+    const warnAt = Math.floor(threshold * 0.8);
+    if (ageMs < warnAt) {
+      return { events: [], notes: [
+        'dormancy_warn: presence fresh (age=' + Math.floor(ageMs/1000) + 's, warn_at=' + Math.floor(warnAt/1000) + 's)'
+      ] };
+    }
+    // De-dupe — skip if any operator_surface dormancy_warning in last 6h.
+    try {
+      const recent = eng.listEngrams({
+        principal: null, audience: 'all', scope: 'operator_surface', limit: 50
+      }) || [];
+      const sixH = Date.now() - 6 * 60 * 60 * 1000;
+      const alreadyWarned = recent.some(r =>
+        r && r.ts > sixH &&
+        ((r.extra_output && r.extra_output.surface_kind === 'dormancy_warning')
+         || (r.surface_kind === 'dormancy_warning'))
+      );
+      if (alreadyWarned) {
+        return { events: [], notes: ['dormancy_warn: already-warned in last 6h — silenced'] };
+      }
+    } catch (_) { /* projection variance — fall through and emit */ }
+
+    const r = surface.recordOperatorSurface({
+      urgency: 'notify',
+      surface_kind: 'dormancy_warning',
+      subject: 'Partner approaching dormancy threshold',
+      body: 'Presence proof is ' + Math.floor(ageMs / 1000) + 's old; dead-man-switch fires at ' +
+            Math.floor(threshold / 1000) + 's. Run `troth presence` to refresh.',
+      agent_id: 'background-worker'
+    });
+    const events = (r && r.ok) ? [{
+      type: 'tool_call',
+      input: { tool_name: 'dormancy_warn.surface_written', args: { age_ms: ageMs, threshold_ms: threshold } },
+      output: { status: 'completed' }
+    }] : [];
+    return {
+      events,
+      notes: ['dormancy_warn: ' + (r && r.ok ? 'warned (engram=' + r.id + ')' : 'write_failed: ' + (r && r.error))],
+      notify_always: !!(r && r.ok)
+    };
+  }
+};
+
+// autonomous-mode step — periodic WAL replication. Calls wal-replicate.runOnce
+// against TROTH_WAL_DEST env (no-op if unset). 1h cadence default;
+// vessels with stricter RPO override down to 5-10 min via env.
+const taskWalReplicate = {
+  name: 'wal_replicate',
+  cadence_ms: 60 * 60 * 1000,
+  run: async function (view) {
+    const dest = process.env.TROTH_WAL_DEST || '';
+    if (!dest) {
+      return { events: [], notes: ['wal_replicate: TROTH_WAL_DEST unset — no-op'] };
+    }
+    const deps = (view && view._deps) || {};
+    let wal;
+    try { wal = deps.wal || require('./wal-replicate.js'); }
+    catch (_) { return { events: [], notes: ['wal_replicate: module missing'] }; }
+    try {
+      const r = await wal.runOnce({ dest });
+      const events = r.ok ? [{
+        type: 'tool_call',
+        input: { tool_name: 'wal_replicate.backup_completed', args: { dest: r.dest, bytes: r.bytes } },
+        output: { status: 'completed' }
+      }] : [];
+      return {
+        events,
+        notes: ['wal_replicate: ' + (r.ok ? 'ok (' + r.bytes + 'B → ' + r.dest + ')' : 'failed: ' + (r.error || 'unknown'))],
+        notify_always: r.ok
+      };
+    } catch (e) {
+      return { events: [], notes: ['wal_replicate threw: ' + (e && e.message || e)] };
+    }
+  }
+};
+
+const DEFAULT_TASKS = [taskContradictionScan, taskDormantReview, taskStateSummary, taskDriftScan, taskEngramGc, taskAnchorSuggest, taskIdentityExtract, taskProcedureCompile, taskReconsolidationReview, taskSchemaDeltaCompress, taskBackup, taskOrchestrationReview, taskHypothesisGeneration, taskPurposeRefresh, taskWorkingMemoryConsolidation, taskEmbeddingBackfill, taskDormancyWarn, taskWalReplicate];
+// Closed-extension worker tasks (guarded optional require — absent in the open build).
+try { const _ext = require('./core-ext.js'); if (Array.isArray(_ext.workerTasks)) DEFAULT_TASKS.push(..._ext.workerTasks); } catch (_) {}
+
+// ── Worker factory ─────────────────────────────────────────────────────
+
+function startWorker(opts) {
+  opts = opts || {};
+  const submit = opts.submit;
+  const getView = opts.getView;
+  if (typeof submit !== 'function' || typeof getView !== 'function') {
+    throw new Error('background-worker: opts.submit and opts.getView are required');
+  }
+  const tasks = Array.isArray(opts.tasks) && opts.tasks.length ? opts.tasks : DEFAULT_TASKS;
+  // Use ?? so an explicit 0 (caller wants zero idle threshold or
+  // immediate tick) is honored; `||` would coerce 0 to the default.
+  const idleThresholdMs = opts.idle_threshold_ms != null ? opts.idle_threshold_ms : DEFAULT_IDLE_THRESHOLD_MS;
+  const tickMs          = opts.tick_ms           != null ? opts.tick_ms           : DEFAULT_TICK_MS;
+  const perCycleBudget  = opts.per_cycle_budget_ms != null ? opts.per_cycle_budget_ms : DEFAULT_PER_CYCLE_BUDGET;
+  // autonomous-mode step — per-task cadence overrides. The default DEFAULT_TASKS
+  // ships conservative 12h cadences for the L4 reflection tasks
+  // (dispatch_pending / schedule_fire / reactor_match) so a sleepy
+  // substrate doesn't burn provider quota. Vessel deployments
+  // (Configuration B / C in the autonomy quickstart) want tight cadences so
+  // validated intents actually dispatch within seconds, not hours.
+  // Map shape: { task_name: cadence_ms_override }. Empty = no override.
+  const taskCadenceOverrides = (opts.task_cadence_overrides && typeof opts.task_cadence_overrides === 'object')
+    ? opts.task_cadence_overrides : {};
+  // Optional rich-notification surface: substrate emits a structured
+  // notification per task firing, beyond the L1 events. Hosts use this
+  // to render "the substrate just noticed X" without polling L1.
+  // Signature: notify({task, events, notes, elapsed_ms, ts})
+  const notify = typeof opts.notify === 'function' ? opts.notify : null;
+
+  const lastRun = new Map();   // task name → last execution timestamp
+  let running = true;
+  let timer = null;
+  let lastFgActivity = Date.now();
+
+  function noteForegroundActivity() { lastFgActivity = Date.now(); }
+
+  async function tick() {
+    if (!running) return;
+    const idleFor = Date.now() - lastFgActivity;
+    if (idleFor < idleThresholdMs) {
+      timer = setTimeout(tick, tickMs);
+      return;
+    }
+    const cycleStart = Date.now();
+    let view;
+    try { view = getView(); } catch (e) { view = null; }
+    if (view) {
+      for (const task of tasks) {
+        if (Date.now() - cycleStart > perCycleBudget) break;
+        const last = lastRun.get(task.name) || 0;
+        const cadence = (typeof taskCadenceOverrides[task.name] === 'number' && taskCadenceOverrides[task.name] > 0)
+          ? taskCadenceOverrides[task.name]
+          : task.cadence_ms;
+        if (Date.now() - last < cadence) continue;
+        const taskStart = Date.now();
+        let result;
+        try { result = await Promise.resolve(task.run(view)); }
+        catch (e) { result = { events: [], notes: ['task threw: ' + (e && e.message || e)] }; }
+        lastRun.set(task.name, Date.now());
+        const elapsed = Date.now() - taskStart;
+        if (result && Array.isArray(result.events)) {
+          for (const ev of result.events) {
+            try { submit(ev); } catch (_) { /* runtime stopped or rejected; skip */ }
+          }
+        }
+        // G7 — auto-surface high-priority events as insights. Each event
+        // goes through insight-surfacer.priorityFor → recordInsight; the
+        // surfacer handles threshold + per-hour throttle + L1 write.
+        // Best-effort — surfacer failures never break the worker loop.
+        if (result && Array.isArray(result.events) && result.events.length) {
+          try {
+            const surfacer = require('./insight-surfacer.js');
+            const ctx = (view && view.substrate_ctx) || {};
+            if (ctx.agent_id) {
+              for (const ev of result.events) {
+                const r = surfacer.recordInsight({
+                  agent_id: ctx.agent_id, cwd: ctx.cwd, user_id: ctx.user_id,
+                  source_event: ev,
+                  reason: 'auto_surfaced_from_' + task.name
+                });
+                // Silent on below_threshold / throttled — that's normal.
+              }
+            }
+          } catch (_) { /* surfacer module load or write failure — skip */ }
+        }
+        if (notify && result && (result.events && result.events.length || (result.notify_always === true))) {
+          try {
+            notify({
+              task:       task.name,
+              events:     result.events || [],
+              notes:      result.notes  || [],
+              elapsed_ms: elapsed,
+              ts:         Date.now()
+            });
+          } catch (_) { /* notification surface is best-effort */ }
+        }
+      }
+    }
+    if (running) timer = setTimeout(tick, tickMs);
+  }
+
+  function stop() {
+    running = false;
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  }
+
+  // Boot
+  timer = setTimeout(tick, tickMs);
+
+  return { stop, noteForegroundActivity, _tasks: tasks };
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+function collectActiveCommitments(mind) {
+  const out = [];
+  if (!mind || !Array.isArray(mind.active_projects)) return out;
+  for (const p of mind.active_projects) {
+    if (!p || !Array.isArray(p.constraints)) continue;
+    for (const c of p.constraints) {
+      if (c && typeof c === 'object' && c.id) out.push(c);
+    }
+  }
+  return out;
+}
+
+function likelyContradicts(a, b) {
+  // Cheap heuristic: same subject, opposite polarity. Picks up the
+  // obvious cases where one commitment says "always X" and another says
+  // "never X". The substrate's job is to flag for review, not to be
+  // semantically perfect — false positives are surfaced, not enforced.
+  const sa = String(a.statement || '').toLowerCase();
+  const sb = String(b.statement || '').toLowerCase();
+  if (!sa || !sb) return false;
+  const negPair = (
+    (sa.includes(' always ') && sb.includes(' never ')) ||
+    (sa.includes(' never ')  && sb.includes(' always ')) ||
+    (sa.includes(' must ')   && sb.includes(' must not ')) ||
+    (sa.includes(' must not ') && sb.includes(' must '))
+  );
+  if (!negPair) return false;
+  // Require some shared content beyond the polarity word.
+  const overlap = sharedTokens(sa, sb);
+  return overlap >= 2;
+}
+
+function sharedTokens(a, b) {
+  const stop = new Set(['the', 'a', 'an', 'is', 'are', 'be', 'to', 'of', 'in', 'and', 'or']);
+  const ta = new Set(a.split(/\W+/).filter((t) => t && !stop.has(t)));
+  let n = 0;
+  for (const t of b.split(/\W+/)) {
+    if (!t || stop.has(t)) continue;
+    if (ta.has(t)) n++;
+  }
+  return n;
+}
+
+// ── One-shot scheduler ─────────────────────────────────────────────────
+// runDueTasks(opts) — single pass over DEFAULT_TASKS (or opts.tasks),
+// runs only the ones whose cadence_ms has elapsed since the last
+// recorded firing. Cadence is persisted via type='decision',
+// input.kind='background_task_run' records keyed by task name +
+// substrate_ctx.cwd, so the debounce survives across calls without an
+// in-memory daemon — necessary for callers like the SessionStart hook
+// that fire briefly and exit.
+//
+// startWorker stays the right answer for long-running daemons (the
+// troth-entity binary). runDueTasks is the right answer for hosts
+// that already have their own event loop (Claude Code plugin, proxy
+// HTTP server, voice subprocess) and just want due daily tasks to
+// actually fire instead of lying dormant until someone runs the
+// standalone daemon.
+//
+// Defaults to min_cadence_ms = 12h so callers like SessionStart only
+// run daily/weekly tasks, never the 60s drift-scan or 5min state-
+// summary (those want a real long-running worker; calling them once
+// from a hook produces stale signals).
+async function runDueTasks(opts) {
+  opts = opts || {};
+  const submit = opts.submit;
+  const getView = opts.getView;
+  if (typeof submit !== 'function' || typeof getView !== 'function') {
+    throw new Error('background-worker.runDueTasks: opts.submit and opts.getView are required');
+  }
+  const tasks = Array.isArray(opts.tasks) && opts.tasks.length ? opts.tasks : DEFAULT_TASKS;
+  const stateMod = opts.state || require('./state.js');
+  const minCadence = opts.min_cadence_ms != null ? opts.min_cadence_ms : (12 * 60 * 60 * 1000);
+  const perCycleBudget = opts.per_cycle_budget_ms != null ? opts.per_cycle_budget_ms : DEFAULT_PER_CYCLE_BUDGET;
+
+  let view;
+  try { view = getView(); } catch (_) { view = null; }
+  if (!view) return { ran: [], skipped: [], errors: ['getView_returned_null'] };
+  const ctx = (view.substrate_ctx) || {};
+
+  // Per-task agent_id overrides — for the case where different tasks
+  // need to source data from different agent buckets in the same tick.
+  // Concrete trigger: dialogue.turn rows live under the operator
+  // agent_id (correct for taskIdentityExtract), but real Edit/Bash/Read
+  // tool_calls live under 'claude-code' (correct for
+  // taskProcedureCompile). Without this override the procedure detector
+  // scans the operator's near-empty tool_call pool and finds 0
+  // patterns. Tests PSW4 covers the override path.
+  const agentOverrides = opts.agent_id_overrides || {};
+
+  // Read recent background_task_run decision records for this cwd to
+  // build the lastRun map. 14-day window covers weekly tasks too.
+  const lastRun = new Map();
+  try {
+    const since = Date.now() - (14 * 24 * 60 * 60 * 1000);
+    const rows = stateMod.queryActions({
+      type: 'decision', cwd: ctx.cwd, since, limit: 500, order: 'desc'
+    }) || [];
+    for (const row of rows) {
+      let inp; try { inp = JSON.parse(row.input); } catch (_) { continue; }
+      if (!inp || inp.kind !== 'background_task_run' || !inp.task) continue;
+      if (!lastRun.has(inp.task)) lastRun.set(inp.task, row.timestamp);
+    }
+  } catch (_) { /* fall through with empty lastRun — first-time callers */ }
+
+  const ran = [];
+  const skipped = [];
+  const errors = [];
+  const cycleStart = Date.now();
+
+  for (const task of tasks) {
+    if (Date.now() - cycleStart > perCycleBudget) {
+      skipped.push({ task: task.name, reason: 'cycle_budget_exceeded' });
+      continue;
+    }
+    if (typeof task.cadence_ms === 'number' && task.cadence_ms < minCadence) {
+      skipped.push({ task: task.name, reason: 'below_min_cadence' });
+      continue;
+    }
+    const last = lastRun.get(task.name) || 0;
+    if (Date.now() - last < (task.cadence_ms || 0)) {
+      skipped.push({ task: task.name, reason: 'within_cadence', last_run: last });
+      continue;
+    }
+
+    // Per-task view: clone + override substrate_ctx.agent_id when
+    // an override is configured for this task. Otherwise the original
+    // view is reused unmodified (the common path).
+    let taskView = view;
+    if (agentOverrides[task.name]) {
+      taskView = Object.assign({}, view);
+      taskView.substrate_ctx = Object.assign({}, ctx, { agent_id: agentOverrides[task.name] });
+    }
+
+    let result;
+    try { result = await Promise.resolve(task.run(taskView)); }
+    catch (e) {
+      errors.push({ task: task.name, error: (e && e.message) || String(e) });
+      result = { events: [], notes: ['threw'] };
+    }
+
+    if (result && Array.isArray(result.events)) {
+      for (const ev of result.events) {
+        try { submit(ev); } catch (_) { /* submit shim may reject; skip */ }
+      }
+    }
+    // Always record the run — debounces the cadence check on next call
+    // EVEN when the underlying task produced zero events (e.g. no
+    // identity facts crossed the stability threshold this scan).
+    try {
+      submit({
+        type: 'decision',
+        input: {
+          kind: 'background_task_run',
+          task: task.name,
+          signals: { event_count: (result && result.events || []).length }
+        },
+        output: { decision: 'ran', reason: 'runDueTasks' }
+      });
+    } catch (_) { /* substrate write best-effort */ }
+
+    ran.push({
+      task: task.name,
+      events: (result && result.events || []).length,
+      notes: (result && result.notes) || []
+    });
+  }
+
+  return { ran, skipped, errors };
+}
+
+module.exports = {
+  startWorker,
+  runDueTasks,
+  DEFAULT_TASKS,
+  tasks: {
+    contradictionScan: taskContradictionScan,
+    dormantReview:     taskDormantReview,
+    stateSummary:      taskStateSummary,
+    driftScan:         taskDriftScan,
+    engramGc:          taskEngramGc,
+    anchorSuggest:     taskAnchorSuggest,
+    identityExtract:   taskIdentityExtract,
+    procedureCompile:  taskProcedureCompile,
+    backup:            taskBackup,
+    hypothesisGeneration: taskHypothesisGeneration,
+    dormancyWarn:      taskDormancyWarn,
+    walReplicate:      taskWalReplicate
+  }
+};

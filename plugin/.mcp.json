@@ -1,0 +1,28 @@
+{
+  "mcpServers": {
+    "troth-router": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp-servers/troth-router/server.mjs"
+      ]
+    },
+    "troth-bash": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp-servers/troth-bash/server.mjs"
+      ]
+    },
+    "troth-hashline": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp-servers/troth-hashline/server.mjs"
+      ]
+    },
+    "troth-cache": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/mcp-servers/troth-cache/server.mjs"
+      ]
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "troth",
+  "description": "Independent Substrate of Commitment \u2014 substrate IS the brain. Persistent identity across sessions, persistent memory and identity that survive across sessions and models, lability-window reconsolidation when contradicted, procedural reuse on recognized workflows. Open protocol (GMP v0.2), MCP-native, shared with the proxy + voice + CLI surfaces. Self-hosted, Apache-2.0.",
+  "author": {
+    "name": "xgre1"
+  },
+  "version": "0.1.9",
+  "homepage": "https://github.com/xgre1/troth",
+  "keywords": [
+    "agent-memory",
+    "substrate",
+    "mcp",
+    "claude-code",
+    "virtual-memory",
+    "decision-graph",
+    "knowledge-atlas",
+    "gmp"
+  ],
+  "license": "Apache-2.0"
+}

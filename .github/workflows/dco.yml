@@ -1,0 +1,33 @@
+name: DCO
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+# No third party action here on purpose: the DCO check is six lines of git,
+# and 2026's supply chain incidents (trivy-action tag force-push, the Nx
+# pull_request_target leak) all rode in through someone else's workflow code.
+jobs:
+  dco-check:
+    name: Verify Signed-off-by
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - name: Every commit carries a Signed-off-by
+        run: |
+          set -euo pipefail
+          base='${{ github.event.pull_request.base.sha }}'
+          head='${{ github.event.pull_request.head.sha }}'
+          bad=0
+          while IFS= read -r sha; do
+            if ! git log -1 --format=%B "$sha" | grep -q '^Signed-off-by: '; then
+              echo "missing Signed-off-by: $sha"
+              bad=1
+            fi
+          done < <(git rev-list "$base".."$head")
+          exit "$bad"

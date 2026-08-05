@@ -1,0 +1,33 @@
+Third-party components downloaded or used at runtime
+=====================================================
+
+Gemma (EmbeddingGemma):
+  This application uses EmbeddingGemma, provided under and subject to the
+  Gemma Terms of Use found at https://ai.google.dev/gemma/terms. Your use is
+  additionally governed by the Gemma Prohibited Use Policy at
+  https://ai.google.dev/gemma/prohibited_use_policy.
+
+bge-reranker-v2-m3:
+  Apache License 2.0, (c) Beijing Academy of Artificial Intelligence (BAAI).
+  Full text: https://www.apache.org/licenses/LICENSE-2.0
+
+Whisper (GGML speech models):
+  MIT License, (c) 2022 OpenAI; GGML conversion (c) The ggml authors.
+
+llama.cpp / llama-server:
+  MIT License, (c) 2023-2026 The ggml authors.
+
+--------------------------------------------------------------------------
+D3.js v7.9.0 (proxy/ui/vendor/d3.v7.min.js)
+Copyright 2010-2023 Mike Bostock
+License: ISC (https://github.com/d3/d3/blob/main/LICENSE)
+Vendored so the dashboard's Code Map renders without network access.
+--------------------------------------------------------------------------
+QASPER v0.3 (benchmarks/datasets/qasper/smoke-slice-20.json)
+Copyright Allen Institute for Artificial Intelligence
+License: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
+A 20-item slice of the QASPER dev split, redistributed so the published
+document-ingest benchmark can be rerun from a clone. Cite: Dasigi, Lo,
+Beltagy, Cohan, Smith, Gardner, "A Dataset of Information-Seeking Questions
+and Answers Anchored in Research Papers", NAACL 2021.
+--------------------------------------------------------------------------

@@ -1,0 +1,108 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm/
+# package-lock.json IS committed — `npm ci` (CI + reproducible installs) needs it.
+
+# Build artifacts
+dist/
+build/
+*.tsbuildinfo
+
+# Test outputs
+coverage/
+.nyc_output/
+
+# Substrate data (never commit)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-journal
+
+# Benchmark raw output (curated results in benchmarks/results/ are kept)
+benchmarks/raw/
+benchmarks/scratch/
+
+# Downloaded benchmark datasets (LongMemEval, LoCoMo, etc.) — large and
+# re-downloadable, so they do not travel with the repo.
+#
+# Two exceptions, because a benchmark nobody can rerun is a claim, not a
+# measurement: the placement guide, and the 20-item QASPER slice the published
+# ingest number was measured on (525 KB, CC BY 4.0, redistributable with
+# attribution). With that slice in the clone, the ingest benchmark runs.
+benchmarks/datasets/*
+!benchmarks/datasets/README.md
+!benchmarks/datasets/qasper/
+benchmarks/datasets/qasper/*
+!benchmarks/datasets/qasper/smoke-slice-20.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Tuning configs are provisioned out-of-band; never commit.
+config/*-private.json
+config/*-weights.json
+config/*-calibration.json
+config/*-thresholds.json
+config/*-heuristics.json
+config/*-manifest.json
+
+# Temp
+tmp/
+.tmp/
+*.tmp
+
+# Legacy migration scratch
+.migration-from-legacy/
+
+# License: tracked separately
+# LICENSE — keep
+
+# Substrate runtime artifacts (never commit)
+.troth/
+.troth-body-state.json
+.troth-entity-state.json
+
+# Local scratch / debugging probes — never commit (may hold internal output)
+_*.txt
+_probe_*.js
+_*_out.txt
+
+# Temp runtime state (never commit)
+.tmp-*/
+.tmp-codex-oauth/
+
+# Scratch a debugging session drops in the repo ROOT. Anchored with a
+# leading slash on purpose: the unanchored forms matched real tracked
+# files further down the tree (*-probe.js quietly excluded
+# benchmarks/poisoning/prefix-probe.js from an export), which
+# is the worst kind of ignore rule because nothing tells you.
+Transcripts/
+Meetings/
+vmm/
+*.local.json
+/_repro_*
+/tmp_*
+/*-probe.js
+/trace_*.js
+/extract_*.mjs
+/queries.json

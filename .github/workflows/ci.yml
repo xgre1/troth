@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Least privilege: the test job only needs to read the repo.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up Node.js ${{ matrix.node }}
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # Reproducible install from the committed lockfile. tree-sitter is an
+      # optional native dep; ubuntu-latest ships the build toolchain, so the
+      # full parser path is exercised here.
+      - name: Install
+        run: npm ci
+
+      - name: Test suite
+        run: npm test
+
+      - name: Standards conformance
+        run: npm run test:standards

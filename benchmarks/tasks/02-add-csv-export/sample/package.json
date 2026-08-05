@@ -1,0 +1,7 @@
+{
+  "name": "troth-bench-02-add-csv-export",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "node test/csv.test.js"
+  }
+}

@@ -1,0 +1,401 @@
+{
+ "timestamp": 1785463204876,
+ "dataset": "benchmarks/datasets/qasper/smoke-slice-20.json",
+ "dataset_source": "allenai/qasper dev split, official S3 mirror (see file header)",
+ "offset": 0,
+ "n": 20,
+ "top_k": 8,
+ "embed_host": "http://127.0.0.1:11437",
+ "correct": 15,
+ "incorrect": 5,
+ "errors": 0,
+ "graded": 20,
+ "total": 20,
+ "accuracy": 0.75,
+ "total_wall_ms": 100222,
+ "retrieval_paths_seen": [
+  "semantic+lexical"
+ ],
+ "rows": [
+  {
+   "paper_id": "1911.01371",
+   "kind": "extractive",
+   "title": "Affective Behaviour Analysis of On-line User Interactions: Are On-line Support Groups more Therapeutic than Twitter?",
+   "question": "How did they obtain the OSG dataset?",
+   "gold_answer": "crawling and pre-processing an OSG web forum",
+   "ingest": {
+    "ok": true,
+    "chunks": 41,
+    "recorded": 41,
+    "embedded": 41
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "By “crawling and pre-processing an OSG web forum.”",
+   "verdict": "CORRECT",
+   "judge_reason": "The candidate exactly matches the gold answer.",
+   "wall_ms": 3706
+  },
+  {
+   "paper_id": "1606.03676",
+   "kind": "extractive",
+   "title": "External Lexical Information for Multilingual Part-of-Speech Tagging",
+   "question": "which languages are explored?",
+   "gold_answer": "Bulgarian, Croatian, Czech, Danish, English, French, German, Indonesian, Italian, Norwegian, Persian, Polish, Portuguese, Slovenian, Spanish and Swedish",
+   "ingest": {
+    "ok": true,
+    "chunks": 32,
+    "recorded": 32,
+    "embedded": 32
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "Bulgarian, Croatian, Czech, Danish, English, French, German, Indonesian, Italian, Norwegian, Persian, Polish, Portuguese, Slovenian, Spanish, and Swedish.",
+   "verdict": "CORRECT",
+   "judge_reason": "The candidate lists exactly the same sixteen languages as the gold answer.",
+   "wall_ms": 4388
+  },
+  {
+   "paper_id": "1801.10293",
+   "kind": "extractive",
+   "title": "Paraphrase-Supervised Models of Compositionality",
+   "question": "Which translation systems do they compare against?",
+   "gold_answer": "hierarchical phrase-based system BIBREF29; appropriate additional baseline would be to mark translation rules with these indicator functions but without the scores, akin to identifying rules with phrases in them (Baseline + SegOn)",
+   "ingest": {
+    "ok": true,
+    "chunks": 48,
+    "recorded": 48,
+    "embedded": 48
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "A hierarchical phrase-based baseline system with a 4-gram language model, tuned using MIRA.",
+   "verdict": "INCORRECT",
+   "judge_reason": "It mentions only the hierarchical phrase-based baseline and omits the additional Baseline + SegOn comparison system.",
+   "wall_ms": 6382
+  },
+  {
+   "paper_id": "1912.08904",
+   "kind": "extractive",
+   "title": "Macaw: An Extensible Conversational Information Seeking Platform",
+   "question": "What interface does Macaw currently have?",
+   "gold_answer": "File IO; Standard IO; Telegram",
+   "ingest": {
+    "ok": true,
+    "chunks": 20,
+    "recorded": 20,
+    "embedded": 20
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "A command-line interface and mobile, desktop, and web apps, including a Telegram bot.",
+   "verdict": "INCORRECT",
+   "judge_reason": "It omits File IO and incorrectly adds mobile, desktop, and web apps.",
+   "wall_ms": 5655
+  },
+  {
+   "paper_id": "1910.14537",
+   "kind": "extractive",
+   "title": "Attention Is All You Need for Chinese Word Segmentation",
+   "question": "What is meant by closed test setting?",
+   "gold_answer": "closed test limits all the data for learning should not be beyond the given training set, while open test does not take this limitation",
+   "ingest": {
+    "ok": true,
+    "chunks": 41,
+    "recorded": 41,
+    "embedded": 41
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "“Closed test limits all the data for learning [to] not be beyond the given training set.”",
+   "verdict": "CORRECT",
+   "judge_reason": "The candidate correctly states that a closed test restricts learning data to the given training set.",
+   "wall_ms": 4098
+  },
+  {
+   "paper_id": "1910.08293",
+   "kind": "extractive",
+   "title": "Follow Alice into the Rabbit Hole: Giving Dialogue Agents Understanding of Human Level Attributes.",
+   "question": "How does dataset model character's profiles?",
+   "gold_answer": "attributes are determined by human viewers and their impressions of the characters, and are correlated with human-like characteristics",
+   "ingest": {
+    "ok": true,
+    "chunks": 56,
+    "recorded": 56,
+    "embedded": 56
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "By combining detailed Human Level Attribute (HLA) data with dialogue data for specific characters.",
+   "verdict": "INCORRECT",
+   "judge_reason": "The candidate describes combining attribute and dialogue data, not that profiles are based on viewers' impressions and correlated with human-like characteristics.",
+   "wall_ms": 5950
+  },
+  {
+   "paper_id": "1909.03405",
+   "kind": "extractive",
+   "title": "Symmetric Regularization based BERT for Pair-wise Semantic Reasoning",
+   "question": "How much is performance improved on NLI?",
+   "gold_answer": " improvement on the RTE dataset is significant, i.e., 4% absolute gain over the BERTBase",
+   "ingest": {
+    "ok": true,
+    "chunks": 42,
+    "recorded": 42,
+    "embedded": 42
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "“4% absolute gain over the BERTBase” on the RTE dataset.",
+   "verdict": "CORRECT",
+   "judge_reason": "The candidate exactly matches the reported 4% absolute gain over BERTBase on RTE.",
+   "wall_ms": 4896
+  },
+  {
+   "paper_id": "1911.02855",
+   "kind": "extractive",
+   "title": "Dice Loss for Data-imbalanced NLP Tasks",
+   "question": "What are method's improvements of F1 w.r.t. baseline BERT tagger for Chinese POS datasets?",
+   "gold_answer": "+1.86 in terms of F1 score on CTB5; +1.80 on CTB6; +2.19 on UD1.4",
+   "ingest": {
+    "ok": true,
+    "chunks": 40,
+    "recorded": 40,
+    "embedded": 40
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "+1.86 on CTB5, +1.80 on CTB6, and +2.19 on UD1.4.",
+   "verdict": "CORRECT",
+   "judge_reason": "The candidate exactly matches the reported F1 improvements for CTB5, CTB6, and UD1.4.",
+   "wall_ms": 4378
+  },
+  {
+   "paper_id": "1703.07476",
+   "kind": "extractive",
+   "title": "Topic Identification for Speech without ASR",
+   "question": "How is the vocabulary of word-like or phoneme-like units automatically discovered?",
+   "gold_answer": "Zero Resource Toolkit (ZRTools) BIBREF7",
+   "ingest": {
+    "ok": true,
+    "chunks": 42,
+    "recorded": 42,
+    "embedded": 42
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "By unsupervised term discovery (UTD) using segmental DTW for word-like units, or Variational Bayesian HMM-based acoustic unit discovery (AUD) for phoneme-like units.",
+   "verdict": "INCORRECT",
+   "judge_reason": "The candidate describes discovery methods but does not identify the Zero Resource Toolkit (ZRTools) named in the gold answer.",
+   "wall_ms": 5254
+  },
+  {
+   "paper_id": "1810.04428",
+   "kind": "extractive",
+   "title": "Improving Neural Text Simplification Model with Simplified Corpora",
+   "question": "what are the sizes of both datasets?",
+   "gold_answer": "training set has 89,042 sentence pairs, and the test set has 100 pairs; training set contains 296,402; 2,000 for development and 359 for testing",
+   "ingest": {
+    "ok": true,
+    "chunks": 26,
+    "recorded": 26,
+    "embedded": 26
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "WikiSmall: 89,042 training pairs and 100 test pairs; WikiLarge: 296,402 training pairs, plus 2,000 development and 359 test sentences, each with 8 simplifications.",
+   "verdict": "CORRECT",
+   "judge_reason": "The candidate accurately reports the training, development, and test sizes for both WikiSmall and WikiLarge.",
+   "wall_ms": 3957
+  },
+  {
+   "paper_id": "1912.01214",
+   "kind": "extractive",
+   "title": "Cross-lingual Pre-training Based Transfer for Zero-shot Neural Machine Translation",
+   "question": "which datasets did they experiment with?",
+   "gold_answer": "Europarl; MultiUN",
+   "ingest": {
+    "ok": true,
+    "chunks": 47,
+    "recorded": 47,
+    "embedded": 47
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "Europarl and MultiUN.",
+   "verdict": "CORRECT",
+   "judge_reason": "The candidate names both datasets in the gold answer: Europarl and MultiUN.",
+   "wall_ms": 3978
+  },
+  {
+   "paper_id": "1806.04511",
+   "kind": "extractive",
+   "title": "Multilingual Sentiment Analysis: An RNN-Based Framework for Limited Data",
+   "question": "which non-english language had the best performance?",
+   "gold_answer": "Russian",
+   "ingest": {
+    "ok": true,
+    "chunks": 31,
+    "recorded": 31,
+    "embedded": 31
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "Russian, with 85.62% accuracy.",
+   "verdict": "CORRECT",
+   "judge_reason": "The candidate correctly identifies Russian as the best-performing non-English language.",
+   "wall_ms": 5634
+  },
+  {
+   "paper_id": "1910.12574",
+   "kind": "extractive",
+   "title": "A BERT-Based Transfer Learning Approach for Hate Speech Detection in Online Social Media",
+   "question": "What existing approaches do they compare to?",
+   "gold_answer": "Waseem and Hovy BIBREF5, Davidson et al. BIBREF9, and Waseem et al. BIBREF10",
+   "ingest": {
+    "ok": true,
+    "chunks": 46,
+    "recorded": 46,
+    "embedded": 46
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "Waseem and Hovy, Davidson et al., and Waseem et al. baselines.",
+   "verdict": "CORRECT",
+   "judge_reason": "The candidate names the same three prior approaches as the gold answer.",
+   "wall_ms": 5832
+  },
+  {
+   "paper_id": "1712.00991",
+   "kind": "extractive",
+   "title": "Mining Supervisor Evaluation and Peer Feedback in Performance Appraisals",
+   "question": "What clustering algorithms were used?",
+   "gold_answer": "CLUTO; Carrot2 Lingo",
+   "ingest": {
+    "ok": true,
+    "chunks": 35,
+    "recorded": 35,
+    "embedded": 35
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "CLUTO and Carrot2 Lingo.",
+   "verdict": "CORRECT",
+   "judge_reason": "The candidate names both clustering algorithms: CLUTO and Carrot2 Lingo.",
+   "wall_ms": 4235
+  },
+  {
+   "paper_id": "1811.08603",
+   "kind": "extractive",
+   "title": "Neural Collective Entity Linking",
+   "question": "How effective is their NCEL approach overall?",
+   "gold_answer": "NCEL consistently outperforms various baselines with a favorable generalization ability",
+   "ingest": {
+    "ok": true,
+    "chunks": 47,
+    "recorded": 47,
+    "embedded": 47
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "NCEL “consistently outperforms various baselines” and state-of-the-art collective methods across five datasets, with favorable generalization and efficiency.",
+   "verdict": "CORRECT",
+   "judge_reason": "The candidate matches the gold answer by stating that NCEL consistently outperforms baselines and has favorable generalization.",
+   "wall_ms": 5084
+  },
+  {
+   "paper_id": "2002.12612",
+   "kind": "free_form_short",
+   "title": "A multi-layer approach to disinformation detection on Twitter",
+   "question": "How is the political bias of different sources included in the model?",
+   "gold_answer": "By assigning a political bias label to each news article and training only on left-biased or right-biased outlets of both disinformation and mainstream domains",
+   "ingest": {
+    "ok": true,
+    "chunks": 57,
+    "recorded": 57,
+    "embedded": 57
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "By assigning political-bias labels to US outlets—and thus their articles—following the procedure in BIBREF2, then training only on left- or right-biased networks.",
+   "verdict": "CORRECT",
+   "judge_reason": "It matches the gold answer by describing article-level bias labels and training restricted to left- or right-biased sources.",
+   "wall_ms": 5136
+  },
+  {
+   "paper_id": "1909.01383",
+   "kind": "free_form_short",
+   "title": "Context-Aware Monolingual Repair for Neural Machine Translation",
+   "question": "by how much did the BLEU score improve?",
+   "gold_answer": "On average 0.64",
+   "ingest": {
+    "ok": true,
+    "chunks": 41,
+    "recorded": 41,
+    "embedded": 41
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "0.7 BLEU over the baseline and CADec.",
+   "verdict": "INCORRECT",
+   "judge_reason": "The candidate states a 0.7 BLEU improvement, while the gold answer specifies an average improvement of 0.64.",
+   "wall_ms": 6787
+  },
+  {
+   "paper_id": "1705.01265",
+   "kind": "free_form_short",
+   "title": "On the effectiveness of feature set augmentation using clusters of word embeddings",
+   "question": "How were the cluster extracted? ",
+   "gold_answer": "Word clusters are extracted using k-means on word embeddings",
+   "ingest": {
+    "ok": true,
+    "chunks": 29,
+    "recorded": 29,
+    "embedded": 29
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "By clustering the embeddings with k-means, initialized using “k-means++” and run for 300 iterations.",
+   "verdict": "CORRECT",
+   "judge_reason": "The candidate correctly states that clusters were extracted by applying k-means to word embeddings.",
+   "wall_ms": 4671
+  },
+  {
+   "paper_id": "1710.03348",
+   "kind": "free_form_short",
+   "title": "What does Attention in Neural Machine Translation Pay Attention to?",
+   "question": "In what cases is attention different from alignment?",
+   "gold_answer": "For certain POS tags, e.g. VERB, PRON.",
+   "ingest": {
+    "ok": true,
+    "chunks": 37,
+    "recorded": 37,
+    "embedded": 37
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "“In the case of verbs,” attention “captures other information rather than only the translational equivalent,” attending to “context words influencing the current word translation.”",
+   "verdict": "CORRECT",
+   "judge_reason": "The candidate identifies verbs as a POS case where attention differs from alignment and explains the difference.",
+   "wall_ms": 4437
+  },
+  {
+   "paper_id": "1911.10049",
+   "kind": "free_form_short",
+   "title": "High Quality ELMo Embeddings for Seven Less-Resourced Languages",
+   "question": "How larger are the training sets of these versions of ELMo compared to the previous ones?",
+   "gold_answer": "By 14 times.",
+   "ingest": {
+    "ok": true,
+    "chunks": 34,
+    "recorded": 34,
+    "embedded": 34
+   },
+   "retrieval_path": "semantic+lexical",
+   "retrieved_count": 8,
+   "our_answer": "“A few hundred million tokens” versus the previous “20-million token corpora.”",
+   "verdict": "CORRECT",
+   "judge_reason": "A few hundred million tokens compared with 20 million implies an approximately 14-fold increase.",
+   "wall_ms": 5764
+  }
+ ]
+}

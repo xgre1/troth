@@ -1,0 +1,15 @@
+const { test } = require('node:test');
+const assert = require('node:assert');
+const { avgValue } = require('../src/metrics');
+
+// Same null-coercion pattern, different function: null coerces to 0 in
+// the sum, but samples.length still counts the null row, skewing the
+// average downward. Fix must filter nulls and use the filtered length.
+test('avgValue ignores null samples in both sum and count', () => {
+  const samples = [
+    { t: 1, value: 4 },
+    { t: 2, value: null },
+    { t: 3, value: 8 }
+  ];
+  assert.strictEqual(avgValue(samples), 6);
+});

@@ -1,0 +1,58 @@
+name: Bug report
+description: Something in the substrate engine, CLI, or plugin behaves incorrectly.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please include enough detail to reproduce.
+        Do **not** paste operator keys, passphrases, or `~/.troth` contents.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you observe, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. troth ...
+        2. ...
+        3. see error
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: troth version
+      description: Output of `troth --version`.
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - CLI (troth chat)
+        - Claude Code plugin / MCP server
+        - Proxy (classic mode)
+        - Benchmarks
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Node version (`node -v`), local LLM runtime if any.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Redact anything sensitive. Code blocks are rendered automatically.
+      render: shell

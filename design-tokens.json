@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "2.0.0",
+  "name": "troth design tokens",
+  "source": "the troth brand system; kept in sync with the site's stylesheet",
+  "description": "Single source of truth for troth visual identity. Consumed by site (troth.one), native app (Tauri React), and web dashboard.",
+
+  "color": {
+    "canvas": {
+      "primary": "#050505",
+      "surface": "#0A0A0C",
+      "hairline": "rgba(255,255,255,0.08)"
+    },
+    "text": {
+      "strong": "rgba(255,255,255,0.92)",
+      "muted": "rgba(255,255,255,0.55)",
+      "faint": "rgba(255,255,255,0.40)",
+      "ghost": "rgba(255,255,255,0.22)"
+    },
+    "bond": {
+      "_doc": "Signature color. Use ≤ 7% of any surface. Reserved for primary CTA, links, brand accents.",
+      "primary": "#B83242",
+      "hover": "#CF4F5E",
+      "muted": "rgba(184,50,66,0.18)"
+    },
+    "signal": {
+      "_doc": "Status only. Use < 2% of any surface. Success/active states.",
+      "primary": "#8FB8A8"
+    }
+  },
+
+  "typography": {
+    "family": {
+      "display": "Mona Sans, system-ui, sans-serif",
+      "body": "Mona Sans, system-ui, sans-serif",
+      "mono": "Mona Sans Mono, ui-monospace, Menlo, monospace"
+    },
+    "scale": {
+      "xs": "clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem)",
+      "sm": "clamp(0.875rem, 0.8rem + 0.375vw, 1rem)",
+      "base": "clamp(1rem, 0.9rem + 0.5vw, 1.125rem)",
+      "lg": "clamp(1.125rem, 1rem + 0.625vw, 1.375rem)",
+      "xl": "clamp(1.25rem, 1rem + 1.25vw, 1.75rem)",
+      "2xl": "clamp(1.5rem, 1rem + 2.5vw, 2.5rem)",
+      "3xl": "clamp(2rem, 1rem + 5vw, 4rem)",
+      "4xl": "clamp(2.5rem, 1rem + 7.5vw, 6rem)",
+      "5xl": "clamp(3rem, 1rem + 10vw, 8rem)",
+      "hero": "clamp(3.5rem, 1rem + 12vw, 12rem)"
+    }
+  },
+
+  "space": {
+    "xs": "clamp(0.5rem, 0.4rem + 0.5vw, 0.75rem)",
+    "sm": "clamp(0.75rem, 0.6rem + 0.75vw, 1rem)",
+    "md": "clamp(1rem, 0.8rem + 1vw, 1.5rem)",
+    "lg": "clamp(1.5rem, 1rem + 2.5vw, 3rem)",
+    "xl": "clamp(2rem, 1rem + 5vw, 5rem)",
+    "2xl": "clamp(3rem, 1rem + 10vw, 8rem)",
+    "section": "clamp(5rem, 3rem + 10vw, 12rem)"
+  },
+
+  "motion": {
+    "easing": {
+      "pledge": "cubic-bezier(0.19, 1, 0.22, 1)",
+      "status": "cubic-bezier(0.4, 0, 0.2, 1)",
+      "hover": "cubic-bezier(0.16, 1, 0.3, 1)",
+      "bounce": "cubic-bezier(0.34, 1.56, 0.64, 1)",
+      "instant": "linear"
+    },
+    "duration": {
+      "fast": "0.18s",
+      "normal": "0.42s",
+      "deliberate": "0.9s",
+      "pledge": "1.8s",
+      "pulse": "2.4s"
+    }
+  },
+
+  "elevation": {
+    "_doc": "Glass-morph aesthetic — minimal shadow, lift via opacity + border, never drop-shadow heavy.",
+    "card": {
+      "border": "1px solid rgba(255,255,255,0.06)",
+      "background": "linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.012))",
+      "blur": "12px",
+      "shadow": "inset 0 1px 0 rgba(255,255,255,0.06)"
+    }
+  },
+
+  "radius": {
+    "sm": "8px",
+    "md": "12px",
+    "lg": "16px",
+    "xl": "24px",
+    "pill": "9999px"
+  },
+
+  "editorial_law": {
+    "_doc": "Brand voice rule. ALWAYS write NAME + GUARANTEE + OUTCOME. NEVER explain HOW (the technical mechanism).",
+    "pattern": "{NAME} — {ONE_SENTENCE_GUARANTEE}. {ONE_LINE_OUTCOME_NUMBER}.",
+    "good_example": "Substrate — persistent mind that survives every session. Reads books in seconds, recalls in milliseconds.",
+    "bad_example": "Substrate L1/L2/L3 — three memory tiers with cosine retrieval over GPU embeddings."
+  }
+}

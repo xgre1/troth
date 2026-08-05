@@ -1,0 +1,7 @@
+{
+  "name": "troth-bench-01-fix-null-guard",
+  "version": "1.0.0",
+  "scripts": {
+    "test": "node test/metrics.test.js"
+  }
+}

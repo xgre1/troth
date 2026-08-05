@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="640" viewBox="0 0 1400 640" role="img" aria-label="Troth architecture: the substrate is the mind, models are rented faculties">
+  <defs>
+    <marker id="adim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="rgba(255,255,255,0.28)"/>
+    </marker>
+    <marker id="abright" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="rgba(255,255,255,0.60)"/>
+    </marker>
+  </defs>
+
+  <rect x="1" y="1" width="1398" height="638" rx="28" fill="#050505" stroke="rgba(255,255,255,0.07)" stroke-width="2"/>
+  <line x1="700" y1="92" x2="700" y2="552" stroke="rgba(255,255,255,0.06)" stroke-width="1.5" stroke-dasharray="4 7"/>
+
+  <text x="90" y="96" font-family="Mona Sans Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" letter-spacing="0.22em" fill="rgba(255,255,255,0.30)">THE USUAL AGENT</text>
+  <text x="760" y="96" font-family="Mona Sans Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="12" letter-spacing="0.22em" fill="rgba(255,255,255,0.85)">TROTH</text>
+
+  <!-- LEFT: the usual agent (dim) -->
+  <rect x="90" y="255" width="110" height="52" rx="26" fill="#0A0A0C" stroke="rgba(255,255,255,0.10)" stroke-width="1.4"/>
+  <text x="145" y="286" text-anchor="middle" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="15" fill="rgba(255,255,255,0.45)">you</text>
+
+  <line x1="204" y1="281" x2="244" y2="281" stroke="rgba(255,255,255,0.28)" stroke-width="1.6" marker-end="url(#adim)"/>
+
+  <rect x="250" y="235" width="200" height="92" rx="18" fill="#0C0C0F" stroke="rgba(255,255,255,0.16)" stroke-width="1.5"/>
+  <text x="350" y="278" text-anchor="middle" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="26" font-weight="600" fill="rgba(255,255,255,0.55)">LLM</text>
+  <text x="350" y="303" text-anchor="middle" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="12" fill="rgba(255,255,255,0.32)">the mind lives here</text>
+
+  <text x="250" y="374" font-family="Mona Sans Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing="0.18em" fill="rgba(255,255,255,0.22)">BOLT-ONS</text>
+  <line x1="320" y1="327" x2="303" y2="388" stroke="rgba(255,255,255,0.10)" stroke-width="1.2"/>
+  <line x1="378" y1="327" x2="432" y2="388" stroke="rgba(255,255,255,0.10)" stroke-width="1.2"/>
+  <rect x="240" y="390" width="130" height="46" rx="23" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="1.3" stroke-dasharray="5 5"/>
+  <text x="305" y="418" text-anchor="middle" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="13" fill="rgba(255,255,255,0.35)">memory db</text>
+  <rect x="390" y="390" width="90" height="46" rx="23" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="1.3" stroke-dasharray="5 5"/>
+  <text x="435" y="418" text-anchor="middle" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="13" fill="rgba(255,255,255,0.35)">tools</text>
+
+  <text x="360" y="576" text-anchor="middle" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="15" fill="rgba(255,255,255,0.35)">swap the model &#8594; the partner resets</text>
+
+  <!-- RIGHT: troth (bright silver) -->
+  <rect x="760" y="150" width="150" height="52" rx="26" fill="#0A0A0C" stroke="rgba(255,255,255,0.35)" stroke-width="1.4"/>
+  <text x="835" y="181" text-anchor="middle" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="15" fill="rgba(255,255,255,0.92)">operator</text>
+
+  <line x1="835" y1="206" x2="835" y2="242" stroke="rgba(255,255,255,0.45)" stroke-width="1.6" marker-start="url(#abright)" marker-end="url(#abright)"/>
+
+  <rect x="756" y="242" width="298" height="208" rx="24" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="8"/>
+  <rect x="760" y="246" width="290" height="200" rx="20" fill="#0C0C0F" stroke="rgba(255,255,255,0.45)" stroke-width="1.6"/>
+  <text x="790" y="290" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="24" font-weight="600" fill="rgba(255,255,255,0.92)">substrate</text>
+  <text x="790" y="312" font-family="Mona Sans Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing="0.15em" fill="rgba(255,255,255,0.55)">STATE.DB &#183; PERSISTENT &#183; YOURS</text>
+  <rect x="790" y="336" width="115" height="38" rx="10" fill="#101014" stroke="rgba(255,255,255,0.14)" stroke-width="1.2"/>
+  <text x="847" y="360" text-anchor="middle" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="12.5" fill="rgba(255,255,255,0.75)">engrams</text>
+  <rect x="920" y="336" width="105" height="38" rx="10" fill="#101014" stroke="rgba(255,255,255,0.14)" stroke-width="1.2"/>
+  <text x="972" y="360" text-anchor="middle" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="12.5" fill="rgba(255,255,255,0.75)">goals</text>
+  <rect x="790" y="388" width="115" height="38" rx="10" fill="#101014" stroke="rgba(255,255,255,0.14)" stroke-width="1.2"/>
+  <text x="847" y="412" text-anchor="middle" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="12.5" fill="rgba(255,255,255,0.75)">walls</text>
+  <rect x="920" y="388" width="105" height="38" rx="10" fill="#101014" stroke="rgba(255,255,255,0.14)" stroke-width="1.2"/>
+  <text x="972" y="412" text-anchor="middle" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="12.5" fill="rgba(255,255,255,0.75)">audit trail</text>
+
+  <text x="1235" y="158" text-anchor="middle" font-family="Mona Sans Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing="0.18em" fill="rgba(255,255,255,0.35)">RENTED FACULTIES</text>
+  <rect x="1130" y="170" width="210" height="270" rx="18" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="1.4" stroke-dasharray="6 6"/>
+  <rect x="1155" y="195" width="160" height="48" rx="24" fill="#0A0A0C" stroke="rgba(255,255,255,0.14)" stroke-width="1.3"/>
+  <text x="1235" y="224" text-anchor="middle" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="13.5" fill="rgba(255,255,255,0.70)">claude</text>
+  <rect x="1155" y="262" width="160" height="48" rx="24" fill="#0A0A0C" stroke="rgba(255,255,255,0.14)" stroke-width="1.3"/>
+  <text x="1235" y="291" text-anchor="middle" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="13.5" fill="rgba(255,255,255,0.70)">gemini &#183; your key</text>
+  <rect x="1155" y="329" width="160" height="48" rx="24" fill="#0A0A0C" stroke="rgba(255,255,255,0.14)" stroke-width="1.3"/>
+  <text x="1235" y="358" text-anchor="middle" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="13.5" fill="rgba(255,255,255,0.70)">local llama.cpp</text>
+  <text x="1235" y="418" text-anchor="middle" font-family="Mona Sans Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing="0.18em" fill="rgba(255,255,255,0.28)">SWAPPABLE</text>
+
+  <line x1="1054" y1="280" x2="1124" y2="280" stroke="rgba(255,255,255,0.35)" stroke-width="1.6" marker-end="url(#abright)"/>
+
+  <path d="M1235,444 L1235,489 Q1235,505 1219,505 L921,505 Q905,505 905,489 L905,458" fill="none" stroke="rgba(255,255,255,0.55)" stroke-width="1.8" marker-end="url(#abright)"/>
+  <rect x="990" y="485" width="160" height="40" rx="20" fill="rgba(255,255,255,0.92)"/>
+  <text x="1070" y="510" text-anchor="middle" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="14" font-weight="600" fill="#050505">writes back</text>
+  <text x="1070" y="545" text-anchor="middle" font-family="Mona Sans Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" letter-spacing="0.15em" fill="rgba(255,255,255,0.55)">ENGRAMS &#183; NOT WEIGHTS</text>
+
+  <text x="1050" y="576" text-anchor="middle" font-family="Mona Sans, -apple-system, 'Segoe UI', system-ui, sans-serif" font-size="15" fill="rgba(255,255,255,0.92)">swap the model &#8594; the mind stays</text>
+</svg>
