@@ -89,7 +89,23 @@ const SUPPORTED_EXTS = Object.keys(EXT_TO_LANG);
 const IGNORE_DIRS = new Set([
   'node_modules', '.git', '.next', 'dist', 'build', '.cache', 'coverage',
   '__pycache__', '.venv', 'venv', '.tox', 'target', '.idea', '.vscode',
+  // Third-party bundles are somebody else's code and, minified, they index as
+  // nothing but mangled single letters.
+  'vendor', 'third_party', 'bower_components',
 ]);
+
+// A bundle is not source. proxy/ui/vendor/d3.v7.min.js — 273 KB of minified
+// third-party JavaScript — took 4960ms to parse, 73% of the entire index, in
+// one uninterrupted stretch that no amount of chunking could break up, to
+// produce entities named `a`, `b` and `t`. Named bundles are skipped by name;
+// the rest are caught by shape, because minifiers do not agree on suffixes.
+const BUNDLE_NAME = /\.(min|bundle|umd|iife)\.(js|mjs|cjs|ts)$/i;
+function looksMinified(content) {
+  if (content.length < 50000) return false;          // small enough not to matter
+  const head = content.slice(0, 50000);
+  const lines = head.split('\n').length;
+  return (head.length / lines) > 300;                // ~no line breaks = generated
+}
 
 function getQuery(entry) {
   if (entry.query) return entry.query;
@@ -334,30 +350,96 @@ function parseFile(filePath, content) {
   return { entities, edges };
 }
 
-function scanDirectory(dir, maxDepth = 5) {
-  const results = [];
+// walkFiles(dir, onFile, opts) — visit every indexable file and hand its
+// content to the caller WITHOUT parsing it.
+//
+// scanDirectory used to parse every file it touched, and initIndex then hashed
+// the results to decide which ones actually needed parsing: the answer cost
+// more than the question. Measured on a 623-file tree, reading and hashing is
+// 13ms where reading and parsing is 7125ms, and that price was paid on every
+// boot even when nothing had changed. Deciding is now separate from doing.
+//
+// opts.maxFiles / opts.maxMs bound the walk. The desktop app points this at the
+// operator's whole home directory, where there is no natural limit at all; a
+// truncated index degrades a hint, while an unbounded one holds the port shut.
+// Returns { truncated, reason } so the caller can say so out loud.
+function walkFiles(dir, onFile, opts) {
+  opts = opts || {};
+  const maxDepth = opts.maxDepth == null ? 5 : opts.maxDepth;
+  const maxFiles = opts.maxFiles == null ? 20000 : opts.maxFiles;
+  const maxMs = opts.maxMs == null ? 0 : opts.maxMs;
+  const startedAt = Date.now();
+  let seen = 0;
+  let stop = null;
+
   function walk(currentDir, depth) {
-    if (depth > maxDepth) return;
-    try {
-      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.name.startsWith('.')) continue;
-        if (IGNORE_DIRS.has(entry.name)) continue;
-        const fullPath = path.join(currentDir, entry.name);
-        if (entry.isDirectory()) {
-          walk(fullPath, depth + 1);
-        } else if (SUPPORTED_EXTS.includes(path.extname(entry.name).toLowerCase())) {
-          try {
-            const content = fs.readFileSync(fullPath, 'utf8');
-            if (content.length > 500000) continue;
-            const { entities, edges } = parseFile(fullPath, content);
-            results.push({ filePath: fullPath, entities, edges, content });
-          } catch (e) {}
-        }
-      }
-    } catch (e) {}
+    if (stop || depth > maxDepth) return;
+    let entries;
+    try { entries = fs.readdirSync(currentDir, { withFileTypes: true }); }
+    catch (e) { return; }
+    for (const entry of entries) {
+      if (stop) return;
+      if (entry.name.startsWith('.')) continue;
+      if (IGNORE_DIRS.has(entry.name)) continue;
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) { walk(fullPath, depth + 1); continue; }
+      if (!SUPPORTED_EXTS.includes(path.extname(entry.name).toLowerCase())) continue;
+      if (BUNDLE_NAME.test(entry.name)) continue;
+      if (seen >= maxFiles) { stop = 'file limit (' + maxFiles + ')'; return; }
+      if (maxMs && (Date.now() - startedAt) > maxMs) { stop = 'time limit (' + maxMs + 'ms)'; return; }
+      let content;
+      try { content = fs.readFileSync(fullPath, 'utf8'); } catch (e) { continue; }
+      if (content.length > 500000) continue;
+      if (looksMinified(content)) continue;
+      seen++;
+      try { onFile(fullPath, content); } catch (e) { /* one bad file is not a failed index */ }
+    }
   }
   walk(dir, 0);
+  return { truncated: !!stop, reason: stop, files: seen };
+}
+
+// listFiles(dir, opts) — the paths only. No read, no parse.
+//
+// Separated from the work because the work has to be chunked: an index pass
+// that runs to completion in one tick blocks the event loop, and a blocked loop
+// cannot answer the port even after listen() has been called — moving the pass
+// later in the file bought nothing until the pass itself learned to yield.
+// Walking 13761 directories costs 0.4s; it is the reading and parsing that is
+// expensive, and that now happens in chunks the caller paces.
+function listFiles(dir, opts) {
+  opts = opts || {};
+  const maxDepth = opts.maxDepth == null ? 5 : opts.maxDepth;
+  const maxFiles = opts.maxFiles == null ? 20000 : opts.maxFiles;
+  const files = [];
+  let stop = null;
+  (function walk(currentDir, depth) {
+    if (stop || depth > maxDepth) return;
+    let entries;
+    try { entries = fs.readdirSync(currentDir, { withFileTypes: true }); }
+    catch (e) { return; }
+    for (const entry of entries) {
+      if (stop) return;
+      if (entry.name.startsWith('.')) continue;
+      if (IGNORE_DIRS.has(entry.name)) continue;
+      const fullPath = path.join(currentDir, entry.name);
+      if (entry.isDirectory()) { walk(fullPath, depth + 1); continue; }
+      if (!SUPPORTED_EXTS.includes(path.extname(entry.name).toLowerCase())) continue;
+      if (BUNDLE_NAME.test(entry.name)) continue;
+      if (files.length >= maxFiles) { stop = 'file limit (' + maxFiles + ')'; return; }
+      files.push(fullPath);
+    }
+  })(dir, 0);
+  return { files, truncated: !!stop, reason: stop };
+}
+
+// Kept for callers that genuinely want everything parsed in one go.
+function scanDirectory(dir, maxDepth = 5) {
+  const results = [];
+  walkFiles(dir, (filePath, content) => {
+    const { entities, edges } = parseFile(filePath, content);
+    results.push({ filePath, entities, edges, content });
+  }, { maxDepth });
   return results;
 }
 
@@ -442,4 +524,4 @@ function validateSyntax(filePath, content) {
   return { valid: false, error: top, errors: errors };
 }
 
-module.exports = { parseFile, scanDirectory, validateSyntax };
+module.exports = { parseFile, scanDirectory, walkFiles, listFiles, looksMinified, validateSyntax };

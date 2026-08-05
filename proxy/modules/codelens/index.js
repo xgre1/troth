@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const CodeStore = require('./store');
-const { scanDirectory } = require('./parser');
+const { listFiles, parseFile, looksMinified } = require('./parser');
 const { personalizedPageRank } = require('./ranker');
 const { buildRepoMap } = require('./mapper');
 
@@ -16,6 +16,25 @@ let indexed = false;
 // When the agent edits file A, boost A's dependencies in the next query.
 const recentFiles = [];
 const MAX_RECENT = 10;
+// Bounds on a single index pass. The desktop app points the indexer at the
+// operator's entire home directory, which has no natural end; on this machine
+// that is 1816 files and 119 MB. A truncated index weakens a hint, an unbounded
+// one holds the port shut, so it is bounded and says so (stats.truncated).
+// Yield on ELAPSED TIME, not on a count. Counting files assumes every file
+// costs the same, and they do not: one file can carry hundreds of entities and
+// each is a synchronous SQLite insert, so 'every 64 files' was still a second
+// of held loop between breaths. This keeps the longest uninterrupted stretch
+// bounded no matter what the project looks like.
+const YIELD_EVERY_MS = 40;
+let _lastYield = 0;
+function breathe() {
+  const now = Date.now();
+  if (now - _lastYield < YIELD_EVERY_MS) return null;
+  _lastYield = now;
+  return new Promise((r) => setImmediate(r));
+}
+const MAX_INDEX_FILES = parseInt(process.env.TROTH_CODELENS_MAX_FILES || '2000', 10);
+const MAX_INDEX_MS    = parseInt(process.env.TROTH_CODELENS_MAX_MS    || '10000', 10);
 let stats = { files: 0, entities: 0, edges: 0, queries: 0, avgQueryMs: 0 };
 
 function hashFile(content) {
@@ -86,7 +105,13 @@ function resolveImportPath(importSource, fromFilePath, allFilePaths) {
   return null;
 }
 
-function initIndex(dir) {
+// Async on purpose. A pass that runs to completion in one tick blocks the
+// event loop, and a blocked loop cannot answer the port even after listen()
+// has returned — the dashboard was unreachable for as long as the walk took
+// whether the call sat before listen() or after it. Work is done in chunks
+// with a yield between them, so a request that arrives mid-index is answered
+// (with an empty repo map) instead of queued behind the filesystem.
+async function initIndex(dir) {
   baseDir = dir;
 
   // Persistent DB: ~/.troth/codelens/<hash>.db
@@ -100,50 +125,90 @@ function initIndex(dir) {
   store = new CodeStore(dbPath);
 
   const startMs = Date.now();
-  const files = scanDirectory(dir);
-  stats.files = files.length;
+  // ── Decide first, work second ──
+  // This used to parse every file it walked and only THEN hash the results to
+  // find out which ones needed parsing. Reading and hashing a 623-file tree
+  // costs 13ms; reading and parsing it costs 7125ms, and that was spent on
+  // every boot even when nothing had changed. Content is held only for the
+  // files that turn out to need it, so the peak footprint follows the diff and
+  // not the size of the operator's disk.
+  const newFiles = [];
+  const changedFiles = [];
+  const currentPaths = [];
+  let unchangedCount = 0;
+  let cosmeticOnlyCount = 0;
 
-  // ── Incremental update ──
-  // Compare file hashes against stored DB to find new/changed/deleted files
   const storedHashes = store.getAllFileHashes();
-  const currentPaths = files.map(f => f.filePath);
-  const deleted = store.deleteStaleFiles(currentPaths);
+  const listing = listFiles(dir, { maxFiles: MAX_INDEX_FILES });
+  const budgetUntil = MAX_INDEX_MS ? Date.now() + MAX_INDEX_MS : 0;
+  let overBudget = false;
 
-  var newFiles = [];
-  var changedFiles = [];
-  var unchangedCount = 0;
+  for (let i = 0; i < listing.files.length; i++) {
+    // Yield to the loop every chunk. 32 files is ~0.4ms of hashing, far below
+    // anything a person perceives, and it keeps every request answerable.
+    { const y = breathe(); if (y) await y; }
+    if (budgetUntil && Date.now() > budgetUntil) { overBudget = true; break; }
 
-  var cosmeticOnlyCount = 0;
-  for (const file of files) {
-    const currentHash = hashFile(file.content);
-    fileHashes.set(file.filePath, currentHash);
-    const storedHash = storedHashes.get(file.filePath);
+    const filePath = listing.files[i];
+    let content;
+    try { content = fs.readFileSync(filePath, 'utf8'); } catch (e) { continue; }
+    if (content.length > 500000) continue;
+    // Shape check, not just name: a bundle without a .min suffix costs the same
+    // five seconds and indexes to the same mangled letters.
+    if (looksMinified(content)) continue;
 
-    if (!storedHash) {
-      newFiles.push(file);
-    } else if (storedHash !== currentHash) {
-      // Hash changed — but check if it's only cosmetic (comments/whitespace)
-      const normHash = hashFileNormalized(file.content);
-      const storedNormHash = store.getNormalizedHash ? store.getNormalizedHash(file.filePath) : null;
-      if (storedNormHash && storedNormHash === normHash) {
-        // Cosmetic change only — update stored raw hash, skip re-index
-        store.setFileHash(file.filePath, currentHash, normHash);
-        cosmeticOnlyCount++;
-        unchangedCount++;
-      } else {
-        store.deleteByFile(file.filePath);
-        changedFiles.push(file);
-      }
-    } else {
+    currentPaths.push(filePath);
+    const currentHash = hashFile(content);
+    fileHashes.set(filePath, currentHash);
+    const storedHash = storedHashes.get(filePath);
+
+    if (!storedHash) { newFiles.push({ filePath, content }); continue; }
+    if (storedHash === currentHash) { unchangedCount++; continue; }
+
+    // Hash changed — but check whether it is only comments and whitespace.
+    const normHash = hashFileNormalized(content);
+    const storedNormHash = store.getNormalizedHash ? store.getNormalizedHash(filePath) : null;
+    if (storedNormHash && storedNormHash === normHash) {
+      store.setFileHash(filePath, currentHash, normHash);
+      cosmeticOnlyCount++;
       unchangedCount++;
+      continue;
+    }
+    store.deleteByFile(filePath);
+    changedFiles.push({ filePath, content });
+  }
+  const walk = {
+    truncated: listing.truncated || overBudget,
+    reason: listing.reason || (overBudget ? 'time limit (' + MAX_INDEX_MS + 'ms)' : null),
+  };
+
+  stats.files = currentPaths.length;
+  stats.truncated = walk.truncated ? walk.reason : null;
+  const deleted = walk.truncated ? 0 : store.deleteStaleFiles(currentPaths);
+
+  // Parse ONLY what the diff says is worth parsing — and yield while doing it.
+  // Chunking the scan alone was not enough: on a cold boot every file is new,
+  // so this list is the whole project and parsing it in one pass held the loop
+  // for seven seconds. The port was open and accepting the whole time, which
+  // is worse than being closed — the request is taken and then not answered.
+  const filesToIndex = [];
+  {
+    const pending = newFiles.concat(changedFiles);
+    for (let i = 0; i < pending.length; i++) {
+      { const y = breathe(); if (y) await y; }
+      const f = pending[i];
+      let parsed;
+      try { parsed = parseFile(f.filePath, f.content); }
+      catch (e) { parsed = { entities: [], edges: [] }; }
+      filesToIndex.push({ filePath: f.filePath, content: f.content, entities: parsed.entities, edges: parsed.edges });
     }
   }
 
-  var filesToIndex = newFiles.concat(changedFiles);
-
   // Build set of all file paths for import resolution
-  const allFilePaths = new Set(files.map(f => f.filePath));
+  const allFilePaths = new Set(currentPaths);
 
+  // Both passes below run over the CHANGED set, which is empty on a warm boot
+  // and everything on a cold one. They yield for the same reason the scan does.
   // Pass 1: Add entities for new/changed files, build name→ID maps
   const nameToId = new Map();
   const fileNameToId = new Map();
@@ -165,7 +230,10 @@ function initIndex(dir) {
   }
 
   // Add entities for files that need indexing
-  for (const file of filesToIndex) {
+  // Same reason as the parse above: on a cold boot this is the whole project.
+  for (let _i = 0; _i < filesToIndex.length; _i++) {
+    { const y = breathe(); if (y) await y; }
+    const file = filesToIndex[_i];
     const entityIds = [];
     for (const entity of file.entities) {
       const id = store.addEntity(entity.type, entity.name, file.filePath, entity.signature, entity.line, entity.docstring || '');
@@ -179,7 +247,10 @@ function initIndex(dir) {
 
   // Pass 2: Resolve and add edges (only for new/changed files)
   let edgeCount = 0;
-  for (const file of filesToIndex) {
+  // Same reason as the parse above: on a cold boot this is the whole project.
+  for (let _i = 0; _i < filesToIndex.length; _i++) {
+    { const y = breathe(); if (y) await y; }
+    const file = filesToIndex[_i];
     for (const edge of file.edges) {
       let fromId, toId;
 

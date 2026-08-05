@@ -325,9 +325,44 @@ function readJsonBody(req) {
 }
 
 initCache(WATCH_DIR);
-try { initIndex(WATCH_DIR); } catch (e) { console.log('[CodeLens] Init skipped:', e.message); }
-try { require('./modules/cochange').init(WATCH_DIR); } catch (e) {}
-try { require('./modules/buildgraph').init(WATCH_DIR); } catch (e) {}
+
+// Project indexing does NOT gate the port. It used to run here, at module
+// scope, so the whole walk finished before server.listen() was ever reached:
+// on a clean machine the dashboard was unreachable for 75 seconds and looked
+// broken, and the desktop app aims this at the operator's entire home
+// directory. Nothing serves the first request any better for having waited —
+// queryContext() returns an empty repo map until the index exists, which costs
+// a hint, not an answer. Called from the listen callback below.
+//
+// The module switch is honoured HERE, not only where the index is read: with
+// codelens turned off this still spent 8777ms building an index that every
+// query then refused to use.
+function startProjectIndexing() {
+  if (isModuleEnabled('codelens')) {
+    // initIndex is async and yields between chunks; a rejection here must not
+    // become an unhandled one, and a failed index is a missing hint, not a
+    // failed boot.
+    Promise.resolve()
+      .then(() => initIndex(WATCH_DIR))
+      .catch((e) => console.log('[CodeLens] Init skipped:', e && e.message || e));
+  } else {
+    log('CodeLens: off — not indexing ' + WATCH_DIR);
+  }
+  // cochange and buildgraph shell out to git and are fully synchronous, so
+  // they hold the loop exactly as the index used to. Deferred by a tick each
+  // so the first paint of the dashboard lands before git is asked anything,
+  // and timed, because "boot is slow" is not a diagnosis.
+  setTimeout(() => {
+    const t = Date.now();
+    try { require('./modules/cochange').init(WATCH_DIR); } catch (e) {}
+    const c = Date.now() - t;
+    setTimeout(() => {
+      const t2 = Date.now();
+      try { require('./modules/buildgraph').init(WATCH_DIR); } catch (e) {}
+      log('Project history: co-change ' + c + 'ms, build graph ' + (Date.now() - t2) + 'ms');
+    }, 0);
+  }, 0);
+}
 try { require('./modules/autodream').scheduleBackground(); } catch (e) {}
 
 const stats = {
@@ -4632,6 +4667,10 @@ server.listen(listenPort, BIND_HOST, () => {
   }
   log('Dashboard: http://localhost:' + listenPort + '/ui');
   log('Modules: injector | critic | guardian | pinning | loopguard | codelens | router | compressor | validator | reflexion | trajectory | workflow');
+  // The port is open and accepting; NOW walk the project. setImmediate so this
+  // callback returns to the loop first — a request that arrives during the walk
+  // is answered with an empty repo map rather than waiting for one.
+  setImmediate(startProjectIndexing);
   warnAboutSiblings();
   scheduler.start();
   // Auto-start the embedded Claude Code session watcher unless
