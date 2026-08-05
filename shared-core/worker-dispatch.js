@@ -26,7 +26,7 @@ function _isLocalTransport(t) { return /llamacpp|local|ollama/i.test(String(t ||
 function gatherContext() {
   let dispatchPrefer = 'local', cloudCount = 0, localOk = false;
   try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.troth', 'config.json'), 'utf8'));
+    const cfg = JSON.parse(fs.readFileSync(path.join((process.env.HOME || os.homedir()), '.troth', 'config.json'), 'utf8'));
     // Unset means the operator has never chosen, which is every fresh
     // install. Falling back to 'local' claimed this Mac leads even when no
     // local model exists; localOk below is resolved a few lines down, so the

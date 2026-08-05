@@ -53,7 +53,7 @@ function gatherProviderState() {
   var cloudProviders = [], localAvailable = false;
   try {
     var os = require('os'), fs = require('fs'), path = require('path');
-    var cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.troth', 'config.json'), 'utf8'));
+    var cfg = JSON.parse(fs.readFileSync(path.join((process.env.HOME || os.homedir()), '.troth', 'config.json'), 'utf8'));
     var P = cfg.providers || {};
     var LOCAL = { local: 1, llamacpp: 1, llama: 1, ollama: 1 };
     Object.keys(P).forEach(function (k) {

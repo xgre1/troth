@@ -800,7 +800,7 @@ function registerInvariant(opts) {
     const path = require('path');
     const os = require('os');
     const DB_PATH = process.env.STATE_DB_PATH ||
-      path.join(os.homedir(), '.troth', 'state.db');
+      path.join((process.env.HOME || os.homedir()), '.troth', 'state.db');
     const db = new Database(DB_PATH);
     // This connection is ours, and it may be pointing at a database state.js
     // has never opened: state.js resolves its path once at module load, and
@@ -839,7 +839,7 @@ function listInvariants(opts) {
     const path = require('path');
     const os = require('os');
     const DB_PATH = process.env.STATE_DB_PATH ||
-      path.join(os.homedir(), '.troth', 'state.db');
+      path.join((process.env.HOME || os.homedir()), '.troth', 'state.db');
     // No substrate file yet means a first run with genuinely no invariants,
     // which is different from a substrate we cannot read. readonly:true turns
     // the first into an "unable to open" error indistinguishable from the
@@ -967,7 +967,7 @@ function deleteInvariant(id) {
     const path = require('path');
     const os = require('os');
     const DB_PATH = process.env.STATE_DB_PATH ||
-      path.join(os.homedir(), '.troth', 'state.db');
+      path.join((process.env.HOME || os.homedir()), '.troth', 'state.db');
     const db = new Database(DB_PATH);
     const r = db.prepare('DELETE FROM state_invariants WHERE id = ?').run(id);
     db.close();

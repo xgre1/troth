@@ -54,7 +54,7 @@ const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
 
-const DEFAULT_CONFIG_PATH = path.join(os.homedir(), '.troth', 'mcp-clients.json');
+const DEFAULT_CONFIG_PATH = path.join((process.env.HOME || os.homedir()), '.troth', 'mcp-clients.json');
 const PROJECT_CONFIG_BASENAME = '.mcp.json';
 const RPC_TIMEOUT_MS   = 30 * 1000;
 const INIT_TIMEOUT_MS  = 10 * 1000;
@@ -112,7 +112,7 @@ function loadDownstream(configPath, workspace) {
 // ({name: {note, requested_at}}) that never migrates into the active
 // file. All writes are atomic (same-directory temp + rename) at 0600.
 
-const DEFAULT_PENDING_PATH = path.join(os.homedir(), '.troth', 'mcp-pending.json');
+const DEFAULT_PENDING_PATH = path.join((process.env.HOME || os.homedir()), '.troth', 'mcp-pending.json');
 
 function _pendingPath() {
   return process.env.TROTH_MCP_PENDING_CONFIG || DEFAULT_PENDING_PATH;

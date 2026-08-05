@@ -138,7 +138,7 @@ function makeLlamaCppTransport(opts) {
     try {
       if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') {
         const fs = require('fs'), path = require('path'), os = require('os');
-        const dir = path.join(os.homedir(), '.troth');
+        const dir = path.join((process.env.HOME || os.homedir()), '.troth');
         fs.mkdirSync(dir, { recursive: true });
         const p = url.port || (url.protocol === 'https:' ? 443 : 80);
         fs.writeFileSync(path.join(dir, 'lastuse-' + p + '.txt'), String(Date.now()));

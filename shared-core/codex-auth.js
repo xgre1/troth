@@ -65,7 +65,7 @@ const tokenStore = require('./codex-token-store.js');
 //
 // Resolved per call and never memoised, so dropping the file in takes
 // effect on the next sign-in without restarting the daemon.
-function configDir() { return path.join(os.homedir(), '.troth'); }
+function configDir() { return path.join((process.env.HOME || os.homedir()), '.troth'); }
 
 function _operatorValue(envName, fileName) {
   const fromEnv = String(process.env[envName] || '').trim();

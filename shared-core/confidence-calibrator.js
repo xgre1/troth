@@ -41,7 +41,7 @@ const Database = require('better-sqlite3');
 
 function openDb(readonly) {
   const DB_PATH = process.env.STATE_DB_PATH ||
-    path.join(os.homedir(), '.troth', 'state.db');
+    path.join((process.env.HOME || os.homedir()), '.troth', 'state.db');
   return new Database(DB_PATH, readonly ? { readonly: true } : {});
 }
 

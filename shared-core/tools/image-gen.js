@@ -36,7 +36,7 @@ const crypto = require('crypto');
 
 const codexOAuth = require('../transports/codex-oauth.js');
 
-const IMAGES_DIR   = path.join(os.homedir(), '.troth', 'images');
+const IMAGES_DIR   = path.join((process.env.HOME || os.homedir()), '.troth', 'images');
 const CALL_TIMEOUT_MS = 180 * 1000;  // hard ceiling on the whole generate call
 
 // OpenAI-compatible function tool. Kept deliberately small: prompt is the only
@@ -95,7 +95,7 @@ const GOOGLE_IMAGE_BASE          = 'https://generativelanguage.googleapis.com/v1
 const GOOGLE_IMAGE_MODEL_DEFAULT = 'gemini-3.1-flash-image-preview';
 
 function readTrothConfig() {
-  const cfgPath = process.env.TROTH_CONFIG_PATH || path.join(os.homedir(), '.troth', 'config.json');
+  const cfgPath = process.env.TROTH_CONFIG_PATH || path.join((process.env.HOME || os.homedir()), '.troth', 'config.json');
   try { return JSON.parse(fs.readFileSync(cfgPath, 'utf8')) || {}; } catch (_) { return {}; }
 }
 
