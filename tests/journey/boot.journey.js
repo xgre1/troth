@@ -54,5 +54,6 @@ module.exports.run = async (ctx, check) => {
     await new Promise((r) => setTimeout(r, 1500));
   }
   check('the log says what it did with the project', claimsIndexing || saysOff,
-    'neither an index nor an off-notice after 90s');
+    'after 90s the log held: ' + JSON.stringify(
+      proxy.log().split('\n').filter(Boolean).slice(-8).join(' | ').slice(0, 600)));
 };
