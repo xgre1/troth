@@ -9,7 +9,7 @@
 // sent. If a key can appear in a model's context, it appears here.
 module.exports.describe = 'no credential reaches the model, the wire, or the log';
 module.exports.run = async (ctx, check) => {
-  const CANARY = 'sk-CANARY-9f2a7c-must-never-appear';
+  const CANARY = 'sk-fake-canary9f2a';
   ctx.writeConfig({
     providers: {
       deepseek:  { enabled: true, apiKey: CANARY },

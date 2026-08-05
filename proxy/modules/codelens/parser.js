@@ -102,9 +102,14 @@ const IGNORE_DIRS = new Set([
 const BUNDLE_NAME = /\.(min|bundle|umd|iife)\.(js|mjs|cjs|ts)$/i;
 function looksMinified(content) {
   if (content.length < 50000) return false;          // small enough not to matter
-  const head = content.slice(0, 50000);
-  const lines = head.split('\n').length;
-  return (head.length / lines) > 300;                // ~no line breaks = generated
+  // Bytes per line, over the WHOLE file. Measured on this tree: minified files
+  // land at 91,000 and 100,008 bytes per line; the largest real sources land at
+  // 45 to 52; and a file carrying a 70 KB data-URI constant plus 800 ordinary
+  // functions lands at 115. Two earlier attempts were worse — a 50 KB prefix
+  // fell entirely inside such a constant and judged the file on nothing, and a
+  // median missed d3, which keeps two short lines around one enormous one.
+  const lines = content.split('\n').length;
+  return (content.length / lines) > 300;
 }
 
 function getQuery(entry) {

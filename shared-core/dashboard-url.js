@@ -46,11 +46,20 @@ function dashboardUrl(suffix) {
 // which honours the env the app sets but ignores the host and port the operator
 // put in config — so a configured or displaced proxy was reachable by the app
 // and unreachable by everything else.
+//
+// The fallback is the loopback LITERAL, not the name. `localhost` resolves to
+// ::1 before 127.0.0.1 on macOS, and the proxy binds 127.0.0.1 only, so a
+// connection by name reaches a port nobody is listening on. A browser retries
+// the other family and a person never notices; an HTTP client takes the first
+// answer and fails. dashboardUrl() may say localhost — it is read by a human.
+// This is dialled by a program, so it says the address.
 function proxyBaseUrl() {
   const fromEnv = String(process.env.TROTH_PROXY_URL || '').trim();
   if (fromEnv) return fromEnv.replace(/\/+$/, '');
-  const a = dashboardAddress();
-  return 'http://' + a.host + ':' + a.port;
+  const c = readConfig();
+  const host = (typeof c.host === 'string' && c.host) ? c.host : '127.0.0.1';
+  const port = parseInt(c.port, 10) || 8000;
+  return 'http://' + host + ':' + port;
 }
 
 module.exports = { dashboardAddress, dashboardUrl, proxyBaseUrl };

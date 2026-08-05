@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 const fs = require('fs');
+const fsp = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 const CodeStore = require('./store');
@@ -33,7 +34,12 @@ function breathe() {
   _lastYield = now;
   return new Promise((r) => setImmediate(r));
 }
-const MAX_INDEX_FILES = parseInt(process.env.TROTH_CODELENS_MAX_FILES || '2000', 10);
+// 2000 was one directory away from biting: the operator's home holds 1816
+// indexable files. Past the cap the walk stops at the SAME first N every boot,
+// so the tail is not indexed late — it is never indexed — and stale-file
+// deletion is skipped for good. The wall clock is the real bound; the count is
+// only a backstop against a pathological tree.
+const MAX_INDEX_FILES = parseInt(process.env.TROTH_CODELENS_MAX_FILES || '25000', 10);
 const MAX_INDEX_MS    = parseInt(process.env.TROTH_CODELENS_MAX_MS    || '10000', 10);
 let stats = { files: 0, entities: 0, edges: 0, queries: 0, avgQueryMs: 0 };
 
@@ -151,7 +157,10 @@ async function initIndex(dir) {
 
     const filePath = listing.files[i];
     let content;
-    try { content = fs.readFileSync(filePath, 'utf8'); } catch (e) { continue; }
+    // Async read on purpose. readFileSync on a home directory can land on an
+    // iCloud or Dropbox placeholder, where the 'read' is a synchronous network
+    // download — not a 300ms stall, a hung proxy.
+    try { content = await fsp.readFile(filePath, 'utf8'); } catch (e) { continue; }
     if (content.length > 500000) continue;
     // Shape check, not just name: a bundle without a .min suffix costs the same
     // five seconds and indexes to the same mangled letters.
@@ -242,7 +251,11 @@ async function initIndex(dir) {
       entityIds.push(id);
     }
     fileToEntityIds.set(file.filePath, entityIds);
-    store.setFileHash(file.filePath, fileHashes.get(file.filePath), hashFileNormalized(file.content));
+    // The hash is NOT written here. It is the record that says "this file is
+    // fully indexed", and edges are added in the pass below — writing it now
+    // meant that anything cutting in between (a budget, a crash, a restart)
+    // left the file marked done with no edges, and the next run believed the
+    // hash and never looked at it again. Silent, permanent, invisible.
   }
 
   // Pass 2: Resolve and add edges (only for new/changed files)
@@ -296,6 +309,17 @@ async function initIndex(dir) {
         edgeCount++;
       }
     }
+  }
+
+  // NOW the hashes. A file is marked indexed only once its entities AND its
+  // edges are in, so a run that is cut short leaves those files looking
+  // unindexed — which is true — and the next run redoes them. The alternative,
+  // marking them done in the entity pass, made an interrupted run look
+  // finished forever.
+  for (let _h = 0; _h < filesToIndex.length; _h++) {
+    { const y = breathe(); if (y) await y; }
+    const f = filesToIndex[_h];
+    store.setFileHash(f.filePath, fileHashes.get(f.filePath), hashFileNormalized(f.content));
   }
 
   const storeStats = store.getStats();

@@ -9,11 +9,11 @@ module.exports.run = async (ctx, check) => {
   // A machine with several providers paid for and ONE pinned in Settings.
   ctx.writeConfig({
     providers: {
-      deepseek:   { enabled: true,  apiKey: 'sk-journey-deepseek' },
-      anthropic:  { enabled: true,  apiKey: 'sk-journey-anthropic' },
+      deepseek:   { enabled: true,  apiKey: 'sk-fake-deepseek' },
+      anthropic:  { enabled: true,  apiKey: 'sk-fake-anthropic' },
       local:      { enabled: true,  host: '127.0.0.1', port: 1234 },
       openai_sub: { enabled: true },                          // codex token below
-      openrouter: { enabled: false, apiKey: 'sk-journey-or' }, // OFF
+      openrouter: { enabled: false, apiKey: 'sk-fake-or' }, // OFF
       xai:        { enabled: true },                           // no credential
     },
   });
