@@ -1199,7 +1199,13 @@ function main() {
       // the tight low-latency one.
       const _paneConvId = (action && action.options && action.options.conversation_id) || null;
       let turns = dialogueMemory.recentTurns({
-        cwd: CWD, limit: _paneConvId ? 12 : 3,
+        // same_cwd, or the cwd above is thrown away: recentTurns only honours
+        // it under strict_isolation or same_cwd, so this call has been passing
+        // a working directory that was silently discarded, and the injected
+        // window mixed one project's conversation into another's. Explicit
+        // recall stays cross-project on purpose — asked directly, the one mind
+        // answers about everything. This is the window nobody asked for.
+        cwd: CWD, same_cwd: true, limit: _paneConvId ? 12 : 3,
         conversation_id: _paneConvId
       });
       // Scoped-window BACKFILL: a pane mints
