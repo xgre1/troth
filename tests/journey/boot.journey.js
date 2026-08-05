@@ -48,7 +48,10 @@ module.exports.run = async (ctx, check) => {
   let claimsIndexing = false, saysOff = false;
   while (Date.now() < deadline) {
     const log = proxy.log();
-    claimsIndexing = /\[CodeLens\] Indexed/.test(log);
+    // Any statement from the indexer counts: it indexed, it hit its cache, or
+    // it was switched off. Matching only the word Indexed missed the cache-hit
+    // line and reported a product that had said exactly what it did as silent.
+    claimsIndexing = /\[CodeLens\]/.test(log);
     saysOff = /CodeLens: off/.test(log);
     if (claimsIndexing || saysOff) break;
     await new Promise((r) => setTimeout(r, 1500));
