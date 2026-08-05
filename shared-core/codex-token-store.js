@@ -32,7 +32,7 @@ const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
 
-const TOKEN_PATH = path.join(os.homedir(), '.troth', 'codex-token.json');
+const TOKEN_PATH = path.join((process.env.HOME || os.homedir()), '.troth', 'codex-token.json');
 const DEFAULT_REFRESH_SKEW_MS = 60 * 1000;  // refresh 1 minute before expiry
 
 function tokenPath() { return TOKEN_PATH; }

@@ -39,7 +39,7 @@ const _sessions = new Map();
 function _sessionsDir() {
   let root = process.env.CLAUDE_PLUGIN_DATA || '';
   if (root.includes('/.claude/plugins/data/')) root = '';
-  if (!root) root = path.join(os.homedir(), '.troth');
+  if (!root) root = path.join((process.env.HOME || os.homedir()), '.troth');
   const dir = path.join(root, 'sessions');
   try { fs.mkdirSync(dir, { recursive: true }); } catch {}
   return dir;

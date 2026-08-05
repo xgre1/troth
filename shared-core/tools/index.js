@@ -63,7 +63,7 @@ const REGISTRY = {
 // learns "if I need the rest, I Read the archive_path."
 
 const ARCHIVE_THRESHOLD = 8 * 1024;   // 8 KB stringified
-const ARCHIVE_DIR       = path.join(os.homedir(), '.troth', 'tool-archive');
+const ARCHIVE_DIR       = path.join((process.env.HOME || os.homedir()), '.troth', 'tool-archive');
 const PREVIEW_BYTES     = 2 * 1024;   // bytes kept inline as a preview
 
 function ensureArchiveDir() {
