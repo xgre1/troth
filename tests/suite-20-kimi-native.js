@@ -437,4 +437,73 @@ test('KIMI-ENS-3: FENCE - a pinned turn (FALLBACK_ALLOW excludes kimi_sub) never
     + JSON.stringify(dispatch.map((e) => ({ f: e.faculty, r: e.rule }))));
 });
 
+// -- ENGINE-PIN-SWITCH — a pin must not confiscate the operator's own switch --
+test('ENGINE-PIN-SWITCH: a hard pin still LISTS and BINDS the operator\'s other configured engines, while plain turns stay pinned', async () => {
+  // Operator report: with Settings on "Always use Kimi membership"
+  // (TROTH_ENTITY_LLM_PIN=1), /engine inside the app offered only Kimi and the
+  // two auto modes — no ChatGPT, no Claude, no Local — though Settings listed
+  // them all. HARD_PIN wired nothing but the pinned engine, so the menu had
+  // nothing real to show AND an explicit switch had nowhere to land: the
+  // operator's explicit choice blocked by the setting meant to express it.
+  //
+  // Wiring their credentialed faculties fixes the menu but must NOT weaken the
+  // pin, so this asserts all three at once — a change that wins one and loses
+  // another is not a fix.
+  const os2 = require('os');
+  const fs2 = require('fs');
+  const home = fs2.mkdtempSync(path.join(os2.tmpdir(), 'engine-pin-switch-'));
+  fs2.mkdirSync(path.join(home, '.troth'), { recursive: true });
+  fs2.writeFileSync(path.join(home, '.troth', 'config.json'), JSON.stringify({
+    providers: {
+      deepseek:   { enabled: true,  apiKey: 'sk-fake-deepseek' },
+      anthropic:  { enabled: true,  apiKey: 'sk-fake-anthropic' },
+      local:      { enabled: true,  host: '127.0.0.1', port: 1234 },
+      openrouter: { enabled: false, apiKey: 'sk-fake-or' },  // OFF    -> never offered
+      xai:        { enabled: true }                          // no key -> never offered
+    }
+  }));
+
+  const A = 'pin-menu-A', B = 'pin-switch-B';
+  const { events, stderr } = await runDaemon([
+    { type: 'user_input', input: { text: '/engine' },           options: { conversation_id: A } },
+    { type: 'user_input', input: { text: 'plain turn please' }, options: { conversation_id: A } },
+    { type: 'user_input', input: { text: '/engine deepseek' },  options: { conversation_id: B } },
+    { type: 'user_input', input: { text: 'plain turn please' }, options: { conversation_id: B } }
+  ], 90000, {
+    HOME: home,
+    TROTH_ENTITY_LLM: 'kimi_sub',
+    TROTH_ENTITY_LLM_PIN: '1',
+    TROTH_KIMI_SUB_KEY: 'fake-key-wired',
+    TROTH_KIMI_SUB_BASE: 'https://127.0.0.1:1/coding/',
+    TROTH_LLM_TIMEOUT_MS: '6000'
+  });
+
+  assert(events.some((e) => e.kind === 'ready'),
+    'daemon must reach ready under a hard pin; stderr tail: ' + String(stderr).slice(-300));
+
+  // 1. the menu names the engines the config actually credentials
+  const reply = events.find((e) => e.kind === 'response' && e.conversation_id === A && Array.isArray(e.options));
+  assert(reply, '/engine under a pin must return a structured options[]; responses: '
+    + JSON.stringify(events.filter((e) => e.kind === 'response' && e.conversation_id === A).map((e) => e.text)));
+  const values = reply.options.map((o) => o.value);
+  for (const want of ['/engine anthropic', '/engine local', '/engine deepseek']) {
+    assert(values.includes(want), 'the pinned menu must offer ' + want + '; got ' + values.join(' | '));
+  }
+  // Fail closed: never offer what is switched off or cannot authenticate.
+  assert(!values.includes('/engine openrouter'), 'a DISABLED provider must never be offered; got ' + values.join(' | '));
+  assert(!values.includes('/engine xai'), 'an uncredentialed provider must never be offered; got ' + values.join(' | '));
+
+  // 2. the pin survives: an ordinary turn still goes to the pinned engine
+  const dA = events.filter((e) => e.kind === 'dispatch' && e.conversation_id === A).map((e) => e.faculty);
+  assert(dA.length > 0 && dA.every((f) => f === 'kimi_sub'),
+    'a plain turn under a hard pin must stay on the pinned engine; got ' + JSON.stringify(dA));
+
+  // 3. an EXPLICIT switch binds — the whole reason for showing the menu
+  const dB = events.filter((e) => e.kind === 'dispatch' && e.conversation_id === B).map((e) => e.faculty);
+  assert(dB[0] === 'router',
+    'an explicit /engine deepseek must dispatch to the router faculty FIRST; got ' + JSON.stringify(dB));
+
+  try { fs2.rmSync(home, { recursive: true, force: true }); } catch (_) {}
+});
+
 };

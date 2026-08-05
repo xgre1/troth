@@ -169,6 +169,50 @@ if (BACKBONE === 'claude_cli') {
 // thesis. Opt out with TROTH_ENTITY_AGENTIC=0 for legacy single-shot.
 const AGENTIC_DEFAULT = process.env.TROTH_ENTITY_AGENTIC === '0' ? false : true;
 
+// switchableFaculties() — the faculties an EXPLICIT /engine may land on, read
+// from the operator's own config.json: the same source the Settings provider
+// list is built from, so the two surfaces can never disagree about what exists.
+// Credential rules mirror slash/executor.js providerHasCredential exactly
+// (local needs a host, custom_openai a base_url, openai_sub a codex token file,
+// everything else an api key in config or its env var) — a provider that is
+// merely toggled on with no way to authenticate is not offered.
+// Wiring is lazy: a faculty here costs nothing until a turn actually streams to
+// it. Never consulted for automatic routing; see the HARD_PIN block in main().
+const _ROUTER_ENV_KEY = {
+  deepseek: 'DEEPSEEK_API_KEY', openrouter: 'OPENROUTER_API_KEY',
+  nvidia: 'NVIDIA_API_KEY', deepinfra: 'DEEPINFRA_API_KEY',
+  alibaba: 'ALIBABA_API_KEY', moonshot: 'MOONSHOT_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY', xai: 'XAI_API_KEY',
+  google_ai: 'GEMINI_API_KEY', zai: 'ZAI_API_KEY'
+};
+const _PROVIDER_FACULTY = { openai_sub: 'codex_oauth', anthropic: 'anthropic', local: 'llamacpp' };
+function switchableFaculties() {
+  const out = [];
+  let cfg = {};
+  try {
+    cfg = JSON.parse(require('fs').readFileSync(
+      require('../shared-core/config-file.js').configPath(), 'utf8')) || {};
+  } catch (_) { return out; }
+  const providers = (cfg.providers && typeof cfg.providers === 'object') ? cfg.providers : {};
+  const credentialed = (name, p) => {
+    if (!p) return false;
+    if (name === 'local')         return !!p.host;
+    if (name === 'custom_openai') return !!p.base_url;
+    if (name === 'openai_sub') {
+      try { return !!require('../shared-core/codex-token-store.js').load(); } catch (_) { return false; }
+    }
+    if (p.apiKey) return true;
+    const ev = _ROUTER_ENV_KEY[name];
+    return !!(ev && String(process.env[ev] || '').trim());
+  };
+  for (const [name, p] of Object.entries(providers)) {
+    if (!p || !p.enabled || !credentialed(name, p)) continue;
+    const f = _PROVIDER_FACULTY[name] || 'router';
+    if (!out.includes(f)) out.push(f);
+  }
+  return out;
+}
+
 function resolveTransport(mode) {
   if (mode === 'noop') {
     // No language faculty configured. Orchestrator returns a placeholder
@@ -488,6 +532,21 @@ function main() {
     && !!String(process.env.TROTH_KIMI_SUB_KEY || '').trim()
     && !facultyNames.includes('kimi_sub');
   if (KIMI_BACKSTOP) facultyNames.push('kimi_sub');
+  // Under a hard pin the entity wired NOTHING but the pinned engine, so
+  // `/engine` had nothing to offer and an explicit switch had nowhere to land:
+  // the operator picked "always use Kimi" in Settings and thereby lost the
+  // ability to say "this pane, ChatGPT" — their own explicit choice blocked by
+  // the setting meant to express it. Wire what their config already
+  // credentials, from the same source Settings lists. The pin keeps its meaning
+  // where it actually lives: FACULTY_PRIORITY stays [LLM_MODE], so
+  // priority_default and the abort-rescue walk never leave the pinned engine,
+  // and the dispatcher gets `pinned`, which fences the content rules. Nothing
+  // auto-routes to these rungs; only an explicit /engine reaches them.
+  if (HARD_PIN) {
+    for (const f of switchableFaculties()) {
+      if (!facultyNames.includes(f)) facultyNames.push(f);
+    }
+  }
   const orchestrators = {};
   const transports    = {};
   // Identity envelope that survives all sessions. The substrate is the
@@ -1324,6 +1383,8 @@ function main() {
   }
   const dispatcher = dispatchModule.makeDispatcher({
     available: Object.keys(orchestrators),
+    // "Always use this engine" — fences the content rules (see dispatch.js).
+    pinned: HARD_PIN ? LLM_MODE : null,
     // The auto-wired backstop must not hijack priority_default selection —
     // demote it to last. The fallback WALK keeps FACULTY_PRIORITY order.
     // Under a pin fence that excludes llamacpp, the backstop must not be

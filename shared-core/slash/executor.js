@@ -72,7 +72,8 @@ const ROUTER_ENV_KEY = {
 const FACULTY_TO_OPTION_VALUE = {
   claude_cli:  '/engine claude',
   codex_oauth: '/engine chatgpt',
-  llamacpp:    '/engine local'
+  llamacpp:    '/engine local',
+  anthropic:   '/engine anthropic'
 };
 
 function readTrothConfigSafe() {
@@ -213,6 +214,9 @@ function buildModelOptions(engines) {
   }
   if (has('llamacpp')) {
     push('/engine local', 'Local (this Mac)');
+  }
+  if (has('anthropic')) {
+    push('/engine anthropic', 'Claude (API key)');
   }
 
   // Auto dispatch modes - always offerable (they reorder the wired faculties).

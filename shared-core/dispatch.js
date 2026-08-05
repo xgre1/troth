@@ -33,6 +33,14 @@ function makeDispatcher(opts) {
     throw new Error('dispatch: opts.available must list at least one faculty name');
   }
   const priority = Array.isArray(opts.priority) ? opts.priority : DEFAULT_PRIORITY;
+  // opts.pinned — the operator said "always use this engine". CONTENT rules
+  // match on `available`, not on priority, so once other faculties are wired so
+  // an explicit /engine switch has somewhere to land, difficulty/decode rules
+  // would happily serve the turn elsewhere: exactly what a pin forbids. Under a
+  // pin only the pinned faculty may win a rule. The explicit transport hint is
+  // the one exception — that IS the operator, switching on purpose, and the
+  // entity already exempts it from the FALLBACK_ALLOW fence for the same reason.
+  const pinned = (typeof opts.pinned === 'string' && opts.pinned) ? opts.pinned : null;
   const rules    = Array.isArray(opts.rules) ? opts.rules : DEFAULT_RULES;
 
   function pick(action, view) {
@@ -57,6 +65,7 @@ function makeDispatcher(opts) {
         const ruleLabel = (rule && typeof rule === 'object' && rule.name)
           ? rule.name
           : (rule && rule.name) || 'unnamed';
+        if (pinned && name !== pinned && ruleLabel !== 'explicit_transport_hint') continue;
         return _r(name, ruleLabel);
       }
     }

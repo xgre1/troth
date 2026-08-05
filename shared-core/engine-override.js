@@ -136,6 +136,11 @@ const ENGINE_TO_FACULTY = {
   claude:  'claude_cli',
   chatgpt: 'codex_oauth',
   local:   'llamacpp',
+  // Claude on a raw Anthropic API key. A separate transport from claude_cli
+  // (which drives the Claude Code harness), so it gets its own word instead of
+  // overloading `claude`: an operator with a key but no subscription had no way
+  // to name the lane they had actually paid for.
+  anthropic: 'anthropic',
 };
 
 // The native faculty name the `kimi` word maps to once the membership is wired.
