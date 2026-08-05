@@ -9,6 +9,34 @@ All notable changes to troth are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] — 2026-08-05
+
+### Fixed
+- The local embedding server never started. The environment it was spawned
+  with read a `path` binding that belonged to the block above it, so every
+  attempt raised a reference error, and the fallback caught it silently:
+  embedding ran in-process instead, and on machines where the in-process
+  build is unavailable it did not run at all. Measured on Apple Silicon with
+  the model already resident, the in-process path this masked reaches 93.8
+  embeddings/sec against the server's 64.9 at its default of no GPU offload,
+  so on that hardware nothing was lost while it was broken — the loss falls
+  on machines that have no in-process path at all.
+- A restart forgot a model that was already downloaded. Whether the memory
+  model was present came from process state, so setup offered to install the
+  333 MB file sitting in `~/.troth/models`, and the check that proves recall
+  really works — gated on the same flag — never ran again. The file on disk
+  is now the answer, which is what the loader has always used.
+- `/api/setup/local` reported whether recall had been proven but never
+  started the proof; only `/api/embed/status` did. The dashboard polls both,
+  so it worked there, but anything polling one of them alone waited forever.
+  Both start it now.
+
+## [0.1.9] — 2026-08-05
+
+### Fixed
+- The model pickers in the app still offered Claude ids the API no longer
+  serves. They now match the one catalog the rest of the product reads.
+
 ## [0.1.8] — 2026-08-04
 
 ### Fixed
