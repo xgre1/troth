@@ -26,13 +26,14 @@
 // hooks populate, so hook-warmed entries serve MCP and vice versa.
 
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { resolve as resolvePath, join as joinPath } from 'node:path';
 import { homedir } from 'node:os';
 
 const require = createRequire(import.meta.url);
-const serverDir = new URL('.', import.meta.url).pathname;
+const serverDir = fileURLToPath(new URL('.', import.meta.url));
 const gc = require(serverDir + '../../../proxy/modules/troth-cache.js');
 // Substrate write path. Loaded lazily-ish; if it's missing (e.g. tests),
 // instrumentation degrades to a no-op rather than failing the tool call.

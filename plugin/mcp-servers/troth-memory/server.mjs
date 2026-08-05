@@ -27,9 +27,10 @@
 // once transports beyond stdio are added.
 
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const serverDir = new URL('.', import.meta.url).pathname;
+const serverDir = fileURLToPath(new URL('.', import.meta.url));
 const state       = require(serverDir + '../../../shared-core/state.js');
 const actionRec   = require(serverDir + '../../../shared-core/action-record.js');
 const query       = require(serverDir + '../../../shared-core/query.js');

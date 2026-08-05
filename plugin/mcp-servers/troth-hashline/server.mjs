@@ -25,11 +25,12 @@
 // the highest-leverage single architectural lift from 2025-26 research.
 
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 
 const require = createRequire(import.meta.url);
-const serverDir = new URL('.', import.meta.url).pathname;
+const serverDir = fileURLToPath(new URL('.', import.meta.url));
 const hashline    = require(serverDir + '../../../shared-core/hashline.js');
 const astValidate = require(serverDir + '../../../shared-core/ast-validate.js');
 const state       = require(serverDir + '../../../shared-core/state.js');

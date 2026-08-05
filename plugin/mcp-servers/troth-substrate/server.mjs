@@ -14,10 +14,11 @@
 // Protocol: stdio JSON-RPC, MCP tools/list + tools/call.
 
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
 const require = createRequire(import.meta.url);
-const serverDir = new URL('.', import.meta.url).pathname;
+const serverDir = fileURLToPath(new URL('.', import.meta.url));
 const engram         = require(serverDir + '../../../shared-core/engram.js');
 const chameleon      = require(serverDir + '../../../shared-core/chameleon.js');
 const chameleonRT    = require(serverDir + '../../../shared-core/chameleon-runtime.js');
