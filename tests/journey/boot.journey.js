@@ -41,9 +41,18 @@ module.exports.run = async (ctx, check) => {
   // Turning the module off must actually save the work, not merely refuse to
   // use it: with codelens disabled the boot still spent 8777ms building an
   // index that every query then declined to read.
-  const log = proxy.log();
-  const claimsIndexing = /\[CodeLens\] Indexed/.test(log);
-  const saysOff = /CodeLens: off/.test(log);
+  // Wait for the answer instead of sampling once: under emulation the index
+  // takes several times longer, and a single read reported an absent log line
+  // as a product that says nothing about what it did.
+  const deadline = Date.now() + 90000;
+  let claimsIndexing = false, saysOff = false;
+  while (Date.now() < deadline) {
+    const log = proxy.log();
+    claimsIndexing = /\[CodeLens\] Indexed/.test(log);
+    saysOff = /CodeLens: off/.test(log);
+    if (claimsIndexing || saysOff) break;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
   check('the log says what it did with the project', claimsIndexing || saysOff,
-    'neither an index nor an off-notice in the log');
+    'neither an index nor an off-notice after 90s');
 };
