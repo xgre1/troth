@@ -44,7 +44,8 @@
     "smoke": "node tests/smoke/run.js",
     "doctor": "node bin/troth.js doctor",
     "test:standalone": "node tests/run-standalone.js",
-    "prepack": "node scripts/prepack-guard.js"
+    "prepack": "node scripts/prepack-guard.js",
+    "journey": "node tests/journey/run.js"
   },
   "files": [
     "bin/",
