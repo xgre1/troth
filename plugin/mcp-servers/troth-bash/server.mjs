@@ -19,6 +19,7 @@
 //     ratio so the agent knows it can drill down if needed.
 
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve as pathResolve } from 'node:path';
@@ -47,7 +48,7 @@ process.on('unhandledRejection', (e) => {
 let state = null;
 let danger = null;
 try {
-  const serverDir = new URL('.', import.meta.url).pathname;
+  const serverDir = fileURLToPath(new URL('.', import.meta.url));
   // plugin/mcp-servers/troth-bash/ → repo/shared-core/state.js
   state = require(serverDir + '../../../shared-core/state.js');
   danger = require(serverDir + '../../../shared-core/danger.js');

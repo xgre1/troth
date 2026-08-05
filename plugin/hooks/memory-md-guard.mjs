@@ -29,14 +29,30 @@ const target  = input.file_path || input.notebook_path || input.path || null;
 
 if (!target) { allow(); }
 
-const abs = resolve(target);
-const home = homedir();
+// Compared with one separator. The prefixes were written with forward slashes
+// and matched against a resolved path, which on Windows comes back with
+// backslashes — so every comparison here was false and the guard let writes
+// into the operator's own memory through. A guard that silently does nothing
+// on a platform is worse than no guard, because the platform is not obvious
+// from reading it.
+const sep = (p) => String(p).replace(/\\/g, '/');
+const abs = sep(resolve(target));
+const home = sep(homedir());
 const MEMORY_PREFIX = home + '/.claude/projects/';
 const GLOBAL_CLAUDE_MD = home + '/.claude/CLAUDE.md';
 
+// Windows paths are case-insensitive; the same file must not be reachable by
+// spelling the drive or the user name differently.
+const eq = (a, b) => (process.platform === 'win32')
+  ? a.toLowerCase() === b.toLowerCase()
+  : a === b;
+const startsWith = (a, b) => (process.platform === 'win32')
+  ? a.toLowerCase().startsWith(b.toLowerCase())
+  : a.startsWith(b);
+
 const isMemoryMd =
-  abs.startsWith(MEMORY_PREFIX) && abs.includes('/memory/') && abs.endsWith('.md');
-const isGlobalClaudeMd = abs === GLOBAL_CLAUDE_MD;
+  startsWith(abs, MEMORY_PREFIX) && abs.includes('/memory/') && abs.endsWith('.md');
+const isGlobalClaudeMd = eq(abs, GLOBAL_CLAUDE_MD);
 
 if (!isMemoryMd && !isGlobalClaudeMd) { allow(); }
 
