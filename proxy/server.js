@@ -137,6 +137,10 @@ const _backend = getBackendConfig();
 const BACKEND_HOST = _backend.host;
 const BACKEND_PORT = _backend.port;
 const PORT = parseInt(process.env.GF_PORT || '8000');
+// What this process was born from — compared against the disk by /api/version
+// so a page served after a pull can tell the operator the routes are older.
+let BOOT_SRC_HASH = null;
+try { BOOT_SRC_HASH = require('crypto').createHash('sha256').update(fs.readFileSync(__filename)).digest('hex').slice(0, 12); } catch (_) {}
 // Actual bind port — set by the listen retry loop on EADDRINUSE so a
 // stale local server on:8000 doesn't crash a fresh `troth run`.
 let listenPort = PORT;
@@ -802,6 +806,26 @@ const server = http.createServer((req, res) => {
   // of this block opened a separate read-only handle to a plugin-data DB
   // path, which produced split-brain reads when the CLI had populated the
   // canonical DB but the plugin-data path was empty.
+  // Version and staleness. boot_hash is what this process is; disk_hash is
+  // what a restart would be. They diverge the moment a pull lands under a
+  // running proxy — exactly the skew that served new HTML on old routes.
+  if (req.method === 'GET' && url === '/api/version') {
+    try {
+      const crypto = require('crypto');
+      let diskHash = null;
+      try { diskHash = crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex').slice(0, 12); } catch (_) {}
+      let pkgVersion = null;
+      try { pkgVersion = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version; } catch (_) {}
+      jsonResponse(res, 200, {
+        version: pkgVersion,
+        boot_hash: BOOT_SRC_HASH,
+        disk_hash: diskHash,
+        stale: !!(BOOT_SRC_HASH && diskHash && BOOT_SRC_HASH !== diskHash)
+      });
+    } catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
+    return;
+  }
+
   // The command surface, from the sources of truth themselves: slash skills
   // from the loader that executes them, subcommands parsed from bin/troth.js's
   // own table. Nothing here is retyped, so nothing here can lie.

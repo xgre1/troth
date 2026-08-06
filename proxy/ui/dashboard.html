@@ -3917,6 +3917,23 @@ function startImport(source){
     }, 1200);
   }).catch(function (e) { pr.textContent = 'Could not start: ' + (e && e.message || e); });
 }
+// ── Stale-proxy detector ───────────────────────────────────────────────────
+// One banner instead of a different confusing symptom per card. A proxy that
+// answers without /api/version is older still — same banner.
+(function checkProxyFreshness(){
+  fetch('/api/version').then(function(r){
+    if (r.status === 404) return { stale: true, ancient: true };
+    return r.json();
+  }).then(function(v){
+    if (!v || !v.stale) return;
+    var bar = document.createElement('div');
+    bar.id = 'stale-proxy-bar';
+    bar.style.cssText = 'position:sticky;top:0;z-index:60;background:#2A1F12;border-bottom:1px solid #6B4A1F;color:#E8C288;font-size:12px;padding:9px 16px;text-align:center;';
+    bar.innerHTML = 'This proxy started before the latest update — some panels will not answer. Restart it: <code style="font-family:var(--mono)">troth restart</code>';
+    document.body.prepend(bar);
+  }).catch(function(){});
+})();
+
 // ── Image sources (Providers) ──────────────────────────────────────────────
 function loadImageSources(){
   var cg = document.getElementById('img-src-chatgpt');
