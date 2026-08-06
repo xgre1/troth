@@ -123,6 +123,13 @@ module.exports.run = async (ctx, check) => {
       'stack=' + structure.memoryHasStack + ' import=' + structure.memoryHasImport +
       ' stillUnderProviders=' + structure.providersHasStack);
 
+    // The command reference is served from the loader and the CLI table —
+    // if either side is empty, the reference page is a shell.
+    const cmds = (await proxy.get('/api/commands')).json || {};
+    check('the command reference names the real surface',
+      (cmds.slash || []).length >= 10 && (cmds.cli || []).length >= 40,
+      'slash=' + (cmds.slash || []).length + ' cli=' + (cmds.cli || []).length);
+
     const errs = (await page.pageErrors()) || [];
     check('the page raises no errors while a person looks at it', errs.length === 0,
       JSON.stringify(errs.slice(0, 3)));
