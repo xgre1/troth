@@ -2145,6 +2145,10 @@ setInterval(function(){
 </script>
 
 <div class="page" id="page-settings">
+ </div>
+
+  <div class="page-title">Settings</div>
+
   <div class="settings-card full-width" id="memories-card">
     <div class="card-title">Your memories</div>
     <div class="card-hint">Search what your partner remembers; forget what should go. Signed operator facts are protected and say so.</div>
@@ -2153,9 +2157,8 @@ setInterval(function(){
       <button class="btn" onclick="searchMemories()">Search</button>
     </div>
     <div id="mem-results" style="font-size:12px"></div>
-  </div>
 
-  <div class="page-title">Settings</div>
+
 
   <!-- Tab bar: each tab toggles which settings-card group is visible.
        Default tab is Backend. -->
@@ -3782,7 +3785,11 @@ function searchMemories(){
   var box = document.getElementById('mem-results');
   if (!q) { box.innerHTML = ''; return; }
   box.innerHTML = '<span style="color:var(--text-muted)">Searching…</span>';
-  fetch('/api/memory/search?q=' + encodeURIComponent(q)).then(function(r){return r.json();}).then(function (j) {
+  fetch('/api/memory/search?q=' + encodeURIComponent(q)).then(function(r){
+    if (r.status === 404) { box.innerHTML = '<span style="color:var(--text-muted)">The running proxy predates memory search — restart it: troth restart</span>'; return null; }
+    return r.json();
+  }).then(function (j) {
+    if (j === null) return;
     var items = (j && j.items) || [];
     if (!items.length) { box.innerHTML = '<span style="color:var(--text-muted)">Nothing matches.</span>'; return; }
     box.innerHTML = items.map(function (it) {
