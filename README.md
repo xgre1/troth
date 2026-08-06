@@ -67,9 +67,22 @@ sudo npm link        # creates the global `troth` command — do not skip this l
 troth setup
 ```
 
-`troth setup` starts the proxy and opens the dashboard onboarding: pick an engine (your ChatGPT subscription, an API key that is tested before it counts, or a local llama.cpp / Ollama server), turn on memory, decide where turns route. `troth setup --terminal` keeps it in the terminal for machines with no browser. `troth doctor` says what is configured and where the dashboard is; `troth help` lists everything else.
+`troth setup` starts the proxy and opens the dashboard onboarding: pick an engine (your ChatGPT, Claude or Kimi subscription, or an API key that is tested before it counts), turn on memory, decide where turns route. The memory models (embeddings, reranking) run locally on their own — nothing to pick. `troth setup --terminal` keeps it in the terminal for machines with no browser. `troth doctor` says what is configured and where the dashboard is; `troth help` lists everything else.
 
 **Requirements:** Node.js >= 22 (built-in WebSocket powers browser perception; Node 20 reached end-of-life 2026-04; the installer checks and prints the fix). The Claude faculty rides the Claude Code CLI (troth offers to install `@anthropic-ai/claude-code` on first run). `better-sqlite3` arrives prebuilt for common platforms; exotic ones need `build-essential` and `python3` to compile it. `npm ci` is deliberate over `npm install`: it installs the exact versions `package-lock.json` names and nothing newer, which is both reproducible and one fewer way for a dependency to change under you.
+
+### Or let your AI set it up
+
+Paste this into Claude Code (or any agent with a shell) and it does the whole thing:
+
+```text
+Install troth on this machine and set it up for me:
+1. git clone https://github.com/xgre1/troth.git && cd troth && npm ci
+2. Read llms.txt for the project map and the non-interactive setup contract.
+3. Ask me which engine I pay for (ChatGPT / Claude / Kimi / an API key),
+   write ~/.troth/config.json accordingly, then run: node bin/troth.js doctor
+4. Show me the doctor output and how to start talking: node bin/troth.js
+```
 
 Full walk-through: [`docs/SETUP_GUIDE.md`](docs/SETUP_GUIDE.md). Claude Code / MCP host installation: [`docs/MCP-HOST-INSTALL.md`](docs/MCP-HOST-INSTALL.md).
 

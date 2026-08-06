@@ -23,6 +23,23 @@ holds any part of the partner, and engines fail over between each other.
 - `npm test` — the unit suite; `npm run journey` — out-of-process scenarios that
   drive the shipped surfaces (daemon wire protocol, CLI, HTTP API) on a throwaway HOME
 
+## Agent setup (non-interactive)
+
+An agent can configure troth without the wizard: write `~/.troth/config.json`
+and verify with `node bin/troth.js doctor`. Minimal shapes — enable exactly one
+to start, more later; troth fails over between enabled providers:
+
+- Kimi Code membership: `{ "providers": { "kimi_sub": { "enabled": true, "apiKey": "<key>", "model": "k3" } } }`
+- Anthropic API key:    `{ "providers": { "anthropic": { "enabled": true, "apiKey": "<key>" } } }`
+- ChatGPT subscription: run `node bin/troth.js codex login` (device OAuth), then `{ "providers": { "openai_sub": { "enabled": true } } }`
+- Claude Pro/Max:       run `node bin/troth.js install-plugin` — the plan answers inside Claude Code; no key in config
+- Other keyed providers: `deepseek`, `openrouter`, `deepinfra`, `alibaba`, `moonshot`, `google_ai`, `xai`, `zai` — same `{ enabled, apiKey }` shape
+
+Memory (embeddings + reranking) installs itself locally on first run; no
+provider entry needed. Local CHAT models are optional and advanced — do not
+configure one unless the operator asks. Secrets never echo: config is written
+with owner-only permissions and the dashboard masks keys.
+
 ## Architecture
 
 - [bin/troth-entity.js](bin/troth-entity.js): the entity daemon — one mind, JSON-lines wire protocol on stdio; faculties (engines) are wired here and dispatched per turn
