@@ -375,6 +375,10 @@ select option:checked { background-color: #1A1A1F; }
   body { background: var(--bg) !important; background-attachment: scroll !important; }
 }
 
+/* Section labels on the one-page Settings — full grid width, quiet. */
+.settings-section-label { grid-column: 1 / -1; font-family: var(--mono); font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.16em; margin: 10px 0 -6px; }
+.settings-section-label:first-of-type { margin-top: 0; }
+
 /* Advanced fold: a quiet row, not a page. Collapsed hides the group. */
 #nav-adv-toggle { display: flex; align-items: center; justify-content: space-between; padding: 8px 22px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); cursor: pointer; user-select: none; }
 #nav-adv-toggle:hover { color: var(--text-dim); }
@@ -405,9 +409,6 @@ body.op-on #op-row { color: var(--text-dim); }
 #op-row #op-label { position: absolute; left: 64px; background: #111; color: #fff; font-size: 11px; padding: 4px 10px; border-radius: 6px; white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity 0.15s; z-index: 50; border: 1px solid #333; }
 #op-row:hover #op-label { opacity: 1; }
 #op-row:hover { color: var(--text); }
-/* Gated Settings shows only the MCP cards - a tab bar with one tab reads
-   as broken, so it hides with the other operator tabs. */
-body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
 </style>
 </head>
 <body>
@@ -444,7 +445,6 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
       <span>Analytics</span>
     </div>
-    <div class="nav-sep"></div>
     <!-- INTELLIGENCE — substrate-backed views (mind = working context, substrate = raw store, code map = derived graph) -->
     <div class="nav-item op-gated" data-page="mind" onclick="navigate('mind')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
@@ -462,7 +462,6 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
       <span>Logs</span>
     </div>
-    <div class="nav-sep"></div>
     </div><!-- /nav-advanced -->
     <div class="nav-sep"></div>
     <!-- ACTIVITY. "Jobs" nav removed: the worker-spawn
@@ -1292,15 +1291,31 @@ troth mind list / focus / show / compact</pre>
         holder.innerHTML = '<div style="padding:14px;color:var(--text-muted);font-size:11px;">No mind snapshots yet. Use the CLI to bootstrap.</div>';
         return;
       }
-      holder.innerHTML = snaps.map(function (s) {
+      // Consecutive snapshots with the same focus collapse to one row and a
+      // count. Quiet periods used to render as a page of clones — the same
+      // sentence five times with five timestamps — which reads as a bug even
+      // when every row is faithfully real.
+      var groups = [];
+      snaps.forEach(function (s) {
+        var last = groups[groups.length - 1];
+        var key = (s.current_focus || '') + '|' + (s.cwd || '') + '|' + !!s.archived;
+        if (last && last.key === key) { last.n++; last.until = s.snapshot_at; return; }
+        groups.push({ key: key, s: s, n: 1, until: null });
+      });
+      holder.innerHTML = groups.map(function (g) {
+        var s = g.s;
         var faded = s.archived ? 'opacity:0.45;text-decoration:line-through;' : '';
         var trig = s.trigger ? '<span style="color:var(--text-muted);font-size:10px;">[' + escapeHtml(s.trigger) + ']</span>' : '';
         var focus = s.current_focus ? escapeHtml(s.current_focus) : '<em style="color:var(--text-muted);">(no focus)</em>';
+        var when = g.n > 1
+          ? escapeHtml(fmtDate(g.until)) + ' → ' + escapeHtml(fmtDate(s.snapshot_at)) + ' · unchanged ×' + g.n
+          : escapeHtml(fmtDate(s.snapshot_at));
         return '<div style="padding:10px;border-bottom:1px solid var(--border);' + faded + '">'
-          + '<div style="font-size:11px;color:var(--text-dim);">' + escapeHtml(s.snapshot_id.slice(0, 8)) + '… ' + trig + '</div>'
+          + '<div style="font-size:11px;color:var(--text-dim);">' + escapeHtml(s.snapshot_id.slice(0, 8)) + '… ' + trig
+          +   (g.n > 1 ? ' <span style="color:var(--signal);font-size:10px;">×' + g.n + '</span>' : '') + '</div>'
           + '<div style="margin-top:4px;">' + focus + '</div>'
           + '<div style="font-size:10px;color:var(--text-muted);margin-top:4px;">'
-          +   escapeHtml(fmtDate(s.snapshot_at)) + ' · ' + s.project_count + ' project(s) · '
+          +   when + ' · ' + s.project_count + ' project(s) · '
           +   escapeHtml(s.cwd || '(no cwd)')
           + '</div>'
           + '</div>';
@@ -2283,22 +2298,13 @@ setInterval(function(){
 
 
 
-  <!-- Tab bar: each tab toggles which settings-card group is visible.
-       Default tab is Backend. -->
-  <div id="settings-tabs" class="ui-tabbar">
-    <button class="ui-tab set-tab active op-gated" data-tab="backend" onclick="setSettingsTab('backend')">Local LLM server</button>
-    <button class="ui-tab set-tab op-gated" data-tab="network" onclick="setSettingsTab('network')">Network</button>
-    <button class="ui-tab set-tab"        data-tab="mcp"     onclick="setSettingsTab('mcp')">MCP Tools</button>
-    <button class="ui-tab set-tab op-gated" data-tab="modules" onclick="setSettingsTab('modules')">Pipeline</button>
-    <button class="ui-tab set-tab op-gated" data-tab="mindset" onclick="setSettingsTab('mindset')">Mindset</button>
-    <button class="ui-tab set-tab op-gated" data-tab="substrate" onclick="setSettingsTab('substrate')">Substrate</button>
-  </div>
 
   <div class="settings-grid">
 
+    <div class="settings-section-label op-gated">On this machine</div>
     <div class="settings-card op-gated" data-settings-tab="backend">
       <div class="card-title">Local LLM server</div>
-      <div class="card-hint">Your local OpenAI-compatible server. troth routes requests here when you run without <code>-g</code>. <b style="color:var(--yellow)">Restart the proxy after changing.</b></div>
+      <div class="card-hint">Your local OpenAI-compatible server (llama.cpp, Ollama, LM Studio — anything speaking /v1). The Local engine answers through it when enabled. <b style="color:var(--yellow)">Restart the proxy after changing.</b></div>
       <div class="form-row">
         <div class="field"><label>Server host</label><input type="text" id="cfg-bhost" placeholder="127.0.0.1"></div>
         <div class="field"><label>Server port</label><input type="number" id="cfg-bport" placeholder="1234"></div>
@@ -2328,6 +2334,7 @@ setInterval(function(){
       </div>
     </div>
 
+    <div class="settings-section-label op-gated">Behaviour</div>
     <div class="settings-card op-gated" data-settings-tab="mindset">
       <div class="card-title">Mindset</div>
       <div class="card-hint">Injects a <b>research → plan → execute → verify → ask</b> discipline into every request. Adds a dual-view plan (FLASH / PROGRESS) so long tasks don't lose the ball.</div>
@@ -2354,18 +2361,13 @@ setInterval(function(){
          Mode B" copy that contradicts the substrate-as-subject pivot.
          The standalone Substrate page in the left nav is the canonical
          operator-facing substrate surface. Replaced with a pointer. -->
-    <div class="settings-card full-width op-gated" data-settings-tab="substrate" style="display:none">
-      <div class="card-title">Substrate</div>
-      <div class="card-hint">
-        Search and forget live on the <b>Memory</b> page; the raw records
-        (engrams · intents · capabilities · skills · lessons · sub-partners)
-        live on <b>Substrate</b>. Both are in the left nav.
-      </div>
-      <div class="card-footer" style="margin-top:14px;gap:8px;flex-wrap:wrap">
-        <button class="btn" onclick="navigate('substrate')">Open Substrate page →</button>
-      </div>
+    <div class="settings-card full-width op-gated" data-settings-tab="modules">
+      <div class="card-title">Pipeline Modules</div>
+      <div class="card-hint">Each module processes every request or response. Toggles take effect immediately without restart. <b style="color:var(--yellow)">Disable at your own risk</b> — Guardian blocks dangerous shell commands.</div>
+      <div id="module-list"></div>
     </div>
 
+    <div class="settings-section-label">Connections</div>
     <!-- Connect MCP — one-click install of the troth plugin into Claude Code,
          plus copy-paste commands for other clients (Cursor, etc.). The glass
          look comes from .settings-card + .mcp-subpanel (see <style>). -->
@@ -2426,11 +2428,6 @@ setInterval(function(){
       </div>
     </div>
 
-    <div class="settings-card full-width op-gated" data-settings-tab="modules">
-      <div class="card-title">Pipeline Modules</div>
-      <div class="card-hint">Each module processes every request or response. Toggles take effect immediately without restart. <b style="color:var(--yellow)">Disable at your own risk</b> — Guardian blocks dangerous shell commands.</div>
-      <div id="module-list"></div>
-    </div>
 
   </div>
 </div>
@@ -2777,13 +2774,7 @@ function navigate(p){
   if(p==='substrate' && typeof loadRecords === 'function'){ loadRecordTypes(); loadRecords(0); }
   if(p==='cli') loadCommands();
   if(p==='analytics' && typeof loadAnalytics === 'function'){ loadAnalytics(); }
-  if(p==='settings' && typeof setSettingsTab === 'function'){
-    if (!operatorAllowed()) { setSettingsTab('mcp'); }
-    else {
-      var anyVisible = document.querySelector('[data-settings-tab]:not([style*="display: none"])');
-      if (!anyVisible) setSettingsTab('backend');
-    }
-  }
+  if(p==='settings' && typeof setSettingsTab === 'function') setSettingsTab();
 }
 
 // Deep-link support: troth-app (and external links) can land on a
@@ -4470,18 +4461,10 @@ function applyProvidersVisibility() {
 }
 
 // ── Settings tabs ──
-function setSettingsTab(name) {
-  document.querySelectorAll('.set-tab').forEach(function(b){
-    b.classList.toggle('active', b.dataset.tab === name);
-  });
-  document.querySelectorAll('[data-settings-tab]').forEach(function(card){
-    card.style.display = (card.dataset.settingsTab === name) ? '' : 'none';
-  });
-  if (name === 'mcp') {
-    if (typeof loadMcpStatus === 'function') loadMcpStatus();
-  }
-  // settings-substrate loaders removed: the tab is a
-  // pointer card since; every loader targeted deleted DOM.
+// Kept as the loader hook the callers already use; there are no tabs left to
+// switch. Cards render together, sectioned, in document order.
+function setSettingsTab(_name) {
+  if (typeof loadMcpStatus === 'function') loadMcpStatus();
 }
 
 // Settings-substrate JS cluster removed: event stream,

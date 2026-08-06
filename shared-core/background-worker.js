@@ -913,6 +913,20 @@ const taskPurposeRefresh = {
       const match = prev.find(e => e && e.scope === 'system:current_focus:' + projectId);
       if (match) prevId = match.id;
     } catch (_) {}
+    // Unchanged orientation = no write. Every refresh used to record a fresh
+    // snapshot regardless, so a quiet project accumulated an identical row per
+    // cycle and the Mind page read as a page of clones — five timestamps, one
+    // sentence. The supersession chain only carries information when the text
+    // changed.
+    if (prevId) {
+      try {
+        const prevRow = engram.listEngrams({ audience: 'substrate_internal', limit: 20, include_superseded: false })
+          .find(e => e && e.id === prevId);
+        if (prevRow && String(prevRow.statement || '').trim() === summary.trim()) {
+          return { events: [], notes: ['purpose_refresh: unchanged, not rewritten (project=' + projectId + ')'] };
+        }
+      } catch (_) {}
+    }
     const id = engram.recordEngram({
       agent_id:    ctx.agent_id || 'background-worker',
       cwd, user_id: ctx.user_id || 'default',
