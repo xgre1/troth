@@ -794,6 +794,19 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
     </div>
 
     <div class="settings-card">
+      <div class="card-title">Images</div>
+      <div class="card-hint">Ask for an image in chat and your partner draws it — saved to <code>~/.troth/images</code>. Two possible sources; either one is enough.</div>
+      <div id="img-sources" style="font-size:12px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-top:1px solid var(--border)">
+          <span>ChatGPT plan</span><span id="img-src-chatgpt" style="color:var(--text-muted)">checking…</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-top:1px solid var(--border)">
+          <span>Google AI key</span><span id="img-src-google" style="color:var(--text-muted)">checking…</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-card">
       <div class="card-title">Qwen (Alibaba)</div>
       <div class="card-hint">Flat-rate coding plan: Qwen3-Max, MiniMax M2.5, GLM-5.1, Kimi K2.5. 90K requests/month on Pro. Engine order is quality-driven, automatic.</div>
       <div style="padding:4px 0">
@@ -2406,7 +2419,7 @@ setInterval(function(){
 
   <div class="settings-card full-width">
     <div class="card-title">In a terminal — troth subcommands</div>
-    <div class="card-hint">Click to copy. The full table the CLI dispatches; the examples below show the ones most people need with their flags.</div>
+    <div class="card-hint">Click a command to copy it. Grouped by what you are doing; the full table stays in <code>troth help</code>.</div>
     <div id="cmd-cli" style="font-size:12px">loading…</div>
   </div>
 
@@ -2709,6 +2722,7 @@ function navigate(p){
   if(p==='brain' && brainNodes.length===0) loadBrainGraph();
   if(p==='mind' && typeof window.loadAllMind === 'function') window.loadAllMind();
   if(p==='ai-setup') loadAnthropicStatus();
+  if(p==='ai-setup') loadImageSources();
   if(p==='ai-setup'){ loadConfig(); }
   if(p==='memory'){ loadStackCard(); if (typeof loadImportCard === 'function') loadImportCard(); loadRules(); }
   if(p==='substrate' && typeof loadRecords === 'function'){ loadRecordTypes(); loadRecords(0); }
@@ -3903,6 +3917,23 @@ function startImport(source){
     }, 1200);
   }).catch(function (e) { pr.textContent = 'Could not start: ' + (e && e.message || e); });
 }
+// ── Image sources (Providers) ──────────────────────────────────────────────
+function loadImageSources(){
+  var cg = document.getElementById('img-src-chatgpt');
+  var gg = document.getElementById('img-src-google');
+  if (!cg || !gg) return;
+  fetch('/api/providers/codex/status').then(function(r){ return r.json(); }).then(function(s){
+    if (s && s.signed_in && s.images) cg.innerHTML = '<span style="color:#9BC49B">● ready</span> — included with your plan';
+    else if (s && s.signed_in) cg.textContent = 'plan linked, image tool not in this build';
+    else cg.textContent = 'off — link ChatGPT above and images come included';
+  }).catch(function(){ cg.textContent = 'unknown — is the proxy up?'; });
+  fetch('/api/config').then(function(r){ return r.json(); }).then(function(c){
+    var g = (c && c.providers && c.providers.google_ai) || {};
+    if (g.apiKey || g.has_key) gg.innerHTML = '<span style="color:#9BC49B">● ready</span> — one key does text and images';
+    else gg.textContent = 'off — add a Google Gemini key above';
+  }).catch(function(){ gg.textContent = 'unknown — is the proxy up?'; });
+}
+
 // ── Command reference (CLI page) ───────────────────────────────────────────
 var _cmdsLoaded = false;
 function loadCommands(){
@@ -3913,15 +3944,63 @@ function loadCommands(){
     if (!sBox || !cBox) return;
     if (!j || j.error) { sBox.textContent = cBox.textContent = 'Could not read the command table.'; return; }
     _cmdsLoaded = true;
-    sBox.innerHTML = (j.slash || []).map(function(s){
+    var EVERYDAY = ['recall','remember','forget','goal','refuse','engine','context','usage','save','help'];
+    function slashRow(s){
       return '<div style="display:flex;gap:12px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border)">' +
         '<code style="font-family:var(--mono);color:var(--signal);min-width:110px">/' + s.name + '</code>' +
         '<span style="flex:1;color:var(--text-dim)">' + String(s.description || '').replace(/</g,'&lt;') + '</span></div>';
-    }).join('') || '<span style="color:var(--text-muted)">No skills found.</span>';
-    cBox.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:6px">' +
-      (j.cli || []).map(function(c){
-        return '<code onclick="copyText(\'troth ' + c + '\')" style="font-family:var(--mono);font-size:11px;padding:3px 8px;border:1px solid var(--glass-border);border-radius:5px;cursor:pointer">troth ' + c + '</code>';
-      }).join('') + '</div>';
+    }
+    var all = j.slash || [];
+    var every = [], adv = [];
+    all.forEach(function(s){ (EVERYDAY.indexOf(s.name) !== -1 ? every : adv).push(s); });
+    every.sort(function(a,b){ return EVERYDAY.indexOf(a.name) - EVERYDAY.indexOf(b.name); });
+    var head = function(t){ return '<div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.14em;margin:14px 0 4px">' + t + '</div>'; };
+    sBox.innerHTML = (every.length ? head('everyday') + every.map(slashRow).join('') : '') +
+                     (adv.length ? head('advanced') + adv.map(slashRow).join('') : '') ||
+                     '<span style="color:var(--text-muted)">No skills found.</span>';
+    // Curated, grouped, one line each. Only names present in the CLI's own
+    // table render — a stale entry disappears instead of lying.
+    var GROUPS = [
+      ['Setup & health', [
+        ['setup', 'guided setup — dashboard flow, or --terminal for the wizard'],
+        ['doctor', 'what is configured vs what actually answers'],
+        ['ui', 'open this dashboard'],
+        ['restart', 'restart the proxy'],
+        ['version', 'version of this install'],
+        ['help', 'the full command list, including what this page does not show']
+      ]],
+      ['Talk', [
+        ['cli', 'the chat REPL — slash commands above work here'],
+        ['codex', 'link your ChatGPT plan: troth codex login'],
+        ['install-plugin', 'mount troth inside Claude Code'],
+        ['uninstall-plugin', 'remove it from Claude Code']
+      ]],
+      ['Background runs', [
+        ['run', 'run a task in a workspace copy'],
+        ['status', 'what is running'],
+        ['logs', 'follow a run'],
+        ['diff', 'what a run changed'],
+        ['merge', 'take a run\'s changes'],
+        ['kill', 'stop a run'],
+        ['clean', 'remove finished run workspaces']
+      ]],
+      ['Memory', [
+        ['stats', 'substrate size and activity'],
+        ['atlas', 'export the whole substrate to files'],
+        ['memory-clear', 'start the memory over (asks first)']
+      ]]
+    ];
+    var have = {};
+    (j.cli || []).forEach(function(c){ have[c] = 1; });
+    cBox.innerHTML = GROUPS.map(function(g){
+      var rows = g[1].filter(function(r){ return have[r[0]]; });
+      if (!rows.length) return '';
+      return head(g[0]) + rows.map(function(r){
+        return '<div style="display:flex;gap:12px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border)">' +
+          '<code onclick="copyText(\'troth ' + r[0] + '\')" style="font-family:var(--mono);color:var(--signal);min-width:150px;cursor:pointer">troth ' + r[0] + '</code>' +
+          '<span style="flex:1;color:var(--text-dim)">' + r[1] + '</span></div>';
+      }).join('');
+    }).join('') + '<div style="margin-top:12px;font-size:11px;color:var(--text-muted)">Everything else: <code>troth help</code>.</div>';
   }).catch(function(){});
 }
 function copyText(t){
