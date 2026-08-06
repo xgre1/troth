@@ -813,19 +813,6 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
     </div>
 
     <div class="settings-card">
-      <div class="card-title">Images</div>
-      <div class="card-hint">Ask for an image in chat and your partner draws it — saved to <code>~/.troth/images</code>. Two possible sources; either one is enough.</div>
-      <div id="img-sources" style="font-size:12px">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-top:1px solid var(--border)">
-          <span>ChatGPT plan</span><span id="img-src-chatgpt" style="color:var(--text-muted)">checking…</span>
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:baseline;padding:6px 0;border-top:1px solid var(--border)">
-          <span>Google AI key</span><span id="img-src-google" style="color:var(--text-muted)">checking…</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="settings-card">
       <div class="card-title">Qwen (Alibaba)</div>
       <div class="card-hint">Flat-rate coding plan: Qwen3-Max, MiniMax M2.5, GLM-5.1, Kimi K2.5. 90K requests/month on Pro. Engine order is quality-driven, automatic.</div>
       <div style="padding:4px 0">
@@ -1038,6 +1025,27 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
       <div class="card-footer" style="margin:0">
         <button class="btn" onclick="saveProviders()">Save all providers</button>
         <span id="provider-status" style="font-size:10px;color:var(--text-muted)"></span>
+      </div>
+    </div>
+
+    <div class="settings-card full-width">
+      <div class="card-title">Images</div>
+      <div class="card-hint">Ask for an image in chat and your partner draws it — saved to <code>~/.troth/images</code>, shown right in the thread. Either source is enough.</div>
+      <div id="img-sources" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:4px">
+        <div style="background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:10px;padding:16px 18px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
+            <span style="font-size:13px;color:var(--text)">ChatGPT plan</span>
+            <span id="img-src-chatgpt-dot" style="font-size:11px;color:var(--text-muted)">…</span>
+          </div>
+          <div id="img-src-chatgpt" style="margin-top:8px;font-size:11px;color:var(--text-muted);line-height:1.55">checking…</div>
+        </div>
+        <div style="background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:10px;padding:16px 18px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
+            <span style="font-size:13px;color:var(--text)">Google AI key</span>
+            <span id="img-src-google-dot" style="font-size:11px;color:var(--text-muted)">…</span>
+          </div>
+          <div id="img-src-google" style="margin-top:8px;font-size:11px;color:var(--text-muted);line-height:1.55">checking…</div>
+        </div>
       </div>
     </div>
 
@@ -2677,6 +2685,15 @@ function gd(o,p){var s=p.split('.');for(var i=0;i<s.length;i++)o=o&&o[s[i]];retu
 // the API stays loopback-trusted; this gate is about intent. An app user
 // should not rewrite the partner's memory with one stray click, while
 // open-repo installs (no app, body lacks ctx-app) are never gated.
+// The one POST helper, in the scope everything runs in. It used to exist only
+// inside the first-run overlay closure — installStackPart, the import card and
+// forgetMemory all called it from out here and threw ReferenceError on click:
+// three buttons that looked wired and did nothing.
+function post(url, obj) {
+  return fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(obj || {}) }).then(function (r) { return r.json().catch(function () { return {}; }); });
+}
+
 var OPERATOR_PAGES = { mind: 1, substrate: 1, brain: 1 };
 // The Advanced fold remembers itself per browser, and opens on its own when
 // the active page lives inside it — a deep link may not stay hidden.
@@ -3701,7 +3718,7 @@ function saveProviders() {
     body: JSON.stringify({ providers: provs }),
   }).then(function (r) {
     if (!r.ok) throw new Error('http ' + r.status);
-    toast('Providers saved'); loadConfig();
+    toast('Providers saved'); loadConfig(); loadImageSources();
   }).catch(function (e) {
     toast('Save failed: ' + (e && e.message || e));
   });
@@ -3968,19 +3985,24 @@ function startImport(source){
 
 // ── Image sources (Providers) ──────────────────────────────────────────────
 function loadImageSources(){
-  var cg = document.getElementById('img-src-chatgpt');
-  var gg = document.getElementById('img-src-google');
+  var cg = document.getElementById('img-src-chatgpt'), cd = document.getElementById('img-src-chatgpt-dot');
+  var gg = document.getElementById('img-src-google'), gd = document.getElementById('img-src-google-dot');
   if (!cg || !gg) return;
+  function state(dotEl, on){ if (dotEl) dotEl.innerHTML = on ? '<span style="color:#9BC49B">● ready</span>' : '<span style="color:var(--text-muted)">○ off</span>'; }
   fetch('/api/providers/codex/status').then(function(r){ return r.json(); }).then(function(s){
-    if (s && s.signed_in && s.images) cg.innerHTML = '<span style="color:#9BC49B">● ready</span> — included with your plan';
-    else if (s && s.signed_in) cg.textContent = 'plan linked, image tool not in this build';
-    else cg.textContent = 'off — link ChatGPT above and images come included';
-  }).catch(function(){ cg.textContent = 'unknown — is the proxy up?'; });
+    var on = !!(s && s.signed_in && s.images);
+    state(cd, on);
+    cg.textContent = on ? 'Included with your plan — nothing more to set up.'
+      : (s && s.signed_in) ? 'Plan linked, but this build has no image tool — update troth.'
+      : 'Link ChatGPT in the engines above and images come included.';
+  }).catch(function(){ state(cd, false); cg.textContent = 'Could not check — is the proxy up?'; });
   fetch('/api/config').then(function(r){ return r.json(); }).then(function(c){
     var g = (c && c.providers && c.providers.google_ai) || {};
-    if (g.apiKey || g.has_key) gg.innerHTML = '<span style="color:#9BC49B">● ready</span> — one key does text and images';
-    else gg.textContent = 'off — add a Google Gemini key above';
-  }).catch(function(){ gg.textContent = 'unknown — is the proxy up?'; });
+    var on = !!(g.apiKey || g.has_key);
+    state(gd, on);
+    gg.textContent = on ? 'One key does both text and images. Remove the Google Gemini engine and the key is forgotten with it.'
+      : 'Backup source — add a Google Gemini key in the engines above.';
+  }).catch(function(){ state(gd, false); gg.textContent = 'Could not check — is the proxy up?'; });
 }
 
 // ── Command reference (CLI page) ───────────────────────────────────────────
@@ -4366,7 +4388,21 @@ function revealProvider(key) {
 function removeProvider(key) {
   var tog = document.getElementById('prov-en-' + key);
   if (tog) tog.checked = false;
-  saveProviders();
+  // Straight to the API, not through saveProviders — that path deliberately
+  // reads an empty box as "keep the stored key", so a remove routed through
+  // it disabled the lane and kept the credential alive on disk. '' is the
+  // server's revoke: env line gone for mapped lanes, config field for the rest.
+  var p = {}; p[key] = { enabled: false, apiKey: '' };
+  // fetch, not post(): post() lives inside the onboarding closure and does not
+  // exist up here — the call threw before anything reached the network.
+  fetch('/api/config', { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ providers: p }) }).then(function (r) { return r.json(); }).then(function () {
+    toast('Removed — key forgotten');
+    var input = document.getElementById('prov-' + key);
+    if (input) { input.value = ''; input.placeholder = ''; }
+    if (window._storedProviders && window._storedProviders[key]) window._storedProviders[key] = { has_key: false, enabled: false };
+    loadImageSources();
+  }).catch(function () { toast('Remove failed — is the proxy up?'); });
   applyProvidersVisibility();
 }
 
