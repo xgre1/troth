@@ -1,0 +1,45 @@
+# troth
+
+> A persistent AI partner whose mind lives outside the model. Identity, memory,
+> goals and refusal walls persist in a local SQLite substrate (`~/.troth/state.db`)
+> the operator owns; any LLM — Claude, ChatGPT, Kimi, a local model — is a
+> swappable faculty on top. Swap the model, keep the mind. AGPL-3.0.
+
+Runs on macOS and Linux, Node >= 22. Everything is local: no vendor account
+holds any part of the partner, and engines fail over between each other.
+
+## Start here
+
+- [README.md](README.md): what troth is, install, the open/closed line
+- [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md): first-run setup — engines, keys, memory
+- [docs/HONEST-LIMITS.md](docs/HONEST-LIMITS.md): the two properties the substrate does not claim to solve
+- [CHANGELOG.md](CHANGELOG.md): release history, whole-product scope
+
+## Run it
+
+- `npm ci` then `node bin/troth.js setup` — guided setup (dashboard), or `--terminal` for the wizard
+- `node bin/troth.js` — the chat REPL; `/help` lists every command
+- `node bin/troth.js doctor` — what is configured, what is actually reachable
+- `npm test` — the unit suite; `npm run journey` — out-of-process scenarios that
+  drive the shipped surfaces (daemon wire protocol, CLI, HTTP API) on a throwaway HOME
+
+## Architecture
+
+- [bin/troth-entity.js](bin/troth-entity.js): the entity daemon — one mind, JSON-lines wire protocol on stdio; faculties (engines) are wired here and dispatched per turn
+- [shared-core/](shared-core/): the substrate — event-sourced state, classed memory (engrams), recall, dialogue window, transports for each engine
+- [proxy/server.js](proxy/server.js): local HTTP proxy — dashboard UI, `/api/*` for setup, providers, memory import, local-model install
+- [proxy/modules/router.js](proxy/modules/router.js): provider routing, fallback chains, the operator pin ("always use this engine")
+- [plugin/](plugin/): the Claude Code plugin — slash commands, hooks and MCP servers that mount the substrate inside Claude Code
+- [tests/journey/](tests/journey/): behaviour scenarios run against local, Docker Linux and the shipped DMG core; the release gate refuses a bundle that fails them
+
+## Integration surfaces
+
+- MCP: `plugin/mcp-servers/` — substrate, bash, cache, hashline, router servers, any MCP host can mount them ([docs/MCP-HOST-INSTALL.md](docs/MCP-HOST-INSTALL.md))
+- HTTP: the proxy's `/api/*` (see `proxy/server.js`); Anthropic-compatible chat endpoint for tools that speak that shape
+- Wire: the entity's stdin/stdout JSON-lines protocol (`user_input` in; `response`, `dispatch`, `serving` frames out)
+
+## Optional
+
+- [benchmarks/](benchmarks/): reproducible harnesses for the properties the README claims
+- [scripts/release-gate.sh](scripts/release-gate.sh): what must pass before anything ships
+- LICENSE: AGPL-3.0 — network use counts as distribution; forks stay open
