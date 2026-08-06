@@ -3073,6 +3073,13 @@ const server = http.createServer((req, res) => {
             next.providers = Object.assign({}, current.providers);
             for (const [pk, pv] of Object.entries(safeNewConfig.providers)) {
               next.providers[pk] = Object.assign({}, current.providers[pk] || {}, pv);
+              // '' is the revoke for config-stored lanes too (env-mapped ones
+              // were already handled above): the field is deleted, never
+              // persisted as an empty string that redaction dresses up as a
+              // living credential.
+              if (next.providers[pk] && next.providers[pk].apiKey === '') {
+                delete next.providers[pk].apiKey;
+              }
               // Drop legacy plaintext apiKey if it lingers in the merged
               // shape (env is authoritative for that field now).
               if (next.providers[pk] && next.providers[pk].apiKey && ENV_KEY_MAP[pk]) {

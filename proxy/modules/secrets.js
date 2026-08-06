@@ -48,7 +48,9 @@ function redactObject(obj) {
       // word anywhere in the name instead of only as the entire name.
       if (/^(api_?key|apikey|password|secret|token|authorization|bearer)$/i.test(k) ||
           /(api_?key|password|secret|token|bearer|passphrase)/i.test(k)) {
-        out[k] = '[REDACTED]';
+        // Empty is state, not a secret: masking "" as [REDACTED] told the
+        // dashboard a credential exists on lanes the operator had revoked.
+        out[k] = (v === '' || v == null) ? v : '[REDACTED]';
       } else {
         out[k] = redactObject(v);
       }
