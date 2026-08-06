@@ -669,6 +669,10 @@ function start() {
     }
 
     function redraw() {
+      // Piped stdout is a transcript, not a screen: per-keystroke redraws put
+      // one "❯ h ❯ he ❯ hel…" per character into logs. The submitted line is
+      // printed by submit(); live echo is only for a terminal that can erase.
+      if (!process.stdout.isTTY) return;
       eraseInputAndMenu();
       renderInput();
       renderMenu();
@@ -778,7 +782,11 @@ function start() {
         commitSelection();
         return;
       }
-      if (menuActive && key.name === 'return') {
+      // 'return' is \r (the Enter key in raw mode); 'enter' is \n — what a
+      // pipe delivers. Accepting only the first meant echo "hi" | troth typed
+      // forever and never submitted: scripts and agents drove a REPL that
+      // took their keystrokes and answered nothing.
+      if (menuActive && (key.name === 'return' || key.name === 'enter')) {
         // If the buffer is already the exact selected command, submit
         // instead of committing (avoids the double-Enter trap for
         // no-args skills like /quit /help /clear).
@@ -808,7 +816,7 @@ function start() {
         redraw(); return;
       }
 
-      if (key.name === 'return') { submit(); return; }
+      if (key.name === 'return' || key.name === 'enter') { submit(); return; }
       if (key.name === 'backspace') {
         if (cursor > 0) {
           buffer = buffer.slice(0, cursor - 1) + buffer.slice(cursor);

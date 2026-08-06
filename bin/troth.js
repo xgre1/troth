@@ -2414,7 +2414,7 @@ if (command === "setup") {
     console.log("");
     console.log("  On your own hardware:");
     console.log("    Memory (embeddings, reranking) runs locally on its own — nothing to pick.");
-    console.log("    Local chat models exist for advanced setups: dashboard → Providers → Local.");
+    console.log("    Local chat models exist for advanced setups: dashboard → Engines → Local.");
     console.log("");
     console.log("  Each provider prices its own tokens; check their page before you commit.");
     console.log("  You can enable more than one later in the dashboard, and troth will fail");
