@@ -61,9 +61,11 @@ function marketplaceSource() {
 function claudeBin() {
   const HOME = home();
   const candidates = [
+    path.join(HOME, ".claude", "local", "claude"),   // native installer
     path.join(HOME, ".local", "bin", "claude"),
     "/opt/homebrew/bin/claude",
     "/usr/local/bin/claude",
+    "/usr/bin/claude",
   ];
   for (const c of candidates) {
     try { if (fs.existsSync(c)) return c; } catch (_) { /* keep probing */ }
