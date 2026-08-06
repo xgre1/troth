@@ -513,11 +513,20 @@ function start() {
 
   // Slash skills surfaced for the inline selector. Single source of truth
   // for /help, the picker, and the live menu.
-  const SLASH_CMDS = [
-    'goal', 'remember', 'recall', 'forget', 'think', 'agent',
-    'save', 'context', 'usage', 'dialogue-reset', 'init', 'help', 'quit',
-    'refuse', 'invariants'
-  ];
+  // The picker offers what the entity actually serves — read from the same
+  // registry /help prints. A hand-kept copy here drifted to 15 while the
+  // registry had grown to 18, so /engine existed everywhere except in the
+  // picker that people learn the commands from.
+  const SLASH_CMDS = (function () {
+    try {
+      const rows = require('../shared-core/slash/loader.js').skillSummaries(process.cwd()) || [];
+      const names = rows.map(function (r) { return r && r.name; }).filter(Boolean);
+      if (names.length) { names.push('quit'); return names.sort(); }
+    } catch (_) { /* fall through to the static floor */ }
+    return ['goal', 'remember', 'recall', 'forget', 'think', 'agent',
+            'save', 'context', 'usage', 'dialogue-reset', 'init', 'help', 'quit',
+            'refuse', 'invariants', 'engine', 'mcps'];
+  })();
 
   // Custom raw-mode input controller so we can pop an inline slash
   // selector below the input line with ↑/↓ navigation — readline's
@@ -898,6 +907,11 @@ function start() {
         case 'slash_resolved':
           lastSlash = msg.name || null;
           spinner.update(lastSlash ? 'running /' + lastSlash : 'running skill');
+          break;
+        case 'slash_unmatched':
+          // A typoed command went to the model as plain text. Silence here made
+          // that look like the UI dying; one dim line names what happened.
+          out(color(DIM, '  /' + (msg.name || '?') + ' is not a command — sent as a message. Commands: /help') + '\n');
           break;
         case 'dispatch': {
           turnFaculty = msg.faculty || null;
