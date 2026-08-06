@@ -12,6 +12,13 @@ on:
 permissions:
   contents: read
 
+# One live run per branch: a newer push replaces the queued/running one.
+# Runs were stacking 40+ minutes deep in the queue because every push kept
+# every older run alive — the suite itself needs under a minute.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   journey:
     name: ${{ matrix.label }}

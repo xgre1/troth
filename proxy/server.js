@@ -802,6 +802,27 @@ const server = http.createServer((req, res) => {
   // of this block opened a separate read-only handle to a plugin-data DB
   // path, which produced split-brain reads when the CLI had populated the
   // canonical DB but the plugin-data path was empty.
+  // The command surface, from the sources of truth themselves: slash skills
+  // from the loader that executes them, subcommands parsed from bin/troth.js's
+  // own table. Nothing here is retyped, so nothing here can lie.
+  if (req.method === 'GET' && url === '/api/commands') {
+    try {
+      let slash = [];
+      try {
+        slash = (require('../shared-core/slash/loader.js').skillSummaries(WATCH_DIR) || [])
+          .map(function (s) { return { name: s.name, description: String(s.description || '').slice(0, 200) }; });
+      } catch (_) {}
+      let cli = [];
+      try {
+        const cliSrc = fs.readFileSync(path.join(__dirname, '..', 'bin', 'troth.js'), 'utf8');
+        const m = cliSrc.match(/var SUBCOMMANDS = new Set\(\[([\s\S]*?)\]\);/);
+        if (m) cli = (m[1].match(/"[a-z][a-z0-9-]*"/g) || []).map(function (x) { return x.slice(1, -1); });
+      } catch (_) {}
+      jsonResponse(res, 200, { slash: slash, cli: cli });
+    } catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
+    return;
+  }
+
   // Read-only window on action_records: class filter, text search, paging,
   // and the true total for the current filter. Deliberately NOT queryActions —
   // that call sits on the recall path with a 1000-row clamp tuned for prompt

@@ -158,6 +158,10 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-i
 .settings-card { background: var(--bg-card); -webkit-backdrop-filter: blur(20px) saturate(115%); backdrop-filter: blur(20px) saturate(115%); box-shadow: 0 8px 28px rgba(0,0,0,0.35); border: 1px solid var(--glass-border); border-radius: var(--r); padding: 26px 26px 22px; transition: border-color 0.2s; min-width: 0; align-self: start; }
 .settings-card:hover { border-color: var(--glass-border-hover); }
 .settings-card.full-width { grid-column: 1 / -1; }
+/* Cards inside a .settings-grid are spaced by its 20px gap. A card placed
+   directly on a page had nothing spacing it at all, so stacked cards met
+   border-to-border. Same 20px, so both routes look like one system. */
+.page > .settings-card { margin-bottom: 20px; }
 .card-title { font-family: var(--mono); font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.16em; margin-bottom: 8px; font-weight: 400; }
 .card-hint { font-size: 11px; color: var(--text-muted); margin-bottom: 20px; line-height: 1.6; }
 .card-hint code { font-family: var(--mono); background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 3px; font-size: 10px; }
@@ -1099,6 +1103,7 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
       <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.16em;margin-bottom:10px;display:flex;align-items:center;gap:7px;">
         <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--bond);"></span>
         Salience board · top decisions by recall
+        <a href="#substrate" onclick="navigate('substrate');setTimeout(function(){var t=document.getElementById('rec-type');if(t){t.value='decision';loadRecords(0);}},400);return false;" style="margin-left:auto;color:var(--signal);font-size:10px;text-transform:none;letter-spacing:0">see all →</a>
       </div>
       <div id="mind-salience" style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:6px;max-height:520px;overflow:auto;font-size:12px;color:var(--text);">
         <div style="padding:14px;color:var(--text-muted);font-size:11px;">loading…</div>
@@ -1109,6 +1114,7 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
       <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.16em;margin-bottom:10px;display:flex;align-items:center;gap:7px;">
         <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--bond);"></span>
         Live event stream
+        <a href="#substrate" onclick="navigate('substrate');setTimeout(function(){var t=document.getElementById('rec-type');if(t){t.value='decision';}var q=document.getElementById('rec-q');if(q){q.value='';}loadRecords(0);},400);return false;" style="margin-left:auto;color:var(--signal);font-size:10px;text-transform:none;letter-spacing:0">see all →</a>
       </div>
       <div id="mind-events" style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:6px;max-height:520px;overflow:auto;font-size:12px;color:var(--text);">
         <div style="padding:14px;color:var(--text-muted);font-size:11px;">loading…</div>
@@ -2331,6 +2337,14 @@ setInterval(function(){
 
     <div class="settings-card full-width mcp-card app-owned" data-settings-tab="mcp">
       <div class="card-title">Connect MCP</div>
+      <div class="card-hint" style="border:1px solid var(--glass-border);border-radius:8px;padding:10px 12px;">
+        <b style="color:var(--text-dim)">What changes inside Claude Code once troth is mounted:</b><br>
+        shell commands run through <code>troth-bash</code> (no permission prompts), file edits through
+        <code>troth-hashline</code> (anchored, AST-checked), repeated reads through <code>troth-cache</code> —
+        Claude's own Bash/Edit are redirected to these, so troth's tools are the ones that run.
+        Memory tools (<code>recall</code>, <code>engram_record</code>, dialogue) are added alongside.
+        Turn any of it off in <code>~/.troth/config.json</code>: <code>{"features":{"bash_steer":false,"edit_steer":false}}</code>.
+      </div>
       <div class="card-hint">Wire the <code>troth</code> MCP into Claude Code so it can read your substrate, cache, and tools. One click installs the <code>troth@troth</code> plugin from the <code>xgre1/troth</code> marketplace.</div>
 
       <div class="mcp-subpanel" style="display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--bg-card);border:1px solid var(--glass-border);border-radius:var(--r-sm);margin-bottom:16px;">
@@ -2383,6 +2397,19 @@ setInterval(function(){
 
 <div class="page" id="page-cli">
   <div class="page-title">CLI Reference</div>
+
+  <div class="settings-card full-width">
+    <div class="card-title">In chat — slash commands</div>
+    <div class="card-hint">Type these inside <code>troth</code> (or Claude Code with troth mounted). Listed from the live loader, so this is exactly what your install answers to.</div>
+    <div id="cmd-slash" style="font-size:12px">loading…</div>
+  </div>
+
+  <div class="settings-card full-width">
+    <div class="card-title">In a terminal — troth subcommands</div>
+    <div class="card-hint">Click to copy. The full table the CLI dispatches; the examples below show the ones most people need with their flags.</div>
+    <div id="cmd-cli" style="font-size:12px">loading…</div>
+  </div>
+
   <div class="cli-intro">Click any row to copy. Tags mark <span class="cli-tag tag-gemini">mcp</span>-tools, <span class="cli-tag tag-auto">auto</span>-permission, and <span class="cli-tag tag-local">local</span>-only commands.</div>
 
   <div class="cli-section">
@@ -2685,6 +2712,7 @@ function navigate(p){
   if(p==='ai-setup'){ loadConfig(); }
   if(p==='memory'){ loadStackCard(); if (typeof loadImportCard === 'function') loadImportCard(); loadRules(); }
   if(p==='substrate' && typeof loadRecords === 'function'){ loadRecordTypes(); loadRecords(0); }
+  if(p==='cli') loadCommands();
   if(p==='analytics' && typeof loadAnalytics === 'function'){ loadAnalytics(); }
   if(p==='settings' && typeof setSettingsTab === 'function'){
     if (!operatorAllowed()) { setSettingsTab('mcp'); }
@@ -3033,6 +3061,17 @@ function updateStats(data){
       // Configuration is not readiness — "Ready" here used to mean "a
       // provider row exists", including one pointing at a dead host.
       phEng.textContent=first?(providerLabel(first)+' configured — the first reply confirms it works'):'No engine set up yet';
+      // The step after setup was nowhere on this page: a configured machine
+      // showed status and no door. One line, both doors.
+      var phNext=document.getElementById('ph-next');
+      if(!phNext&&phEng&&phEng.parentElement){
+        phNext=document.createElement('div');phNext.id='ph-next';
+        phNext.style.cssText='margin-top:6px;font-size:11px;color:var(--text-muted)';
+        phEng.parentElement.appendChild(phNext);
+      }
+      if(phNext) phNext.innerHTML=first
+        ?'Talk to it: run <code style="font-family:var(--mono)">troth</code> in a terminal, or open Claude Code with troth mounted.'
+        :'';
     }
   }
 
@@ -3459,6 +3498,10 @@ var PROVIDERS = [
 
 function initProviders(statsData) {
   var provs = (statsData && statsData.providers) || {};
+  window._storedProviders = {};
+  for (var spk in provs) {
+    window._storedProviders[spk] = { has_key: !!(provs[spk] && provs[spk].apiKey), enabled: !!(provs[spk] && provs[spk].enabled) };
+  }
 
   // Local status
   var localDot = document.getElementById('ai-local-dot');
@@ -3860,6 +3903,31 @@ function startImport(source){
     }, 1200);
   }).catch(function (e) { pr.textContent = 'Could not start: ' + (e && e.message || e); });
 }
+// ── Command reference (CLI page) ───────────────────────────────────────────
+var _cmdsLoaded = false;
+function loadCommands(){
+  if (_cmdsLoaded) return;
+  fetch('/api/commands').then(function(r){ return r.json(); }).then(function(j){
+    var sBox = document.getElementById('cmd-slash');
+    var cBox = document.getElementById('cmd-cli');
+    if (!sBox || !cBox) return;
+    if (!j || j.error) { sBox.textContent = cBox.textContent = 'Could not read the command table.'; return; }
+    _cmdsLoaded = true;
+    sBox.innerHTML = (j.slash || []).map(function(s){
+      return '<div style="display:flex;gap:12px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border)">' +
+        '<code style="font-family:var(--mono);color:var(--signal);min-width:110px">/' + s.name + '</code>' +
+        '<span style="flex:1;color:var(--text-dim)">' + String(s.description || '').replace(/</g,'&lt;') + '</span></div>';
+    }).join('') || '<span style="color:var(--text-muted)">No skills found.</span>';
+    cBox.innerHTML = '<div style="display:flex;flex-wrap:wrap;gap:6px">' +
+      (j.cli || []).map(function(c){
+        return '<code onclick="copyText(\'troth ' + c + '\')" style="font-family:var(--mono);font-size:11px;padding:3px 8px;border:1px solid var(--glass-border);border-radius:5px;cursor:pointer">troth ' + c + '</code>';
+      }).join('') + '</div>';
+  }).catch(function(){});
+}
+function copyText(t){
+  try { navigator.clipboard.writeText(t); toast('Copied: ' + t); } catch (_) {}
+}
+
 // ── Rules and refusals (Memory) ────────────────────────────────────────────
 // The classes here are the ones the substrate treats as binding: a refusal is a
 // wall, an anchor holds identity, a signed fact outranks anything inferred.
@@ -4142,14 +4210,29 @@ function toggleDisabledProviders() {
 }
 
 function revealProvider(key) {
-  // "+ Add" = enable immediately. Saves through the existing saveProviders
-  // path so everything round-trips through the API the same way.
+  // "+ Add" opens the card; it does not enable anything yet. It used to save
+  // enabled=true on the spot, so a provider with no key landed in the config
+  // as a live engine — the routing chain showed a lane that could never
+  // answer, and the operator was told it was configured. A provider joins
+  // when it can work: key pasted (or OAuth done), then Save.
   var tog = document.getElementById('prov-en-' + key);
-  if (tog) tog.checked = true;
-  saveProviders();
-  applyProvidersVisibility();
   var card = tog && tog.closest('.settings-card');
-  if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  var meta = null;
+  for (var i = 0; i < PROVIDERS.length; i++) if (PROVIDERS[i].key === key) meta = PROVIDERS[i];
+  var keyEl = document.getElementById('prov-' + key);
+  var needsKey = meta && meta.field === 'apiKey' && keyEl && !keyEl.value &&
+                 !(window._storedProviders && window._storedProviders[key] && window._storedProviders[key].has_key);
+  if (tog) tog.checked = true;
+  if (card) card.style.display = '';
+  if (needsKey) {
+    // Visible but not saved: the card asks for its key first.
+    if (keyEl) { keyEl.focus(); }
+    toast('Paste the ' + (meta ? meta.name : key) + ' key, then Save.');
+  } else {
+    saveProviders();
+  }
+  applyProvidersVisibility();
+  if (card) { card.style.display = ''; card.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
 }
 
 function removeProvider(key) {
@@ -4200,6 +4283,7 @@ function applyProvidersVisibility() {
     var card = tog.closest('.settings-card');
     if (!card) continue;
     var enabled = !!tog.checked;
+    // checked = added (possibly awaiting its key), so the card stays visible.
     card.style.display = enabled ? '' : 'none';
     if (!enabled) {
       hidden++;
