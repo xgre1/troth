@@ -24,7 +24,10 @@ jobs:
         include:
           - { os: ubuntu-latest,  label: 'Linux',            tolerated: false }
           - { os: macos-latest,   label: 'macOS (Apple)',    tolerated: false }
-          - { os: macos-13,       label: 'macOS (Intel)',    tolerated: false }
+          # Intel macOS: no runner to schedule on — GitHub is retiring macos-13
+          # and the job never leaves the queue. The shipped app is arm64 only;
+          # the open core on Intel is covered by linux/amd64 in the docker
+          # target, which does run.
           - { os: windows-latest, label: 'Windows',          tolerated: false }
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
