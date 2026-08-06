@@ -313,6 +313,16 @@ function ensureProxy(cfg) {
   process.exit(1);
 }
 
+// The CLI reads config.entity_faculties (comma list) and passes it to the
+// entity as TROTH_ENTITY_LLM_FACULTIES; the app writes it when a faculty is
+// linked. Adding one here is what makes `troth` itself able to answer.
+function addEntityFaculty(cfg, name) {
+  var have = String(cfg.entity_faculties || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+  if (have.indexOf(name) === -1) have.push(name);
+  cfg.entity_faculties = have.join(",");
+  return cfg;
+}
+
 function findClaude() {
   try {
     // `where` on Windows, `which` on POSIX.
@@ -2521,6 +2531,9 @@ if (command === "setup") {
             } else {
             console.log("\n  \x1b[32m+\x1b[0m Linked. Open `claude` — your subscription answers there,");
             console.log("  with troth's memory and slash commands mounted.");
+            // ...and troth's own REPL can now think with it too.
+            addEntityFaculty(cfg, "claude_cli");
+            console.log("  `troth` also answers through your plan now.");
             _claudeLinked = true;
             configured = true;
             var alsoLane = (await ask("\n  Also add an engine for troth's own REPL and dashboard? [y/N]: ")).trim().toLowerCase();
@@ -2693,6 +2706,12 @@ if (command === "setup") {
           try {
             var _ipr2 = require("child_process").spawnSync(process.execPath, [__filename, "install-plugin"], { stdio: "inherit" });
             if (_ipr2.status !== 0) console.log("  Plugin install failed (see above) — retry later with: troth install-plugin");
+            else {
+              // Same reasoning as choice 3: a mounted plugin means the plan can
+              // serve troth's own surfaces as well.
+              addEntityFaculty(cfg, "claude_cli");
+              try { saveConfig(cfg); } catch (_) {}
+            }
           } catch (e) {
             console.log("  install-plugin failed: " + (e && e.message || e) + " — run `troth install-plugin` later.");
           }
