@@ -2145,6 +2145,16 @@ setInterval(function(){
 </script>
 
 <div class="page" id="page-settings">
+  <div class="settings-card full-width" id="memories-card">
+    <div class="card-title">Your memories</div>
+    <div class="card-hint">Search what your partner remembers; forget what should go. Signed operator facts are protected and say so.</div>
+    <div style="display:flex;gap:8px;margin:8px 0">
+      <input type="text" id="mem-q" placeholder="Search memories…" style="flex:1" onkeydown="if(event.key==='Enter')searchMemories()">
+      <button class="btn" onclick="searchMemories()">Search</button>
+    </div>
+    <div id="mem-results" style="font-size:12px"></div>
+  </div>
+
   <div class="page-title">Settings</div>
 
   <!-- Tab bar: each tab toggles which settings-card group is visible.
@@ -3688,7 +3698,10 @@ function loadStackCard(){
     fetch('/api/embed/status').then(function(r){return r.json();}).catch(function(){return {};})
   ]).then(function (res) {
     var d = res[0] || {}, emb = res[1] || {};
-    var parts = d.parts || {};
+    var parts = {};
+    // Memory parts only: the local CHAT model has its own card below, and the
+    // same model appearing twice on one page read as a duplicate.
+    ['binary', 'embedder', 'reranker'].forEach(function (k) { if ((d.parts || {})[k]) parts[k] = d.parts[k]; });
     var anyBusy = false;
     var html = Object.keys(parts).map(function (k) {
       var p = parts[k] || {};
@@ -3705,8 +3718,8 @@ function loadStackCard(){
       } else if (p.blocked) {
         state = '<span style="color:var(--text-muted)">&#9675;</span> ' + p.blocked;
       } else if (p.can_install) {
-        state = '<button class="btn" style="font-size:10.5px;padding:2px 10px" onclick="installStackPart(\'' + k + '\')">Install</button>' +
-                ' <span style="color:var(--text-muted)">' + (p.size || '') + '</span>';
+        state = '<span style="color:var(--text-muted)">' + (p.size || '') + '</span> ' +
+                '<button class="btn" style="font-size:10.5px;padding:2px 10px" onclick="installStackPart(\'' + k + '\')">Install</button>';
       } else {
         state = '<span style="color:var(--text-muted)">&#9675;</span> not available here';
       }
@@ -3762,6 +3775,37 @@ function startImport(source){
       }).catch(function(){});
     }, 1200);
   }).catch(function (e) { pr.textContent = 'Could not start: ' + (e && e.message || e); });
+}
+// ── Memory manager (Settings) ──────────────────────────────────────────────
+function searchMemories(){
+  var q = (document.getElementById('mem-q').value || '').trim();
+  var box = document.getElementById('mem-results');
+  if (!q) { box.innerHTML = ''; return; }
+  box.innerHTML = '<span style="color:var(--text-muted)">Searching…</span>';
+  fetch('/api/memory/search?q=' + encodeURIComponent(q)).then(function(r){return r.json();}).then(function (j) {
+    var items = (j && j.items) || [];
+    if (!items.length) { box.innerHTML = '<span style="color:var(--text-muted)">Nothing matches.</span>'; return; }
+    box.innerHTML = items.map(function (it) {
+      var when = it.ts ? new Date(it.ts).toLocaleDateString() : '';
+      return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--border)">' +
+             '<span style="flex:1">' + String(it.statement || '').replace(/</g, '&lt;') +
+             ' <span style="color:var(--text-muted)">' + when + '</span></span>' +
+             '<button class="btn" style="font-size:10px;padding:2px 8px" onclick="forgetMemory(this)">Forget</button></div>';
+    }).join('');
+    var rows = box.querySelectorAll('button');
+    items.forEach(function (it, i) { if (rows[i]) rows[i].dataset.stmt = it.statement || ''; });
+  }).catch(function () { box.innerHTML = '<span style="color:var(--text-muted)">Search failed — is the proxy up?</span>'; });
+}
+function forgetMemory(btn){
+  var stmt = btn.dataset.stmt || '';
+  btn.disabled = true; btn.textContent = '…';
+  post('/api/memory/forget', { statement: stmt }).then(function (r) {
+    if (r && r.ok) { btn.closest('div').style.opacity = '0.35'; btn.textContent = 'Forgotten'; toast('Forgotten'); }
+    else {
+      btn.disabled = false; btn.textContent = 'Forget';
+      toast((r && r.text) || (r && r.error) || 'Could not forget');
+    }
+  }).catch(function () { btn.disabled = false; btn.textContent = 'Forget'; toast('Could not forget'); });
 }
 function loadAnthropicStatus(){
   fetch('/api/anthropic-status').then(function(r){return r.json()}).then(function(s){
