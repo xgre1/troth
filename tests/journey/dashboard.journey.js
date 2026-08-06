@@ -76,6 +76,18 @@ module.exports.run = async (ctx, check) => {
         'present=' + isInstalled + ' but the page still offers Install');
     }
 
+    // No surface may claim a connection nobody verified. The Claude tile wired
+    // the plugin and reported a linked subscription on machines where nobody
+    // had ever signed in, while the providers panel two clicks away reported
+    // none — the operator was told both at once.
+    const mcp = (await proxy.get('/api/mcp/status')).json || {};
+    const cc = mcp.claude_code || {};
+    const claimsClaude = await page.eval(
+      '/linked|detected/i.test((document.getElementById("tob-claude-note") || {}).innerText || "")');
+    check('the Claude tile does not claim what the machine cannot back',
+      !claimsClaude || !!cc.subscription_active,
+      'page says linked/detected while /api/mcp/status reports subscription_active=' + !!cc.subscription_active);
+
     const errs = (await page.pageErrors()) || [];
     check('the page raises no errors while a person looks at it', errs.length === 0,
       JSON.stringify(errs.slice(0, 3)));

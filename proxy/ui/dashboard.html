@@ -2658,6 +2658,26 @@ function wireFromCard(client, btn, statusId) {
   var el = statusId && document.getElementById(statusId);
   if (btn) btn.disabled = true;
   if (el) el.textContent = 'Wiring ' + client + '…';
+  // For Claude Code, check there is something to link to before saying it is
+  // linked. `claude plugin install` succeeds on a machine nobody has signed in
+  // on, so this reported a connected plan while the panel beside it correctly
+  // reported none.
+  var gate = (client !== 'claude_code')
+    ? Promise.resolve(true)
+    : fetch('/api/mcp/status').then(function (r) { return r.json(); }).then(function (s) {
+        var cc = (s && s.claude_code) || {};
+        if (!cc.cli_installed) {
+          if (el) el.textContent = 'Claude Code is not installed here — install it, run `claude` once and sign in.';
+          return false;
+        }
+        if (!cc.subscription_active) {
+          if (el) el.textContent = 'Claude Code is installed but not signed in — run `claude`, sign in, then link.';
+          return false;
+        }
+        return true;
+      }).catch(function () { return true; });   // status unreachable: try anyway
+  gate.then(function (go) {
+  if (!go) { if (btn) btn.disabled = false; toast('Not linked'); return; }
   fetch('/api/mcp/install?client=' + encodeURIComponent(client), { method: 'POST' })
     .then(function (r) { return r.json(); })
     .then(function (j) {
@@ -2672,6 +2692,7 @@ function wireFromCard(client, btn, statusId) {
       if (btn) btn.disabled = false;
       if (el) el.textContent = 'Failed: ' + (e && e.message || e);
     });
+  });
 }
 function copyCmd(el){navigator.clipboard.writeText(el.textContent.trim()).then(function(){var orig=el.textContent;el.textContent='Copied!';setTimeout(function(){el.textContent=orig;},1200);});}
 function copyCliCmd(el) {
@@ -4303,8 +4324,30 @@ code.tob-c{background:var(--bg-code);border:1px solid var(--glass-border);border
   // configured: the operator's use-case is Claude Code with troth mounted.
   window.tobClaudeLink = function (btn) {
     if (btn) btn.disabled = true;
-    $('tob-m8').className = 'tob-msg'; $('tob-m8').textContent = 'Wiring troth into Claude Code…';
-    post('/api/mcp/install?client=claude_code').then(function (j) {
+    $('tob-m8').className = 'tob-msg'; $('tob-m8').textContent = 'Checking Claude Code…';
+    // Ask before claiming. `claude plugin install` succeeds on a machine where
+    // nobody has ever signed in, so wiring the plugin and reporting ✓ Linked
+    // told operators their plan was connected while the providers panel, two
+    // clicks away, correctly said no subscription was detected. The app has
+    // always checked first and refused; this is the same check.
+    fetch('/api/mcp/status').then(function (r) { return r.json(); }).then(function (s) {
+      var cc = (s && s.claude_code) || {};
+      if (!cc.cli_installed) {
+        if (btn) btn.disabled = false;
+        $('tob-m8').className = 'tob-msg tob-bad';
+        $('tob-m8').textContent = 'Claude Code is not installed here. Install it, run `claude` once and sign in, then link.';
+        return null;
+      }
+      if (!cc.subscription_active) {
+        if (btn) btn.disabled = false;
+        $('tob-m8').className = 'tob-msg tob-bad';
+        $('tob-m8').textContent = 'Claude Code is installed but not signed in. Run `claude` in a terminal, sign in, then link.';
+        return null;
+      }
+      $('tob-m8').textContent = 'Wiring troth into Claude Code…';
+      return post('/api/mcp/install?client=claude_code');
+    }).then(function (j) {
+      if (j === null) return;
       if (btn) btn.disabled = false;
       if (j && (j.ok || j.installed || j.already)) {
         $('tob-m8').className = 'tob-msg tob-ok';
