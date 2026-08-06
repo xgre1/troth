@@ -670,13 +670,15 @@ const server = http.createServer((req, res) => {
     // instead: an SVG of the wordmark's chrome ring, served under the.png
     // names the manifest already asks for, since every browser that requests
     // these accepts image/svg+xml. Nothing to ship, nothing to go missing.
+    // The mark is the wordmark's "t" in the chrome lockup — the same thing the
+    // sidebar shows. A ring belonged to no product anyone could name. Drawn as
+    // strokes rather than <text> so it does not depend on a font being present.
     const size = url === '/icon-512.png' ? 512 : 192;
-    const c = size / 2;
-    const icon = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '">'
-      + '<rect width="' + size + '" height="' + size + '" rx="' + Math.round(size * 0.22) + '" fill="#0B0D10"/>'
-      + '<circle cx="' + c + '" cy="' + c + '" r="' + Math.round(size * 0.30) + '" fill="none" stroke="#A8B5C7" stroke-width="' + Math.max(2, Math.round(size * 0.045)) + '"/>'
-      + '<circle cx="' + c + '" cy="' + c + '" r="' + Math.round(size * 0.09) + '" fill="#A8B5C7"/>'
-      + '</svg>';
+    const icon = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 100 100">'
+      + '<rect width="100" height="100" rx="22" fill="#0B0D10"/>'
+      + '<g fill="none" stroke="#A8B5C7" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">'
+      + '<path d="M34 38h32"/><path d="M50 20v40a12 12 0 0 0 15 11"/>'
+      + '</g></svg>';
     res.writeHead(200, {
       'Content-Type': 'image/svg+xml',
       'Content-Length': Buffer.byteLength(icon),
@@ -800,6 +802,66 @@ const server = http.createServer((req, res) => {
   // of this block opened a separate read-only handle to a plugin-data DB
   // path, which produced split-brain reads when the CLI had populated the
   // canonical DB but the plugin-data path was empty.
+  // Read-only window on action_records: class filter, text search, paging,
+  // and the true total for the current filter. Deliberately NOT queryActions —
+  // that call sits on the recall path with a 1000-row clamp tuned for prompt
+  // latency, and a browser paging to row 100k must not widen it.
+  if (req.method === 'GET' && url.startsWith('/api/substrate/records')) {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    try {
+      const rq = (new URL(req.url, 'http://x')).searchParams;
+      const rType = String(rq.get('type') || '').trim();
+      const rQ = String(rq.get('q') || '').trim().slice(0, 200);
+      const rLimit = Math.min(200, Math.max(1, parseInt(rq.get('limit') || '50', 10) || 50));
+      const rOffset = Math.max(0, parseInt(rq.get('offset') || '0', 10) || 0);
+      // Required here rather than borrowed from the substrate dispatcher below:
+      // this route runs before it, and reaching into a variable that is only
+      // assigned inside that block is how it returned a 500 for every request.
+      const rState = require('../shared-core/state.js');
+      const rdb = rState._dbForQuery && rState._dbForQuery();
+      if (!rdb) { jsonResponse(res, 200, { items: [], total: 0, offset: rOffset, limit: rLimit }); return; }
+      const rWhere = [], rBind = [];
+      if (rType) { rWhere.push('type = ?'); rBind.push(rType); }
+      const rCTypes = String(rq.get('ctype') || '').split(',')
+        .map(function (x) { return x.trim(); })
+        .filter(function (x) { return /^[a-z_]{1,32}$/.test(x); });
+      if (rCTypes.length) {
+        rWhere.push("json_extract(output,'$.commitment_type') IN (" +
+          rCTypes.map(function () { return '?'; }).join(',') + ')');
+        rCTypes.forEach(function (x) { rBind.push(x); });
+      }
+      if (rQ) { rWhere.push('(output LIKE ? OR input LIKE ?)'); rBind.push('%' + rQ + '%', '%' + rQ + '%'); }
+      const rW = rWhere.length ? ' WHERE ' + rWhere.join(' AND ') : '';
+      const rTotal = rdb.prepare('SELECT COUNT(*) AS n FROM action_records' + rW).get.apply(
+        rdb.prepare('SELECT COUNT(*) AS n FROM action_records' + rW), rBind).n;
+      const rStmt = rdb.prepare('SELECT id, timestamp, type, agent_id, cwd, memory_class, output, input' +
+        ' FROM action_records' + rW + ' ORDER BY timestamp DESC LIMIT ? OFFSET ?');
+      const rRows = rStmt.all.apply(rStmt, rBind.concat([rLimit, rOffset]));
+      jsonResponse(res, 200, {
+        total: rTotal, offset: rOffset, limit: rLimit,
+        items: rRows.map(function (r) {
+          let out = null, inp = null;
+          try { out = JSON.parse(r.output || 'null'); } catch (_) {}
+          try { inp = JSON.parse(r.input || 'null'); } catch (_) {}
+          // One readable line per record. Each class carries its meaning in a
+          // different field, so the fallback chain ends at the raw JSON head
+          // rather than an empty row that hides a record exists.
+          let line = (out && (out.statement || out.summary || out.text || out.decision)) ||
+                     (inp && (inp.tool_name || inp.query || inp.source)) || '';
+          if (!line) line = String(r.output || r.input || '').slice(0, 160);
+          return {
+            id: r.id, ts: r.timestamp, type: r.type,
+            kind: (out && out.commitment_type) || (inp && inp.kind) || null,
+            memory_class: r.memory_class || null,
+            cwd: r.cwd || null,
+            statement: String(line).slice(0, 400)
+          };
+        })
+      });
+    } catch (e) { jsonResponse(res, 500, { error: 'records_failed', detail: String(e && e.message || e) }); }
+    return;
+  }
+
   if (req.method === 'GET' && (url.startsWith('/api/substrate/') || url === '/api/embed/status' || url === '/api/localchat/status')) {
     // A4: these reads serve the partner's MEMORY. The dead
     // duplicate handlers further down all carried checkRemoteAuth, but this
@@ -3039,15 +3101,21 @@ const server = http.createServer((req, res) => {
       // is operator-supplied and unbundled, so a UI that offers a sign-in
       // button without it is offering a button that cannot work.
       const configured = !!require('../shared-core/codex-auth.js').clientId();
+      // Whether a linked plan also buys image generation is a property of this
+      // build, not of the plan: the tool ships with the app. Probed, so the UI
+      // never advertises a capability the install does not carry.
+      let images = false;
+      try { require.resolve('../shared-core/tools/image-gen.js'); images = true; } catch (_) {}
       const t = tokenStore.load();
       if (!t) {
-        jsonResponse(res, 200, { signed_in: false, configured });
+        jsonResponse(res, 200, { signed_in: false, configured, images });
       } else {
         const expired = tokenStore.isExpired(t);
         const expires_in = Math.max(0, Math.round((t.expires_at - Date.now()) / 1000));
         jsonResponse(res, 200, {
           signed_in: true,
           configured,
+          images,
           account_id: t.account_id || null,
           scope:      t.scope || null,
           expires_in,

@@ -88,6 +88,41 @@ module.exports.run = async (ctx, check) => {
       !claimsClaude || !!cc.subscription_active,
       'page says linked/detected while /api/mcp/status reports subscription_active=' + !!cc.subscription_active);
 
+    // Structure, asserted in the DOM rather than by reading the file. Removing
+    // a card by hand once left its closing tag behind; the page container shut
+    // early and every card after it rendered on all pages at once. Nothing in
+    // the suite could see that — the page still navigated, raised no errors and
+    // screenshotted fine. The invariant is simple: a card lives on a page.
+    const structure = await page.eval(`(function(){
+      var cards = [].slice.call(document.querySelectorAll('.settings-card'));
+      var orphans = cards.filter(function (el) { return !el.closest('.page'); });
+      var navs = [].slice.call(document.querySelectorAll('.nav-item[data-page]'))
+                   .map(function (n) { return n.getAttribute('data-page'); });
+      var missing = navs.filter(function (p) { return !document.getElementById('page-' + p); });
+      return {
+        orphans: orphans.map(function (e) {
+          return ((e.querySelector('.card-title') || {}).textContent || e.id || '?').trim();
+        }).slice(0, 5),
+        cards: cards.length,
+        missing: missing,
+        memoryPage: !!document.getElementById('page-memory'),
+        memoryHasStack: !!document.querySelector('#page-memory #stack-card'),
+        memoryHasImport: !!document.querySelector('#page-memory #import-card'),
+        providersHasStack: !!document.querySelector('#page-ai-setup #stack-card')
+      };
+    })()`);
+    check('every card belongs to a page', structure.orphans.length === 0,
+      structure.cards + ' cards, adrift: ' + JSON.stringify(structure.orphans));
+    check('every sidebar entry leads somewhere', structure.missing.length === 0,
+      'nav without a page: ' + JSON.stringify(structure.missing));
+    // Memory is the product, not a provider: the stack and the chat import
+    // belong on their own page, and a person reaches them without Operator mode.
+    check('memory has its own page', structure.memoryPage, 'no #page-memory');
+    check('the memory stack and chat import live under Memory',
+      structure.memoryHasStack && structure.memoryHasImport && !structure.providersHasStack,
+      'stack=' + structure.memoryHasStack + ' import=' + structure.memoryHasImport +
+      ' stillUnderProviders=' + structure.providersHasStack);
+
     const errs = (await page.pageErrors()) || [];
     check('the page raises no errors while a person looks at it', errs.length === 0,
       JSON.stringify(errs.slice(0, 3)));

@@ -18,7 +18,9 @@ Substrate action you MUST take:
    - `scope` = `"goal"`
 2. Confirm in ≤2 sentences that the goal is now persisted, and how it will bias upcoming work.
 
-Why this matters: scope=`"goal"` engrams are surfaced into the identity envelope on every subsequent turn, including across new sessions and the voice app. The goal is now part of who the agent is, not just a note for this conversation.
+Why this matters: scope=`"goal"` engrams are the pool the autonomous stack works from — idle pursuit picks open goals up between turns, the coordinator spawns work against them, and `l4-status` reports them as open, satisfied or abandoned. In ordinary chat the statement is recalled like any other high-salience engram; it is the unattended paths that treat it as a standing objective.
+
+The identity envelope carries anchors, not goals. To make something part of who the agent is on every turn, use `/remember` with an anchor, not this.
 
 ## Tool routing (both topologies)
 The substrate tools this skill uses may be DIRECT in your tool list (names like

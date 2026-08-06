@@ -285,7 +285,7 @@ function main() {
   console.log('Backup:   ' + backup.dst);
   console.log('');
   console.log('To verify: identity recall now returns only the keepers + their');
-  console.log('newest copy. Run troth recall --class identity --query <anything>.');
+  console.log('newest copy. Open \'troth chat\' and run /recall <anything>.');
 }
 
 main();
