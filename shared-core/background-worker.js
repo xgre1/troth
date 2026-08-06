@@ -895,7 +895,10 @@ const taskPurposeRefresh = {
     const lines = [];
     lines.push('project: ' + projectId);
     if (thesisCount > 0) lines.push('thesis: loaded (' + thesisCount + ' anchor(s))');
-    else lines.push('thesis: NONE for this project — operator should: troth thesis set');
+    // Names the command that exists. `troth thesis set` was never a command in
+    // any release — the orientation the partner reads at the top of a session
+    // was instructing its operator to run something the product does not have.
+    else lines.push('thesis: NONE for this project — operator can pin one with /goal <statement>');
     if (openGoals.length) {
       lines.push('open: ' + openGoals.slice(0, 3).map(g => String(g).slice(0, 100)).join(' | '));
     } else {

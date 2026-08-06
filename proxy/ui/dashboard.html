@@ -8,6 +8,7 @@
 <meta name="theme-color" content="#050505">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="icon" href="/icon-192.png">
 <title>troth</title>
 <!-- No webfont request. Opening this page used to fetch IBM Plex from Google,
      which handed the operator's IP and User-Agent to a third party every time,
@@ -262,7 +263,43 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-i
 .provider-input.api-key:focus { -webkit-text-security: none; text-security: none; }
 .provider-input:focus { border-color: var(--text-muted); outline: none; }
 .provider-input::placeholder { color: var(--text-muted); }
-.routing-select { background: var(--bg-card); -webkit-backdrop-filter: blur(20px) saturate(115%); backdrop-filter: blur(20px) saturate(115%); border: 1px solid var(--glass-border); border-radius: 6px; padding: 6px 10px; color: var(--text); font-size: 11px; font-family: var(--mono); }
+/* Inputs only looked right inside .field or with .provider-input; a plain
+   search box fell through to the browser default and rendered white on black.
+   :where() keeps this at zero specificity, so it is a floor, not an override. */
+:where(input[type="text"], input[type="search"], input[type="number"],
+       input[type="password"], input:not([type]), textarea) {
+  background: var(--bg-card); border: 1px solid var(--glass-border);
+  border-radius: 6px; padding: 7px 10px; color: var(--text);
+  font-size: 11px; font-family: var(--mono); outline: none;
+}
+:where(input[type="text"], input[type="search"], input[type="number"],
+       input[type="password"], input:not([type]), textarea)::placeholder {
+  color: var(--text-muted);
+}
+:where(input[type="text"], input[type="search"], input[type="number"],
+       input[type="password"], input:not([type]), textarea):focus {
+  border-color: var(--text-muted);
+}
+
+/* Selects are drawn twice: the closed box by us, the open popup by the
+   platform. appearance:none only reaches the first — off macOS the popup came
+   up as a white system menu over a black page. color-scheme puts the platform
+   widgets in dark mode and the option colours are stated outright, because the
+   list is the browser's to paint, not ours. */
+select {
+  appearance: none; -webkit-appearance: none; -moz-appearance: none;
+  background-color: var(--bg-card); color: var(--text);
+  border: 1px solid var(--glass-border); border-radius: 6px;
+  padding: 6px 28px 6px 10px; font-size: 11px; font-family: var(--mono);
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238A8A93' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; background-size: 9px 6px;
+}
+select:hover { border-color: var(--bond-muted, var(--glass-border)); }
+select:focus-visible { outline: 2px solid var(--signal); outline-offset: 1px; }
+select option { background-color: #101012; color: #E8E8EA; }
+select option:checked { background-color: #1A1A1F; }
+
+.routing-select { background-color: var(--bg-card); padding-right: 28px; -webkit-backdrop-filter: blur(20px) saturate(115%); backdrop-filter: blur(20px) saturate(115%); border: 1px solid var(--glass-border); border-radius: 6px; padding: 6px 10px; color: var(--text); font-size: 11px; font-family: var(--mono); }
 /* Mobile responsive */
 @media (max-width: 600px) {
   .sidebar { width: 60px; }
@@ -342,7 +379,11 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-i
 .point-to-app { display: none; }
 body.ctx-app:not(.op-on) .point-to-app { display: block; }
 body.ctx-app:not(.op-on) .app-owned { display: none !important; }
-body:not(.op-on) .op-gated { display: none !important; }
+/* Gated only where the gate can actually be opened: the Operator toggle
+   lives in the app context (#op-row is display:none otherwise), so hiding these
+   everywhere left an open-repo machine with no way to reach Mind, Substrate or
+   Brain at all — the CSS hid what the JS was happy to serve. */
+body.ctx-app:not(.op-on) .op-gated { display: none !important; }
 #op-row { display: none; position: relative; align-items: center; justify-content: center; padding: 13px 0; margin-bottom: 4px; color: var(--text-muted); cursor: pointer; width: 100%; user-select: none; transition: color 0.2s; }
 body.ctx-app #op-row { display: flex; }
 #op-row svg { width: 19px; height: 19px; }
@@ -369,6 +410,10 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
     <div class="nav-item active" data-page="dashboard" onclick="navigate('dashboard')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
       <span>Dashboard</span>
+    </div>
+    <div class="nav-item" data-page="memory" onclick="navigate('memory')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/></svg>
+      <span>Memory</span>
     </div>
     <div class="nav-item" data-page="analytics" onclick="navigate('analytics')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
@@ -634,8 +679,11 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
   <div class="log-viewer" id="log-viewer"></div>
 </div>
 
-<div class="page" id="page-ai-setup">
-  <div class="page-title">Providers</div>
+<div class="page" id="page-memory">
+  <div class="page-title" style="display:flex;align-items:baseline;gap:14px;">
+    <span>Memory</span>
+    <span style="font-size:10px;color:var(--text-muted);font-weight:400;letter-spacing:1px;text-transform:uppercase;">what your partner remembers</span>
+  </div>
 
   <!-- Memory stack: what powers recall on THIS machine, with an honest state
        per part. Present without Operator mode on purpose: whether memory is
@@ -644,15 +692,35 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
   <div class="settings-card full-width" id="stack-card">
     <div class="card-title">Memory on this device</div>
     <div class="card-hint">Embeddings and reranking run locally — this is what makes recall semantic instead of word-matching. Nothing here talks to a cloud.</div>
-    <div id="stack-rows" style="margin-top:8px"></div>
+    <div id="stack-rows"></div>
   </div>
 
   <div class="settings-card full-width" id="import-card" style="display:none">
     <div class="card-title">Import your chat history</div>
     <div class="card-hint">Memory should not start empty — pull in the conversations already on this machine. Additive; nothing is deleted.</div>
-    <div id="import-rows" style="margin-top:8px"></div>
-    <div id="import-progress" style="margin-top:6px;font-size:11px;color:var(--text-muted)"></div>
+    <div id="import-rows"></div>
+    <div id="import-progress" style="margin-top:10px;font-size:11px;color:var(--text-muted)"></div>
   </div>
+
+  <div class="settings-card full-width">
+    <div class="card-title">Rules and refusals</div>
+    <div class="card-hint">The walls your partner keeps — what it refuses, the facts you signed, the anchors it will not drift from. These survive every model swap; ordinary memories do not.</div>
+    <div id="rules-rows" style="font-size:12px">loading…</div>
+  </div>
+
+  <div class="settings-card full-width">
+    <div class="card-title">Memories</div>
+    <div class="card-hint">Search what your partner remembers; forget what should go. Signed operator facts are protected and say so.</div>
+    <div style="display:flex;gap:8px;margin:0 0 10px">
+      <input type="text" id="mem-q-mem" placeholder="Search memories…" style="flex:1" onkeydown="if(event.key==='Enter')searchMemories('mem')">
+      <button class="btn" onclick="searchMemories('mem')">Search</button>
+    </div>
+    <div id="mem-results-mem" style="font-size:12px"></div>
+  </div>
+</div>
+
+<div class="page" id="page-ai-setup">
+  <div class="page-title">Providers</div>
 
   <!-- A2: with the troth app installed, providers are app-owned so every
        surface stays in sync. This page points to the app unless Operator
@@ -880,7 +948,8 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
           var ttlMin = Math.max(0, Math.round((d.expires_in||0)/60));
           var acct = d.account_id ? ' · acct ' + String(d.account_id).slice(0,8) + '…' : '';
           var exp = d.expired ? ' · token expired (will auto-refresh on next call)' : ' · expires in ~' + ttlMin + ' min';
-          st.innerHTML = '<span style="color:#C7D2E0">✓ signed in</span>' + acct + exp;
+          var imgs = d.images ? ' <span style="color:var(--text-muted)">· chat + image generation</span>' : '';
+          st.innerHTML = '<span style="color:#C7D2E0">✓ signed in</span>' + imgs + acct + exp;
           if (loginBtn) loginBtn.style.display = 'none';
           if (logoutBtn) logoutBtn.style.display = 'inline-block';
         } else {
@@ -1099,7 +1168,7 @@ troth mind list / focus / show / compact</pre>
           // the thesis itself without the machine tail.
           var ftxt = focusEl.textContent.trim();
           if (/^thesis: NONE/.test(ftxt)) {
-            heroFocus.innerHTML = '<span style="color:var(--text-muted);font-style:italic;font-size:14px;font-weight:400;">no focus pinned yet · /goal sets one</span>';
+            heroFocus.innerHTML = '<span style="color:var(--text-muted);font-style:italic;font-size:14px;font-weight:400;">no focus pinned yet · /goal pins one for unattended work</span>';
           } else {
             if (/^thesis: /.test(ftxt)) {
               ftxt = ftxt.slice(8);
@@ -1109,7 +1178,7 @@ troth mind list / focus / show / compact</pre>
             heroFocus.textContent = ftxt;
           }
         } else if (focusEl) {
-          heroFocus.innerHTML = '<span style="color:var(--text-muted);font-style:italic;font-size:14px;font-weight:400;">no focus pinned yet · /goal sets one</span>';
+          heroFocus.innerHTML = '<span style="color:var(--text-muted);font-style:italic;font-size:14px;font-weight:400;">no focus pinned yet · /goal pins one for unattended work</span>';
         }
         var meta = snap.querySelector('div:nth-child(3)');
         if (meta) {
@@ -1138,10 +1207,12 @@ troth mind list / focus / show / compact</pre>
       var decRows = document.querySelectorAll('#mind-salience > div').length;
       var decEl = document.getElementById('mind-hero-decisions');
       if (decEl && decRows > 0) decEl.textContent = decRows;
-      // Events count = rows in #mind-events.
+      // Events count = rows in #mind-events — which is a PAGE of events, not
+      // the total. At the cap this printed "40 recent events" on a substrate
+      // holding thousands: the query's size reported as the world's.
       var evRows = document.querySelectorAll('#mind-events > div').length;
       var evEl = document.getElementById('mind-hero-events');
-      if (evEl && evRows > 0) evEl.textContent = evRows;
+      if (evEl && evRows > 0) evEl.textContent = evRows >= 40 ? '40+' : String(evRows);
     } catch (_) {}
   }
   // Run on DOM mutation of any of the four populated regions.
@@ -1304,13 +1375,19 @@ troth mind list / focus / show / compact</pre>
   </div>
 
   <div class="settings-card full-width">
-    <div class="card-title">Memories</div>
-    <div class="card-hint">Search what your partner remembers; forget what should go. Signed operator facts are protected and say so.</div>
-    <div style="display:flex;gap:8px;margin:8px 0">
-      <input type="text" id="mem-q-sub" placeholder="Search memories…" style="flex:1" onkeydown="if(event.key==='Enter')searchMemories('sub')">
-      <button class="btn" onclick="searchMemories('sub')">Search</button>
+    <div class="card-title">All records</div>
+    <div class="card-hint">Every action record the substrate holds — filter by class, search the text, page through the whole table. Search covers what was written, not what it means; for meaning use <b>Memory</b> in the sidebar.</div>
+    <div style="display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap">
+      <select id="rec-type" onchange="loadRecords(0)" style="min-width:170px"><option value="">every class</option></select>
+      <input type="text" id="rec-q" placeholder="Search record text…" style="flex:1;min-width:180px" onkeydown="if(event.key==='Enter')loadRecords(0)">
+      <button class="btn" onclick="loadRecords(0)">Search</button>
     </div>
-    <div id="mem-results-sub" style="font-size:12px"></div>
+    <div id="rec-meta" style="font-size:11px;color:var(--text-muted);margin-bottom:6px">loading…</div>
+    <div id="rec-rows" style="font-size:12px"></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+      <button class="btn btn-ghost" id="rec-prev" onclick="recPage(-1)">← Newer</button>
+      <button class="btn btn-ghost" id="rec-next" onclick="recPage(1)">Older →</button>
+    </div>
   </div>
 
   <!-- Top-nav: jump to a section instead of scrolling 2000px to find it.
@@ -2155,7 +2232,6 @@ setInterval(function(){
 </script>
 
 <div class="page" id="page-settings">
- </div>
 
   <div class="page-title">Settings</div>
 
@@ -2235,14 +2311,10 @@ setInterval(function(){
     <div class="settings-card full-width op-gated" data-settings-tab="substrate" style="display:none">
       <div class="card-title">Substrate</div>
       <div class="card-hint">
-        The substrate (engrams · intents · capabilities · skills · lessons · sub-partners)
-        lives in the dedicated <b>Substrate</b> page in the left nav.
+        Search and forget live on the <b>Memory</b> page; the raw records
+        (engrams · intents · capabilities · skills · lessons · sub-partners)
+        live on <b>Substrate</b>. Both are in the left nav.
       </div>
-    <div style="display:flex;gap:8px;margin:8px 0">
-      <input type="text" id="mem-q-set" placeholder="Search memories…" style="flex:1" onkeydown="if(event.key==='Enter')searchMemories('set')">
-      <button class="btn" onclick="searchMemories('set')">Search</button>
-    </div>
-    <div id="mem-results-set" style="font-size:12px"></div>
       <div class="card-footer" style="margin-top:14px;gap:8px;flex-wrap:wrap">
         <button class="btn" onclick="navigate('substrate')">Open Substrate page →</button>
       </div>
@@ -2610,8 +2682,9 @@ function navigate(p){
   if(p==='brain' && brainNodes.length===0) loadBrainGraph();
   if(p==='mind' && typeof window.loadAllMind === 'function') window.loadAllMind();
   if(p==='ai-setup') loadAnthropicStatus();
-  if(p==='ai-setup') loadStackCard();
   if(p==='ai-setup'){ loadConfig(); }
+  if(p==='memory'){ loadStackCard(); if (typeof loadImportCard === 'function') loadImportCard(); loadRules(); }
+  if(p==='substrate' && typeof loadRecords === 'function'){ loadRecordTypes(); loadRecords(0); }
   if(p==='analytics' && typeof loadAnalytics === 'function'){ loadAnalytics(); }
   if(p==='settings' && typeof setSettingsTab === 'function'){
     if (!operatorAllowed()) { setSettingsTab('mcp'); }
@@ -3787,9 +3860,100 @@ function startImport(source){
     }, 1200);
   }).catch(function (e) { pr.textContent = 'Could not start: ' + (e && e.message || e); });
 }
-// ── Memory manager (Settings) ──────────────────────────────────────────────
+// ── Rules and refusals (Memory) ────────────────────────────────────────────
+// The classes here are the ones the substrate treats as binding: a refusal is a
+// wall, an anchor holds identity, a signed fact outranks anything inferred.
+function loadRules(){
+  var box = document.getElementById('rules-rows');
+  if (!box) return;
+  fetch('/api/substrate/records?ctype=refusal,anchor,fact&limit=60')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (!d || d.error) {
+        box.innerHTML = '<span style="color:var(--text-muted)">Could not read rules' +
+          (d && d.error === 'unknown substrate endpoint'
+            ? ' — this proxy is running an older build. Restart it: <code>troth restart</code>.'
+            : ' — is the proxy up?') + '</span>';
+        return;
+      }
+      var items = d.items || [];
+      if (!items.length) {
+        box.innerHTML = '<span style="color:var(--text-muted)">No rules yet. ' +
+          'In chat, <code>/refuse</code> sets a wall and <code>/fact</code> signs something as true.</span>';
+        return;
+      }
+      var label = { refusal: 'refuses', anchor: 'anchor', fact: 'signed fact' };
+      box.innerHTML = items.map(function(it){
+        var when = it.ts ? new Date(it.ts).toLocaleDateString() : '';
+        return '<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border)">' +
+          '<span style="font-family:var(--mono);font-size:10px;color:var(--signal);min-width:82px">' +
+          (label[it.kind] || it.kind || '') + '</span>' +
+          '<span style="flex:1">' + String(it.statement || '').replace(/</g,'&lt;') + '</span>' +
+          '<span style="font-size:10px;color:var(--text-muted)">' + when + '</span></div>';
+      }).join('');
+    })
+    .catch(function(){ box.innerHTML = '<span style="color:var(--text-muted)">Could not read rules — is the proxy up?</span>'; });
+}
+
+// ── Records browser (Substrate) ────────────────────────────────────────────
+// Paged deliberately: the substrate runs to six figures, so "show everything"
+// means "let me reach everything", not "send everything".
+var _recOffset = 0, _recTotal = 0, _recLimit = 50, _recBusy = false;
+function recPage(dir){
+  var next = _recOffset + dir * _recLimit;
+  if (next < 0 || next >= _recTotal) return;
+  loadRecords(next);
+}
+function loadRecords(offset){
+  if (_recBusy) return;
+  var typeEl = document.getElementById('rec-type');
+  var qEl = document.getElementById('rec-q');
+  var meta = document.getElementById('rec-meta');
+  var rows = document.getElementById('rec-rows');
+  if (!meta || !rows) return;
+  _recBusy = true;
+  meta.textContent = 'loading…';
+  var qs = '?limit=' + _recLimit + '&offset=' + Math.max(0, offset || 0) +
+           '&type=' + encodeURIComponent((typeEl && typeEl.value) || '') +
+           '&q=' + encodeURIComponent(((qEl && qEl.value) || '').trim());
+  fetch('/api/substrate/records' + qs).then(function(r){ return r.json(); }).then(function(d){
+    _recBusy = false;
+    if (!d || d.error) { meta.textContent = 'Could not read records' + (d && d.detail ? ' — ' + d.detail : ''); rows.innerHTML = ''; return; }
+    _recOffset = d.offset || 0; _recTotal = d.total || 0;
+    var items = d.items || [];
+    var from = _recTotal ? _recOffset + 1 : 0;
+    meta.textContent = _recTotal
+      ? (from + '–' + (_recOffset + items.length) + ' of ' + _recTotal.toLocaleString() + ' records')
+      : 'No records match.';
+    rows.innerHTML = items.map(function(it){
+      var when = it.ts ? new Date(it.ts).toLocaleString() : '';
+      var tag = it.kind ? (it.type + ' · ' + it.kind) : it.type;
+      return '<div style="padding:7px 0;border-top:1px solid var(--border)">' +
+        '<div style="display:flex;justify-content:space-between;gap:12px;font-size:10px;color:var(--text-muted);font-family:var(--mono)">' +
+        '<span>' + String(tag).replace(/</g,'&lt;') + '</span><span>' + when + '</span></div>' +
+        '<div style="margin-top:2px">' + String(it.statement || '').replace(/</g,'&lt;') + '</div></div>';
+    }).join('');
+    var prev = document.getElementById('rec-prev'), next = document.getElementById('rec-next');
+    if (prev) prev.disabled = _recOffset <= 0;
+    if (next) next.disabled = _recOffset + _recLimit >= _recTotal;
+  }).catch(function(){ _recBusy = false; meta.textContent = 'Could not read records — is the proxy up?'; });
+}
+function loadRecordTypes(){
+  var sel = document.getElementById('rec-type');
+  if (!sel || sel.dataset.filled) return;
+  fetch('/api/substrate/counts').then(function(r){ return r.json(); }).then(function(c){
+    var by = (c && c.by_type) || {};
+    var names = Object.keys(by).filter(function(k){ return by[k] > 0; })
+                      .sort(function(a,b){ return by[b] - by[a]; });
+    sel.innerHTML = '<option value="">every class (' + ((c && c.total) || 0).toLocaleString() + ')</option>' +
+      names.map(function(n){ return '<option value="' + n + '">' + n + ' (' + by[n].toLocaleString() + ')</option>'; }).join('');
+    sel.dataset.filled = '1';
+  }).catch(function(){});
+}
+
+// ── Memory manager (Memory page) ──────────────────────────────────────────────
 function searchMemories(sfx){
-  sfx = sfx || 'sub';
+  sfx = sfx || 'mem';
   var q = (document.getElementById('mem-q-' + sfx).value || '').trim();
   var box = document.getElementById('mem-results-' + sfx);
   if (!q) { box.innerHTML = ''; return; }
@@ -3799,7 +3963,12 @@ function searchMemories(sfx){
     return r.json();
   }).then(function (j) {
     if (j === null) return;
-    var items = (j && j.items) || [];
+    if (!j || j.error) {
+      box.innerHTML = '<span style="color:var(--text-muted)">Search did not run' +
+        (j && j.error ? ' — ' + String(j.error).replace(/</g,'&lt;') : '') + '.</span>';
+      return;
+    }
+    var items = j.items || [];
     if (!items.length) { box.innerHTML = '<span style="color:var(--text-muted)">Nothing matches.</span>'; return; }
     box.innerHTML = items.map(function (it) {
       var when = it.ts ? new Date(it.ts).toLocaleDateString() : '';
@@ -4600,7 +4769,10 @@ code.tob-c{background:var(--bg-code);border:1px solid var(--glass-border);border
   function tobCodexState() {
     fetch('/api/providers/codex/status').then(function (r) { return r.json(); }).then(function (s) {
       if (s && s.signed_in) { $('tob-m0').className = 'tob-msg tob-ok';
-        $('tob-m0').textContent = '✓ Already signed in.'; done(); return; }
+        $('tob-m0').textContent = s.images
+          ? '✓ Already signed in — chat and image generation.'
+          : '✓ Already signed in.';
+        done(); return; }
       if (s && s.configured === false) {
         $('tob-codex-btn').disabled = true;
         $('tob-codex-note').innerHTML = '<div class="tob-note">The OAuth client id is blank on this install, so this ' +
