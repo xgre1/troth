@@ -637,6 +637,23 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
 <div class="page" id="page-ai-setup">
   <div class="page-title">Providers</div>
 
+  <!-- Memory stack: what powers recall on THIS machine, with an honest state
+       per part. Present without Operator mode on purpose: whether memory is
+       real is the first thing a newcomer needs to know, and until now it was
+       only visible inside the first-run overlay. -->
+  <div class="settings-card full-width" id="stack-card">
+    <div class="card-title">Memory on this device</div>
+    <div class="card-hint">Embeddings and reranking run locally — this is what makes recall semantic instead of word-matching. Nothing here talks to a cloud.</div>
+    <div id="stack-rows" style="margin-top:8px"></div>
+  </div>
+
+  <div class="settings-card full-width" id="import-card" style="display:none">
+    <div class="card-title">Import your chat history</div>
+    <div class="card-hint">Memory should not start empty — pull in the conversations already on this machine. Additive; nothing is deleted.</div>
+    <div id="import-rows" style="margin-top:8px"></div>
+    <div id="import-progress" style="margin-top:6px;font-size:11px;color:var(--text-muted)"></div>
+  </div>
+
   <!-- A2: with the troth app installed, providers are app-owned so every
        surface stays in sync. This page points to the app unless Operator
        mode is on. -->
@@ -841,7 +858,7 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
 
     <div class="settings-card full-width">
       <div class="card-title">Local Model</div>
-      <div class="card-hint">Any OpenAI-compatible server: Ollama, LM Studio, llama.cpp, vLLM. Free, private, offline. Configured in Settings → Local Backend.</div>
+      <div class="card-hint">Any OpenAI-compatible server: Ollama, LM Studio, llama.cpp, vLLM. Free, private, offline. Configured in Settings → Local LLM server.</div>
       <div style="display:flex;align-items:center;gap:10px;padding:8px 0">
         <div class="provider-dot" id="ai-local-dot"></div>
         <span style="font-size:12px;color:var(--text-dim)" id="ai-local-status">Not configured</span>
@@ -2133,7 +2150,7 @@ setInterval(function(){
   <!-- Tab bar: each tab toggles which settings-card group is visible.
        Default tab is Backend. -->
   <div id="settings-tabs" class="ui-tabbar">
-    <button class="ui-tab set-tab active op-gated" data-tab="backend" onclick="setSettingsTab('backend')">Backend</button>
+    <button class="ui-tab set-tab active op-gated" data-tab="backend" onclick="setSettingsTab('backend')">Local LLM server</button>
     <button class="ui-tab set-tab op-gated" data-tab="network" onclick="setSettingsTab('network')">Network</button>
     <button class="ui-tab set-tab"        data-tab="mcp"     onclick="setSettingsTab('mcp')">MCP Tools</button>
     <button class="ui-tab set-tab op-gated" data-tab="modules" onclick="setSettingsTab('modules')">Pipeline</button>
@@ -2144,11 +2161,11 @@ setInterval(function(){
   <div class="settings-grid">
 
     <div class="settings-card op-gated" data-settings-tab="backend">
-      <div class="card-title">Local Backend</div>
+      <div class="card-title">Local LLM server</div>
       <div class="card-hint">Your local OpenAI-compatible server. troth routes requests here when you run without <code>-g</code>. <b style="color:var(--yellow)">Restart the proxy after changing.</b></div>
       <div class="form-row">
-        <div class="field"><label>Backend Host</label><input type="text" id="cfg-bhost" placeholder="127.0.0.1"></div>
-        <div class="field"><label>Backend Port</label><input type="number" id="cfg-bport" placeholder="1234"></div>
+        <div class="field"><label>Server host</label><input type="text" id="cfg-bhost" placeholder="127.0.0.1"></div>
+        <div class="field"><label>Server port</label><input type="number" id="cfg-bport" placeholder="1234"></div>
       </div>
       <div class="form-row">
         <div class="field"><label>Proxy Port</label><input type="number" id="cfg-port" placeholder="8000"></div>
@@ -2574,6 +2591,7 @@ function navigate(p){
   if(p==='brain' && brainNodes.length===0) loadBrainGraph();
   if(p==='mind' && typeof window.loadAllMind === 'function') window.loadAllMind();
   if(p==='ai-setup') loadAnthropicStatus();
+  if(p==='ai-setup') loadStackCard();
   if(p==='ai-setup'){ loadConfig(); }
   if(p==='analytics' && typeof loadAnalytics === 'function'){ loadAnalytics(); }
   if(p==='settings' && typeof setSettingsTab === 'function'){
@@ -3657,6 +3675,94 @@ function setGlobalRouting(mode){
   });
 }
 
+// ── Memory stack card ──────────────────────────────────────────────────────
+var _stackTimer = null;
+function _stackBar(pct){
+  return '<span style="display:inline-block;width:120px;height:5px;background:var(--bg-card);border:1px solid var(--border);border-radius:3px;vertical-align:2px;overflow:hidden">' +
+         '<span style="display:block;height:100%;width:' + Math.round(pct*100) + '%;background:var(--green,#26a269)"></span></span>';
+}
+function loadStackCard(){
+  var box = document.getElementById('stack-rows'); if (!box) return;
+  Promise.all([
+    fetch('/api/setup/local').then(function(r){return r.json();}),
+    fetch('/api/embed/status').then(function(r){return r.json();}).catch(function(){return {};})
+  ]).then(function (res) {
+    var d = res[0] || {}, emb = res[1] || {};
+    var parts = d.parts || {};
+    var anyBusy = false;
+    var html = Object.keys(parts).map(function (k) {
+      var p = parts[k] || {};
+      var state, extra = '';
+      if (p.present && (k !== 'embedder' || emb.verified)) {
+        state = '<span style="color:var(--green,#26a269)">&#9679;</span> ready' +
+                (k === 'embedder' ? ' — recall is semantic (self-test passed)' : '');
+      } else if (p.present && k === 'embedder') {
+        anyBusy = true;
+        state = '<span style="color:var(--text-muted)">&#9679;</span> warming up — first self-test runs once';
+      } else if (p.downloading) {
+        anyBusy = true;
+        state = _stackBar(p.progress || 0) + ' downloading ' + Math.round((p.progress || 0) * 100) + '%';
+      } else if (p.blocked) {
+        state = '<span style="color:var(--text-muted)">&#9675;</span> ' + p.blocked;
+      } else if (p.can_install) {
+        state = '<button class="btn" style="font-size:10.5px;padding:2px 10px" onclick="installStackPart(\'' + k + '\')">Install</button>' +
+                ' <span style="color:var(--text-muted)">' + (p.size || '') + '</span>';
+      } else {
+        state = '<span style="color:var(--text-muted)">&#9675;</span> not available here';
+      }
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-top:1px solid var(--border)">' +
+             '<span>' + (p.label || k) + '</span><span>' + state + '</span></div>';
+    }).join('');
+    box.innerHTML = html || '<span style="color:var(--text-muted)">Could not read the local stack.</span>';
+    clearTimeout(_stackTimer);
+    if (anyBusy) _stackTimer = setTimeout(loadStackCard, 1500);
+  }).catch(function () {
+    box.innerHTML = '<span style="color:var(--text-muted)">Proxy unreachable.</span>';
+  });
+  loadImportCard();
+}
+function installStackPart(part){
+  post('/api/setup/local', { part: part }).catch(function(){});
+  setTimeout(loadStackCard, 600);
+}
+// ── Chat import card ───────────────────────────────────────────────────────
+var _importTimer = null;
+function loadImportCard(){
+  var card = document.getElementById('import-card'); if (!card) return;
+  fetch('/api/memory/import-sources').then(function(r){return r.json();}).then(function (j) {
+    var srcs = (j && j.detected) || [];
+    if (!srcs.length) { card.style.display = 'none'; return; }
+    card.style.display = '';
+    document.getElementById('import-rows').innerHTML = srcs.map(function (s) {
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-top:1px solid var(--border)">' +
+             '<span>' + (s.label || s.source) + ' <span style="color:var(--text-muted)">' + (s.fresh != null ? (s.fresh + ' new of ' + s.sessions) : '') + '</span></span>' +
+             '<button class="btn" style="font-size:10.5px;padding:2px 10px" onclick="startImport(\'' + s.source + '\')">Import</button></div>';
+    }).join('');
+  }).catch(function () { card.style.display = 'none'; });
+}
+function startImport(source){
+  var pr = document.getElementById('import-progress');
+  pr.textContent = 'Starting import…';
+  post('/api/memory/import-chats', { source: source }).then(function () {
+    clearInterval(_importTimer);
+    _importTimer = setInterval(function () {
+      fetch('/api/memory/import-status').then(function(r){return r.json();}).then(function (st) {
+        if (!st) return;
+        var pg = st.progress || {};
+        if (st.running) {
+          pr.textContent = 'Importing… ' + (pg.done || 0) + '/' + (pg.total || '?') +
+                           ' conversations · ' + (pg.chunks || 0) + ' memory chunks';
+        } else {
+          clearInterval(_importTimer);
+          var rr = st.result || {};
+          pr.textContent = rr.sessions != null
+            ? ('Done — ' + rr.sessions + ' conversations, ' + (rr.chunks || 0) + ' chunks, ' + (rr.turns || 0) + ' turns became memory.')
+            : 'Done.';
+        }
+      }).catch(function(){});
+    }, 1200);
+  }).catch(function (e) { pr.textContent = 'Could not start: ' + (e && e.message || e); });
+}
 function loadAnthropicStatus(){
   fetch('/api/anthropic-status').then(function(r){return r.json()}).then(function(s){
     var el=document.getElementById('anthropic-status');if(!el)return;
