@@ -19,14 +19,26 @@ if (command === "install-plugin" || command === "uninstall-plugin") {
     process.exit(1);
   }
 
+  // The marketplace is whatever the manifest says it is. The name here was a
+  // hardcoded "troth-local" while the manifest had moved to "troth": a machine
+  // carrying the old registration got "Plugin not found in marketplace
+  // troth-local" from a repo that was perfectly healthy. Reading the name and
+  // re-registering from the current checkout heals both the rename and a
+  // registration left pointing at a previous clone path.
+  var marketplaceName = "troth";
+  try { marketplaceName = require(manifestPath).name || "troth"; } catch (_) {}
+
   if (command === "install-plugin") {
     console.log("\n  Installing troth plugin…\n");
+    ["troth-local", marketplaceName].forEach(function (m) {
+      cpSync("claude", ["plugin", "marketplace", "remove", m], { stdio: "ignore" }); // stale is fine
+    });
     var r1 = cpSync("claude", ["plugin", "marketplace", "add", repoRoot], { stdio: "inherit" });
     if (r1.status !== 0 && r1.status !== 1) {
       // status=1 often just means "already added" — soldier on.
       console.error("  marketplace add exited with status " + r1.status + "; continuing anyway");
     }
-    var r2 = cpSync("claude", ["plugin", "install", "troth@troth-local"], { stdio: "inherit" });
+    var r2 = cpSync("claude", ["plugin", "install", "troth@" + marketplaceName], { stdio: "inherit" });
     if (r2.status !== 0) { process.exit(r2.status); }
 
     // Plugin manifest source = ./plugin/, so CC's installer only copies that
@@ -39,13 +51,18 @@ if (command === "install-plugin" || command === "uninstall-plugin") {
     var osMod = require("os");
     var pluginManifest = require(pathMod.join(repoRoot, "plugin", ".claude-plugin", "plugin.json"));
     var pluginVersion = pluginManifest.version || "unknown";
-    var cacheParent = pathMod.join(osMod.homedir(), ".claude", "plugins", "cache", "troth-local", "troth");
+    var cacheParent = pathMod.join(osMod.homedir(), ".claude", "plugins", "cache", marketplaceName, "troth");
     // Add new entries here when plugin code starts importing from a new
     // top-level repo directory (keeps install drift to a single line).
     var requiredSiblings = ["shared-core", "proxy", "node_modules"];
 
     if (!fsMod.existsSync(cacheParent)) {
-      console.error("  \x1b[33m⚠\x1b[0m plugin cache parent missing at " + cacheParent + " — did `claude plugin install` succeed?");
+      // claude can print a red failure and still exit 0; the file on disk is
+      // the truth. Continuing past this point printed "plugin installed" over
+      // an install that never happened.
+      console.error("  \x1b[31mx\x1b[0m plugin did not land at " + cacheParent);
+      console.error("  Try: claude plugin marketplace update " + marketplaceName + "   then re-run: troth install-plugin");
+      process.exit(1);
     } else {
       requiredSiblings.forEach(function (dir) {
         var src = pathMod.join(repoRoot, dir);
@@ -111,11 +128,12 @@ if (command === "install-plugin" || command === "uninstall-plugin") {
     console.log("\n  Uninstalling troth plugin…\n");
     var ru = cpSync("claude", ["plugin", "uninstall", "troth"], { stdio: "inherit" });
     if (ru.status !== 0) { process.exit(ru.status); }
-    var rm = cpSync("claude", ["plugin", "marketplace", "remove", "troth-local"], { stdio: "inherit" });
+    var rm = cpSync("claude", ["plugin", "marketplace", "remove", marketplaceName], { stdio: "inherit" });
+    cpSync("claude", ["plugin", "marketplace", "remove", "troth-local"], { stdio: "ignore" }); // legacy name
     // status ≠ 0 is fine here (might not have been added)
     // Mirror the install side: tear down every sibling we wired in.
     var pathModU = require("path");
-    var cacheParentU = pathModU.join(require("os").homedir(), ".claude", "plugins", "cache", "troth-local", "troth");
+    var cacheParentU = pathModU.join(require("os").homedir(), ".claude", "plugins", "cache", marketplaceName, "troth");
     ["shared-core", "proxy", "node_modules"].forEach(function (dir) {
       var dst = pathModU.join(cacheParentU, dir);
       try { fsMod.unlinkSync(dst); } catch (_) { /* not a symlink */ }

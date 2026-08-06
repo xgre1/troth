@@ -314,7 +314,18 @@ function findClaude() {
     // `where` on Windows, `which` on POSIX.
     execFileSync(IS_WIN ? "where" : "which", ["claude"], { stdio: "pipe" });
     return true;
-  } catch (e) { return false; }
+  } catch (e) { /* not on PATH — probe the known install locations */ }
+  // The native installer puts it at ~/.claude/local/claude, which is on the
+  // PATH of an interactive shell and not necessarily on this process's.
+  var _fc = require("fs"), _pc = require("path"), _oc = require("os");
+  var _home = process.env.HOME || _oc.homedir();
+  return [
+    _pc.join(_home, ".claude", "local", "claude"),
+    _pc.join(_home, ".local", "bin", "claude"),
+    "/opt/homebrew/bin/claude",
+    "/usr/local/bin/claude",
+    "/usr/bin/claude",
+  ].some(function (p) { try { return _fc.existsSync(p); } catch (_) { return false; } });
 }
 
 // Yes/no prompt that works across three input sources uniformly:
@@ -2494,13 +2505,21 @@ if (command === "setup") {
         } else {
           console.log("\n  Mounting troth inside Claude Code…\n");
           try {
-            require("child_process").spawnSync(process.execPath, [__filename, "install-plugin"], { stdio: "inherit" });
+            // Linked only when the install actually succeeded — the child exits
+            // non-zero on any failed step, and claiming success past that told
+            // an operator their plan was wired while claude had just refused.
+            var _ipr = require("child_process").spawnSync(process.execPath, [__filename, "install-plugin"], { stdio: "inherit" });
+            if (_ipr.status !== 0) {
+              console.log("\n  \x1b[31mx\x1b[0m Not linked — the plugin install failed (see above).");
+              console.log("  Fix and retry with: troth install-plugin");
+            } else {
             console.log("\n  \x1b[32m+\x1b[0m Linked. Open `claude` — your subscription answers there,");
             console.log("  with troth's memory and slash commands mounted.");
             _claudeLinked = true;
             configured = true;
             var alsoLane = (await ask("\n  Also add an engine for troth's own REPL and dashboard? [y/N]: ")).trim().toLowerCase();
             if (alsoLane === "y" || alsoLane === "yes") { configured = false; console.log(""); continue; }
+            }
           } catch (e) {
             console.log("  install-plugin failed: " + (e && e.message || e) + " — run `troth install-plugin` later.");
           }
@@ -2629,7 +2648,8 @@ if (command === "setup") {
         if (findClaude()) {
           console.log("");
           try {
-            require("child_process").spawnSync(process.execPath, [__filename, "install-plugin"], { stdio: "inherit" });
+            var _ipr2 = require("child_process").spawnSync(process.execPath, [__filename, "install-plugin"], { stdio: "inherit" });
+            if (_ipr2.status !== 0) console.log("  Plugin install failed (see above) — retry later with: troth install-plugin");
           } catch (e) {
             console.log("  install-plugin failed: " + (e && e.message || e) + " — run `troth install-plugin` later.");
           }
