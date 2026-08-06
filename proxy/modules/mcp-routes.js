@@ -127,15 +127,9 @@ function handle(req, res, url, deps) {
       try { cliInstalled = claudeBin() !== "claude"; } catch (_) {}
     }
     let subscriptionActive = false;
-    if (process.platform === "darwin") {
-      try {
-        require("child_process").execFileSync("security",
-          ["find-generic-password", "-s", "Claude Code-credentials"], { stdio: "ignore" });
-        subscriptionActive = true;
-      } catch (_) {}
-    } else {
-      try { subscriptionActive = fs.existsSync(path.join(HOME, ".claude", ".credentials.json")); } catch (_) {}
-    }
+    try {
+      subscriptionActive = require("../../shared-core/claude-subscription.js").claudeSubscriptionActive();
+    } catch (_) {}
     jsonResponse(res, 200, {
       ok: true,
       claude_code: {

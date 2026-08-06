@@ -2768,7 +2768,13 @@ const server = http.createServer((req, res) => {
 
   // ===== API: Anthropic Auth Status =====
   if (req.method === 'GET' && url === '/api/anthropic-status') {
-    var status = { apiKey: false };
+    // subscription was never set here, so the panel said "No subscription
+    // detected" to everyone — including an operator who had just chosen Claude
+    // in setup and was signed in. Same detector the onboarding overlay uses.
+    var status = { apiKey: false, subscription: false, plan: "Claude Code" };
+    try {
+      status.subscription = require("../shared-core/claude-subscription.js").claudeSubscriptionActive();
+    } catch (e) {}
     // Check for API key in providers
     try {
       var provs = getProviders();
