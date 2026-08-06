@@ -327,6 +327,17 @@ async function initIndex(dir) {
   stats.edges = storeStats.edges;
   indexed = true;
 
+  // Say it when the walk stopped early. Truncation freezes coverage at the
+  // same prefix every boot and skips stale-file deletion, so the index quietly
+  // drifts from the disk it describes. Losing a hint is acceptable; losing it
+  // without saying so is not.
+  if (stats.truncated) {
+    console.log('[CodeLens] Stopped early — ' + stats.truncated +
+      '. Files past that point are not indexed and deletions are not pruned. ' +
+      'Raise TROTH_CODELENS_MAX_MS or TROTH_CODELENS_MAX_FILES, or point the ' +
+      'project directory at something smaller.');
+  }
+
   const elapsed = Date.now() - startMs;
   if (filesToIndex.length > 0 || deleted > 0) {
     var cosmeticTag = cosmeticOnlyCount > 0 ? ` (${cosmeticOnlyCount} cosmetic-only)` : '';
