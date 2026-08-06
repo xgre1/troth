@@ -66,6 +66,11 @@ jobs:
         shell: pwsh
 
       - name: Journey
+        # A shared two-core runner is not somebody's laptop. The time-to-serve
+        # budget stays strict where it is calibrated — a developer machine — and
+        # is stated out loud here rather than quietly relaxed in the scenario.
+        env:
+          TROTH_JOURNEY_BOOT_BUDGET_MS: 15000
         run: node tests/journey/run.js --target local
 
       # The unit suite asserts POSIX file modes and deletes open files, neither
