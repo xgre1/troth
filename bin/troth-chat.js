@@ -909,9 +909,11 @@ function start() {
           spinner.update(lastSlash ? 'running /' + lastSlash : 'running skill');
           break;
         case 'slash_unmatched':
-          // A typoed command went to the model as plain text. Silence here made
-          // that look like the UI dying; one dim line names what happened.
-          out(color(DIM, '  /' + (msg.name || '?') + ' is not a command — sent as a message. Commands: /help') + '\n');
+          // Command-shaped typos are answered by the entity itself; only text
+          // that fell open to the model needs the provenance note here.
+          if (msg.treated_as === 'plain_text') {
+            out(color(DIM, '  /' + (msg.name || '?') + ' is not a command — sent as a message. Commands: /help') + '\n');
+          }
           break;
         case 'dispatch': {
           turnFaculty = msg.faculty || null;
