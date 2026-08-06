@@ -139,6 +139,12 @@ function applyRegion() {
   drawStatus();
 }
 function enableFixedUI() {
+  // The pinned composer (DECSTBM scroll region) is opt-in until it holds up.
+  // Screen-grid capture of a real pty shows the pinned and the flowing writes
+  // interleaving — input mid-screen, replies detached at the region bottom,
+  // stray prompts — on xterm and on gnome-terminal alike. Sequential flow is
+  // the behaviour every terminal renders correctly.
+  if (process.env.TROTH_FIXED_UI !== '1') return;
   if (!isTTY || fixedUI) return;
   fixedUI = true;
   process.stdout.on('resize', applyRegion);
