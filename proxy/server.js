@@ -1806,6 +1806,52 @@ const server = http.createServer((req, res) => {
   // The importer's own --detect walk, surfaced so the UI offers only sources
   // that are actually here. Offering "Import Codex chats" on a machine with
   // no Codex is an instruction to fail — an operator hit exactly that.
+  // ── Memory manager: search what the partner remembers, forget what should
+  // go. Read and retire both ride the substrate's own paths — retrieveRelevant
+  // for search, and the /forget skill for retirement, so the dashboard can
+  // never do more than the operator's own slash command (signed facts stay
+  // protected, retirement is the same supersession pointer).
+  if (req.method === 'GET' && url.startsWith('/api/memory/search')) {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    (async () => {
+      try {
+        const q = String((new URL(req.url, 'http://x')).searchParams.get('q') || '').trim();
+        if (!q) { jsonResponse(res, 200, { items: [] }); return; }
+        const engram = require('../shared-core/engram.js');
+        const rows = await engram.retrieveRelevant({ cwd: WATCH_DIR, query: q, k: 20, commitment_only: true });
+        jsonResponse(res, 200, {
+          items: (rows || []).map(function (r) {
+            return { id: r.id, statement: r.statement, ts: r.ts || r.timestamp || null };
+          })
+        });
+      } catch (e) { jsonResponse(res, 200, { items: [], error: String(e && e.message || e) }); }
+    })();
+    return;
+  }
+  if (req.method === 'POST' && url === '/api/memory/forget') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    let fb = '';
+    req.on('data', (c) => { fb += c; });
+    req.on('end', () => {
+      (async () => {
+        try {
+          const body = JSON.parse(fb || '{}');
+          const stmt = String(body.statement || '').trim();
+          if (!stmt) { jsonResponse(res, 400, { ok: false, error: 'missing_statement' }); return; }
+          const loader = require('../shared-core/slash/loader.js');
+          const executor = require('../shared-core/slash/executor.js');
+          const skill = loader.load('forget', { cwd: WATCH_DIR });
+          if (!skill) { jsonResponse(res, 500, { ok: false, error: 'forget_unavailable' }); return; }
+          const r = await executor.executeDeterministic(skill,
+            { name: 'forget', raw_args: stmt, args_array: [stmt] },
+            { agent_id: null, cwd: WATCH_DIR, user_id: 'default', conversation_id: null });
+          jsonResponse(res, 200, r || { ok: false, error: 'no_result' });
+        } catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e) }); }
+      })();
+    });
+    return;
+  }
+
   if (req.method === 'GET' && url === '/api/memory/import-sources') {
     if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
     try {
