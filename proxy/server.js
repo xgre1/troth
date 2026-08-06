@@ -4572,7 +4572,7 @@ server.listen(listenPort, BIND_HOST, () => {
     fsP.writeFileSync(pathP.join(dataDir, 'proxy-' + listenPort + '.pid'), String(process.pid));
   } catch (_) { /* non-fatal */ }
   log('troth Proxy v' + VERSION);
-  log('Backend: ' + BACKEND_HOST + ':' + BACKEND_PORT);
+  log('Local LLM server: ' + BACKEND_HOST + ':' + BACKEND_PORT);
 
   // B2 uninstall self-reaper - mirrors bin/troth-entity.js.
   // A proxy whose server.js vanished serves deleted code forever after an

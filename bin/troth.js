@@ -2881,8 +2881,31 @@ if (command === "setup") {
       if (_ans !== "y" && _ans !== "yes") continue;
       console.log("");
       try {
-        require("child_process").spawnSync(process.execPath,
-          [path.join(__dirname, "troth-import-chats.js"), "--source", _s.source], { stdio: "inherit" });
+        // The importer speaks JSON lines; rendered here as one live counter
+        // instead of raw JSON scrolling past the operator.
+        var _impR = require("child_process").spawnSync(process.execPath,
+          [path.join(__dirname, "troth-import-chats.js"), "--source", _s.source],
+          { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+        var _impLines = String(_impR.stdout || "").split("\n");
+        var _impRes = null, _impLast = null;
+        for (var _il = 0; _il < _impLines.length; _il++) {
+          var _lt = _impLines[_il].trim();
+          if (!_lt || _lt[0] !== "{") continue;
+          try {
+            var _lj = JSON.parse(_lt);
+            if (_lj.progress) { _impLast = _lj.progress;
+              process.stdout.write("\r  importing… " + _impLast.done + "/" + _impLast.total +
+                " conversations · " + (_impLast.chunks || 0) + " chunks   ");
+            }
+            if (_lj.result) _impRes = _lj.result;
+          } catch (_) {}
+        }
+        if (_impRes) {
+          console.log("\r  \x1b[32m+\x1b[0m " + _impRes.sessions + " conversations, " +
+            (_impRes.chunks || 0) + " chunks, " + (_impRes.turns || 0) + " turns became memory.");
+        } else if (_impR.status !== 0) {
+          console.log("\r  import failed (see ~/.troth/import-chats.log) — rerun later: node bin/troth-import-chats.js --source " + _s.source);
+        }
       } catch (e) {
         console.log("  import failed: " + (e && e.message || e) +
           " — rerun later: node bin/troth-import-chats.js --source " + _s.source);
