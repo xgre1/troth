@@ -342,7 +342,7 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-i
 .point-to-app { display: none; }
 body.ctx-app:not(.op-on) .point-to-app { display: block; }
 body.ctx-app:not(.op-on) .app-owned { display: none !important; }
-body.ctx-app:not(.op-on) .op-gated { display: none !important; }
+body:not(.op-on) .op-gated { display: none !important; }
 #op-row { display: none; position: relative; align-items: center; justify-content: center; padding: 13px 0; margin-bottom: 4px; color: var(--text-muted); cursor: pointer; width: 100%; user-select: none; transition: color 0.2s; }
 body.ctx-app #op-row { display: flex; }
 #op-row svg { width: 19px; height: 19px; }
@@ -1303,6 +1303,16 @@ troth mind list / focus / show / compact</pre>
     <span style="font-size:10px;color:var(--text-muted);font-weight:400;letter-spacing:1px;text-transform:uppercase;">action_records · memory layer</span>
   </div>
 
+  <div class="settings-card full-width">
+    <div class="card-title">Memories</div>
+    <div class="card-hint">Search what your partner remembers; forget what should go. Signed operator facts are protected and say so.</div>
+    <div style="display:flex;gap:8px;margin:8px 0">
+      <input type="text" id="mem-q-sub" placeholder="Search memories…" style="flex:1" onkeydown="if(event.key==='Enter')searchMemories('sub')">
+      <button class="btn" onclick="searchMemories('sub')">Search</button>
+    </div>
+    <div id="mem-results-sub" style="font-size:12px"></div>
+  </div>
+
   <!-- Top-nav: jump to a section instead of scrolling 2000px to find it.
        Each link points at an id anchor on a section heading below. Sticky
        so it stays visible while scrolling through long sections. -->
@@ -2149,15 +2159,6 @@ setInterval(function(){
 
   <div class="page-title">Settings</div>
 
-  <div class="settings-card full-width" id="memories-card">
-    <div class="card-title">Your memories</div>
-    <div class="card-hint">Search what your partner remembers; forget what should go. Signed operator facts are protected and say so.</div>
-    <div style="display:flex;gap:8px;margin:8px 0">
-      <input type="text" id="mem-q" placeholder="Search memories…" style="flex:1" onkeydown="if(event.key==='Enter')searchMemories()">
-      <button class="btn" onclick="searchMemories()">Search</button>
-    </div>
-    <div id="mem-results" style="font-size:12px"></div>
-
 
 
   <!-- Tab bar: each tab toggles which settings-card group is visible.
@@ -2237,6 +2238,11 @@ setInterval(function(){
         The substrate (engrams · intents · capabilities · skills · lessons · sub-partners)
         lives in the dedicated <b>Substrate</b> page in the left nav.
       </div>
+    <div style="display:flex;gap:8px;margin:8px 0">
+      <input type="text" id="mem-q-set" placeholder="Search memories…" style="flex:1" onkeydown="if(event.key==='Enter')searchMemories('set')">
+      <button class="btn" onclick="searchMemories('set')">Search</button>
+    </div>
+    <div id="mem-results-set" style="font-size:12px"></div>
       <div class="card-footer" style="margin-top:14px;gap:8px;flex-wrap:wrap">
         <button class="btn" onclick="navigate('substrate')">Open Substrate page →</button>
       </div>
@@ -2506,7 +2512,7 @@ setInterval(function(){
 // only while a legacy config still has them enabled.
 var PROVIDER_ORDER = ['kimi_sub', 'openai_sub', 'anthropic', 'openrouter', 'google_ai', 'xai', 'moonshot', 'deepseek', 'nvidia', 'deepinfra', 'zai', 'alibaba', 'custom_openai', 'local'];
 var APP_PROVIDER_SET = { kimi_sub: 1, anthropic: 1, openai_sub: 1, google_ai: 1, alibaba: 1, deepseek: 1, openrouter: 1, moonshot: 1, xai: 1, custom_openai: 1, local: 1 };
-var PROVIDER_LABELS = { anthropic: 'Claude', openai_sub: 'ChatGPT (plan)', alibaba: 'Qwen (Alibaba)', deepinfra: 'DeepInfra', nvidia: 'NVIDIA (free tier)', deepseek: 'DeepSeek', openrouter: 'OpenRouter', zai: 'Z.AI (GLM)', moonshot: 'Moonshot (Kimi, API key)', kimi_sub: 'Kimi Code (subscription)', xai: 'xAI (Grok)', custom_openai: 'Custom (OpenAI-compatible)', google_ai: 'Google Gemini', gemini: 'Google Gemini', local: 'Local (Mac)' };
+var PROVIDER_LABELS = { anthropic: 'Claude', openai_sub: 'ChatGPT (plan)', alibaba: 'Qwen (Alibaba)', deepinfra: 'DeepInfra', nvidia: 'NVIDIA (free tier)', deepseek: 'DeepSeek', openrouter: 'OpenRouter', zai: 'Z.AI (GLM)', moonshot: 'Moonshot (Kimi, API key)', kimi_sub: 'Kimi Code (subscription)', xai: 'xAI (Grok)', custom_openai: 'Custom (OpenAI-compatible)', google_ai: 'Google Gemini', gemini: 'Google Gemini', local: 'Local' };
 function providerLabel(k) { return PROVIDER_LABELS[k] || k; }
 
 var STATS = [
@@ -2951,7 +2957,9 @@ function updateStats(data){
     } else if (data.providers) {
       var first=null;
       for(var pe=0;pe<PROVIDER_ORDER.length;pe++){var pkk=PROVIDER_ORDER[pe];if(data.providers[pkk]&&data.providers[pkk].enabled){first=pkk;break;}}
-      phEng.textContent=first?('Ready · '+providerLabel(first)+' enabled'):'No engine set up yet';
+      // Configuration is not readiness — "Ready" here used to mean "a
+      // provider row exists", including one pointing at a dead host.
+      phEng.textContent=first?(providerLabel(first)+' configured — the first reply confirms it works'):'No engine set up yet';
     }
   }
 
@@ -3780,9 +3788,10 @@ function startImport(source){
   }).catch(function (e) { pr.textContent = 'Could not start: ' + (e && e.message || e); });
 }
 // ── Memory manager (Settings) ──────────────────────────────────────────────
-function searchMemories(){
-  var q = (document.getElementById('mem-q').value || '').trim();
-  var box = document.getElementById('mem-results');
+function searchMemories(sfx){
+  sfx = sfx || 'sub';
+  var q = (document.getElementById('mem-q-' + sfx).value || '').trim();
+  var box = document.getElementById('mem-results-' + sfx);
   if (!q) { box.innerHTML = ''; return; }
   box.innerHTML = '<span style="color:var(--text-muted)">Searching…</span>';
   fetch('/api/memory/search?q=' + encodeURIComponent(q)).then(function(r){
@@ -3803,7 +3812,7 @@ function searchMemories(){
     items.forEach(function (it, i) { if (rows[i]) rows[i].dataset.stmt = it.statement || ''; });
   }).catch(function () { box.innerHTML = '<span style="color:var(--text-muted)">Search failed — is the proxy up?</span>'; });
 }
-function forgetMemory(btn){
+function forgetMemory(btn){ /* shared across both memory surfaces */
   var stmt = btn.dataset.stmt || '';
   btn.disabled = true; btn.textContent = '…';
   post('/api/memory/forget', { statement: stmt }).then(function (r) {
