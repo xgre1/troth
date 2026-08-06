@@ -2439,6 +2439,26 @@ function main() {
               // normal turn — the model answers naturally, and a trace note
               // records that no such skill existed. Fail-open to language,
               // never to an error card.
+              // A short lowercase token is somebody reaching for a command,
+              // and handing that to the model started a full turn on a typo:
+              // with a slow or refusing engine the surface just hung, which
+              // read as the UI dying. Answer it here, instantly, and name the
+              // way out. Anything else — a path, a fraction, prose after the
+              // slash — keeps the fail-open-to-language behaviour that this
+              // branch exists for.
+              var _tok = String(parsed.name || '');
+              var _tail = String(event.input.text || '').slice(1 + _tok.length);
+              var _commandShaped = /^[a-z][a-z0-9-]{0,24}$/.test(_tok) &&
+                                   (_tail === '' || _tail[0] === ' ');
+              if (_commandShaped) {
+                emit(tagged({ kind: 'slash_unmatched', name: _tok, treated_as: 'refused' }));
+                emit(tagged({
+                  kind: 'response',
+                  text: 'No such command: /' + _tok + ' — see /help for the list.',
+                  status: 'ok', reason: null, faculty: 'deterministic', elapsed_ms: 0
+                }));
+                return;
+              }
               emit(tagged({ kind: 'slash_unmatched', name: parsed.name, treated_as: 'plain_text' }));
               try { runtime.submit(event); }
               catch (e) { emit(tagged({ kind: 'error', error: 'submit_failed', detail: e && e.message })); }
