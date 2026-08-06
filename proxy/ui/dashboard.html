@@ -375,6 +375,14 @@ select option:checked { background-color: #1A1A1F; }
   body { background: var(--bg) !important; background-attachment: scroll !important; }
 }
 
+/* Advanced fold: a quiet row, not a page. Collapsed hides the group. */
+#nav-adv-toggle { display: flex; align-items: center; justify-content: space-between; padding: 8px 22px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); cursor: pointer; user-select: none; }
+#nav-adv-toggle:hover { color: var(--text-dim); }
+#nav-adv-chev { transition: transform 0.15s; }
+body.nav-adv-open #nav-adv-chev { transform: rotate(90deg); }
+#nav-advanced { display: none; }
+body.nav-adv-open #nav-advanced { display: block; }
+
 /* A2 operator gating. With the troth app installed
    (body.ctx-app) the dashboard boots as a read-only observatory: deep
    controls hide behind Operator mode (body.op-on) and app-owned surfaces
@@ -419,17 +427,24 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4"/></svg>
       <span>Memory</span>
     </div>
+    <!-- PROVIDERS -->
+    <div class="nav-item" data-page="ai-setup" onclick="navigate('ai-setup')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      <span>Engines</span>
+    </div>
+    <div class="nav-sep"></div>
+    <!-- ADVANCED — the deep views, folded so four doors greet a newcomer, not
+         ten. Operator gating on the items inside still applies in app context. -->
+    <div id="nav-adv-toggle" onclick="toggleAdvancedNav()">
+      <span>Advanced</span>
+      <svg id="nav-adv-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:12px;height:12px"><path d="M9 6l6 6-6 6"/></svg>
+    </div>
+    <div id="nav-advanced">
     <div class="nav-item" data-page="analytics" onclick="navigate('analytics')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
       <span>Analytics</span>
     </div>
     <div class="nav-sep"></div>
-    <!-- PROVIDERS -->
-    <div class="nav-item" data-page="ai-setup" onclick="navigate('ai-setup')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-      <span>Providers</span>
-    </div>
-    <div class="nav-sep op-gated"></div>
     <!-- INTELLIGENCE — substrate-backed views (mind = working context, substrate = raw store, code map = derived graph) -->
     <div class="nav-item op-gated" data-page="mind" onclick="navigate('mind')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
@@ -443,6 +458,12 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4m-7-7H1m22 0h-4m-2.5-6.5L18 4.5M6 19.5l1.5-1.5m0-12L6 4.5m12 15-1.5-1.5"/></svg>
       <span>Code Map</span>
     </div>
+    <div class="nav-item" data-page="logs" onclick="navigate('logs')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
+      <span>Logs</span>
+    </div>
+    <div class="nav-sep"></div>
+    </div><!-- /nav-advanced -->
     <div class="nav-sep"></div>
     <!-- ACTIVITY. "Jobs" nav removed: the worker-spawn
          flow (Docker container running another Claude Code agent) is the
@@ -451,11 +472,6 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
          partner can use Docker sandboxing for scoped workers, but
          it's no longer a first-class operator surface — the operator
          talks to the partner, not to a worker pool. -->
-    <div class="nav-item" data-page="logs" onclick="navigate('logs')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
-      <span>Logs</span>
-    </div>
-    <div class="nav-sep"></div>
     <!-- SETUP -->
     <div class="nav-item" data-page="settings" onclick="navigate('settings')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
@@ -512,7 +528,10 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
        (.point-to-app visibility). Everything technical below carries
        op-gated and returns with Operator mode; open-repo installs see the
        full control plane and never this card. -->
-  <div class="point-to-app" id="dash-plain-hero" style="margin:18px 0 22px;padding:24px 28px;background:var(--bg-card);border:1px solid var(--bond-muted);border-radius:14px;">
+  <!-- Shown in EVERY context. This carried .point-to-app (app-only) for a
+       while, which hid the one plain-language answer this page has from the
+       only audience with no other surface to get it. -->
+  <div id="dash-plain-hero" style="margin:18px 0 22px;padding:24px 28px;background:var(--bg-card);border:1px solid var(--bond-muted);border-radius:14px;">
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:14px;margin-bottom:18px;flex-wrap:wrap;">
       <div style="font-family:var(--mono);font-size:10px;color:var(--signal);text-transform:uppercase;letter-spacing:0.16em;font-weight:400;">Your partner right now</div>
       <div id="ph-engine" style="font-size:13px;color:var(--text-dim);"></div>
@@ -724,7 +743,7 @@ body.ctx-app:not(.op-on) #settings-tabs { display: none !important; }
 </div>
 
 <div class="page" id="page-ai-setup">
-  <div class="page-title">Providers</div>
+  <div class="page-title">Engines</div>
 
   <!-- A2: with the troth app installed, providers are app-owned so every
        surface stays in sync. This page points to the app unless Operator
@@ -2659,6 +2678,18 @@ function gd(o,p){var s=p.split('.');for(var i=0;i<s.length;i++)o=o&&o[s[i]];retu
 // should not rewrite the partner's memory with one stray click, while
 // open-repo installs (no app, body lacks ctx-app) are never gated.
 var OPERATOR_PAGES = { mind: 1, substrate: 1, brain: 1 };
+// The Advanced fold remembers itself per browser, and opens on its own when
+// the active page lives inside it — a deep link may not stay hidden.
+function toggleAdvancedNav(force){
+  var open = typeof force === 'boolean' ? force : !document.body.classList.contains('nav-adv-open');
+  document.body.classList.toggle('nav-adv-open', open);
+  try { localStorage.setItem('troth_nav_adv', open ? '1' : '0'); } catch (_) {}
+}
+(function initAdvancedNav(){
+  var open = false;
+  try { open = localStorage.getItem('troth_nav_adv') === '1'; } catch (_) {}
+  if (open) document.body.classList.add('nav-adv-open');
+})();
 function operatorOn() { try { return localStorage.getItem('troth_operator_mode') === '1'; } catch (_) { return true; } }
 function operatorAllowed() { return !document.body.classList.contains('ctx-app') || operatorOn(); }
 function requireOperator() {
@@ -2712,6 +2743,7 @@ function toggleOperatorMode() {
 }
 
 function navigate(p){
+  if (document.querySelector('#nav-advanced .nav-item[data-page="' + p + '"]')) toggleAdvancedNav(true);
   if (OPERATOR_PAGES[p] && !operatorAllowed()) {
     toast('That page is behind Operator mode (bottom of the sidebar).');
     p = 'dashboard';
