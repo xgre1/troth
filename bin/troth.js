@@ -200,6 +200,10 @@ function cleanOrphanSiblings(primaryPort) {
           if (/troth[-_ ]?app|troth\.app/i.test(pcomm)) continue;
         }
       } catch (_) { /* parent lookup failed — treat as orphan, legacy behavior */ }
+      // A candidate that ANSWERS as a troth proxy is a live server — the
+      // stuck-zombie reaper has no business with it. This is what stood
+      // between one bad config value and a healthy proxy being shot.
+      try { if (checkHealthSync("localhost", port, { troth: true })) continue; } catch (_) {}
       toKill.push({ pid: pid, port: port });
     }
     if (!toKill.length) return;
@@ -2398,8 +2402,9 @@ if (command === "setup") {
     console.log("    7) OpenRouter — one key, many models");
     console.log("    8) Kimi (Moonshot) — per-token API, platform.moonshot.ai");
     console.log("");
-    console.log("  Run it on your own hardware:");
-    console.log("    9) Local model — Ollama / LM Studio / llama.cpp");
+    console.log("  On your own hardware:");
+    console.log("    Memory (embeddings, reranking) runs locally on its own — nothing to pick.");
+    console.log("    Local chat models exist for advanced setups: dashboard → Providers → Local.");
     console.log("");
     console.log("  Each provider prices its own tokens; check their page before you commit.");
     console.log("  You can enable more than one later in the dashboard, and troth will fail");
@@ -2417,7 +2422,7 @@ if (command === "setup") {
     var configured = false;
     var _claudeLinked = false;
     while (!configured) {
-      var choice = (await ask("  Choice [1-9]: ")).trim();
+      var choice = (await ask("  Choice [1-8]: ")).trim();
 
       if (choice === "1") {
         // The one path that needs no key at all: OAuth against the user's own
@@ -2501,7 +2506,8 @@ if (command === "setup") {
         if (!findClaude()) {
           console.log("\n  Claude Code is not installed — that is where your plan answers.");
           console.log("  Install it, then re-run this step:");
-          console.log("    npm install -g @anthropic-ai/claude-code\n");
+          console.log("    curl -fsSL https://claude.ai/install.sh | bash     (official installer)");
+          console.log("    npm install -g @anthropic-ai/claude-code           (or via npm)\n");
         } else {
           console.log("\n  Mounting troth inside Claude Code…\n");
           try {
@@ -2607,19 +2613,52 @@ if (command === "setup") {
     // that choosing Kimi, or a local model, still wrote a Claude id into the
     // config of someone who had just told us otherwise.
 
-    var proxyHost = await ask("  Proxy host [localhost]: ");
-    var proxyPort = await ask("  Proxy port [8000]: ");
+    var proxyHost = (await ask("  Proxy host [localhost]: ")).trim();
+    var proxyPort = (await ask("  Proxy port [8000]: ")).trim();
+    // Digits alone in the host field are a port in the wrong box, not a host.
+    if (/^\d+$/.test(proxyHost)) {
+      if (!proxyPort) proxyPort = proxyHost;
+      console.log("  " + proxyHost + " reads as a port, not a host — host stays localhost.");
+      proxyHost = "";
+    }
+    // A pasted URL is a host with decoration on it.
+    proxyHost = proxyHost.replace(/^https?:\/\//, "").replace(/[\/:].*$/, "");
+    var _portN = parseInt(proxyPort, 10);
+    if (proxyPort && !(_portN >= 1024 && _portN <= 65535)) {
+      console.log("  " + proxyPort + " is not a usable port (1024-65535) — keeping 8000.");
+      _portN = NaN;
+    }
     cfg.host = proxyHost || "localhost";
-    cfg.port = parseInt(proxyPort) || 8000;
+    cfg.port = (_portN >= 1024 && _portN <= 65535) ? _portN : 8000;
 
     // ── Routing — the setting that decides what every turn costs. The
     // overlay asks it; a terminal-only operator deserves the same question
     // instead of inheriting a default they never saw.
     console.log("\n  Where should everyday turns go?");
-    console.log("    1) This machine first — a local model leads when present, cloud for hard reasoning");
-    console.log("    2) Best quality first — every turn goes to your paid engine");
-    var pref = (await ask("  Choice [1-2, Enter = 1]: ")).trim();
-    cfg.dispatch_prefer = (pref === "2") ? "hosted" : "local";
+    console.log("    1) Best quality first — your paid engine answers everything");
+    console.log("    2) This machine first — a local model leads when present, cloud for hard reasoning");
+    // "Always X" per enabled engine: the pin the dashboard offers, in the same
+    // breath the routing is chosen — an operator who wants one engine and no
+    // surprises should not have to discover config.routing.pin later.
+    var _pinLabel = { kimi_sub: "Kimi", openai_sub: "ChatGPT", anthropic: "Claude (API key)",
+                      deepseek: "DeepSeek", openrouter: "OpenRouter", deepinfra: "DeepInfra",
+                      alibaba: "Alibaba", moonshot: "Kimi (per-token API)", google_ai: "Gemini",
+                      xai: "Grok", zai: "GLM", local: "the local model" };
+    var _pinnable = Object.keys(cfg.providers || {}).filter(function (k) {
+      return cfg.providers[k] && cfg.providers[k].enabled && _pinLabel[k];
+    });
+    _pinnable.forEach(function (k, i) {
+      console.log("    " + (3 + i) + ") Always " + _pinLabel[k] + " — every turn goes there, no silent fallback");
+    });
+    var pref = (await ask("  Choice [1-" + (2 + _pinnable.length) + ", Enter = 1]: ")).trim();
+    var _pinIdx = parseInt(pref, 10) - 3;
+    if (_pinIdx >= 0 && _pinIdx < _pinnable.length) {
+      cfg.routing = Object.assign({}, cfg.routing || {}, { pin: _pinnable[_pinIdx] });
+      cfg.dispatch_prefer = "hosted";
+      console.log("  Every turn goes to " + _pinLabel[_pinnable[_pinIdx]] + ". Change it anytime: /engine pin auto");
+    } else {
+      cfg.dispatch_prefer = (pref === "2") ? "local" : "hosted";
+    }
 
     // The wizard's config starts from DEFAULTS, which carry backendHost
     // 127.0.0.1 and backendPort 1234. Persisted for someone who picked a
@@ -2634,6 +2673,10 @@ if (command === "setup") {
       delete cfg.backendPort;
     }
 
+    // The dashboard overlay keys off this: finishing here IS finishing
+    // onboarding, and without the flag the browser ran the whole first-run
+    // again for an operator who had just completed it in the terminal.
+    cfg.onboarding_done = true;
     saveConfig(cfg);
     console.log("\n  \x1b[32m+\x1b[0m Config saved to " + CONFIG_FILE);
 
