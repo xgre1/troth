@@ -443,7 +443,7 @@ function log(msg) { console.log('[' + ts() + '] ' + msg); }
 
 function jsonResponse(res, code, data) {
   const body = JSON.stringify(data);
-  res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
+  res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body) });
   res.end(body);
 }
 
@@ -639,7 +639,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && (url === '/ui' || url === '/ui/')) {
     try {
       dashboardHTML = fs.readFileSync(dashboardPath, 'utf8');
-      res.writeHead(200, { 'Content-Type': 'text/html', 'Content-Length': Buffer.byteLength(dashboardHTML), 'Cache-Control': 'no-store, no-cache, must-revalidate', 'Pragma': 'no-cache' });
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': Buffer.byteLength(dashboardHTML), 'Cache-Control': 'no-store, no-cache, must-revalidate', 'Pragma': 'no-cache' });
       res.end(dashboardHTML);
     } catch (e) {
       res.writeHead(404);
