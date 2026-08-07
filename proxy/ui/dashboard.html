@@ -557,9 +557,7 @@ body.op-on #op-row { color: var(--text-dim); }
 
 <div class="page active" id="page-dashboard">
   <div class="page-title">Dashboard</div>
-  <div id="dash-subtitle" style="font-size:12px;color:var(--text-muted);margin:-12px 0 18px;line-height:1.5;max-width:760px;">
-    Your partner's brain, shared across the proxy and CLI. Holds positions across sessions, learns from mistakes, reuses what worked. Below: live providers, routing, spend.
-  </div>
+  <div id="dash-subtitle" style="display:none"></div>
 
   <!-- Mode A observatory hero: the plain-language landing.
        Shows only when the app owns the machine and Operator mode is off
@@ -600,9 +598,12 @@ body.op-on #op-row { color: var(--text-dim); }
         </div>
         <div id="dash-enabled-providers" style="display:flex;gap:8px;flex-wrap:wrap;">checking…</div>
       </div>
-      <div style="text-align:right">
-        <div id="dash-total-cost" style="font-size:22px;font-weight:600;color:var(--green);white-space:nowrap;"></div>
-        <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">total spend</div>
+      <!-- Routing, as one line where the engines are — was a whole card
+           repeating the same engine a third time. dash-total-cost lives in
+           the sentinel block; the hero owns the money. -->
+      <div style="text-align:right;font-size:12px;color:var(--text-dim);">
+        <span style="font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--text-muted);margin-right:8px;">Routing</span>
+        <span id="dash-routing"></span>
       </div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
@@ -610,8 +611,9 @@ body.op-on #op-row { color: var(--text-dim); }
     </div>
   </div>
 
-  <!-- Row 2: Per-provider usage table -->
-  <div class="op-gated" style="margin-top:14px;padding:14px 18px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;">
+  <!-- Row 2: Per-provider usage table. Hidden until there is a first request:
+       before that it was a row of zeros echoing tiles that already say zero. -->
+  <div id="dash-usage-card" class="op-gated" style="display:none;margin-top:14px;padding:14px 18px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);">Usage Per Provider</div>
     </div>
@@ -630,23 +632,8 @@ body.op-on #op-row { color: var(--text-dim); }
     </table>
   </div>
 
-  <!-- Routing — pipeline mode + active providers + visual fallback chain
-       in ONE card. Was three separate cards (mode, intelligence label,
-       chain) eating ~280px of vertical with no clear relationship. -->
-  <div class="op-gated" style="margin-top:14px;padding:16px 20px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;">
-    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.16em;color:var(--text-muted);margin-bottom:12px;display:flex;align-items:center;gap:7px;">
-      <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--bond);"></span>
-      Routing
-    </div>
-    <div style="display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:14px;">
-      <div id="dash-routing" style="font-size:18px;font-weight:600;color:var(--text);"></div>
-      <div id="dash-providers" style="font-size:11px;color:var(--text-muted);"></div>
-    </div>
-    <div id="dash-fallback-chain" style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;"></div>
-    <div style="font-size:10px;color:var(--text-muted);margin-top:10px;line-height:1.6;opacity:0.8;">
-      Tier-driven, not strict sequential. Simple tasks → Local first; medium → BYOK first; hard → skip Local. Substrate dispatch signals can override.
-    </div>
-  </div>
+  <!-- The Routing card dissolved into a single line inside Engines: with the
+       chips right there, a card restating the same engine was the clutter. -->
 
   <!-- Four legacy rows lived here — engine telemetry cells reading "—",
        Reflexion/Trajectory counters, a memory browser whose two buttons
@@ -666,6 +653,8 @@ body.op-on #op-row { color: var(--text-dim); }
     <span id="dash-workflow"></span><span id="dash-critic"></span>
     <span id="dash-memory"></span><span id="dash-grandtotal"></span>
     <span id="dash-cost"></span><span id="memory-browser"></span>
+    <span id="dash-total-cost"></span><span id="dash-providers"></span>
+    <span id="dash-fallback-chain"></span>
     <span id="dash-authmode"></span>
     <span id="dash-cacheratio"></span>
     <span id="dash-drift"></span>
@@ -2797,8 +2786,18 @@ function toggleOperatorMode() {
     enable);
 }
 
-function navigate(p){
+function navigate(p, opts){
   if (document.querySelector('#nav-advanced .nav-item[data-page="' + p + '"]')) toggleAdvancedNav(true);
+  // The address mirrors the page. replace: initial load; push: a real move.
+  try {
+    if (!opts || !opts.noHistory) {
+      var want = '/ui/' + (p === 'dashboard' ? '' : p);
+      var cur = location.pathname.replace(/\/$/, '') || '/ui';
+      if (('/ui/' + (p === 'dashboard' ? '' : p)).replace(/\/$/, '') !== cur) {
+        history.pushState({ page: p }, '', want);
+      }
+    }
+  } catch (_) {}
   if (OPERATOR_PAGES[p] && !operatorAllowed()) {
     toast('That page is behind Operator mode (bottom of the sidebar).');
     p = 'dashboard';
@@ -2822,19 +2821,21 @@ function navigate(p){
 // specific dashboard page via URL hash, e.g. #ai-setup to jump straight
 // to provider management. Validate the hash against known nav-items so
 // a bogus hash falls back to the default page instead of hiding all UI.
-(function applyHashNavigation(){
-  function go(){
-    var raw = (location.hash || '').replace(/^#/, '').trim();
-    if (!raw) return;
-    var ok = !!document.querySelector('.nav-item[data-page="' + raw.replace(/"/g, '') + '"]');
-    if (ok) navigate(raw);
+(function applyAddressNavigation(){
+  function pageFromLocation(){
+    // Path first (/ui/engines), then the legacy #hash, then home.
+    var m = location.pathname.match(/^\/ui\/([a-z-]+)\/?$/);
+    var raw = m ? m[1] : (location.hash || '').replace(/^#/, '').trim();
+    return raw && document.querySelector('.nav-item[data-page="' + raw.replace(/"/g, '') + '"]') ? raw : '';
   }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', go);
-  } else {
-    go();
+  function go(fromHistory){
+    var p = pageFromLocation();
+    if (p) navigate(p, { noHistory: !!fromHistory });
   }
-  window.addEventListener('hashchange', go);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ go(true); });
+  else go(true);
+  window.addEventListener('hashchange', function(){ go(false); });
+  window.addEventListener('popstate', function(){ go(true); });
 })();
 
 // ────────────────────────────────────────────────────────────────────
@@ -3130,6 +3131,8 @@ function updateStats(data){
       rows+='</tr>';
     }
     var tb=document.getElementById('dash-usage-rows');if(tb)tb.innerHTML=rows;
+    var uc=document.getElementById('dash-usage-card');
+    if(uc)uc.style.display=(data.requests>0||(data.router&&data.router.fallbacks>0))?'':'none';
     var tc=document.getElementById('dash-total-cost');
     if(tc)tc.textContent=totalApiCost>0?'$'+totalApiCost.toFixed(4):'$0.00';
     var phSpend=document.getElementById('ph-spend');

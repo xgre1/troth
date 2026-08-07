@@ -652,7 +652,9 @@ const server = http.createServer((req, res) => {
     }
     return;
   }
-  if (req.method === 'GET' && (url === '/ui' || url === '/ui/')) {
+  // /ui/engines, /ui/memory, … all serve the app; the client reads the path
+  // and lands on that page. Deep links survive refresh and the back button.
+  if (req.method === 'GET' && (url === '/ui' || url === '/ui/' || /^\/ui\/[a-z-]+\/?$/.test(url))) {
     try {
       dashboardHTML = fs.readFileSync(dashboardPath, 'utf8');
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Length': Buffer.byteLength(dashboardHTML), 'Cache-Control': 'no-store, no-cache, must-revalidate', 'Pragma': 'no-cache' });
