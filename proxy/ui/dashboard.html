@@ -648,64 +648,11 @@ body.op-on #op-row { color: var(--text-dim); }
     </div>
   </div>
 
-  <!-- Engine telemetry — Intelligence + CodeLens + Workflow + Critic
-       grouped in ONE card with internal sections. Was four separate
-       cards (~440px vertical) for closely-related signals. -->
-  <div class="op-gated" style="margin-top:14px;padding:16px 20px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;">
-    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.16em;color:var(--text-muted);margin-bottom:14px;display:flex;align-items:center;gap:7px;">
-      <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--bond);"></span>
-      Engine telemetry
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
-      <div>
-        <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">Active model</div>
-        <div id="dash-intelligence" style="font-size:12px;color:var(--text-dim);">—</div>
-      </div>
-      <div>
-        <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">Code map</div>
-        <div id="dash-codelens" style="font-size:12px;color:var(--text-dim);">—</div>
-      </div>
-      <div>
-        <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">Current task</div>
-        <div id="dash-workflow" style="font-size:12px;color:var(--text-dim);">No active task</div>
-      </div>
-      <div>
-        <div style="font-size:10px;color:var(--text-muted);margin-bottom:6px;">Quality checks</div>
-        <div id="dash-critic" style="font-size:12px;color:var(--text-dim);">No reviews yet</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Memory (Reflexion + Trajectory + CoChange + Checkpoints) -->
-  <div class="op-gated" style="margin-top:14px;padding:16px 20px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;">
-    <div style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.16em;color:var(--text-muted);margin-bottom:12px;display:flex;align-items:center;gap:7px;">
-      <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--bond);"></span>
-      Memory & learning
-    </div>
-    <div id="dash-memory" style="font-size:12px;color:var(--text-dim);">—</div>
-  </div>
-
-  <!-- Row 7b: Memory Browser (Reflexion lessons + Trajectory patterns) -->
-  <div style="margin-top:10px;padding:14px 18px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);">What partner remembers</div>
-      <div style="display:flex;gap:8px;">
-        <button onclick="loadMemoryBrowser('reflexions')" style="padding:3px 10px;font-size:10px;background:var(--bg-code);border:1px solid var(--border);color:var(--text-muted);border-radius:4px;cursor:pointer;">Lessons</button>
-        <button onclick="loadMemoryBrowser('trajectories')" style="padding:3px 10px;font-size:10px;background:var(--bg-code);border:1px solid var(--border);color:var(--text-muted);border-radius:4px;cursor:pointer;">Patterns</button>
-      </div>
-    </div>
-    <div id="memory-browser" style="font-size:11px;color:var(--text-dim);max-height:300px;overflow-y:auto;"></div>
-  </div>
-
-  <!-- Row 8: Cost tracking ($ per provider) -->
-  <div class="op-gated" style="margin-top:10px;padding:14px 18px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);">Cost This Session</div>
-      <div id="dash-grandtotal" style="font-size:13px;font-weight:600;color:var(--green);">$0.0000</div>
-    </div>
-    <div id="dash-cost" style="font-size:12px;color:var(--text-dim);">No usage yet</div>
-  </div>
-
+  <!-- Four legacy rows lived here — engine telemetry cells reading "—",
+       Reflexion/Trajectory counters, a memory browser whose two buttons
+       opened empty tables on every substrate we can find, and a fourth
+       telling of cost. The pages that own those facts are one click away;
+       the ids stay below as sentinels so their writers no-op. -->
   <!--: Opus 4.7 Telemetry card deleted. Eight cells of
        developer-only jargon (Auth Mode / Tokenizer Drift / Compression
        Buffer / Alibaba Caps / Vision Validator / /ultrareview / Error
@@ -715,6 +662,10 @@ body.op-on #op-row { color: var(--text-dim); }
        no-ops without throwing. Diagnostics belong behind a /diagnostics
        route, not on the operator's home dashboard. -->
   <div style="display:none">
+    <span id="dash-intelligence"></span><span id="dash-codelens"></span>
+    <span id="dash-workflow"></span><span id="dash-critic"></span>
+    <span id="dash-memory"></span><span id="dash-grandtotal"></span>
+    <span id="dash-cost"></span><span id="memory-browser"></span>
     <span id="dash-authmode"></span>
     <span id="dash-cacheratio"></span>
     <span id="dash-drift"></span>
