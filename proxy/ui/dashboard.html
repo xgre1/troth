@@ -404,6 +404,13 @@ select option:checked { background-color: #1A1A1F; }
 .btn:active, .btn-ghost:active, .btn-mini:active { transform: translateY(0); }
 .btn:focus-visible, .btn-ghost:focus-visible, .btn-mini:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 
+/* Engine chips: the fact and the door in one element. */
+.eng-chip { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border: 1px solid var(--glass-border); border-radius: 999px; font-family: var(--mono); font-size: 11px; color: var(--text); cursor: pointer; transition: border-color .15s, background .15s; }
+.eng-chip:hover { border-color: var(--glass-border-hover); background: rgba(255,255,255,0.03); }
+.eng-chip.pinned { border-color: var(--bond); }
+.eng-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+.eng-tag { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; padding-left: 2px; }
+
 /* Hints hold a readable measure even on full-width cards. */
 .card-hint { max-width: 78ch; }
 
@@ -411,11 +418,8 @@ select option:checked { background-color: #1A1A1F; }
 .settings-section-label { grid-column: 1 / -1; font-family: var(--mono); font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.16em; margin: 10px 0 -6px; }
 .settings-section-label:first-of-type { margin-top: 0; }
 
-/* Advanced fold: a quiet row, not a page. Collapsed hides the group. */
-#nav-adv-toggle { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 0 8px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-muted); cursor: pointer; user-select: none; transition: color .15s; }
-#nav-adv-toggle:hover { color: var(--text-dim); }
-#nav-adv-chev { transition: transform 0.15s; }
-body.nav-adv-open #nav-adv-chev { transform: rotate(90deg); }
+/* Advanced fold: an icon in the rail like everything else. Open = held. */
+body.nav-adv-open #nav-adv-toggle { color: var(--text); background: var(--bg-card); }
 #nav-advanced { display: none; }
 body.nav-adv-open #nav-advanced { display: block; }
 
@@ -471,9 +475,9 @@ body.op-on #op-row { color: var(--text-dim); }
     <div class="nav-sep"></div>
     <!-- ADVANCED — the deep views, folded so four doors greet a newcomer, not
          ten. Operator gating on the items inside still applies in app context. -->
-    <div id="nav-adv-toggle" onclick="toggleAdvancedNav()">
-      <span>Advanced</span>
-      <svg id="nav-adv-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="width:12px;height:12px"><path d="M9 6l6 6-6 6"/></svg>
+    <div id="nav-adv-toggle" class="nav-item" onclick="toggleAdvancedNav()">
+      <svg id="nav-adv-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+      <span>More</span>
     </div>
     <div id="nav-advanced">
     <div class="nav-item" data-page="analytics" onclick="navigate('analytics')">
@@ -590,15 +594,18 @@ body.op-on #op-row { color: var(--text-dim); }
   <div class="op-gated" style="margin:18px 0 22px;padding:24px 28px;background:var(--bg-card);border:1px solid var(--bond-muted);border-radius:14px;">
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:14px;margin-bottom:18px;flex-wrap:wrap;">
       <div style="flex:1;min-width:240px;">
-        <div style="font-family:var(--mono);font-size:10px;color:var(--signal);text-transform:uppercase;letter-spacing:0.16em;font-weight:400;margin-bottom:6px;">Live providers</div>
-        <div id="dash-enabled-providers" style="font-size:17px;color:var(--text);line-height:1.45;font-weight:500;">checking…</div>
+        <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:10px;">
+          <span style="font-family:var(--mono);font-size:10px;color:var(--signal);text-transform:uppercase;letter-spacing:0.16em;font-weight:400;">Engines</span>
+          <a href="#ai-setup" onclick="navigate('ai-setup');return false;" style="font-size:10px;color:var(--text-muted);text-decoration:none;">Manage →</a>
+        </div>
+        <div id="dash-enabled-providers" style="display:flex;gap:8px;flex-wrap:wrap;">checking…</div>
       </div>
       <div style="text-align:right">
         <div id="dash-total-cost" style="font-size:22px;font-weight:600;color:var(--green);white-space:nowrap;"></div>
         <div style="font-size:10px;color:var(--text-muted);margin-top:2px;">total spend</div>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;">
       <div id="stat-grid" style="display:contents;"></div>
     </div>
   </div>
@@ -2730,15 +2737,18 @@ var PROVIDER_ORDER = ['kimi_sub', 'openai_sub', 'anthropic', 'openrouter', 'goog
 var APP_PROVIDER_SET = { kimi_sub: 1, anthropic: 1, openai_sub: 1, google_ai: 1, alibaba: 1, deepseek: 1, openrouter: 1, moonshot: 1, xai: 1, custom_openai: 1, local: 1 };
 var PROVIDER_LABELS = { anthropic: 'Claude', openai_sub: 'ChatGPT (plan)', alibaba: 'Qwen (Alibaba)', deepinfra: 'DeepInfra', nvidia: 'NVIDIA (free tier)', deepseek: 'DeepSeek', openrouter: 'OpenRouter', zai: 'Z.AI (GLM)', moonshot: 'Moonshot (Kimi, API key)', kimi_sub: 'Kimi Code (subscription)', xai: 'xAI (Grok)', custom_openai: 'Custom (OpenAI-compatible)', google_ai: 'Google Gemini', gemini: 'Google Gemini', local: 'Local' };
 function providerLabel(k) { return PROVIDER_LABELS[k] || k; }
+// Chip vocabulary: the short name says WHO, the tag says HOW it bills. The
+// long labels above stay for prose; a chip has no room for parentheses.
+var PROVIDER_SHORT = { anthropic: 'Claude', openai_sub: 'ChatGPT', alibaba: 'Qwen', deepinfra: 'DeepInfra', nvidia: 'NVIDIA', deepseek: 'DeepSeek', openrouter: 'OpenRouter', zai: 'GLM', moonshot: 'Kimi API', kimi_sub: 'Kimi', xai: 'Grok', custom_openai: 'Custom', google_ai: 'Gemini', gemini: 'Gemini', local: 'Local' };
+var PROVIDER_BILL = { openai_sub: 'plan', kimi_sub: 'sub', anthropic: 'key', alibaba: 'key', deepinfra: 'key', nvidia: 'key', deepseek: 'key', openrouter: 'key', zai: 'key', moonshot: 'key', xai: 'key', custom_openai: 'key', google_ai: 'key', gemini: 'key', local: 'free' };
+function providerShort(k) { return PROVIDER_SHORT[k] || k; }
 
+// Four numbers a home page can defend. The removed five ("Claude" calls,
+// AI assists, fallbacks, cache entries) live where depth belongs — Analytics.
 var STATS = [
   { k: 'requests', l: 'Requests' },
-  { k: 'router.anthropicCalls', l: 'Claude' },
-  { k: 'router.fallbacks', l: 'Fallbacks' },
-  { k: 'router.flashCalls', l: 'AI assists' },
-  { k: 'router.toolCalls', l: 'Tools' },
-  { k: 'gemcache.entries', l: 'Cache' },
-  { k: 'gemcache.hits', l: 'Cache Hits' },
+  { k: 'router.toolCalls', l: 'Tool calls' },
+  { k: 'gemcache.hits', l: 'Cache hits' },
   { k: 'errors', l: 'Errors' }
 ];
 var MODS = [
@@ -2997,6 +3007,23 @@ function updateStats(data){
   // ── Enabled summary — what's live right now ──
   var enabledEl=document.getElementById('dash-enabled-providers');
   if(enabledEl){
+    // Chips: short name + billing tag; the pinned engine says so. Every chip
+    // is the same door as Manage — the fact and the control in one place.
+    var pinChip=(data.routing&&data.routing.pin)||'';
+    var chipHtml='';
+    var seenChip={};
+    function addChip(k){
+      if(seenChip[k])return; seenChip[k]=1;
+      var isPin=(k===pinChip);
+      chipHtml+='<span class="eng-chip'+(isPin?' pinned':'')+'" onclick="navigate(\'ai-setup\')" title="'+providerLabel(k).replace(/"/g,'')+'">'+
+        '<span class="eng-dot"></span>'+providerShort(k)+
+        '<span class="eng-tag">'+(isPin?'pinned':(PROVIDER_BILL[k]||''))+'</span></span>';
+    }
+    for(var ci=0;ci<PROVIDER_ORDER.length;ci++){var ck=PROVIDER_ORDER[ci];var cp=data.providers&&data.providers[ck];if(cp&&cp.enabled)addChip(ck);}
+    for(var cok in (data.providers||{})){if(data.providers[cok]&&data.providers[cok].enabled)addChip(cok);}
+    enabledEl.innerHTML=chipHtml||'<span style="color:var(--text-muted);font-size:12px">No engine yet — <a href="#ai-setup" onclick="navigate(\'ai-setup\');return false;" style="color:var(--signal)">set one up</a></span>';
+  }
+  if(false){
     // Canonical registry (PROVIDER_ORDER + providerLabel) — this line had a
     // private map that predated kimi_sub / google_ai / xai, so an engine
     // could be live yet absent from "what's on".
@@ -3219,9 +3246,9 @@ function updateStats(data){
     // single enabled engine is not really a choice either - say so.
     var pinNow=(data.routing&&data.routing.pin)||'';
     var enabledNow=[]; for(var rk in (data.providers||{})) if(data.providers[rk]&&data.providers[rk].enabled) enabledNow.push(rk);
-    if(pinNow) dr.textContent='PINNED · '+providerLabel(pinNow).toUpperCase();
-    else if(enabledNow.length===1) dr.textContent='ONLY '+providerLabel(enabledNow[0]).toUpperCase();
-    else dr.textContent=currentMode.toUpperCase();
+    if(pinNow) dr.textContent='Pinned · '+providerShort(pinNow);
+    else if(enabledNow.length===1) dr.textContent='Only '+providerShort(enabledNow[0]);
+    else dr.textContent=currentMode.charAt(0).toUpperCase()+currentMode.slice(1);
   }
   var dp=document.getElementById('dash-providers');
   if(dp&&data.providers){var active=[];for(var pk in data.providers){if(data.providers[pk].enabled)active.push(providerLabel(pk));}
