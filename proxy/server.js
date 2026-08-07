@@ -137,6 +137,18 @@ const _backend = getBackendConfig();
 const BACKEND_HOST = _backend.host;
 const BACKEND_PORT = _backend.port;
 const PORT = parseInt(process.env.GF_PORT || '8000');
+// A proxy spawned by a test runner must not outlive it. SIGKILL leaves no
+// chance for teardown, so the child polls: parent gone → exit. Interval only
+// exists when the env is set — production proxies never pay for it.
+if (process.env.TROTH_EXIT_WITH_PID) {
+  const guardPid = parseInt(process.env.TROTH_EXIT_WITH_PID, 10);
+  if (guardPid > 0) {
+    const t = setInterval(() => {
+      try { process.kill(guardPid, 0); } catch (_) { process.exit(0); }
+    }, 10000);
+    t.unref();
+  }
+}
 // What this process was born from — compared against the disk by /api/version
 // so a page served after a pull can tell the operator the routes are older.
 let BOOT_SRC_HASH = null;

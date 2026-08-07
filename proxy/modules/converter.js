@@ -260,12 +260,14 @@ function openAIToAnthropic(responseStr, model) {
     var invokeRe = /<invoke\s+name="([^"]+)">([\s\S]*?)<\/invoke>/g;
     var invokeMatch;
     while ((invokeMatch = invokeRe.exec(scanText)) !== null) {
+      if (invokeMatch.index === invokeRe.lastIndex) invokeRe.lastIndex++; // zero-width guard
       var fnName = invokeMatch[1];
       var fnBody = invokeMatch[2];
       var fnArgs = {};
       var paramRe = /<parameter\s+name="([^"]+)">([\s\S]*?)<\/parameter>/g;
       var paramMatch;
       while ((paramMatch = paramRe.exec(fnBody)) !== null) {
+        if (paramMatch.index === paramRe.lastIndex) paramRe.lastIndex++; // zero-width guard
         fnArgs[paramMatch[1]] = paramMatch[2];
       }
       content.push({

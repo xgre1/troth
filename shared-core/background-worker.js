@@ -1326,6 +1326,26 @@ const taskWalReplicate = {
   }
 };
 
+// Cadence ledger reader shared by BOTH runners. The scheduler used to keep
+// lastRun only in memory, so every restart re-ran everything — four "weekly"
+// backups in a day, each a synchronous copy of a multi-GB state.db.
+function hydrateLastRunFromRecords(cwd) {
+  const lastRun = new Map();
+  try {
+    const stateMod = require('./state.js');
+    const since = Date.now() - (14 * 24 * 60 * 60 * 1000);
+    const rows = stateMod.queryActions({
+      type: 'decision', cwd, since, limit: 500, order: 'desc'
+    }) || [];
+    for (const row of rows) {
+      let inp; try { inp = JSON.parse(row.input); } catch (_) { continue; }
+      if (!inp || inp.kind !== 'background_task_run' || !inp.task) continue;
+      if (!lastRun.has(inp.task)) lastRun.set(inp.task, row.timestamp);
+    }
+  } catch (_) { /* empty map — genuinely first run */ }
+  return lastRun;
+}
+
 const DEFAULT_TASKS = [taskContradictionScan, taskDormantReview, taskStateSummary, taskDriftScan, taskEngramGc, taskAnchorSuggest, taskIdentityExtract, taskProcedureCompile, taskReconsolidationReview, taskSchemaDeltaCompress, taskBackup, taskOrchestrationReview, taskHypothesisGeneration, taskPurposeRefresh, taskWorkingMemoryConsolidation, taskEmbeddingBackfill, taskDormancyWarn, taskWalReplicate];
 // Closed-extension worker tasks (guarded optional require — absent in the open build).
 try { const _ext = require('./core-ext.js'); if (Array.isArray(_ext.workerTasks)) DEFAULT_TASKS.push(..._ext.workerTasks); } catch (_) {}
@@ -1360,7 +1380,8 @@ function startWorker(opts) {
   // Signature: notify({task, events, notes, elapsed_ms, ts})
   const notify = typeof opts.notify === 'function' ? opts.notify : null;
 
-  const lastRun = new Map();   // task name → last execution timestamp
+  // Hydrated, not born empty: restarts inherit what already ran.
+  const lastRun = hydrateLastRunFromRecords(opts.cwd || (opts.substrate_ctx && opts.substrate_ctx.cwd) || process.cwd());
   let running = true;
   let timer = null;
   let lastFgActivity = Date.now();
@@ -1390,6 +1411,14 @@ function startWorker(opts) {
         try { result = await Promise.resolve(task.run(view)); }
         catch (e) { result = { events: [], notes: ['task threw: ' + (e && e.message || e)] }; }
         lastRun.set(task.name, Date.now());
+        // The same ledger runDueTasks writes — a restart reads this back.
+        try {
+          submit({
+            type: 'decision',
+            input: { kind: 'background_task_run', task: task.name, signals: { scheduler: true } },
+            output: { decision: 'ran', reason: 'startWorker' }
+          });
+        } catch (_) { /* best-effort */ }
         const elapsed = Date.now() - taskStart;
         if (result && Array.isArray(result.events)) {
           for (const ev of result.events) {
@@ -1538,20 +1567,8 @@ async function runDueTasks(opts) {
   // patterns. Tests PSW4 covers the override path.
   const agentOverrides = opts.agent_id_overrides || {};
 
-  // Read recent background_task_run decision records for this cwd to
-  // build the lastRun map. 14-day window covers weekly tasks too.
-  const lastRun = new Map();
-  try {
-    const since = Date.now() - (14 * 24 * 60 * 60 * 1000);
-    const rows = stateMod.queryActions({
-      type: 'decision', cwd: ctx.cwd, since, limit: 500, order: 'desc'
-    }) || [];
-    for (const row of rows) {
-      let inp; try { inp = JSON.parse(row.input); } catch (_) { continue; }
-      if (!inp || inp.kind !== 'background_task_run' || !inp.task) continue;
-      if (!lastRun.has(inp.task)) lastRun.set(inp.task, row.timestamp);
-    }
-  } catch (_) { /* fall through with empty lastRun — first-time callers */ }
+  // One ledger, one reader — shared with the long-running scheduler.
+  const lastRun = hydrateLastRunFromRecords(ctx.cwd);
 
   const ran = [];
   const skipped = [];
@@ -1621,6 +1638,7 @@ async function runDueTasks(opts) {
 
 module.exports = {
   startWorker,
+  hydrateLastRunFromRecords,
   runDueTasks,
   DEFAULT_TASKS,
   tasks: {

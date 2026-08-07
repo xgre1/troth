@@ -28,6 +28,9 @@ function extractImports(filePath) {
   for (const p of patterns) {
     let m;
     while ((m = p.exec(content)) !== null) {
+      // A zero-length match never advances lastIndex on its own; without this
+      // the loop spins forever and the process pins a core, deaf to SIGTERM.
+      if (m.index === p.lastIndex) p.lastIndex++;
       imports.add(m[1]);
     }
   }
