@@ -30,6 +30,37 @@ troth is a persistent AI partner. Its identity, memory, goals and refusal walls 
 
 ---
 
+## The shape of it
+
+Most agent stacks are prompts, chains and tools arranged **around a vendor's model** — the model is the centre, and everything you build dissolves when you switch it. troth inverts that: the centre is a file on your disk.
+
+```mermaid
+flowchart LR
+    O["You<br/>CLI · dashboard · Claude Code"]
+    subgraph M["Your machine — ~/.troth"]
+        S[("The substrate<br/>identity · memory · goals · refusal walls<br/>one SQLite file you own")]
+        P["Local proxy<br/>routing · caching · failover"]
+    end
+    subgraph E["Interchangeable engines"]
+        C["Claude plan"]
+        G["ChatGPT plan"]
+        K["Kimi plan"]
+        A["Any API key"]
+        L["llama.cpp / Ollama — offline"]
+    end
+    O <--> S
+    S <--> P
+    P <--> C
+    P <--> G
+    P <--> K
+    P <--> A
+    P <--> L
+```
+
+Swap anything on the right; nothing in the middle changes. That is the whole thesis.
+
+---
+
 ## Works with what you already pay for
 
 - **Your subscriptions, as engines.** Claude, ChatGPT and Kimi are first-class backbones through the plan you already pay for. No API key, no second bill. Image generation runs on your ChatGPT plan.
