@@ -389,6 +389,9 @@ body.nav-adv-open #nav-adv-chev { transform: rotate(90deg); }
 #nav-advanced { display: none; }
 body.nav-adv-open #nav-advanced { display: block; }
 
+/* Open-repo-only surfaces: hidden the moment the app owns the machine. */
+body.ctx-app .open-only { display: none !important; }
+
 /* A2 operator gating. With the troth app installed
    (body.ctx-app) the dashboard boots as a read-only observatory: deep
    controls hide behind Operator mode (body.op-on) and app-owned surfaces
@@ -689,6 +692,28 @@ body.op-on #op-row { color: var(--text-dim); }
   <div style="margin-top:14px;padding:10px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;font-size:11px;color:var(--text-dim);display:flex;justify-content:space-between;align-items:center;">
     <span>Want to see what troth saved you? Tokens, $, hit rates, by-surface breakdown.</span>
     <button class="btn" onclick="navigate('analytics')" style="font-size:11px;">Open Analytics →</button>
+  </div>
+
+  <!-- What ships in the app, said plainly and only where the app is absent.
+       Paid surfaces; the open core is the full mind that powers them. -->
+  <div class="settings-card full-width open-only" id="app-locked-card" style="margin-top:16px">
+    <div class="card-title">In the troth app</div>
+    <div class="card-hint">The open core you are running is the full mind. These surfaces ship in the app built on top of it:</div>
+    <div style="font-size:12px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:7px 0;border-top:1px solid var(--border)">
+        <span><b style="font-weight:600">Voice</b> <span style="color:var(--text-muted)">— talk with your partner out loud, push-to-talk anywhere</span></span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-muted)">🔒 app</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:7px 0;border-top:1px solid var(--border)">
+        <span><b style="font-weight:600">Autonomy</b> <span style="color:var(--text-muted)">— it keeps working between sessions: focus, idle pursuit, drafts</span></span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-muted)">🔒 app</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:7px 0;border-top:1px solid var(--border)">
+        <span><b style="font-weight:600">Desktop presence</b> <span style="color:var(--text-muted)">— menu-bar app, global capture, one-click updates</span></span>
+        <span style="font-family:var(--mono);font-size:10px;color:var(--text-muted)">🔒 app</span>
+      </div>
+    </div>
+    <div style="margin-top:12px"><a href="https://troth.one" target="_blank" rel="noopener" style="font-size:11px;color:var(--signal)">Get the app → troth.one</a></div>
   </div>
 </div>
 
@@ -1198,11 +1223,26 @@ troth mind list / focus / show / compact</pre>
 // loaders already fetch. Listens for those loads and digests their output
 // into the hero card. Idempotent — safe to call after each load.
 (function () {
+  function workingOnLine() {
+    // "Working on:" from the live orientation — the partner's own current
+    // thread, written by dialogue, no operator command involved.
+    var f = (document.getElementById('mind-focus') || {}).textContent || '';
+    var m = f.match(/Working on:\s*(.+)/);
+    return m ? m[1].trim() : '';
+  }
   function digestHero() {
     try {
       // Pull the latest snapshot's focus from #mind-snapshots' first row.
       var snap = document.querySelector('#mind-snapshots > div:not([style*="text-muted"])');
       var heroFocus = document.getElementById('mind-hero-focus');
+      // A substrate with no snapshots yet still has a live thread: without
+      // this branch the hero said "loading…" forever on a fresh install.
+      if (!snap && heroFocus && /loading/i.test(heroFocus.textContent)) {
+        var wo0 = workingOnLine();
+        heroFocus.innerHTML = wo0
+          ? '<span style="color:var(--text-muted);font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.12em;margin-right:8px">working on</span>' + wo0.replace(/</g,'&lt;')
+          : '<span style="color:var(--text-muted);font-style:italic;font-size:14px;font-weight:400;">no focus yet — it forms from what you work on</span>';
+      }
       if (snap && heroFocus) {
         var focusEl = snap.querySelector('div:nth-child(2)');
         if (focusEl && focusEl.textContent.trim() && !focusEl.querySelector('em')) {
@@ -1211,7 +1251,13 @@ troth mind list / focus / show / compact</pre>
           // the thesis itself without the machine tail.
           var ftxt = focusEl.textContent.trim();
           if (/^thesis: NONE/.test(ftxt)) {
-            heroFocus.innerHTML = '<span style="color:var(--text-muted);font-style:italic;font-size:14px;font-weight:400;">no focus yet — it forms from what you work on</span>';
+            {
+            var wo = workingOnLine();
+            heroFocus.innerHTML = wo
+              ? '<span style="color:var(--text-muted);font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.12em;margin-right:8px">working on</span>' +
+                wo.replace(/</g,'&lt;')
+              : '<span style="color:var(--text-muted);font-style:italic;font-size:14px;font-weight:400;">no focus yet — it forms from what you work on</span>';
+          }
           } else {
             if (/^thesis: /.test(ftxt)) {
               ftxt = ftxt.slice(8);
@@ -1221,7 +1267,13 @@ troth mind list / focus / show / compact</pre>
             heroFocus.textContent = ftxt;
           }
         } else if (focusEl) {
-          heroFocus.innerHTML = '<span style="color:var(--text-muted);font-style:italic;font-size:14px;font-weight:400;">no focus yet — it forms from what you work on</span>';
+          {
+            var wo = workingOnLine();
+            heroFocus.innerHTML = wo
+              ? '<span style="color:var(--text-muted);font-size:11px;font-family:var(--mono);text-transform:uppercase;letter-spacing:0.12em;margin-right:8px">working on</span>' +
+                wo.replace(/</g,'&lt;')
+              : '<span style="color:var(--text-muted);font-style:italic;font-size:14px;font-weight:400;">no focus yet — it forms from what you work on</span>';
+          }
         }
         var meta = snap.querySelector('div:nth-child(3)');
         if (meta) {
