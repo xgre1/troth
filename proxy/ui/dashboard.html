@@ -377,12 +377,42 @@ select option:checked { background-color: #1A1A1F; }
   body { background: var(--bg) !important; background-attachment: scroll !important; }
 }
 
+/* ── Finish layer ─────────────────────────────────────────────────────────
+   Stats. These classes shipped with no CSS at all — the busiest card on the
+   home page rendered as bare text in a grid. Quiet tiles, tabular digits. */
+.stat { padding: 13px 16px 12px; background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--r-sm); transition: border-color .18s; }
+.stat:hover { border-color: var(--glass-border); }
+.stat-label { font-family: var(--mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--text-muted); }
+.stat-value { margin-top: 7px; font-size: 21px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1; }
+
+/* Tables. Headers whisper, digits align, rows answer the cursor. */
+.page table { width: 100%; border-collapse: collapse; }
+.page thead th { font-family: var(--mono); font-size: 9.5px; font-weight: 400; text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-muted); text-align: left; padding: 6px 10px 8px; border-bottom: 1px solid var(--glass-border); }
+.page thead th.num { text-align: right; }
+.page tbody td { padding: 10px; font-size: 12px; color: var(--text-dim); border-top: 1px solid rgba(255,255,255,0.045); font-variant-numeric: tabular-nums; }
+.page tbody td:first-child { color: var(--text); }
+.page tbody tr { transition: background .12s; }
+.page tbody tr:hover { background: rgba(255,255,255,0.025); }
+
+/* Scrollbars follow the room they are in. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.10); border-radius: 8px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); border: 3px solid transparent; background-clip: padding-box; }
+
+/* Press and keyboard states for every button, not only the selects. */
+.btn:active, .btn-ghost:active, .btn-mini:active { transform: translateY(0); }
+.btn:focus-visible, .btn-ghost:focus-visible, .btn-mini:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
+/* Hints hold a readable measure even on full-width cards. */
+.card-hint { max-width: 78ch; }
+
 /* Section labels on the one-page Settings — full grid width, quiet. */
 .settings-section-label { grid-column: 1 / -1; font-family: var(--mono); font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.16em; margin: 10px 0 -6px; }
 .settings-section-label:first-of-type { margin-top: 0; }
 
 /* Advanced fold: a quiet row, not a page. Collapsed hides the group. */
-#nav-adv-toggle { display: flex; align-items: center; justify-content: space-between; padding: 8px 22px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); cursor: pointer; user-select: none; }
+#nav-adv-toggle { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 0 8px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-muted); cursor: pointer; user-select: none; transition: color .15s; }
 #nav-adv-toggle:hover { color: var(--text-dim); }
 #nav-adv-chev { transition: transform 0.15s; }
 body.nav-adv-open #nav-adv-chev { transform: rotate(90deg); }
@@ -580,13 +610,13 @@ body.op-on #op-row { color: var(--text-dim); }
     </div>
     <table id="dash-usage-table" style="width:100%;border-collapse:collapse;font-size:11px;">
       <thead>
-        <tr style="color:var(--text-muted);text-align:left;border-bottom:1px solid var(--border);">
-          <th style="padding:4px 0;font-weight:500;">Provider</th>
-          <th style="padding:4px 8px;font-weight:500;text-align:right;">Requests</th>
-          <th style="padding:4px 8px;font-weight:500;text-align:right;">Input</th>
-          <th style="padding:4px 8px;font-weight:500;text-align:right;">Output</th>
-          <th style="padding:4px 8px;font-weight:500;text-align:right;">Cost</th>
-          <th style="padding:4px 0;font-weight:500;text-align:right;">Status</th>
+        <tr>
+          <th>Provider</th>
+          <th class="num">Requests</th>
+          <th class="num">Input</th>
+          <th class="num">Output</th>
+          <th class="num">Cost</th>
+          <th class="num">Status</th>
         </tr>
       </thead>
       <tbody id="dash-usage-rows"></tbody>
@@ -2136,10 +2166,10 @@ setInterval(function(){
     <table id="ana-surfaces-table" style="width:100%;border-collapse:collapse;font-size:11px;">
       <thead>
         <tr style="color:var(--text-muted);text-align:left;border-bottom:1px solid var(--border);">
-          <th style="padding:6px 0;font-weight:500;">Surface</th>
-          <th style="padding:6px 8px;font-weight:500;text-align:right;">Events</th>
-          <th style="padding:6px 8px;font-weight:500;text-align:right;">Tokens / metric</th>
-          <th style="padding:6px 8px;font-weight:500;text-align:right;">Notes</th>
+          <th>Surface</th>
+          <th class="num">Events</th>
+          <th class="num">Tokens / metric</th>
+          <th class="num">Notes</th>
         </tr>
       </thead>
       <tbody id="ana-surfaces-body"></tbody>
@@ -4272,10 +4302,7 @@ function loadMemoryBrowser(type){
     var html='<table style="width:100%;border-collapse:collapse;font-size:11px;">';
     html+='<tr style="border-bottom:1px solid var(--border);">';
     if(type==='reflexions'){
-      html+='<th style="text-align:left;padding:4px;color:var(--text-muted);">Tool</th>';
-      html+='<th style="text-align:left;padding:4px;color:var(--text-muted);">File</th>';
-      html+='<th style="text-align:left;padding:4px;color:var(--text-muted);">Lesson</th>';
-      html+='<th style="text-align:right;padding:4px;color:var(--text-muted);">Used</th>';
+      html+='<th>Tool</th><th>File</th><th>Lesson</th><th class="num">Used</th>';
       html+='<th style="text-align:right;padding:4px;color:var(--text-muted);">When</th>';
       html+='<th style="padding:4px;"></th>';
     }else{
