@@ -537,14 +537,14 @@ body.op-on #op-row { color: var(--text-dim); }
 
 <div class="main">
 
-<!-- Connection state strip (global, every page). -->
-<div id="conn-strip" style="margin:0 0 16px 0;padding:12px 16px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-  <div id="conn-plugin-pill" class="conn-pill">
+<!-- Connection state — one quiet row, no box around it. Each pill is a door. -->
+<div id="conn-strip" style="margin:2px 0 18px;display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;">
+  <div id="conn-plugin-pill" class="conn-pill" onclick="navigate('settings')" style="cursor:pointer" title="The troth plugin inside Claude Code">
     <span class="conn-dot"></span>
-    <span class="conn-label">Plugin</span>
+    <span class="conn-label">Claude Code</span>
     <span class="conn-status" id="conn-plugin-text">checking…</span>
   </div>
-  <div id="conn-proxy-pill" class="conn-pill">
+  <div id="conn-proxy-pill" class="conn-pill" onclick="navigate('logs')" style="cursor:pointer" title="The local proxy — routing, caching, failover">
     <span class="conn-dot"></span>
     <span class="conn-label">Proxy</span>
     <span class="conn-status" id="conn-proxy-text">checking…</span>
@@ -4539,12 +4539,12 @@ function fetchConnectionState() {
     var proxyPill  = document.getElementById('conn-proxy-pill');
     pluginPill.classList.toggle('on', pluginActive);
     proxyPill.classList.toggle('on', proxyReceiving);
-    document.getElementById('conn-plugin-text').textContent = pluginActive
-      ? ('connected' + (d.plugin.session_id ? ' · ' + d.plugin.session_id.slice(0,8) : ''))
-      : 'not detected';
+    document.getElementById('conn-plugin-text').textContent = pluginActive ? 'linked' : 'not linked';
+    // The hash identifies the session for debugging — tooltip, not headline.
+    if (pluginActive && d.plugin.session_id) pluginPill.title = 'Session ' + d.plugin.session_id.slice(0, 8);
     document.getElementById('conn-proxy-text').textContent = proxyReceiving
-      ? ((d.proxy.requests_24h || 0) + ' req · 24h')
-      : 'idle';
+      ? ('serving · ' + (d.proxy.requests_24h || 0) + ' today')
+      : 'listening';
 
     var hint = document.getElementById('conn-hint');
     var envCmd = document.getElementById('conn-env-cmd');
