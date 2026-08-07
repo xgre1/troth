@@ -718,6 +718,15 @@ body.op-on #op-row { color: var(--text-dim); }
        per part. Present without Operator mode on purpose: whether memory is
        real is the first thing a newcomer needs to know, and until now it was
        only visible inside the first-run overlay. -->
+  <div class="settings-card full-width">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;">
+      <div class="stat"><div class="stat-label">memories</div><div class="stat-value" id="mem-total">&mdash;</div></div>
+      <div class="stat"><div class="stat-label">new · 7 days</div><div class="stat-value" id="mem-week">&mdash;</div></div>
+      <div class="stat"><div class="stat-label">recall</div><div class="stat-value" id="mem-recall" style="font-size:15px;line-height:1.4;">&mdash;</div></div>
+      <div class="stat"><div class="stat-label">on your disk</div><div class="stat-value" id="mem-disk">&mdash;</div></div>
+    </div>
+  </div>
+
   <div class="settings-card full-width" id="stack-card">
     <div class="card-title">Memory on this device</div>
     <div class="card-hint">Embeddings and reranking run locally — this is what makes recall semantic instead of word-matching. Nothing here talks to a cloud.</div>
@@ -732,13 +741,15 @@ body.op-on #op-row { color: var(--text-dim); }
   </div>
 
   <div class="settings-card full-width">
-    <div class="card-title">Rules and refusals</div>
+    <div class="card-title" style="display:flex;align-items:baseline;gap:12px;"><span>Rules and refusals</span>
+      <a href="/ui/substrate" onclick="navigate('substrate');return false;" style="font-size:10px;color:var(--text-muted);text-decoration:none;text-transform:none;letter-spacing:0;">all records →</a></div>
     <div class="card-hint">The walls your partner keeps — what it refuses, the facts you signed, the anchors it will not drift from. These survive every model swap; ordinary memories do not.</div>
     <div id="rules-rows" style="font-size:12px">loading…</div>
   </div>
 
   <div class="settings-card full-width">
-    <div class="card-title">Memories</div>
+    <div class="card-title" style="display:flex;align-items:baseline;gap:12px;"><span>Memories</span>
+      <a href="/ui/substrate" onclick="navigate('substrate');return false;" style="font-size:10px;color:var(--text-muted);text-decoration:none;text-transform:none;letter-spacing:0;">browse everything →</a></div>
     <div class="card-hint">Search what your partner remembers; forget what should go. Signed operator facts are protected and say so.</div>
     <div style="display:flex;gap:8px;margin:0 0 10px">
       <input type="text" id="mem-q-mem" placeholder="Search memories…" style="flex:1" onkeydown="if(event.key==='Enter')searchMemories('mem')">
@@ -2810,7 +2821,7 @@ function navigate(p, opts){
   if(p==='ai-setup') loadAnthropicStatus();
   if(p==='ai-setup') loadImageSources();
   if(p==='ai-setup'){ loadConfig(); }
-  if(p==='memory'){ loadStackCard(); if (typeof loadImportCard === 'function') loadImportCard(); loadRules(); }
+  if(p==='memory'){ loadMemoryHero(); loadStackCard(); if (typeof loadImportCard === 'function') loadImportCard(); loadRules(); }
   if(p==='substrate' && typeof loadRecords === 'function'){ loadRecordTypes(); loadRecords(0); }
   if(p==='cli') loadCommands();
   if(p==='analytics' && typeof loadAnalytics === 'function'){ loadAnalytics(); }
@@ -4161,6 +4172,25 @@ function loadCommands(){
 }
 function copyText(t){
   try { navigator.clipboard.writeText(t); toast('Copied: ' + t); } catch (_) {}
+}
+
+// ── Memory hero: the mind in numbers ───────────────────────────────────────
+function loadMemoryHero(){
+  fetch('/api/substrate/counts').then(function(r){ return r.json(); }).then(function(c){
+    function fmt(n){ return n>=1e6 ? (n/1e6).toFixed(1)+'M' : n>=1e3 ? (n/1e3).toFixed(1)+'k' : String(n); }
+    var t=document.getElementById('mem-total'); if(t&&typeof c.total==='number') t.textContent=fmt(c.total);
+    var w=document.getElementById('mem-week'); if(w&&typeof c.commitments_7d==='number') w.textContent=fmt(c.commitments_7d);
+    var dsk=document.getElementById('mem-disk');
+    if(dsk&&typeof c.db_bytes==='number') dsk.textContent=(c.db_bytes/1073741824)>=1
+      ? (c.db_bytes/1073741824).toFixed(1)+' GB' : Math.round(c.db_bytes/1048576)+' MB';
+  }).catch(function(){});
+  fetch('/api/setup/local').then(function(r){ return r.json(); }).then(function(s){
+    var el=document.getElementById('mem-recall'); if(!el) return;
+    var e=(s.parts||{}).embedder||{};
+    el.innerHTML = e.present
+      ? '<span style="color:var(--green)">semantic ✓</span>'
+      : '<span style="color:var(--text-muted)">word-match — install below</span>';
+  }).catch(function(){});
 }
 
 // ── Rules and refusals (Memory) ────────────────────────────────────────────

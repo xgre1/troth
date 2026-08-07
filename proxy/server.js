@@ -996,6 +996,12 @@ const server = http.createServer((req, res) => {
             // the trailing week, same shape as last_24h.
             var d7 = Date.now() - 7 * 24 * 3600 * 1000;
             counts.commitments_7d = db.prepare("SELECT COUNT(*) AS n FROM action_records WHERE timestamp >= ? AND type='commitment'").get(d7).n;
+            // The substrate is a file the operator owns — its size on disk is
+            // part of the story the Memory page tells.
+            try {
+              const dbp = path.join(require('../shared-core/troth-home.js').trothDir(), 'state.db');
+              counts.db_bytes = fs.statSync(dbp).size;
+            } catch (_) {}
             counts.parent_id_coverage = db.prepare("SELECT SUM(CASE WHEN parent_id IS NOT NULL THEN 1 ELSE 0 END) * 1.0 / COUNT(*) AS r FROM action_records").get().r || 0;
             counts.precedent_hits_24h = db.prepare("SELECT COUNT(*) AS n FROM action_records WHERE timestamp >= ? AND type='decision' AND json_extract(input,'$.kind')='context_injection' AND CAST(json_extract(input,'$.precedent_count') AS INTEGER) > 0").get(h24).n;
             counts.verified_edits = db.prepare("SELECT COUNT(*) AS n FROM action_records WHERE type='edit' AND json_extract(verification,'$.ast.ok') = 1").get().n;
@@ -2033,7 +2039,7 @@ const server = http.createServer((req, res) => {
         parts: {
           // The engine that serves the two models over HTTP.
           binary: {
-            label: 'llama.cpp server',
+            label: 'Memory engine (llama.cpp)',
             size: '~20 MB',
             present: binPresent,
             can_install: binAuto,
@@ -2044,7 +2050,7 @@ const server = http.createServer((req, res) => {
           },
           // Semantic recall. Works without the binary through node-llama-cpp.
           embedder: {
-            label: 'memory model (EmbeddingGemma-300M)',
+            label: 'Semantic recall (EmbeddingGemma 300M)',
             size: '~333 MB',
             present: !!emb.download_done,
             progress: typeof emb.download_progress === 'number' ? emb.download_progress : 0,
@@ -2062,7 +2068,7 @@ const server = http.createServer((req, res) => {
           },
           // Final ordering of recall results. Server-only — no in-process path.
           reranker: {
-            label: 'reranking model (bge-reranker-v2-m3)',
+            label: 'Result ranking (bge-reranker v2)',
             size: '~610 MB',
             present: rerankOnDisk,
             serving: rerankServing,
