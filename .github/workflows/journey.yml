@@ -4,14 +4,13 @@ name: Journey
 
 # macOS bills at 10x and Windows at 2x against the free-minutes pool — a busy
 # push day drained 90% of the month. Pushes now pay only the 1x Linux leg;
-# the full cross-platform matrix runs nightly, on releases, and on demand.
+# the full cross-platform matrix runs on releases and on demand — the pool
+# is at 90% until it resets, so no cron this cycle.
 on:
   push:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened]
-  schedule:
-    - cron: '17 4 * * *'
   release:
     types: [published]
   workflow_dispatch:
@@ -36,7 +35,7 @@ jobs:
       fail-fast: false
       matrix:
         # Push/PR: Linux only (1x minutes). The expensive legs — macOS bills
-        # 10x, Windows 2x — join on the nightly cron, releases and manual runs.
+        # 10x, Windows 2x — join on releases and manual runs.
         include: ${{ (github.event_name == 'push' || github.event_name == 'pull_request') && fromJSON('[{"os":"ubuntu-latest","label":"Linux","tolerated":false}]') || fromJSON('[{"os":"ubuntu-latest","label":"Linux","tolerated":false},{"os":"macos-latest","label":"macOS (Apple)","tolerated":false},{"os":"windows-latest","label":"Windows","tolerated":false}]') }}
         # Intel macOS: no runner to schedule on — GitHub is retiring macos-13
         # and the job never leaves the queue. The shipped app is arm64 only;
