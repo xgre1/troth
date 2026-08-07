@@ -1329,10 +1329,12 @@ const taskWalReplicate = {
 // Cadence ledger reader shared by BOTH runners. The scheduler used to keep
 // lastRun only in memory, so every restart re-ran everything — four "weekly"
 // backups in a day, each a synchronous copy of a multi-GB state.db.
-function hydrateLastRunFromRecords(cwd) {
+function hydrateLastRunFromRecords(cwd, stateOverride) {
   const lastRun = new Map();
   try {
-    const stateMod = require('./state.js');
+    // Tests and embedders inject their own state module; the ledger reader
+    // honours it the way the runners always did.
+    const stateMod = stateOverride || require('./state.js');
     const since = Date.now() - (14 * 24 * 60 * 60 * 1000);
     const rows = stateMod.queryActions({
       type: 'decision', cwd, since, limit: 500, order: 'desc'
@@ -1381,7 +1383,7 @@ function startWorker(opts) {
   const notify = typeof opts.notify === 'function' ? opts.notify : null;
 
   // Hydrated, not born empty: restarts inherit what already ran.
-  const lastRun = hydrateLastRunFromRecords(opts.cwd || (opts.substrate_ctx && opts.substrate_ctx.cwd) || process.cwd());
+  const lastRun = hydrateLastRunFromRecords(opts.cwd || (opts.substrate_ctx && opts.substrate_ctx.cwd) || process.cwd(), opts.state);
   let running = true;
   let timer = null;
   let lastFgActivity = Date.now();
@@ -1568,7 +1570,7 @@ async function runDueTasks(opts) {
   const agentOverrides = opts.agent_id_overrides || {};
 
   // One ledger, one reader — shared with the long-running scheduler.
-  const lastRun = hydrateLastRunFromRecords(ctx.cwd);
+  const lastRun = hydrateLastRunFromRecords(ctx.cwd, opts.state);
 
   const ran = [];
   const skipped = [];
