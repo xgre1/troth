@@ -574,8 +574,8 @@ body.op-on #op-row { color: var(--text-dim); }
     </div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
       <div style="background:rgba(0,0,0,0.25);border-radius:10px;padding:18px;">
-        <div id="ph-requests" style="font-size:24px;font-weight:600;color:var(--text);">&mdash;</div>
-        <div style="font-size:10px;color:var(--text-muted);margin-top:6px;">requests handled</div>
+        <div id="ph-saved" style="font-size:24px;font-weight:600;color:var(--text);">&mdash;</div>
+        <div style="font-size:10px;color:var(--text-muted);margin-top:6px;">tokens saved · 7 days</div>
       </div>
       <div style="background:rgba(0,0,0,0.25);border-radius:10px;padding:18px;">
         <div id="ph-memories" style="font-size:24px;font-weight:600;color:var(--text);">&mdash;</div>
@@ -653,7 +653,7 @@ body.op-on #op-row { color: var(--text-dim); }
     <span id="dash-workflow"></span><span id="dash-critic"></span>
     <span id="dash-memory"></span><span id="dash-grandtotal"></span>
     <span id="dash-cost"></span><span id="memory-browser"></span>
-    <span id="dash-total-cost"></span><span id="dash-providers"></span>
+    <span id="dash-total-cost"></span><span id="ph-requests"></span><span id="dash-providers"></span>
     <span id="dash-fallback-chain"></span>
     <span id="dash-authmode"></span>
     <span id="dash-cacheratio"></span>
@@ -3181,8 +3181,16 @@ function updateStats(data){
   window.renderHeroEngine = renderHeroEngine;
 
   // ── Mode A plain hero ──
-  var phReq=document.getElementById('ph-requests');
-  if(phReq&&typeof data.requests!=='undefined')phReq.textContent=data.requests;
+  if(!window._phSavedLoaded){
+    window._phSavedLoaded=true;
+    fetch('/api/analytics?window=7d').then(function(r){return r.json();}).then(function(a){
+      var el=document.getElementById('ph-saved');
+      var tok=a&&a.overview&&a.overview.tokens_saved_total;
+      if(el&&typeof tok==='number'){
+        el.textContent = tok>=1e6 ? (tok/1e6).toFixed(1)+'M' : tok>=1e3 ? Math.round(tok/1e3)+'k' : String(tok);
+      }
+    }).catch(function(){});
+  }
   var phEng=document.getElementById('ph-engine');
   if(phEng){
     // Truth over configuration: this used to show the FIRST ENABLED provider
