@@ -3154,6 +3154,32 @@ function updateStats(data){
     }
   }
 
+  // The one writer for the engine line. Two truths, live one first:
+  // plugin presence (a Claude Code session heartbeating right now) and the
+  // proxy chat ledger with its honest aging. Called by whichever loader
+  // lands last — stats or connection-state — so the line never stays stale.
+  function renderHeroEngine(){
+    var el = document.getElementById('ph-engine');
+    if (!el) return;
+    var ls = window._lastServed;
+    var live = !!window._pluginActive;
+    var chat = '';
+    if (ls && ls.model) {
+      var ageM = Math.floor((Date.now() - ls.ts) / 60000);
+      chat = ageM <= 10
+        ? ('Answering with ' + ls.model)
+        : ('Chat last answered with ' + ls.model + ' · ' + (ageM < 120 ? ageM + 'm' : Math.floor(ageM / 60) + 'h') + ' ago');
+      el.textContent = live && ageM > 10
+        ? ('Working right now in Claude Code · ' + chat.charAt(0).toLowerCase() + chat.slice(1))
+        : (live ? (chat + ' · also live in Claude Code') : chat);
+    } else if (live) {
+      el.textContent = 'Working right now in Claude Code';
+    }
+    // No ledger, no presence: the configured-branch text from the stats
+    // writer stays as written.
+  }
+  window.renderHeroEngine = renderHeroEngine;
+
   // ── Mode A plain hero ──
   var phReq=document.getElementById('ph-requests');
   if(phReq&&typeof data.requests!=='undefined')phReq.textContent=data.requests;
@@ -3165,11 +3191,9 @@ function updateStats(data){
     // Now it names the MODEL of the last completed request from the
     // persistent ledger, with honest aging when the proxy has been idle.
     var ls = data.last_served;
+    window._lastServed = (ls && ls.model) ? ls : null;
     if (ls && ls.model) {
-      var ageM = Math.floor((Date.now() - ls.ts) / 60000);
-      phEng.textContent = ageM <= 10
-        ? ('Answering with ' + ls.model)
-        : ('Last answered with ' + ls.model + ' · ' + (ageM < 120 ? ageM + 'm' : Math.floor(ageM/60) + 'h') + ' ago');
+      renderHeroEngine();
     } else if (data.providers) {
       var first=null;
       for(var pe=0;pe<PROVIDER_ORDER.length;pe++){var pkk=PROVIDER_ORDER[pe];if(data.providers[pkk]&&data.providers[pkk].enabled){first=pkk;break;}}
@@ -4537,6 +4561,8 @@ function setSettingsTab(_name) {
 function fetchConnectionState() {
   fetch('/api/connection-state').then(function(r){ return r.json(); }).then(function(d){
     var pluginActive = !!(d.plugin && d.plugin.active);
+    window._pluginActive = pluginActive;
+    if (typeof window.renderHeroEngine === 'function') window.renderHeroEngine();
     var proxyReceiving = !!(d.proxy && d.proxy.receiving);
     var pluginPill = document.getElementById('conn-plugin-pill');
     var proxyPill  = document.getElementById('conn-proxy-pill');
