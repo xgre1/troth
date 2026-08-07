@@ -109,6 +109,21 @@ if (TARGET.startsWith('dmg')) {
   }
 }
 
+// Leftovers from a killed run: anything listening in the journey port range
+// (8700-8899 — allocated only by this harness) is an orphan. Reap before
+// starting; one such orphan span a core for hours behind a dead runner.
+(function sweepOrphanProxies(){
+  try {
+    const out = require('child_process').execSync(
+      "lsof -nP -iTCP -sTCP:LISTEN 2>/dev/null | awk '$9 ~ /:87[0-8][0-9]$/ {print $2}' | sort -u",
+      { encoding: 'utf8' });
+    for (const pid of out.split('\n').map(function(x){return x.trim()}).filter(Boolean)) {
+      if (parseInt(pid, 10) === process.pid) continue;
+      try { process.kill(parseInt(pid, 10), 'SIGKILL'); console.log('  reaped orphan journey proxy pid=' + pid); } catch (_) {}
+    }
+  } catch (_) { /* no lsof (windows) — the exit-with-parent guard covers it */ }
+})();
+
 const ctxLib = require('./lib/ctx.js');
 
 (async () => {

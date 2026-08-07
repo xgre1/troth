@@ -20,6 +20,7 @@ function fillTemplate(template, vars, constraints) {
   let m;
   const re = /\{\{(\w+)(?::([^}]+))?\}\}/g;
   while ((m = re.exec(template)) !== null) {
+    if (m.index === re.lastIndex) re.lastIndex++; // zero-width guard
     const name = m[1];
     const constraint = m[2];
     seen.add(name);
