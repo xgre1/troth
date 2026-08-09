@@ -28,6 +28,15 @@ function make({ root, target }) {
     // Never fetch a multi-hundred-MB model because a scenario asked a question.
     TROTH_LLAMA_SERVER_BIN: '/nonexistent-journey-no-fetch',
     TROTH_NO_MODEL_FETCH: '1',
+    // A journey proxy must not murder the machine it runs on — nor be
+    // murdered by it. cleanSiblingsAtBoot closed the OPERATOR's live
+    // launchd daemon as a "stray", launchd resurrected it, and the
+    // resurrected daemon's own boot closed the journey proxy right back:
+    // five boot-family journeys read ECONNREFUSED on any machine running
+    // the real product (2026-08-09, live find). With siblings kept, the
+    // journey proxy touches nobody, the daemon never re-boots, and both
+    // worlds coexist — which is the point of a fresh-HOME harness.
+    TROTH_KEEP_SIBLINGS: '1',
   });
 
   const ctx = {

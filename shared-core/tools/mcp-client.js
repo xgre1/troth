@@ -354,6 +354,35 @@ function _resolveEnvSpec(envSpec, serverName) {
   return { env: out, warnings };
 }
 
+// The child's environment is BUILT, never inherited. The process hosting
+// this client (proxy, plugin server, CLI) can carry API keys and tokens in
+// its env; a downstream MCP server has no business reading any of them. It
+// gets a working base — the parent's PATH (a lookup list, not a secret, and
+// dropping it would break every operator whose server command lives in
+// /opt/homebrew/bin), HOME/TMPDIR so caches and dotfiles work, locale — plus
+// exactly what its registry entry DECLARED, with $vault refs resolved.
+function _buildChildEnv(resolvedEnv) {
+  const base = {
+    PATH:   process.env.PATH || '/usr/bin:/bin:/usr/sbin:/sbin:' + path.dirname(process.execPath),
+    HOME:   process.env.HOME || os.homedir(),
+    TMPDIR: process.env.TMPDIR || os.tmpdir(),
+    LANG:   process.env.LANG || 'en_US.UTF-8',
+    TERM:   process.env.TERM || 'dumb'
+  };
+  return Object.assign(base, resolvedEnv || {});
+}
+
+// Where a jailed bridge lives: a stable per-server dir, so the bridge's own
+// state (mcp-remote keeps OAuth tokens under HOME) survives restarts while
+// staying invisible to every other server and to the rest of ~/.troth.
+function _bridgeJailDir(name) {
+  let safe = String(name).replace(/[^A-Za-z0-9._-]/g, '_');
+  // Dots are legitimate INSIDE a name (api.example) but a name that IS
+  // dots would make path.join walk out of the jail root.
+  if (safe === '' || safe === '.' || safe === '..') safe = '_' + safe;
+  return path.join((process.env.HOME || os.homedir()), '.troth', 'mcp-jail', safe);
+}
+
 function startDownstream(name, spec) {
   const spawnSpec = _toSpawnSpec(name, spec);
   if (!spawnSpec.command) throw new Error('downstream ' + name + ' has no command');
@@ -361,9 +390,34 @@ function startDownstream(name, spec) {
   // spawn-error path only (surfaced if the child dies), per the audit rule
   // that a locked vault must degrade, not throw, and never leak the value.
   const resolved = _resolveEnvSpec(spawnSpec.env, name);
-  const env = Object.assign({}, process.env, resolved.env);
-  const proc = spawn(spawnSpec.command, spawnSpec.args || [], { stdio: ['pipe', 'pipe', 'pipe'], env });
-  const state = { proc, nextId: 1, pending: new Map(), buffer: '', ready: false, env_warnings: resolved.warnings };
+  // The bridge (npx mcp-remote) is third-party code fetched at spawn time:
+  // it runs jailed when the host has a jail. A jail failure falls through
+  // to a plain spawn — the BUILT env below still applies either way, so
+  // the parent's secrets never reach the child on any path.
+  let proc = null;
+  let jailed = false;
+  if (spawnSpec.command === 'npx') {
+    try {
+      const seatbelt = require('./sandbox-seatbelt.js');
+      const jailDir = _bridgeJailDir(name);
+      fs.mkdirSync(jailDir, { recursive: true, mode: 0o700 });
+      const jspec = seatbelt.jailSpawnSpec({ cwd: jailDir, network: 'full', env: resolved.env });
+      if (jspec.ok) {
+        // cwd MUST be the jail. Without it the child keeps the proxy's
+        // working directory, which is outside the walls, and npm/npx call
+        // process.cwd() during bootstrap: getcwd() returns EPERM and every
+        // remote server dies with "exited before init (code 7)".
+        proc = spawn(jspec.exec, jspec.args.concat([spawnSpec.command]).concat(spawnSpec.args || []),
+                     { stdio: ['pipe', 'pipe', 'pipe'], cwd: jspec.work, env: jspec.env });
+        jailed = true;
+      }
+    } catch (_) { /* no adapter on this platform — plain spawn below */ }
+  }
+  if (!proc) {
+    proc = spawn(spawnSpec.command, spawnSpec.args || [],
+                 { stdio: ['pipe', 'pipe', 'pipe'], env: _buildChildEnv(resolved.env) });
+  }
+  const state = { proc, nextId: 1, pending: new Map(), buffer: '', ready: false, jailed, env_warnings: resolved.warnings };
 
   proc.stdout.setEncoding('utf8');
   proc.stdout.on('data', (chunk) => {
@@ -791,6 +845,8 @@ module.exports = {
   // Pure helpers - unit-testable without spawning a process.
   _toSpawnSpec,
   _resolveEnvSpec,
+  _buildChildEnv,
+  _bridgeJailDir,
   _autoResolveMcpAuthorization,
   _pendingPath,
   _activeGlobalPath,

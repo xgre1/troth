@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: Apache-2.0
-// troth-bash — sandboxed replacement for Claude Code's built-in Bash tool.
+// troth-bash — context-safe replacement for Claude Code's built-in Bash
+// tool: output compression + archival, plus a REAL OS jail for workspace
+// ground. Commands whose cwd is under ~/.troth/workspace/ run inside the
+// seatbelt sandbox scoped to their project (see workspace-jail.mjs);
+// everything else runs as the operator's own shell, untouched.
 //
 // Why: raw bash output (git log, grep -r, find /, cat-large-file) routinely
 // dumps 10-100K tokens into the session, silently compacting the user's
@@ -20,12 +24,13 @@
 
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve as pathResolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
 import { compressCommandOutput } from './compress.mjs';
+import { jailFor } from './workspace-jail.mjs';
 
 const require = createRequire(import.meta.url);
 
@@ -47,11 +52,21 @@ process.on('unhandledRejection', (e) => {
 // install path.
 let state = null;
 let danger = null;
+let safety = null;
+let redactor = null;
 try {
   const serverDir = fileURLToPath(new URL('.', import.meta.url));
   // plugin/mcp-servers/troth-bash/ → repo/shared-core/state.js
   state = require(serverDir + '../../../shared-core/state.js');
   danger = require(serverDir + '../../../shared-core/danger.js');
+  safety = require(serverDir + '../../../shared-core/tools/bash-safety.js');
+  // The same harvest+redact store the outbound reply path uses. Raw stdout
+  // used to flow to the model AND into tool_output_archive untouched, which
+  // is how 550 credential literals ended up full-text searchable on disk:
+  // one `cat .env` was archived verbatim, forever. Harvest secret-shaped
+  // literals from every result and mask them BEFORE anything downstream
+  // (compression, the model, the archive) sees the text.
+  redactor = require(serverDir + '../../../shared-core/secret-redactor.js');
 } catch (e) { /* fall back to no archival or danger check */ }
 
 // Normalize + validate a directory: expand a leading ~, resolve, and require
@@ -99,6 +114,21 @@ const TOOLS = [
     name: 'pwd',
     description: 'Return the current persistent working directory.',
     inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'browse',
+    description: 'Drive a real Chrome page over CDP: navigate, read the DOM, click and fill through eval JS, screenshot. Steps in order: goto url → wait_ms → eval JS (JSON result returned) → screenshot to a PNG path. With no port it uses the troth browser and starts it if needed (private profile, never your own session). With an explicit port it only attaches: port 9222 reaches a browser the operator started with --remote-debugging-port=9222.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Navigate here first (optional).' },
+        eval: { type: 'string', description: 'JS expression evaluated in the page; JSON-serializable result returned.' },
+        screenshot: { type: 'string', description: 'PNG file path (absolute or cwd-relative) to save a screenshot to.' },
+        wait_ms: { type: 'integer', description: 'Settle time after navigation in ms (default 1200).' },
+        host: { type: 'string', description: 'CDP host (default 127.0.0.1).' },
+        port: { type: 'integer', description: 'CDP port. Omit to use the troth browser (started if needed on 18222). Explicit ports are attach-only; 9222 is the operator\'s own debug browser.' }
+      }
+    }
   }
 ];
 
@@ -144,6 +174,21 @@ const STDERR_TAIL = 256 * 1024;
 // child, return what we have, mark as truncated.
 const HARD_KILL_BYTES = 50 * 1024 * 1024;
 
+// Operator ground inherits the operator's environment — that is the point of
+// operator ground — MINUS the switches that lower the substrate's own walls.
+// TROTH_STVC_BYPASS is the operator's debugging escape hatch for THEIR shell
+// (doctor reports it when set); inherited here it would ride silently under
+// every partner command and turn the STVC gate off for writes the partner
+// makes through any tool it shells out to. The jailed branch never inherits
+// (sandbox-seatbelt builds its env from scratch), so this covers the one
+// spawn that does. The inline spelling (`TROTH_STVC_BYPASS=1 cmd`) is refused
+// by bash-safety for the same reason.
+function partnerEnv() {
+  const env = Object.assign({}, process.env);
+  delete env.TROTH_STVC_BYPASS;
+  return env;
+}
+
 function runCommand(command, timeoutMs, overrideCwd) {
   return new Promise((resolve) => {
     let effectiveCwd = overrideCwd || cwd;
@@ -157,14 +202,62 @@ function runCommand(command, timeoutMs, overrideCwd) {
       effectiveCwd = homedir();
       if (!overrideCwd) cwd = effectiveCwd;
     }
-    const proc = spawn('/bin/bash', ['-lc', command], { cwd: effectiveCwd });
+    // Workspace ground runs jailed; the note keeps the agent oriented so a
+    // "permission denied" inside the jail reads as the wall, not a bug.
+    const jail = jailFor(effectiveCwd);
+    if (jail && jail.refuse) {
+      // A cwd that claims the workspace but resolves outside it. Running it
+      // bare would be the one fail-open the whole design exists to avoid.
+      return resolve({
+        stdout: '', stderr: '[troth-bash] REFUSED: ' + jail.refuse + '\n',
+        exitCode: 126, signal: null, timedOut: false
+      });
+    }
+    if (jail && jail.off === 'operator') {
+      // The operator set l4.sandbox.runtime to bare. Their machine, their
+      // call — but say so on every command, because a jail that is off and
+      // a jail that is on look identical until something goes wrong.
+      cwdNote += '[troth-bash] workspace jail OFF by operator config'
+        + ' (l4.sandbox.runtime=bare): ' + jail.project + ' runs unsandboxed\n';
+    } else if (jail && jail.off === 'unavailable') {
+      // This host has no jail to give. Announced for the same reason as the
+      // operator's own switch: the directory promises containment, and a
+      // promise that quietly is not kept is worse than one never made.
+      cwdNote += '[troth-bash] workspace jail UNAVAILABLE: ' + jail.project
+        + ' runs unsandboxed (' + (jail.why || 'no runtime') + ')\n';
+    } else if (jail) {
+      cwdNote += '[troth-bash] workspace jail: writes+reads scoped to ' + jail.project
+        + (jail.ground === 'workspace'
+            ? ' (the workspace root: this command can see every project — cd into one for real work)'
+            : '') + '\n';
+    }
+    // An off-by-config jail carries no argv, so it spawns like operator
+    // ground below.
+    const wrapped = jail && jail.exec ? jail : null;
+    // detached puts the command in its OWN process group so a kill can take
+    // the whole tree. Seatbelt scopes signals to one sandbox-exec
+    // invocation, so a background server started inside a jail is
+    // unreachable — and unkillable — from any later call; without the group
+    // it survives the timeout that was supposed to end it.
+    const proc = wrapped
+      ? spawn(wrapped.exec, wrapped.args.concat(['/bin/bash', '-lc', command]),
+              { cwd: effectiveCwd, env: wrapped.env, detached: true })
+      : spawn('/bin/bash', ['-lc', command], { cwd: effectiveCwd, env: partnerEnv(), detached: true });
+    // Signal the group (-pid), falling back to the leader if the group is
+    // already gone, so a stray child can never outlive its command.
+    const endTree = (sig) => {
+      try { process.kill(-proc.pid, sig); }
+      catch (e) { try { proc.kill(sig); } catch (e2) {} }
+    };
     const outBuf = makeBoundedBuffer(STDOUT_HEAD, STDOUT_TAIL);
     const errBuf = makeBoundedBuffer(STDERR_HEAD, STDERR_TAIL);
     let killed = false;
     let killedByOverflow = false;
     const timer = setTimeout(() => {
       killed = true;
-      try { proc.kill('SIGTERM'); } catch (e) {}
+      endTree('SIGTERM');
+      // A tree that ignores SIGTERM still has to go.
+      setTimeout(() => endTree('SIGKILL'), 2000).unref?.();
     }, timeoutMs || 120000);
 
     function checkOverflow() {
@@ -172,7 +265,7 @@ function runCommand(command, timeoutMs, overrideCwd) {
       if (outBuf.totalBytes() + errBuf.totalBytes() > HARD_KILL_BYTES) {
         killed = true;
         killedByOverflow = true;
-        try { proc.kill('SIGKILL'); } catch (e) {}
+        endTree('SIGKILL');
       }
     }
 
@@ -180,6 +273,8 @@ function runCommand(command, timeoutMs, overrideCwd) {
     proc.stderr.on('data', (c) => { errBuf.push(c.toString('utf8')); checkOverflow(); });
     proc.on('exit', (code, signal) => {
       clearTimeout(timer);
+      // The leader is gone; anything it backgrounded goes with it.
+      endTree('SIGKILL');
       let stderrOut = cwdNote + errBuf.get();
       if (killedByOverflow) {
         stderrOut += '\n[troth-bash] HARD KILL: output exceeded ' + HARD_KILL_BYTES + ' bytes total';
@@ -200,7 +295,104 @@ function runCommand(command, timeoutMs, overrideCwd) {
   });
 }
 
+// ── browse: look at a real page through the operator's own Chrome ────────
+// Connects to an ALREADY-RUNNING Chrome (--remote-debugging-port=9222);
+// never launches one. Steps run in order: goto → wait → eval → screenshot.
+// This is the same road the journey tests drive (tests/journey/lib/browser.js),
+// exposed as a tool so any agent with troth mounted can look at real pages.
+async function handleBrowse(args) {
+  let cdp;
+  try {
+    const serverDir = fileURLToPath(new URL('.', import.meta.url));
+    cdp = require(serverDir + '../../../shared-core/perception/cdp-client.js');
+  } catch (e) {
+    return { isError: true, content: [{ type: 'text', text: 'cdp client unavailable: ' + (e && e.message || e) }] };
+  }
+  let host = args.host || '127.0.0.1';
+  let port = Number(args.port) || 0;
+  const explicit = port > 0;
+  if (!explicit) {
+    // No port asked: find or start the TROTH browser only — whatever a
+    // body/daemon already exported, then the private daemon port, then
+    // launch the daemon's Chrome. The operator's own debug browser (9222)
+    // is NOT a candidate here: the description promises "never your own
+    // session", and until this held, a no-port browse with a debug Chrome
+    // open landed inside the operator's authenticated session with
+    // arbitrary eval. 9222 is reachable only as an EXPLICIT port — the
+    // operator's opt-in — and explicit ports stay attach-only.
+    let daemon = null;
+    try {
+      const serverDir = fileURLToPath(new URL('.', import.meta.url));
+      daemon = require(serverDir + '../../../shared-core/perception/chromium-daemon.js');
+    } catch (_) {}
+    if (daemon) {
+      const candidates = [];
+      const envPort = parseInt(process.env.TROTH_BROWSER_CDP_PORT || '', 10);
+      if (envPort) candidates.push(envPort);
+      if (candidates.indexOf(daemon.DEFAULT_PORT) === -1) candidates.push(daemon.DEFAULT_PORT);
+      for (const c of candidates) {
+        const h = await daemon.aliveHost(c, 900);
+        if (h) { host = h; port = c; break; }
+      }
+      if (!port) {
+        const up = await daemon.ensure({});
+        if (up && up.ok) { host = up.host || host; port = up.port; }
+        else return { isError: true, content: [{ type: 'text', text:
+          'no browser to attach and could not start one: ' + ((up && (up.detail || up.error)) || 'unknown') }] };
+      }
+    }
+    // No daemon module on this install → there is no troth browser to use.
+    // Falling back to 9222 here would silently do what the no-port contract
+    // exists to prevent; say what is missing instead.
+    if (!port) {
+      return { isError: true, content: [{ type: 'text', text:
+        'no troth browser available on this install. To drive your OWN debug Chrome, start it with --remote-debugging-port=9222 and call browse with port 9222 explicitly.' }] };
+    }
+  }
+  let page;
+  try { page = await cdp.connectFirstPage(host, port); }
+  catch (e) {
+    return { isError: true, content: [{ type: 'text', text:
+      'no debuggable browser at ' + host + ':' + port + (explicit
+        ? ' - explicit ports are attach-only; start that browser yourself with --remote-debugging-port=' + port
+        : ' - and starting the troth browser did not yield a page') + '. Underlying: ' + (e && e.message || e) }] };
+  }
+  const out = {};
+  try {
+    await page.send('Page.enable', {});
+    await page.send('Runtime.enable', {});
+    if (args.url) {
+      await page.send('Page.navigate', { url: String(args.url) });
+      await new Promise((r) => setTimeout(r, Number(args.wait_ms) || 1200));
+    } else if (args.wait_ms) {
+      await new Promise((r) => setTimeout(r, Number(args.wait_ms)));
+    }
+    if (args.eval) {
+      const r = await page.send('Runtime.evaluate', {
+        expression: '(function(){ try { return JSON.stringify(' + args.eval + '); } catch (e) { return JSON.stringify({ __eval_error: String(e && e.message || e) }); } })()',
+        returnByValue: true, awaitPromise: true,
+      });
+      const v = r && r.result && r.result.value;
+      try { out.eval = JSON.parse(v); } catch (_) { out.eval = v; }
+    }
+    if (args.screenshot) {
+      const shot = await page.send('Page.captureScreenshot', { format: 'png' });
+      if (shot && shot.data) {
+        const file = pathResolve(cwd, String(args.screenshot));
+        writeFileSync(file, Buffer.from(shot.data, 'base64'));
+        out.screenshot = file;
+      } else { out.screenshot = null; }
+    }
+  } catch (e) {
+    try { page.close(); } catch (_) {}
+    return { isError: true, content: [{ type: 'text', text: 'browse failed: ' + (e && e.message || e) }] };
+  }
+  try { page.close(); } catch (_) {}
+  return { content: [{ type: 'text', text: JSON.stringify(out) }] };
+}
+
 async function handleTool(name, args) {
+  if (name === 'browse') return handleBrowse(args);
   if (name === 'pwd') {
     return { content: [{ type: 'text', text: cwd }] };
   }
@@ -213,6 +405,41 @@ async function handleTool(name, args) {
     return { content: [{ type: 'text', text: 'cwd → ' + cwd }] };
   }
   if (name === 'run') {
+    // Two pre-flight gates, and the difference between them is whether an
+    // ack can buy a way through.
+    //
+    // bash-safety is the WALL: irreversible or unbounded acts (raw-disk dd,
+    // chmod 777 /, rewriting /etc, a fork bomb) and, via its resolved-path
+    // layer, any command that writes to or ships out a protected
+    // destination — credentials, the shell rc tree, the agent-host hooks,
+    // either MCP registry. There is no correct partner reason to do those,
+    // so acknowledge_danger does not reach it. An operator who genuinely
+    // means it still has their own shell.
+    //
+    // danger.js is the SPEED BUMP: destructive but legitimate acts (rm -rf a
+    // build dir, git reset --hard, DROP TABLE on a scratch db) where intent
+    // is the whole question. Those stay ack-able, exactly as before.
+    //
+    // The wall was written long before this and was reachable only from
+    // permission.js, on the l4_step path that does not ship — so the tool an
+    // operator actually drives ran with the speed bump alone.
+    if (safety) {
+      const verdict = safety.isCommandSafe(args.command || '', {});
+      if (!verdict.allowed) {
+        return {
+          content: [{
+            type: 'text',
+            text:
+              '[troth-bash] REFUSED ' + verdict.reason
+              + (verdict.pattern ? ' (' + verdict.pattern + ')' : '') + '. '
+              + (verdict.detail || '')
+              + ' This destination is operator-only by policy; acknowledge_danger does not override it.'
+          }],
+          isError: true
+        };
+      }
+    }
+
     // Pre-flight danger check — if the command matches a known
     // destructive pattern AND the caller didn't explicitly ack with
     // acknowledge_danger=true, refuse with an isError + explicit
@@ -220,6 +447,7 @@ async function handleTool(name, args) {
     // hooks; those live in the agent loop, this lives in the tool
     // runtime so it catches direct `mcp__troth-bash__run` calls
     // that bypass hooks (e.g. via background agents).
+    let caution = null;
     if (danger && !args.acknowledge_danger) {
       const hit = danger.classify(args.command || '');
       if (hit && hit.severity !== 'medium') {
@@ -234,9 +462,27 @@ async function handleTool(name, args) {
           isError: true
         };
       }
+      // Medium hits (git branch -D, --no-verify, killall…) used to be
+      // classified and then thrown away — the one severity that ran with
+      // no trace at all. They still run without an ack, because intent is
+      // plausibly legitimate, but the classification now travels with the
+      // result so neither the model nor the archive can say nobody knew.
+      if (hit) caution = hit.kind + ' (' + hit.severity + '): matched ' + hit.pattern;
     }
     const res = await runCommand(args.command, args.timeout_ms, args.cwd);
-    const combined = res.stdout + (res.stderr ? '\n---\n' + res.stderr : '');
+    let combined = res.stdout + (res.stderr ? '\n---\n' + res.stderr : '');
+    // Redact BEFORE compression so every downstream consumer — the model,
+    // tool_output_archive, the FTS index, the savings label — sees the same
+    // masked text. Harvest first: the store is what redact() masks, and the
+    // command line itself can carry a secret worth remembering (a token
+    // pasted into curl -H). Redaction failure must never break the run.
+    if (redactor) {
+      try {
+        redactor.harvest(args.command || '');
+        redactor.harvest(combined);
+        combined = redactor.redact(combined);
+      } catch (_) { /* fail-open: an unredacted run beats a dead shell — Layer 0 already refuses commands that CARRY credentials */ }
+    }
     const comp = compressCommandOutput(args.command, combined);
 
     let archiveId = null;
@@ -250,9 +496,10 @@ async function handleTool(name, args) {
         );
         state.recordSavings(
           'bash_compression',
-          Math.max(0, comp.originalBytes - comp.compressedBytes),
+          // Estimated tokens (bytes/4) — the ledger's unit, not raw bytes.
+          Math.ceil(Math.max(0, comp.originalBytes - comp.compressedBytes) / 4),
           process.env.CLAUDE_SESSION_ID || null,
-          'cmd: ' + (args.command || '').slice(0, 80)
+          'cmd: ' + (redactor ? redactor.redact(args.command || '') : (args.command || '')).slice(0, 80)
         );
       } catch (e) { /* archive optional */ }
     }
@@ -265,6 +512,7 @@ async function handleTool(name, args) {
     metaLines.push('exit: ' + (res.exitCode == null ? '?' : res.exitCode));
     if (res.timedOut) metaLines.push('status: TIMEOUT');
     if (res.signal && !res.timedOut) metaLines.push('signal: ' + res.signal);
+    if (caution) metaLines.push('caution: ' + caution);
     const meta = '[' + metaLines.join(' | ') + ']\n\n';
 
     return { content: [{ type: 'text', text: meta + comp.summary + footer }], isError: res.exitCode !== 0 };

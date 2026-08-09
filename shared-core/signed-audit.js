@@ -59,29 +59,61 @@ function _ensureDir(dir) {
 
 // Generate (or load) the active ed25519 keypair. Returns
 //   { public_key_id, private_key_pem, public_key_pem }
+//
+// Cached per (dir, name) for the process lifetime: attestation now runs on
+// EVERY action_records write, and three file reads + PEM parses per engram
+// write is a tax with no threat model behind it. The hit is validated with
+// one existsSync so rotation-by-rename (active.* → prev.*, regenerate) is
+// still seen the moment it happens — the multikey rotation flow depends on
+// exactly that.
+const _keyCache = new Map();
 function ensureKey(opts) {
   opts = opts || {};
   const dir = _keyDir(opts);
   const name = (opts && opts.key_name) || KEY_NAME_DEFAULT;
-  _ensureDir(dir);
   const privPath = path.join(dir, name + '.key');
   const pubPath  = path.join(dir, name + '.pub');
   const idPath   = path.join(dir, name + '.id');
+  const cacheKey = dir + '|' + name;
+  const cached = _keyCache.get(cacheKey);
+  if (cached) {
+    if (fs.existsSync(privPath)) return cached;
+    _keyCache.delete(cacheKey);   // rotated away underneath us
+  }
+  _ensureDir(dir);
+  const _load = () => ({
+    public_key_id:   fs.readFileSync(idPath, 'utf8').trim(),
+    private_key_pem: fs.readFileSync(privPath, 'utf8'),
+    public_key_pem:  fs.readFileSync(pubPath,  'utf8')
+  });
   if (fs.existsSync(privPath) && fs.existsSync(pubPath) && fs.existsSync(idPath)) {
-    return {
-      public_key_id:   fs.readFileSync(idPath, 'utf8').trim(),
-      private_key_pem: fs.readFileSync(privPath, 'utf8'),
-      public_key_pem:  fs.readFileSync(pubPath,  'utf8')
-    };
+    const k = _load();
+    _keyCache.set(cacheKey, k);
+    return k;
   }
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
   const privPem = privateKey.export({ type: 'pkcs8', format: 'pem' });
   const pubPem  = publicKey.export({ type: 'spki',  format: 'pem' });
   const id = 'gck:' + crypto.createHash('sha256').update(pubPem).digest('hex').slice(0, 16);
-  fs.writeFileSync(privPath, privPem, { mode: 0o600 });
-  fs.writeFileSync(pubPath,  pubPem,  { mode: 0o644 });
-  fs.writeFileSync(idPath,   id,      { mode: 0o644 });
-  return { public_key_id: id, private_key_pem: privPem, public_key_pem: pubPem };
+  // wx: exclusive create. Two processes generating on a virgin key dir used
+  // to race — the loser kept signing with an in-memory key whose .pub was
+  // just overwritten, and every one of its rows failed verification forever.
+  // Losing the race now means adopting the winner's key instead.
+  try {
+    fs.writeFileSync(privPath, privPem, { mode: 0o600, flag: 'wx' });
+    fs.writeFileSync(pubPath,  pubPem,  { mode: 0o644 });
+    fs.writeFileSync(idPath,   id,      { mode: 0o644 });
+  } catch (e) {
+    if (e && e.code === 'EEXIST') {
+      const k = _load();
+      _keyCache.set(cacheKey, k);
+      return k;
+    }
+    throw e;
+  }
+  const k = { public_key_id: id, private_key_pem: privPem, public_key_pem: pubPem };
+  _keyCache.set(cacheKey, k);
+  return k;
 }
 
 // Enumerate every public key currently stored under the key dir and
@@ -141,27 +173,38 @@ function _verify(publicKeyPem, chainHashHex, signatureB64) {
 // Sign one record and append to the chain.
 //   opts.record         — the record to attest (object); canonical-JSON-hashed
 //   opts.action_id      — id of the action (engram id, tool_call id)
-//   opts.kind           — kind string
+//   opts.kind            — kind string
 //   opts.key_dir        — override
-async function signAndAppend(opts) {
+//
+// attestSync is the whole body and is deliberately synchronous — it runs
+// inside state.recordAction on every engram write, where an await has no
+// seat. The read-head + append pair goes through
+// state.appendSignedAuditRowChained (one immediate transaction) because the
+// old separate read-then-append let two processes see the same head and
+// fork the chain: twin prev_chain_hash rows that verifyChain reports as
+// tamper. The sign itself happens inside the build callback — the chain
+// hash depends on the head, and the head is only trustworthy under the
+// transaction's lock.
+function attestSync(opts) {
   opts = opts || {};
   if (!opts.record || typeof opts.record !== 'object') {
     return { ok: false, reason: 'record_required' };
   }
   const key = ensureKey(opts);
   const recordHash = _sha256Hex(canonicalJson(opts.record));
-  const last = state.lastSignedAuditRow();
-  const prevChainHash = last && last.chain_hash || null;
-  const chainHash = _sha256Hex((prevChainHash || '') + recordHash);
-  const signature = _sign(key.private_key_pem, chainHash);
-  const rowId = state.appendSignedAuditRow({
-    action_id:       opts.action_id || null,
-    kind:            opts.kind || null,
-    record_hash:     recordHash,
-    prev_chain_hash: prevChainHash,
-    chain_hash:      chainHash,
-    signature,
-    public_key_id:   key.public_key_id
+  let chainHash = null;
+  const rowId = state.appendSignedAuditRowChained((last) => {
+    const prevChainHash = last && last.chain_hash || null;
+    chainHash = _sha256Hex((prevChainHash || '') + recordHash);
+    return {
+      action_id:       opts.action_id || null,
+      kind:            opts.kind || null,
+      record_hash:     recordHash,
+      prev_chain_hash: prevChainHash,
+      chain_hash:      chainHash,
+      signature:       _sign(key.private_key_pem, chainHash),
+      public_key_id:   key.public_key_id
+    };
   });
   return {
     ok: !!rowId,
@@ -170,6 +213,11 @@ async function signAndAppend(opts) {
     chain_hash:     chainHash,
     public_key_id:  key.public_key_id
   };
+}
+
+// Kept async for existing callers (control-audit fire-and-forgets it).
+async function signAndAppend(opts) {
+  return attestSync(opts);
 }
 
 // Verify the entire chain. Returns
@@ -232,6 +280,7 @@ module.exports = {
   ensureKey,
   loadAllPublicKeys,
   signAndAppend,
+  attestSync,
   verifyChain,
   canonicalJson,
   // tests

@@ -22,19 +22,23 @@ var CATALOG = {
   kimi_sub: {
     label: 'Kimi Code (subscription)',
     dflt: 'k3',
+    // The app offers these four on the same membership flow — its merged
+    // card routes them through the coding endpoint. Same list, verbatim.
     models: [
-      { id: 'k3',              label: 'K3',              note: 'Flagship · 1M context · what the membership is for' },
-      { id: 'kimi-for-coding', label: 'Kimi for Coding', note: 'Base tier' }
+      { id: 'k3',                       label: 'Kimi K3',                  note: 'Default · flagship · 1M ctx' },
+      { id: 'kimi-k2.7-code',           label: 'Kimi K2.7 Code',           note: 'Coding specialist · 256K ctx' },
+      { id: 'kimi-k2.7-code-highspeed', label: 'Kimi K2.7 Code Highspeed', note: 'Coding · ~180 tok/s · 256K ctx' },
+      { id: 'kimi-k2.6',                label: 'Kimi K2.6',                note: 'General · cheaper · 256K ctx' }
     ]
   },
   openai_sub: {
     label: 'ChatGPT (subscription)',
     dflt: 'gpt-5.6-sol',
     models: [
-      { id: 'gpt-5.6-sol',  label: 'GPT-5.6',      note: 'Default · coding + knowledge work' },
+      { id: 'gpt-5.6-sol',  label: 'GPT-5.6',      note: 'Default · recommended for coding + knowledge work' },
       { id: 'gpt-5.5',      label: 'GPT-5.5',      note: 'Previous generation' },
       { id: 'gpt-5.4',      label: 'GPT-5.4',      note: 'Solid all-rounder' },
-      { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini', note: 'Faster, lower cost' }
+      { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini', note: 'Faster, lower-cost for lighter tasks' }
     ]
   },
   anthropic: {

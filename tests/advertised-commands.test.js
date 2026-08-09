@@ -19,15 +19,14 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 
-// The subcommand table, read from the router rather than copied — a copy would
-// drift and start passing on a list that no longer matches the product.
-const cliSrc = fs.readFileSync(path.join(ROOT, 'bin', 'troth.js'), 'utf8');
-const setMatch = cliSrc.match(/var SUBCOMMANDS = new Set\(\[([\s\S]*?)\]\);/);
-assert.ok(setMatch, 'bin/troth.js no longer declares SUBCOMMANDS the way this test reads it');
-const SUBCOMMANDS = new Set(
-  (setMatch[1].match(/"[a-z][a-z0-9-]*"/g) || []).map((s) => s.slice(1, -1))
-);
-assert.ok(SUBCOMMANDS.size > 10, 'parsed too few subcommands: ' + SUBCOMMANDS.size);
+// The subcommand table, required from the same DATA module the dispatch Set
+// and the dashboard reference are built from (shared-core/cli-commands.js).
+// This test used to regex bin/troth.js SOURCE for the literal — the exact
+// fragile read that served every shipped bundle a zero-command reference
+// page, because shipped source is minified. One module, three consumers,
+// no source-shape dependency anywhere.
+const SUBCOMMANDS = new Set(require(path.join(ROOT, 'shared-core', 'cli-commands.js')));
+assert.ok(SUBCOMMANDS.size > 10, 'too few subcommands: ' + SUBCOMMANDS.size);
 
 // Words that follow "troth" as ordinary English or as a noun, not as a command.
 const PROSE = new Set([

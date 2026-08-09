@@ -140,6 +140,8 @@ The substrate is the cognitive subject: engrams (memory), goals, walls (refusals
 
 Mainstream AI tools keep the relationship inside someone else's walls. The memory lives in a vendor account, dies when you switch models, or is a retrieval bolt-on with no identity, goals or refusals of its own. troth inverts the architecture: the substrate is the subject, the LLM is rented language faculty. Switch providers, run local, go back: same partner, same memory, same walls.
 
+And the walls are load-bearing: the destination is a partner that can act on its own behalf, safely, on a machine you own. Every module in this tree is an organ for that destination — the full arc, organ by organ, is in [VISION.md](VISION.md).
+
 ---
 
 ## Security defaults
@@ -191,7 +193,7 @@ Two rows above say **not yet shipped**, and they mean it. The app you can buy to
 | **Pre-LLM governance walls** | [`tests/standards/s4_stvc_pre_llm.js`](tests/standards/s4_stvc_pre_llm.js) | standard-enforced on every test run |
 | **Honest limits** | [`docs/HONEST-LIMITS.md`](docs/HONEST-LIMITS.md) | unsolved properties named publicly |
 
-1,350 checks in one `npm test` run, and a further 362 reported as skipped: coverage of the closed overlay, plus a handful whose fixture cannot be built twice in one process and which run when their suite runs alone. 31 standalone checks that own their own setup (`npm run test:standalone`); one of them needs a running Docker daemon and reports as skipped without it, so a machine without Docker sees 30 pass and 1 skip. 11 integration smoke checks (`npm run smoke`), all of which run without any provider configured. 5 enforced standards (`npm run test:standards`). These are the numbers this repository produces: the machine that builds it also has the closed overlay on disk, which adds smoke files and a sixth standard, so `scripts/release-gate.sh repo` re-derives all of them from a tree of tracked files only and refuses to pass if any has drifted.
+1,440 checks in one `npm test` run, and a further 364 reported as skipped: coverage of the closed overlay, plus a handful whose fixture cannot be built twice in one process and which run when their suite runs alone. 33 standalone checks that own their own setup (`npm run test:standalone`); one of them needs a running Docker daemon and reports as skipped without it, so a machine without Docker sees 32 pass and 1 skip. 11 integration smoke checks (`npm run smoke`), all of which run without any provider configured. 5 enforced standards (`npm run test:standards`). These are the numbers this repository produces: the machine that builds it also has the closed overlay on disk, which adds smoke files and a sixth standard, so `scripts/release-gate.sh repo` re-derives all of them from a tree of tracked files only and refuses to pass if any has drifted.
 
 ---
 
@@ -245,10 +247,12 @@ Copyright (C) 2026 troth. AGPL-3.0-only. See [LICENSE](LICENSE) for the terms, a
 
 ## Contributing
 
-Every commit needs a `Signed-off-by:` line ([DCO](https://developercertificate.org/)). See [CONTRIBUTING.md](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md).
+Contributions big and small are welcome, from a typo to an engine adapter. The shortest path in: [AGENTS.md](AGENTS.md) orients you (or your AI) inside the tree in minutes, `npm test` runs the whole suite, and AI-assisted PRs are welcome as long as you read what you sign. Recall quality (`shared-core/`), provider adapters and price tables (`proxy/modules/`), the Linux path of the login service, and anywhere the Quick start loses a stranger: that confusion is a bug, file it.
+
+Every commit needs a `Signed-off-by:` line ([DCO](https://developercertificate.org/), never a CLA). See [CONTRIBUTING.md](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md).
 
 ---
 
 ## Status
 
-Bootstrap phase. The native macOS app and public launch land at [troth.one](https://troth.one). Star or watch this repo to follow.
+Bootstrap phase, in motion: the checked boxes in [VISION.md](VISION.md) are real and tested; the unchecked ones are the point. The native macOS app and public launch land at [troth.one](https://troth.one). Star or watch this repo to follow.

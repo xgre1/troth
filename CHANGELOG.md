@@ -9,6 +9,76 @@ All notable changes to troth are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Every shell the partner runs now answers to the same walls. The app's
+  claude_cli spawns live in an isolated config home that loads none of the
+  operator's Claude Code wiring, so their native Bash ran ungated; the
+  faculty home now provisions its own PreToolUse gate asking the same
+  bash-safety verdict as the troth-bash door (one wall, two doors), with
+  refused reads of secret stores, refused writes to protected
+  destinations, egress gating, and credential-literal refusal all riding
+  along.
+- The turn states its real token accounting. The claude_cli lane's result
+  frame now yields usage with the cache columns summed into the true
+  prompt size and the model's stated context window alongside, so the app
+  can show an honest context meter in advanced mode instead of nothing on
+  the one lane a subscription user runs.
+- Importing a chat means the archive too: `--full` runs the raw
+  chunk+embed archive (docs:chats, the searchable record) AND the
+  distilled identity facts in one idempotent pass, each half keeping its
+  own provenance. The app's import sends it; the bare CLI keeps its
+  raw-only default.
+- Every recordAction extends the ed25519 signed audit chain (read-head +
+  append in one immediate transaction, so concurrent writers serialize
+  instead of forking the chain), and supersession pointers persist in
+  their own index so a "forgotten" fact stays hidden beyond any fetch
+  window. /forget retires through the reconsolidation primitive instead
+  of writing a tombstone nothing filtered.
+- Usage from Claude Code sessions now reaches the ledger without touching
+  the proxy: the plugin tails Claude Code's own per-message usage logs into
+  usage_ledger, deduped by message id and watermarked by byte offset, so
+  the dashboard and Analytics show the Claude subscription lane alongside
+  the proxied ones. Ingested rows carry a ' (plan)' marker priced flat/$0
+  — subscription tokens never appear as API spend — while unsuffixed model
+  names keep their API rates for the savings valuation. Only claude-*
+  models ingest; transcripts of proxied sessions stay with the proxy's own
+  count.
+
+### Fixed
+- The distill import half never registered as done (its provenance landed
+  in a field the skip check does not read), so every re-run re-distilled
+  and re-billed every session. Both halves are now independently
+  idempotent.
+- Tool output is harvested and masked before the model, the archive and
+  the savings label see it; medium danger classifications travel with the
+  result instead of vanishing; the STVC bypass is stripped from the
+  partner env and refused inline; a no-port browse can no longer land in
+  the operator's own debug Chrome.
+- The dashboard's commitment counts exclude GC tombstones and test seeds,
+  and embedding coverage joins on recallable rows instead of clamping to
+  a permanent 100%.
+- The operator's model pick (providers.anthropic.model) reaches the
+  claude_cli spawn, env override first, ambient id last, every source
+  behind the same claude-only guard.
+- The proxy answered its port minutes late on large home directories and
+  stalled requests after listen: hotcache pre-hashed the whole tree
+  synchronously at module scope, and the CodeLens file walks applied their
+  time cap only on candidate files, so candidate-free trees (cloud-backed
+  mounts, where a single readdir can block on network) walked without
+  bound. The hotcache walk now yields to the event loop, caps files and
+  total bytes, skips files over 512KB, and goes watch-only when the watch
+  dir is a home or root; both CodeLens walkers enforce their time budget
+  per directory.
+- File watching on Linux is now per-directory over the indexed tree only,
+  non-recursive and capped at 1024 directories, so it stays within the
+  kernel's `fs.inotify.max_user_watches` budget on any tree size. Watcher
+  errors are handled at the watcher and reported once, and whenever no
+  healthy watcher is running the hash cache reads fresh from disk instead
+  of serving cached entries. macOS and Windows keep the single recursive
+  handle.
+
 ## [0.1.10] — 2026-08-05
 
 ### Fixed

@@ -13,6 +13,7 @@
 // Heuristic: only archive if the response is larger than 4KB. Smaller
 // outputs are cheap and archival would just add noise.
 
+import fs from 'node:fs';
 import { readStdinJson, allow, log, state, recordAction } from './_lib.mjs';
 
 const ARCHIVE_MIN_BYTES = 4000;
@@ -52,6 +53,35 @@ const tool = payload.tool_name || '';
 const session = payload.session_id || null;
 const raw = extractResponseText(payload);
 const bytes = Buffer.byteLength(raw || '', 'utf8');
+// The ledger records estimated TOKENS (bytes/4), matching every other
+// savings writer — recording raw byteLength here once ran the archive
+// share of the savings figures ~4x hot.
+const estTokens = Math.ceil(bytes / 4);
+// The hook payload carries no model, but the session transcript does; the
+// tail is enough to identify the model answering this session, so the
+// saving prices at that model's actual rate instead of the baseline's.
+// Some harness paths omit transcript_path from the payload; the transcript
+// still lives at the well-known projects path, derivable from cwd + session
+// (slashes become dashes in the project key).
+function derivedTranscriptPath() {
+  if (!session) return null;
+  const key = String(payload.cwd || '').replace(/\//g, '-');
+  if (!key || !process.env.HOME) return null;
+  return process.env.HOME + '/.claude/projects/' + key + '/' + session + '.jsonl';
+}
+function sniffModel(p) {
+  try {
+    if (!p || !fs.existsSync(p)) return null;
+    const size = fs.statSync(p).size;
+    const len = Math.min(size, 65536);
+    const buf = Buffer.alloc(len);
+    const fd = fs.openSync(p, 'r');
+    fs.readSync(fd, buf, 0, len, size - len);
+    fs.closeSync(fd);
+    const m = String(buf).match(/"model":"([A-Za-z0-9._\/-]+)"/g);
+    return m ? m[m.length - 1].slice(9, -1) : null;
+  } catch (_) { return null; }
+}
 
 if (bytes < ARCHIVE_MIN_BYTES) { allow(); }
 
@@ -60,7 +90,8 @@ let summary = '';
 try {
   summary = makeSummary(tool, raw);
   archiveId = state.archiveToolOutput(session, tool, raw, summary);
-  state.recordSavings('output_archive', bytes, session, tool + ' → archive_id=' + archiveId);
+  state.recordSavings('output_archive', estTokens, session, tool + ' → archive_id=' + archiveId,
+    sniffModel(payload.transcript_path) || sniffModel(derivedTranscriptPath()));
 } catch (e) {
   // Never let archival failure break the turn.
   process.stderr.write('[troth/output-sandbox] archive failed: ' + e.message + '\n');

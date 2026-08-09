@@ -136,6 +136,27 @@ const perceptionTail   = require('../shared-core/perception/perception-tail.js')
 let AGENT_ID = require('../shared-core/agent-id.js').resolveAgentId();
 const USER_ID  = process.env.TROTH_ENTITY_USER_ID  || 'default';
 const CWD      = process.env.TROTH_ENTITY_CWD      || process.cwd();
+// Coherence by derivation (PLAN-COHERENCE-2026-08-09): when NOTHING above
+// this process stated a backbone or a dispatch preference — no app env, no
+// desktop-config parity (pure open-repo installs have neither) — detect
+// what engines this machine can actually serve and fill the ABSENT keys
+// before the mode consts below freeze. A Claude-subscription-only install
+// gets the Claude Code backbone (that flag is what mounts the substrate
+// MCP + memory rule); a Kimi-only install gets the same harness with the
+// kimi engine; everything else keeps the troth loop. Absent-only by
+// construction: the app's full env, an operator export, a pin
+// (TROTH_ENTITY_LLM_PIN) and TROTH_DERIVE=0 all outrank it, and nothing
+// is ever written to disk — stored derivation is how stale defaults are
+// born. Fail-open: a detection error keeps the old behavior exactly.
+try {
+  const _fill = require('../shared-core/derive-config.js').deriveEnvFill(process.env);
+  for (const _k of Object.keys(_fill)) {
+    if (!process.env[_k]) process.env[_k] = _fill[_k];
+  }
+  if (Object.keys(_fill).length) {
+    try { console.error('[entity] derived: ' + JSON.stringify(_fill)); } catch (_) {}
+  }
+} catch (_) { /* derivation is additive; the blind defaults below still stand */ }
 const LLM_MODE = process.env.TROTH_ENTITY_LLM      || 'router';
 // HARD PIN — the operator picked ONE engine ("Which engine answers"
 // picker): serve every turn from LLM_MODE, wire nothing else, no silent
@@ -1716,13 +1737,26 @@ function main() {
         const tools = existingTools.length ? existingTools : toolRunner.unifiedToolsArray();
         // Tool-eager system prompt with anti-sycophancy + (optional)
         // audio-brevity. Caller can override via action.options.system_extra.
+        //
+        // The claude_cli faculty is a HARNESS with its own tool loop; the
+        // native loop's tool advertisement does not describe it. Shipping
+        // the 41 unified-tool names into --append-system-prompt told the
+        // backbone "Use Bash for one-shot commands" beside names that do
+        // not exist there (engram_search, hashline Edit…) while the tools
+        // that DO exist (mcp__troth-substrate__*) went unnamed — fiction in
+        // both directions. Suppress the advert for the harness; the real
+        // ids ride CLAUDE_MEMORY_RULE beside the browser/secrets rules in
+        // subprocess-cli.js. A mid-turn fallback to a native faculty still
+        // works: options.tools carries the real schemas in the LLM request,
+        // that one rescued turn just loses the inline reinforcement text.
+        const harnessFaculty = choice.faculty === 'claude_cli';
         const audio = !!(action.options && action.options.audio);
         let systemExtra = (action.options && action.options.system_extra)
           ? String(action.options.system_extra)
           : systemPromptMod.buildSystemPrompt({
               agent_id: AGENT_ID,
               cwd:      TURN_CWD,
-              available_tools: tools.map((t) => t.function && t.function.name).filter(Boolean),
+              available_tools: harnessFaculty ? [] : tools.map((t) => t.function && t.function.name).filter(Boolean),
               audio
             });
         // autonomous step — standing-authorization injection. When sealed
@@ -2777,6 +2811,15 @@ function main() {
         if (filename != null && String(filename).indexOf(base) !== 0) return;
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(scan, 150);
+      });
+      // Watcher errors arrive asynchronously — the try/catch around this
+      // block never sees them, and this process has no global exception
+      // handler, so an unhandled one would take the entity down. Report
+      // through the same event as a failed start and fall back to nothing:
+      // the pending file is re-read on demand, the watcher is only a nudge.
+      fsWatcher.on('error', (err) => {
+        emit({ kind: 'mcp_pending_watcher_failed', error: (err && err.message) || String(err) });
+        try { fsWatcher.close(); } catch (_) {}
       });
       // Never let this watcher hold the process open past stdin EOF (the E2E
       // and oneshot paths exit on EOF without walking the watchers array).

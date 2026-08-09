@@ -77,6 +77,17 @@ console.error = function(...args) {
   _origErr.call(console, line);
 };
 
+// Self-heal the service log's permissions at boot. launchd created
+// ~/.troth/service.log with a default umask — 644, world-readable — while
+// every sibling secret file is 600. The console redactor above keeps
+// secrets out of the CONTENT on the happy path; the mode must hold even
+// when it misses. service.js now pre-creates it 600 on install; this covers
+// machines whose log predates that fix, on the next proxy start.
+try {
+  const _svcLog = require('path').join(require('os').homedir(), '.troth', 'service.log');
+  if (require('fs').existsSync(_svcLog)) require('fs').chmodSync(_svcLog, 0o600);
+} catch (_) { /* perms heal is best-effort */ }
+
 const http = require('http');
 const { inject } = require('./modules/injector');
 const { cleanResponse } = require('./modules/cleaner');
@@ -840,6 +851,474 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Login service: status + one-toggle install/uninstall. Same module as
+  // `troth service`, so the dashboard switch and the CLI cannot disagree.
+  if (url === '/api/service' && (req.method === 'GET' || req.method === 'POST')) {
+    try {
+      const svc = require('./modules/service.js');
+      if (req.method === 'GET') { jsonResponse(res, 200, svc.status()); return; }
+      let body = '';
+      req.on('data', function (c) { body += c; });
+      req.on('end', function () {
+        try {
+          const b = JSON.parse(body || '{}');
+          const r = b.enabled ? svc.install({ port: PORT }) : svc.uninstall();
+          jsonResponse(res, r.ok ? 200 : 400, Object.assign({}, r, svc.status()));
+        } catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
+      });
+    } catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
+    return;
+  }
+
+  // Health vitals: the one-line state of this install.
+  if (req.method === 'GET' && url === '/api/health/vitals') {
+    try {
+      const svc = require('./modules/service.js');
+      let pkgVersion = null;
+      try { pkgVersion = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8')).version; } catch (_) {}
+      const crypto = require('crypto');
+      let diskHash = null;
+      try { diskHash = crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex').slice(0, 12); } catch (_) {}
+      let dbBytes = null;
+      try { dbBytes = fs.statSync(path.join(require('../shared-core/troth-home.js').trothDir(), 'state.db')).size; } catch (_) {}
+      let lastBackup = null;
+      try {
+        const bdir = path.join(require('../shared-core/troth-home.js').trothDir(), 'backups');
+        const ts = fs.readdirSync(bdir).filter(function (n) { return n.indexOf('substrate-') === 0; })
+          .map(function (n) { return fs.statSync(path.join(bdir, n)).mtimeMs; });
+        if (ts.length) lastBackup = Math.max.apply(null, ts);
+      } catch (_) {}
+      jsonResponse(res, 200, {
+        version: pkgVersion,
+        stale: !!(BOOT_SRC_HASH && diskHash && BOOT_SRC_HASH !== diskHash),
+        uptime_s: Math.round(process.uptime()),
+        port: PORT,
+        db_bytes: dbBytes,
+        last_backup_ts: lastBackup,
+        service: svc.status()
+      });
+    } catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
+    return;
+  }
+
+  // Repairs. Each does one thing and reports what it did.
+  // Stray troth proxies: siblings that bumped to another port and stayed.
+  // dry:true only counts them.
+  if (req.method === 'POST' && url === '/api/repair/reap') {
+    let reapBody = '';
+    req.on('data', function (c) { reapBody += c; });
+    req.on('end', function () {
+      try {
+        const b = JSON.parse(reapBody || '{}');
+        const { execFileSync } = require('child_process');
+        const out = execFileSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' });
+        const strays = [];
+        out.split('\n').forEach(function (l) {
+          const m = l.match(/^\s*(\d+)\s+(troth-proxy-\d+)/);
+          if (m && parseInt(m[1], 10) !== process.pid) strays.push({ pid: parseInt(m[1], 10), name: m[2] });
+        });
+        if (b.dry || !strays.length) {
+          jsonResponse(res, 200, { found: strays.length, closed: 0, strays: strays });
+          return;
+        }
+        strays.forEach(function (s) { try { process.kill(s.pid, 'SIGTERM'); } catch (_) {} });
+        // Old trees can ignore SIGTERM (stuck shutdown handler). Escalate to
+        // SIGKILL for survivors, then report who is actually gone.
+        setTimeout(function () {
+          strays.forEach(function (s) {
+            try { process.kill(s.pid, 0); process.kill(s.pid, 'SIGKILL'); } catch (_) { /* already gone */ }
+          });
+          setTimeout(function () {
+            let gone = 0;
+            strays.forEach(function (s) { try { process.kill(s.pid, 0); } catch (_) { gone++; } });
+            jsonResponse(res, 200, { found: strays.length, closed: gone, strays: strays });
+          }, 500);
+        }, 2500);
+      } catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
+    });
+    return;
+  }
+
+  // Substrate backup on demand: same bundle shape and keep-4 policy as the
+  // weekly background task.
+  if (req.method === 'POST' && url === '/api/repair/backup') {
+    try {
+      const backup = require('../shared-core/substrate-backup.js');
+      const bdir = path.join(require('../shared-core/troth-home.js').trothDir(), 'backups');
+      try { fs.mkdirSync(bdir, { recursive: true }); } catch (_) {}
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const dest = path.join(bdir, 'substrate-' + stamp);
+      const r = backup.exportArchive({ out_path: dest });
+      try {
+        const all = fs.readdirSync(bdir).filter(function (n) { return n.indexOf('substrate-') === 0; })
+          .map(function (n) { return { n: n, ts: fs.statSync(path.join(bdir, n)).mtimeMs }; })
+          .sort(function (a, b) { return b.ts - a.ts; });
+        all.slice(4).forEach(function (o) { try { fs.rmSync(path.join(bdir, o.n), { recursive: true, force: true }); } catch (_) {} });
+      } catch (_) {}
+      jsonResponse(res, 200, { ok: true, path: dest, result: r || null });
+    } catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
+    return;
+  }
+
+  // Restart from the dashboard: a detached helper waits for this process to
+  // release the port, then starts a fresh proxy from disk. No port bump, no
+  // stray sibling.
+  if (req.method === 'POST' && url === '/api/repair/restart') {
+    try {
+      const { spawn } = require('child_process');
+      const helper =
+        'const{spawn}=require("child_process");const net=require("net");' +
+        'const port=' + PORT + ';const server=' + JSON.stringify(__filename) + ';let tries=0;' +
+        '(function poll(){const s=net.createConnection(port,"127.0.0.1");' +
+        's.on("error",function(){start()});' +
+        's.on("connect",function(){s.destroy();if(++tries>40){process.exit(1);}setTimeout(poll,250);});})();' +
+        'function start(){const p=spawn(process.execPath,[server],{detached:true,stdio:"ignore",env:process.env});p.unref();process.exit(0);}';
+      spawn(process.execPath, ['-e', helper], { detached: true, stdio: 'ignore', env: process.env }).unref();
+      jsonResponse(res, 200, { ok: true, restarting: true });
+      setTimeout(function () { process.exit(0); }, 400);
+    } catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
+    return;
+  }
+
+  // Check-up: live checks with a fix line per failure. ok is true/false, or
+  // null for a check that does not apply on this install.
+  if (req.method === 'POST' && url === '/api/doctor') {
+    (async () => {
+      const checks = [];
+      const add = (name, ok, detail, fix) => checks.push({ name, ok, detail: detail || '', fix: fix || '' });
+      try {
+        const crypto = require('crypto');
+        let diskHash = null;
+        try { diskHash = crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex').slice(0, 12); } catch (_) {}
+        const stale = !!(BOOT_SRC_HASH && diskHash && BOOT_SRC_HASH !== diskHash);
+        add('Proxy code', !stale, stale ? 'running older code than what is on disk' : 'running the code on disk',
+          stale ? 'run: troth restart' : '');
+      } catch (e) { add('Proxy code', false, String(e.message || e), 'run: troth restart'); }
+      try {
+        const st = require('../shared-core/state.js');
+        st.db().pragma('user_version', { simple: true });
+        add('Substrate', true, 'database opens and answers');
+      } catch (e) { add('Substrate', false, String(e.message || e), 'check ~/.troth permissions, then troth restart'); }
+      try {
+        const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+        const provs = (cfg && cfg.providers) || {};
+        const on = Object.keys(provs).filter(function (k) { return provs[k] && provs[k].enabled; });
+        add('Engines', on.length > 0, on.length ? (on.length + ' enabled: ' + on.join(', ')) : 'none enabled',
+          on.length ? '' : 'open Engines and link a plan or add a key');
+      } catch (e) { add('Engines', false, String(e.message || e), 'open Engines'); }
+      try {
+        const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+        const lp = cfg && cfg.providers && cfg.providers.local;
+        if (!lp || !lp.enabled) { add('Local engine', null, 'not enabled, skipped'); }
+        else {
+          const up = await new Promise(function (resolve) {
+            const rq = http.get({ host: BACKEND_HOST, port: BACKEND_PORT, path: '/v1/models', timeout: 1200 },
+              function (rs) { rs.resume(); resolve(rs.statusCode > 0); });
+            rq.on('error', function () { resolve(false); });
+            rq.on('timeout', function () { rq.destroy(); resolve(false); });
+          });
+          add('Local engine', up, up ? ('answering on ' + BACKEND_HOST + ':' + BACKEND_PORT) : ('enabled but nothing answers on ' + BACKEND_HOST + ':' + BACKEND_PORT),
+            up ? '' : 'start your local server (llama.cpp, Ollama, LM Studio) or turn the lane off in Engines');
+        }
+      } catch (e) { add('Local engine', false, String(e.message || e), ''); }
+      try {
+        const st = require('../shared-core/state.js');
+        const row = st.db().prepare('SELECT last_seen_ts FROM plugin_presence WHERE id = 1').get();
+        const ageM = row ? (Date.now() - row.last_seen_ts) / 60000 : null;
+        if (ageM === null) add('Claude Code plugin', false, 'never seen', 'run: troth install-plugin');
+        else if (ageM < 30) add('Claude Code plugin', true, 'active ' + Math.round(ageM) + 'm ago');
+        else add('Claude Code plugin', true, 'last active ' + (ageM < 1440 ? Math.round(ageM / 60) + 'h' : Math.round(ageM / 1440) + 'd') + ' ago');
+      } catch (e) { add('Claude Code plugin', null, 'presence not readable, skipped'); }
+      try {
+        const a = require('../shared-core/analytics.js').getAnalytics({ window: 'today' });
+        const errs = Object.keys((a.health && a.health.errors_by_module) || {}).length;
+        add('Engine errors today', errs === 0, errs === 0 ? 'none' : (errs + ' engine(s) erroring'),
+          errs === 0 ? '' : 'open Analytics for which engine and how often');
+      } catch (e) { add('Engine errors today', null, 'analytics not readable, skipped'); }
+      try {
+        const svc = require('./modules/service.js');
+        const s = svc.status();
+        if (!s.supported) add('Login service', null, 'not supported on ' + s.platform + ', skipped');
+        else add('Login service', s.installed ? true : null, s.installed ? ('on, ' + s.kind) : 'off, proxy runs only while you start it',
+          s.installed ? '' : 'flip Background on, on this page');
+      } catch (e) { add('Login service', null, 'not readable, skipped'); }
+      try {
+        // The troth command as the OPERATOR'S terminal sees it: a login shell
+        // reads their profile, so PATH matches reality — the launchd env here
+        // does not.
+        const sh = process.env.SHELL || '/bin/sh';
+        let cliPath = '';
+        try {
+          cliPath = require('child_process').execFileSync(sh, ['-lc', 'command -v troth'], { encoding: 'utf8', timeout: 5000 }).trim();
+        } catch (_) {}
+        add('CLI', cliPath ? true : null, cliPath ? ('troth on your PATH — ' + cliPath) : 'troth is not on your shell PATH',
+          cliPath ? '' : 'run it as: node ' + path.join(__dirname, '..', 'bin', 'troth.js') + ' — or link it: npm link');
+      } catch (e) { add('CLI', null, 'not checkable, skipped'); }
+      try {
+        // Browser: which CDP door answers. A silent browser is not a
+        // failure - the browse tool starts the private one on demand.
+        const bd = require('../shared-core/perception/chromium-daemon.js');
+        const bCand = [];
+        const bEnv = parseInt(process.env.TROTH_BROWSER_CDP_PORT || '', 10);
+        if (bEnv) bCand.push(bEnv);
+        if (bCand.indexOf(18222) === -1) bCand.push(18222);
+        if (bCand.indexOf(9222) === -1) bCand.push(9222);
+        let bLive = 0;
+        for (const c of bCand) { if (await bd.aliveHost(c, 700)) { bLive = c; break; } }
+        add('Browser', bLive ? true : null,
+          bLive ? ('CDP answering on ' + bLive + (bLive === 9222 ? ', your own debug Chrome' : ', the troth browser')) : 'no browser running',
+          bLive ? '' : 'nothing to do - the browse tool starts one on demand');
+      } catch (e) { add('Browser', null, 'not checkable, skipped'); }
+      const bad = checks.filter(function (c) { return c.ok === false; }).length;
+      jsonResponse(res, 200, { checks: checks, findings: bad });
+    })().catch(function (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); });
+    return;
+  }
+
+  // Which CDP door a browsing agent would find: the exported port, the
+  // private daemon (18222), the operator's own debug Chrome (9222).
+  if (req.method === 'GET' && url === '/api/browser/status') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    (async () => {
+      const bd = require('../shared-core/perception/chromium-daemon.js');
+      const cand = [];
+      const envP = parseInt(process.env.TROTH_BROWSER_CDP_PORT || '', 10);
+      if (envP) cand.push(envP);
+      if (cand.indexOf(18222) === -1) cand.push(18222);
+      if (cand.indexOf(9222) === -1) cand.push(9222);
+      const ports = [];
+      for (const c of cand) {
+        const h = await bd.aliveHost(c, 700);
+        ports.push({ port: c, alive: !!h, kind: c === 9222 ? 'operator' : 'daemon' });
+      }
+      jsonResponse(res, 200, {
+        ports: ports,
+        attached: ports.filter(function (p) { return p.alive; })[0] || null,
+        profile: path.join(HOME, '.troth', 'chrome-profile'),
+      });
+    })().catch(function (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); });
+    return;
+  }
+
+  // ── The vault: named secrets the agent can use but never see ─────────
+  // Values go in and never come back out; list and status expose metadata
+  // only. The passphrase is the operator passphrase (same ceremony as
+  // `troth init --seal`); on a machine without the seal, setup runs the
+  // ceremony right here. Localhost-only like every other route.
+  if (url === '/api/vault/status' && req.method === 'GET') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    try {
+      const vault = require('../shared-core/vault.js');
+      let sealed = false;
+      try { sealed = !!require('../shared-core/bootstrap.js').status().has_bootstrap_seal; } catch (_) {}
+      const s = vault.status();
+      jsonResponse(res, 200, { bootstrapped: sealed, exists: s.exists, unlocked: s.unlocked,
+        entry_count: s.entry_count, session_expires_at: s.session_expires_at,
+        pending_drops: s.pending_drops || 0 });
+    } catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
+    return;
+  }
+  if (url === '/api/vault/setup' && req.method === 'POST') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then(function (b) {
+      const boot = require('../shared-core/bootstrap.js');
+      if (boot.status().has_bootstrap_seal) { jsonResponse(res, 409, { error: 'already_bootstrapped' }); return; }
+      const pass = b && b.passphrase;
+      if (!pass || typeof pass !== 'string' || pass.length < 8) { jsonResponse(res, 400, { error: 'passphrase_min_8_chars' }); return; }
+      const r = boot.runInit({ passphrase: pass, charter: (b && b.charter) || '' });
+      if (!r.ok) { jsonResponse(res, 500, { error: r.error || 'bootstrap_failed' }); return; }
+      jsonResponse(res, 200, { ok: true, public_key_id: r.public_key_id });
+    }).catch(function (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); });
+    return;
+  }
+  if (url === '/api/vault/unlock' && req.method === 'POST') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then(function (b) {
+      const vault = require('../shared-core/vault.js');
+      const pass = b && b.passphrase;
+      if (!pass || typeof pass !== 'string') { jsonResponse(res, 400, { error: 'passphrase_required' }); return; }
+      // First unlock CREATES the vault file with this passphrase, so when
+      // the operator key exists, verify against it first: a typo here
+      // must not mint a vault under a wrong passphrase.
+      const opk = require('../shared-core/operator-key.js');
+      if (!vault.status().exists && opk.exists()) {
+        try { opk.unlock(pass).lock(); }
+        catch (_) { jsonResponse(res, 403, { error: 'wrong_passphrase' }); return; }
+      }
+      try {
+        const r = vault.unlock(pass);
+        jsonResponse(res, 200, { ok: true, entry_count: r.entry_count, session_expires_at: r.session_expires_at });
+      } catch (e) { jsonResponse(res, 403, { error: String(e && e.message || e) }); }
+    }).catch(function (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); });
+    return;
+  }
+  if (url === '/api/vault/lock' && req.method === 'POST') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    try { require('../shared-core/vault.js').lock(); jsonResponse(res, 200, { ok: true }); }
+    catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
+    return;
+  }
+  if (url === '/api/vault/entries' && req.method === 'GET') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    try { jsonResponse(res, 200, require('../shared-core/vault.js').listEntries()); }
+    catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
+    return;
+  }
+  if (url === '/api/vault/entry' && req.method === 'POST') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then(function (b) {
+      const r = require('../shared-core/vault.js').writeEntry({
+        key: b && b.key, value: b && b.value,
+        capability_scope_glob: b && b.capability_scope_glob,
+        injection: (b && b.injection) || undefined,
+        description: (b && b.description) || null,
+        // Replacing an existing key takes an explicit ask; the default is
+        // a key_exists refusal so nothing is destroyed by accident.
+        overwrite: !!(b && b.overwrite)
+      });
+      jsonResponse(res, r.ok ? 200 : 400, r);
+    }).catch(function (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); });
+    return;
+  }
+  if (url === '/api/vault/entry/remove' && req.method === 'POST') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then(function (b) {
+      jsonResponse(res, 200, require('../shared-core/vault.js').removeEntry(b && b.key));
+    }).catch(function (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); });
+    return;
+  }
+  // Capture: take the login the operator just typed in their browser and
+  // seal it here, so the agent can sign itself in later without ever being
+  // told the password. The operator asks for this by pressing a button; the
+  // proxy reads the field, writes it to the vault (or seals it to the
+  // drop-box when the vault is locked), and answers with the host and
+  // username only. The secret never enters an HTTP response, a page, or
+  // a model context.
+  if (url === '/api/vault/capture' && req.method === 'POST') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    (async function () {
+      const vault = require('../shared-core/vault.js');
+      const b = await readJsonBody(req) || {};
+      const bd = require('../shared-core/perception/chromium-daemon.js');
+      const cdp = require('../shared-core/perception/cdp-client.js');
+      const want = parseInt(b.port, 10) || 0;
+      // The agent's browser only. Capturing from the operator's own browser
+      // (9222) would seal whatever their password manager just autofilled,
+      // bank included, which nobody asked for. Reaching it takes an explicit
+      // port and is a different decision entirely.
+      const cand = want ? [want] : [18222];
+      let hostAddr = null, port = 0;
+      for (const c of cand) { const h = await bd.aliveHost(c, 700); if (h) { hostAddr = h; port = c; break; } }
+      if (!port) { jsonResponse(res, 502, { error: 'no_browser_attached' }); return; }
+      const targets = await cdp.listTargets(hostAddr, port);
+      const pages = (targets || []).filter(function (t) { return t.type === 'page' && /^https?:/.test(t.url || ''); });
+      const READ = '(function(){' +
+        'var p=[].slice.call(document.querySelectorAll(\'input[type=password]\')).filter(function(i){return i.value});' +
+        'if(!p.length)return JSON.stringify(null);' +
+        'var pw=p[0];' +
+        'var ins=[].slice.call(document.querySelectorAll(\'input\'));' +
+        'var user="";' +
+        'for(var i=ins.indexOf(pw)-1;i>=0;i--){var t=(ins[i].type||"").toLowerCase();' +
+        'if((t==="text"||t==="email"||t==="tel")&&ins[i].value){user=ins[i].value;break;}}' +
+        'return JSON.stringify({host:location.host,user:user,pass:pw.value});})()';
+      let found = null;
+      for (const t of pages) {
+        let s = null;
+        try {
+          s = new cdp.CdpSession(t.webSocketDebuggerUrl);
+          await s.open();
+          await s.send('Runtime.enable', {});
+          const r = await s.send('Runtime.evaluate', { expression: READ, returnByValue: true });
+          const v = r && r.result && r.result.value;
+          const parsed = v ? JSON.parse(v) : null;
+          if (parsed && parsed.pass) { found = parsed; }
+        } catch (_) { /* a tab we cannot read is simply not the one */ }
+        try { if (s) s.close(); } catch (_) {}
+        if (found) break;
+      }
+      if (!found) { jsonResponse(res, 404, { error: 'no_filled_login_form', detail: 'open the site, type the login, then press capture' }); return; }
+      const bare = String(found.host).replace(/^www\./, '').split(':')[0];
+      // The key must tell two accounts on the same site apart: keying by
+      // host alone made the second capture silently destroy the first.
+      // The username, when the form had one, becomes part of the key.
+      const userSlug = found.user
+        ? String(found.user).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 40)
+        : '';
+      const key = (b.key && String(b.key).trim())
+        || (bare.split('.').slice(-2)[0] + (userSlug ? '-' + userSlug : '') + '-login');
+      const draft = {
+        key: key,
+        value: found.pass,
+        capability_scope_glob: 'capability:browser:fill:*.' + bare,
+        injection: { kind: 'raw' },
+        description: found.user ? ('login for ' + found.user) : ('login on ' + bare)
+      };
+      if (!vault.status().unlocked) {
+        // Locked is no longer a dead end: the drop-box takes the capture
+        // and the entry appears at the next unlock.
+        const sealed = vault.seal(draft);
+        if (!sealed.ok) { jsonResponse(res, sealed.error === 'dropbox_not_initialized' ? 403 : 400, sealed); return; }
+        jsonResponse(res, 200, { ok: true, key: key, host: bare, username: found.user || null, port: port,
+          sealed_for_unlock: true, pending_drops: sealed.pending_drops });
+        return;
+      }
+      // Same key now means same site + same username, so replacing is the
+      // password-rotation path, not cross-account loss.
+      const r2 = vault.writeEntry(Object.assign({ overwrite: true }, draft));
+      if (!r2.ok) { jsonResponse(res, 400, r2); return; }
+      jsonResponse(res, 200, { ok: true, key: key, host: bare, username: found.user || null, port: port });
+    })().catch(function (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); });
+    return;
+  }
+  // The first open consumer: fill a form field in the CDP browser FROM
+  // this process. The value flows vault → proxy → page field; the HTTP
+  // response never carries it, so nothing a model context can read does.
+  // Scope gate: the entry's glob must cover capability:browser:fill:<host
+  // of the page being filled>. Receipts land on the entry via _noteUse.
+  if (url === '/api/browser/fill' && req.method === 'POST') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then(async function (b) {
+      const vault = require('../shared-core/vault.js');
+      const key = b && b.vault_key, sel = b && b.selector;
+      if (!key || !sel) { jsonResponse(res, 400, { error: 'vault_key_and_selector_required' }); return; }
+      if (!vault.status().unlocked) { jsonResponse(res, 403, { error: 'vault_locked' }); return; }
+      const bd = require('../shared-core/perception/chromium-daemon.js');
+      const want = parseInt(b && b.port, 10) || 0;
+      // No silent fallback to 9222: if the agent's browser is down, say so
+      // rather than quietly typing a secret into the operator's own session.
+      const cand = want ? [want] : [18222];
+      let host = null, p = 0;
+      for (const c of cand) { const h = await bd.aliveHost(c, 700); if (h) { host = h; p = c; break; } }
+      if (!p) { jsonResponse(res, 502, { error: 'no_browser_attached' }); return; }
+      const cdp = require('../shared-core/perception/cdp-client.js');
+      let page = null;
+      try {
+        page = await cdp.connectFirstPage(host, p);
+        await page.send('Runtime.enable', {});
+        const hostR = await page.send('Runtime.evaluate', { expression: 'location.host', returnByValue: true });
+        const pageHost = (hostR && hostR.result && hostR.result.value) || '';
+        const scope = 'capability:browser:fill:' + pageHost;
+        const got = vault.getValueByKey(String(key), scope);
+        if (!got) { try { page.close(); } catch (_) {} jsonResponse(res, 403, { error: 'no_entry_for_scope', scope: scope }); return; }
+        const expr = '(function(){var el=document.querySelector(' + JSON.stringify(String(sel)) + ');'
+          + 'if(!el)return "no_such_element";'
+          + 'var d=Object.getOwnPropertyDescriptor(el.constructor.prototype,"value");'
+          + 'if(d&&d.set)d.set.call(el,' + JSON.stringify(got.value) + ');else el.value=' + JSON.stringify(got.value) + ';'
+          + 'el.dispatchEvent(new Event("input",{bubbles:true}));el.dispatchEvent(new Event("change",{bubbles:true}));'
+          + 'return "filled";})()';
+        const r2 = await page.send('Runtime.evaluate', { expression: expr, returnByValue: true });
+        const out = r2 && r2.result && r2.result.value;
+        try { page.close(); } catch (_) {}
+        if (out !== 'filled') { jsonResponse(res, 404, { error: String(out || 'fill_failed') }); return; }
+        jsonResponse(res, 200, { ok: true, filled: true, key: got.key, port: p });
+      } catch (e) {
+        try { if (page) page.close(); } catch (_) {}
+        jsonResponse(res, 502, { error: String(e && e.message || e) });
+      }
+    }).catch(function (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); });
+    return;
+  }
+
   // The command surface, from the sources of truth themselves: slash skills
   // from the loader that executes them, subcommands parsed from bin/troth.js's
   // own table. Nothing here is retyped, so nothing here can lie.
@@ -848,13 +1327,24 @@ const server = http.createServer((req, res) => {
       let slash = [];
       try {
         slash = (require('../shared-core/slash/loader.js').skillSummaries(WATCH_DIR) || [])
-          .map(function (s) { return { name: s.name, description: String(s.description || '').slice(0, 200) }; });
+          .map(function (s) {
+            // A reference row must end on a whole sentence, never mid-word.
+            let d = String(s.description || '');
+            if (d.length > 220) {
+              const cut = d.slice(0, 220);
+              const stop = cut.lastIndexOf('. ');
+              d = stop > 60 ? cut.slice(0, stop + 1) : cut.replace(/\s+\S*$/, '') + '…';
+            }
+            return { name: s.name, description: d };
+          });
       } catch (_) {}
       let cli = [];
       try {
-        const cliSrc = fs.readFileSync(path.join(__dirname, '..', 'bin', 'troth.js'), 'utf8');
-        const m = cliSrc.match(/var SUBCOMMANDS = new Set\(\[([\s\S]*?)\]\);/);
-        if (m) cli = (m[1].match(/"[a-z][a-z0-9-]*"/g) || []).map(function (x) { return x.slice(1, -1); });
+        // The same DATA module the CLI dispatch builds its Set from.
+        // This used to regex bin/troth.js SOURCE for the literal, and
+        // shipped bundles are minified: every published build served the
+        // reference page with zero CLI commands (gate behave, 2026-08-09).
+        cli = require('../shared-core/cli-commands.js').slice();
       } catch (_) {}
       jsonResponse(res, 200, { slash: slash, cli: cli });
     } catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
@@ -865,6 +1355,28 @@ const server = http.createServer((req, res) => {
   // and the true total for the current filter. Deliberately NOT queryActions —
   // that call sits on the recall path with a 1000-row clamp tuned for prompt
   // latency, and a browser paging to row 100k must not widen it.
+  // One record, whole: the Records page expands a row into a meaning panel
+  // and needs the full parsed input/output/verification for just that id.
+  if (req.method === 'GET' && url === '/api/substrate/record') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    try {
+      const rid = String((new URL(req.url, 'http://x')).searchParams.get('id') || '').slice(0, 80);
+      const rState = require('../shared-core/state.js');
+      const row = rState.db().prepare(
+        'SELECT id, timestamp, type, agent_id, session_id, cwd, memory_class, audience, input, output, verification' +
+        ' FROM action_records WHERE id = ?').get(rid);
+      if (!row) { jsonResponse(res, 404, { error: 'not found' }); return; }
+      const rParse = function (s) { try { return JSON.parse(s || 'null'); } catch (_) { return null; } };
+      jsonResponse(res, 200, {
+        id: row.id, ts: row.timestamp, type: row.type, agent: row.agent_id,
+        session_id: row.session_id, cwd: row.cwd, memory_class: row.memory_class,
+        audience: row.audience, input: rParse(row.input), output: rParse(row.output),
+        verification: rParse(row.verification)
+      });
+    } catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
+    return;
+  }
+
   if (req.method === 'GET' && url.startsWith('/api/substrate/records')) {
     if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
     try {
@@ -921,7 +1433,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.method === 'GET' && (url.startsWith('/api/substrate/') || url === '/api/embed/status' || url === '/api/localchat/status')) {
+  if (req.method === 'GET' && (url.startsWith('/api/substrate/') || url === '/api/embed/status' || url === '/api/localchat/status' || url === '/api/memory/readiness' || url === '/api/usage/plan-window' || url === '/api/config/coherence')) {
     // A4: these reads serve the partner's MEMORY. The dead
     // duplicate handlers further down all carried checkRemoteAuth, but this
     // live chain had none - any non-loopback caller could read the substrate
@@ -973,6 +1485,42 @@ const server = http.createServer((req, res) => {
           }
           out = st;
         } catch (e) { out = { unavailable: true, error: String(e && e.message || e) }; }
+      } else if (url === '/api/memory/readiness') {
+        // The memory pipeline's ONE truth (PLAN-COHERENCE law 5): engine →
+        // imported → indexed → ready, with the reranker and the archive's
+        // keyword-only chunks stated instead of implied away. Every surface
+        // (app Memory page, dashboard card, REPL greeting) renders THIS,
+        // so no two surfaces can disagree about whether memory is done.
+        // Read-only by contract — the embed/status poll owns the download
+        // kick; this never starts anything.
+        try { out = require('../shared-core/memory-readiness.js').readiness(); }
+        catch (e) { out = { stage: 'unavailable', error: String(e && e.message || e) }; }
+      } else if (url === '/api/usage/plan-window') {
+        // Subscription consumption over a trailing window (?hours=5,
+        // clamped 1..168). Ingest-on-read first: the tail is byte-
+        // watermarked so an idle call is near-free, and app-only installs
+        // have no other ingest driver (the troth-memory MCP server owns the
+        // periodic tail only in CLI sessions — without this, the app's
+        // line would show a ledger frozen at the last CLI session).
+        // Consumption only, never a percent: no CLI states a reliable plan
+        // limit, and a guessed denominator is a lie with a progress bar.
+        try {
+          const usage = require('../shared-core/claude-usage-ingest.js');
+          try { usage.ingestOnce(); } catch (_) { /* tail is best-effort */ }
+          out = usage.planWindow(query.get('hours'));
+        } catch (e) { out = { hours: 5, families: {}, total: null, error: String(e && e.message || e) }; }
+      } else if (url === '/api/config/coherence') {
+        // Why the machine is shaped the way it is: the detected engines and
+        // the derived shape WITH its reasons (derive-config.js). Surfaces
+        // render provenance ("auto: Claude subscription is the only
+        // engine" vs "your override") so two surfaces can never disagree
+        // silently about where a value came from. Detection only — nothing
+        // here writes, exactly like the derive itself.
+        try {
+          const dc = require('../shared-core/derive-config.js');
+          const detected = dc.detectEngines();
+          out = { detected: detected, derived: dc.deriveCoherentConfig(detected) };
+        } catch (e) { out = { error: String(e && e.message || e) }; }
       } else if (url === '/api/localchat/status') {
         // In-process local CHAT model status (the "Automatic" local path).
         // Unlike embed, we do NOT lazily fire the download here — the chat
@@ -987,15 +1535,37 @@ const server = http.createServer((req, res) => {
           var t = sharedAR.ALL_TYPES[i];
           counts.by_type[t] = sharedState.countActions({ type: t });
         }
+        // A commitment WHERE-count is not "things learned": engram-gc writes
+        // its eviction/duplicate markers as ordinary commitments
+        // (commitment_type='engram_tombstoned'), and bench/test seeds live in
+        // the same table. The raw count told the operator the partner had
+        // learned 231,071 things when 81% were the garbage collector talking
+        // to itself — measured 2026-08-09: 188k tombstones + ~7k test/bench
+        // rows against 43k real facts, a 5.3x inflation on the dashboard's
+        // headline number. Both consumer surfaces (ChatSurface's "things
+        // I've learned" and Activity's "memories") read by_type.commitment,
+        // so the honest predicate lives here, once. The raw ledger count
+        // stays available as by_type_raw_commitment for anyone auditing the
+        // table itself.
+        var COMMITMENT_HONEST_WHERE =
+          " type='commitment'" +
+          " AND COALESCE(json_extract(output,'$.commitment_type'),'') != 'engram_tombstoned'" +
+          " AND COALESCE(json_extract(output,'$.scope'),'') NOT LIKE 'test:%'" +
+          " AND COALESCE(json_extract(input,'$.source'),'') NOT LIKE 'test%'" +
+          " AND agent_id NOT LIKE 'pe6%' AND agent_id NOT LIKE 'pe7%' AND agent_id NOT LIKE 'pe8%'" +
+          " AND agent_id NOT LIKE 'bench%' AND agent_id NOT LIKE 'test%'";
         try {
           var db = sharedState._dbForQuery && sharedState._dbForQuery();
           if (db) {
+            counts.by_type_raw_commitment = counts.by_type.commitment;
+            counts.by_type.commitment = db.prepare('SELECT COUNT(*) AS n FROM action_records WHERE' + COMMITMENT_HONEST_WHERE).get().n;
             var h24 = Date.now() - 24 * 3600 * 1000;
             counts.last_24h = db.prepare('SELECT COUNT(*) AS n FROM action_records WHERE timestamp >= ?').get(h24).n;
             // Consumer "things learned about you" hint: committed engrams in
-            // the trailing week, same shape as last_24h.
+            // the trailing week, same shape as last_24h — and the same honest
+            // predicate, or "13,674 this week" is mostly GC markers again.
             var d7 = Date.now() - 7 * 24 * 3600 * 1000;
-            counts.commitments_7d = db.prepare("SELECT COUNT(*) AS n FROM action_records WHERE timestamp >= ? AND type='commitment'").get(d7).n;
+            counts.commitments_7d = db.prepare('SELECT COUNT(*) AS n FROM action_records WHERE timestamp >= ? AND' + COMMITMENT_HONEST_WHERE).get(d7).n;
             // The substrate is a file the operator owns — its size on disk is
             // part of the story the Memory page tells.
             try {
@@ -1011,13 +1581,23 @@ const server = http.createServer((req, res) => {
             // lexical. Surfaced so the UI can show "memory still indexing"
             // instead of silently degrading (the recall backfill runs in the
             // background and drains this over idle time).
+            //
+            // The numerator is a JOIN, not a global embedding count: the old
+            // global count included vectors for rows outside the recallable
+            // predicate, so once totals crossed, Math.min clamped the ratio
+            // to a permanent 1.0 and a 2.5-day backfill hole read as "fully
+            // indexed". Embedded-recallable is a subset of recallable by
+            // construction, so the ratio needs no clamp — and must not have
+            // one, because a ratio above 1 would now mean a real bug worth
+            // seeing.
             try {
-              var recallable = db.prepare("SELECT COUNT(*) AS n FROM action_records WHERE memory_class IN ('episodic','semantic','identity','procedural') AND (audience IS NULL OR audience='model_visible')").get().n;
-              var embedded = db.prepare('SELECT COUNT(*) AS n FROM engram_embeddings').get().n;
+              var RECALLABLE_WHERE = " memory_class IN ('episodic','semantic','identity','procedural') AND (audience IS NULL OR audience='model_visible')";
+              var recallable = db.prepare('SELECT COUNT(*) AS n FROM action_records WHERE' + RECALLABLE_WHERE).get().n;
+              var embedded = db.prepare('SELECT COUNT(*) AS n FROM engram_embeddings e JOIN action_records a ON a.id = e.engram_id WHERE' + RECALLABLE_WHERE.replace(/memory_class/g, 'a.memory_class').replace(/audience/g, 'a.audience')).get().n;
               counts.embedding_coverage = {
                 embedded: embedded,
                 recallable: recallable,
-                ratio: recallable ? Math.min(1, embedded / recallable) : 1
+                ratio: recallable ? embedded / recallable : 1
               };
             } catch (_) {}
           }
@@ -2192,7 +2772,15 @@ const server = http.createServer((req, res) => {
         const logPath = path.join(os2.homedir(), '.troth', 'import-chats.log');
         const fd = fs.openSync(logPath, 'a');
         const child = require('child_process').spawn(process.execPath,
-          [path.join(__dirname, '..', 'bin', 'troth-import-chats.js'), '--source', src],
+          // --full: both halves (raw archive + distilled facts), the same
+          // contract the app's Rust import sends. The dashboard used to
+          // spawn bare (raw-only), so an open-repo user's import built the
+          // archive but never the recallable facts — the two surfaces
+          // disagreeing about what "import" MEANS is the same two-truths
+          // disease as the config mirrors. The distill half calls THIS
+          // proxy for its gentle per-session inference, which is up by
+          // definition here.
+          [path.join(__dirname, '..', 'bin', 'troth-import-chats.js'), '--source', src, '--full'],
           { detached: true, stdio: ['ignore', fd, fd] });
         child.unref();
         try { fs.closeSync(fd); } catch (_) {}
@@ -2913,29 +3501,145 @@ const server = http.createServer((req, res) => {
     try {
       const codelens = require('./modules/codelens');
       const store = codelens._store;
-      if (!store) { jsonResponse(res, 200, { nodes: [], edges: [] }); return; }
+      if (!store) { jsonResponse(res, 200, { nodes: [], edges: [], stats: {} }); return; }
 
+      // Scratch, vendor and minified files are not the codebase's story.
+      const JUNK = /node_modules|\/dist\/|\.min\.js$|\/_[^\/]*$/;
+
+      // Importance = connections in the call graph, both directions, over
+      // EVERY edge, not a sample.
+      const degree = {};
+      const allEdges = store.db.prepare('SELECT source_id s, target_id t FROM edges').all();
+      for (const e of allEdges) {
+        degree[e.s] = (degree[e.s] || 0) + 1;
+        degree[e.t] = (degree[e.t] || 0) + 1;
+      }
+
+      const entTotal = store.db.prepare('SELECT COUNT(*) n FROM entities').get().n;
       const entities = store.db.prepare(
-        "SELECT id, type, name, file_path, line_number FROM entities WHERE type != 'import' LIMIT 200"
-      ).all();
+        "SELECT id, type, name, file_path, line_number FROM entities WHERE type != 'import'"
+      ).all().filter(function (e) { return e.file_path && !JUNK.test(e.file_path); });
+      entities.forEach(function (e) { e.deg = degree[e.id] || 0; });
+      entities.sort(function (a2, b2) { return b2.deg - a2.deg; });
 
-      const edges = store.db.prepare(
-        "SELECT source_id, target_id, relation_type FROM edges LIMIT 500"
-      ).all();
+      // The memory layer first: what the substrate remembers doing to each
+      // file. It also earns entities their place on the map, so the
+      // lived-in parts of the codebase are always in the picture.
+      const mem = {};
+      const relOf = {}; // entity abs path → repo-relative path, for suffix matching + the UI
+      try {
+        const sdb = require('../shared-core/state.js').db();
+        // The repo has moved homes over its life, so historical records carry
+        // old absolute paths. Match by repo-relative suffix instead of exact
+        // string: the story of a file survives every move of its home.
+        const nodePath = require('path');
+        const byBase = {};
+        (function () {
+          const paths = Array.from(new Set(entities.map(function (e2) { return e2.file_path; })));
+          if (!paths.length) return;
+          let root = nodePath.dirname(paths[0]);
+          for (const p of paths) {
+            while (root && p.indexOf(root + '/') !== 0) {
+              const up = nodePath.dirname(root);
+              if (up === root) { root = ''; break; }
+              root = up;
+            }
+          }
+          for (const p of paths) {
+            relOf[p] = root ? p.slice(root.length + 1) : nodePath.basename(p);
+            (byBase[nodePath.basename(p)] = byBase[nodePath.basename(p)] || []).push(p);
+          }
+        })();
+        function bucket(f) {
+          const cands = byBase[nodePath.basename(f)];
+          if (!cands) return null;
+          for (const a of cands) { if (f === a || f.endsWith('/' + relOf[a])) return a; }
+          return null;
+        }
+        const eRows = sdb.prepare(
+          "SELECT json_extract(input, '$.file_path') f, COUNT(*) e, MAX(timestamp) last, " +
+          "COUNT(DISTINCT session_id) s FROM action_records WHERE type = 'edit' GROUP BY f"
+        ).all();
+        for (const r of eRows) {
+          if (!r.f) continue;
+          const key = bucket(r.f);
+          if (!key) continue;
+          const m = mem[key] || (mem[key] = { e: 0, r: 0, last: 0, s: 0 });
+          m.e += r.e; m.s += r.s; if (r.last > m.last) m.last = r.last;
+        }
+        // Reads are knowledge too: a file the partner has read is known,
+        // even when it was never edited.
+        const rRows = sdb.prepare(
+          "SELECT json_extract(input, '$.file_path') f, COUNT(*) n, MAX(timestamp) last " +
+          "FROM action_records WHERE type = 'read' GROUP BY f"
+        ).all();
+        for (const r of rRows) {
+          if (!r.f) continue;
+          const key = bucket(r.f);
+          if (!key) continue;
+          const m = mem[key] || (mem[key] = { e: 0, r: 0, last: 0, s: 0 });
+          m.r += r.n; if (r.last > m.last) m.last = r.last;
+        }
+      } catch (_) {}
 
-      // Map to vis-friendly format
-      const nodes = entities.map(e => ({
-        id: e.id,
-        label: e.name,
-        type: e.type,
-        file: e.file_path,
-        line: e.line_number
-      }));
+      const chosen = entities.slice(0, 100);
+      const inSet = new Set(chosen.map(function (e) { return e.id; }));
+      const bestByFile = {};
+      for (const e of entities) {
+        const b = bestByFile[e.file_path];
+        if (!b || e.deg > b.deg) bestByFile[e.file_path] = e;
+      }
+      const editedFiles = Object.keys(mem).sort(function (x, y) { return ((mem[y].e||0)*1000+(mem[y].r||0)) - ((mem[x].e||0)*1000+(mem[x].r||0)); });
+      for (const f of editedFiles) {
+        if (chosen.length >= 150) break;
+        const best = bestByFile[f];
+        if (best && !inSet.has(best.id)) { chosen.push(best); inSet.add(best.id); }
+      }
+      // Every node brings its connections: an edge budget per node instead
+      // of first-come-first-served, which starved the memory nodes.
+      const edges = [];
+      const perNode = {};
+      for (const e of allEdges) {
+        if (!inSet.has(e.s) || !inSet.has(e.t) || e.s === e.t) continue;
+        const cs = perNode[e.s] || 0, ct = perNode[e.t] || 0;
+        if (cs >= 8 && ct >= 8) continue;
+        perNode[e.s] = cs + 1; perNode[e.t] = ct + 1;
+        edges.push({ from: e.s, to: e.t });
+        if (edges.length >= 700) break;
+      }
 
-      jsonResponse(res, 200, { nodes, edges: edges.map(e => ({ from: e.source_id, to: e.target_id, type: e.relation_type })) });
-    } catch (e) {
-      jsonResponse(res, 200, { nodes: [], edges: [], error: e.message });
-    }
+      // Real neighbors from the FULL graph, so discovery never dead-ends:
+      // marked onMap when drawn, capped to the eight best-connected.
+      const entById = {};
+      for (const e of entities) entById[e.id] = e;
+      const nearIds = {};
+      for (const e of allEdges) {
+        if (inSet.has(e.s) && entById[e.t]) (nearIds[e.s] = nearIds[e.s] || new Set()).add(e.t);
+        if (inSet.has(e.t) && entById[e.s]) (nearIds[e.t] = nearIds[e.t] || new Set()).add(e.s);
+      }
+      const nodes = chosen.map(function (e) {
+        const near = Array.from(nearIds[e.id] || [])
+          .map(function (id) { return entById[id]; })
+          .filter(Boolean)
+          .sort(function (x, y) { return (y.deg || 0) - (x.deg || 0); })
+          .slice(0, 8)
+          .map(function (nb) {
+            return { id: nb.id, label: nb.name, file: nb.file_path, onMap: inSet.has(nb.id) };
+          });
+        return { id: e.id, label: e.name, type: e.type, file: e.file_path, line: e.line_number,
+                 rel: relOf[e.file_path] || null,
+                 deg: e.deg, mem: mem[e.file_path] || null, near: near };
+      });
+      jsonResponse(res, 200, {
+        nodes: nodes, edges: edges,
+        stats: {
+          entities_total: entTotal,
+          edges_total: allEdges.length,
+          shown: nodes.length,
+          with_memory: nodes.filter(function (n) { return n.mem; }).length
+        }
+      });
+    } catch (e) { jsonResponse(res, 200, { nodes: [], edges: [], error: e.message }); }
     return;
   }
 
@@ -3326,11 +4030,21 @@ const server = http.createServer((req, res) => {
   }
 
   // ===== Targeted forgetting =====
-  // POST /api/substrate/forget {query} → tombstones the closest-matching
+  // POST /api/substrate/forget {query} → retires the closest-matching
   // commitment-engram. Same semantics as the /forget slash skill: history
-  // and intents are immutable; only learned facts can be forgotten. The
-  // tombstone is itself an audit record — originals stay for forensics,
-  // retrieval excludes them.
+  // and intents are immutable; only learned facts can be forgotten, and the
+  // original stays for forensics — retrieval hides it.
+  //
+  // This endpoint is what the Tauri app calls, and it used to write a
+  // free-standing scope:'system:tombstone' engram — which NOTHING filters,
+  // so the "forgotten" fact kept surfacing. That visible failure is why a
+  // partner, asked to forget something, escalated to raw sqlite against
+  // state.db (incident 2, 2026-08-09): the sanctioned path did not work.
+  // Now it retires exactly the way the slash path does: a successor engram
+  // written through the blessed reconsolidation primitive, with
+  // lifetime.supersedes pointing at the original (every recall path hides
+  // it) at tier='flagged' (the successor itself never surfaces). The wire
+  // shape keeps `tombstoned` so existing app builds read it unchanged.
   if (req.method === 'POST' && url === '/api/substrate/forget') {
     if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
     let body = '';
@@ -3340,6 +4054,8 @@ const server = http.createServer((req, res) => {
         const query = (JSON.parse(body || '{}').query || '').trim();
         if (!query) { jsonResponse(res, 400, { error: 'missing_query' }); return; }
         const engram = require('../shared-core/engram.js');
+        const fState = require('../shared-core/state.js');
+        const lability = require('../shared-core/lability-reconsolidation.js');
         const matches = await engram.retrieveRelevant({
           cwd: null, query, k: 1, commitment_only: true
         });
@@ -3348,15 +4064,41 @@ const server = http.createServer((req, res) => {
           return;
         }
         const target = matches[0];
-        const id = engram.recordEngram({
-          agent_id: 'consumer-app', cwd: null, user_id: 'default',
-          statement: 'TOMBSTONE: ' + target.statement,
-          salience: 0, scope: 'system:tombstone',
-          source: 'api:substrate:forget'
+        // The RAW action_records row: reconsolidate inherits the prior's
+        // audience + memory_class + scope so the superseder lands in the
+        // SAME recall pool as the original — the only place the
+        // supersession pointer is actually seen.
+        let raw = null;
+        try { raw = fState.getAction(target.id); } catch (_) { raw = null; }
+        if (!raw) {
+          jsonResponse(res, 200, { ok: false, tombstoned: false, detail: 'could not load the matched engram to retire it' });
+          return;
+        }
+        let rawOut; try { rawOut = typeof raw.output === 'string' ? JSON.parse(raw.output) : (raw.output || {}); } catch (_) { rawOut = {}; }
+        // Signed operator facts are the crypto-anchored floor — a casual
+        // forget must not retire them. Same rule as the slash path.
+        if ((rawOut.source_authority || 'regex_extracted') === 'operator_confirmed') {
+          jsonResponse(res, 200, {
+            ok: false, tombstoned: false, protected: true,
+            detail: 'that is a signed operator fact; forgetting it needs a signed operation'
+          });
+          return;
+        }
+        const id = lability.reconsolidate({
+          state: fState,
+          prior_engram: raw,
+          new_statement: 'FORGOTTEN: ' + (rawOut.statement || target.statement),
+          tier: 'flagged',
+          reason: 'operator_forget',
+          agent_id: 'consumer-app',
+          cwd: raw.cwd || null,
+          user_id: raw.user_id || 'default',
+          trigger_text: query
         });
         jsonResponse(res, 200, {
           ok: !!id,
           tombstoned: !!id,
+          superseded_id: id ? target.id : null,
           statement: String(target.statement).slice(0, 160)
         });
       } catch (e) {
@@ -3371,6 +4113,21 @@ const server = http.createServer((req, res) => {
   // nothing ever fetched OpenRouter's catalog). The /models endpoint is public +
   // zero-token; we pass the saved key when present. FAIL-CLOSED: any error returns
   // {models:[]} so the UI falls back to its static list (never an empty dropdown).
+  // Catalog fallback: lanes without a public live endpoint (kimi_sub,
+  // openai_sub, anthropic…) still deserve a datalist — the shipped catalog
+  // is the same source the app trusts.
+  function catalogModelsFor(name) {
+    try {
+      const cat = require('./modules/catalog.js');
+      const table = typeof cat.getCatalog === 'function' ? cat.getCatalog() : (cat.CATALOG || cat);
+      const entry = table && table[name];
+      const list = entry && entry.models;
+      if (Array.isArray(list) && list.length) {
+        return list.map(function (m) { return { id: m.id, name: m.label + (m.note ? ' · ' + m.note : '') }; });
+      }
+    } catch (_) {}
+    return [];
+  }
   // GET /api/providers/<name>/models → {models:[{id,name}]} — LIVE model list
   // for EVERY cloud provider (operator requirement: 'new models must appear
   // without shipping an app update'). Same key resolution + endpoints as the
@@ -3427,11 +4184,11 @@ const server = http.createServer((req, res) => {
                           headers: key ? { Authorization: 'Bearer ' + key } : {}, shape: 'openai', needsBase: true },
           };
           const spec = LIST[provName];
-          if (!spec) { jsonResponse(res, 200, { models: [] }); return; }
+          if (!spec) { jsonResponse(res, 200, { models: catalogModelsFor(provName) }); return; }
           // custom_openai has no fetchable list until base_url is set; fail
           // closed to the static single-entry fallback, don't fetch ''.
           if (spec.needsBase && !customBase) { jsonResponse(res, 200, { models: [], reason: 'no_base_url' }); return; }
-          if (spec.needsKey && !key) { jsonResponse(res, 200, { models: [], reason: 'no_key' }); return; }
+          if (spec.needsKey && !key) { jsonResponse(res, 200, { models: catalogModelsFor(provName), reason: 'no_key' }); return; }
           const r = await fetch(spec.url, { headers: spec.headers, signal: AbortSignal.timeout(8000) });
           if (!r.ok) { jsonResponse(res, 200, { models: [], http: r.status }); return; }
           const data = await r.json().catch(() => ({}));
@@ -4715,31 +5472,49 @@ server.headersTimeout = 60 * 1000;            // 60s to receive headers
 server.requestTimeout = REQUEST_MAX_MS;        // match end-to-end cap
 server.timeout        = REQUEST_MAX_MS + 30000; // idle socket reaper (watchdog fires first)
 
-// One-shot scan for other troth-proxy-* instances so leftover test
-// spawns are surfaced in the startup banner instead of silently heating
-// the laptop. No kill, no polling — pure visibility. Users can act with
-// `troth clean --stuck --kill` if they want to.
-function warnAboutSiblings() {
+// One-shot scan for other troth-proxy-* instances at boot. The CLI launcher
+// already cleans orphans (bin/troth.js cleanOrphanSiblings), but launchd and
+// /api/repair/restart start server.js directly and used to only WARN — so a
+// stray survived boots for hours, silently heating the laptop. Now boot
+// closes them itself with the /api/repair/reap discipline: SIGTERM, 2.5s,
+// SIGKILL survivors. TROTH_KEEP_SIBLINGS=1 keeps the old warn-only behavior
+// for CI / deliberate multi-instance setups.
+function cleanSiblingsAtBoot() {
   try {
     const { execFileSync } = require('child_process');
-    const out = execFileSync('ps', ['-eo', 'pid,pcpu,etime,args'], { encoding: 'utf8' });
+    // Anchored on the COMMAND column starting with the retitled process name.
+    // A loose /troth-proxy-/ contains-match once killed the operator's own
+    // shell because its command LINE mentioned the string. Only a process
+    // that IS troth-proxy-<port> qualifies — same discipline as /api/repair/reap.
+    const out = execFileSync('ps', ['-axo', 'pid=,pcpu=,etime=,command='], { encoding: 'utf8' });
     const siblings = [];
-    for (const line of out.split('\n').slice(1)) {
-      if (!/troth-proxy-/.test(line)) continue;
-      const parts = line.trim().split(/\s+/);
-      const pid = parseInt(parts[0]);
+    for (const line of out.split('\n')) {
+      const m = line.match(/^\s*(\d+)\s+([\d.]+)\s+(\S+)\s+troth-proxy-(\d+)/);
+      if (!m) continue;
+      const pid = parseInt(m[1], 10);
       if (!pid || pid === process.pid) continue;
-      const cpu = parseFloat(parts[1]);
-      const etime = parts[2];
-      const m = [...line.matchAll(/troth-proxy-(\d+)/g)].map(x => x[1]).sort((a, b) => b.length - a.length)[0];
-      siblings.push({ pid, cpu, etime, port: m ? parseInt(m) : '?' });
+      siblings.push({ pid, cpu: parseFloat(m[2]), etime: m[3], port: parseInt(m[4], 10) });
     }
     if (!siblings.length) return;
-    log('⚠  Detected ' + siblings.length + ' other troth-proxy process(es):');
+    if (process.env.TROTH_KEEP_SIBLINGS === '1') {
+      log('⚠  Detected ' + siblings.length + ' other troth-proxy process(es) (kept: TROTH_KEEP_SIBLINGS=1):');
+      for (const s of siblings) {
+        log('   pid=' + s.pid + ' port=' + s.port + ' cpu=' + s.cpu.toFixed(1) + '% up=' + s.etime);
+      }
+      return;
+    }
+    log('Closing ' + siblings.length + ' stray troth-proxy process(es) (TROTH_KEEP_SIBLINGS=1 to keep them):');
     for (const s of siblings) {
       log('   pid=' + s.pid + ' port=' + s.port + ' cpu=' + s.cpu.toFixed(1) + '% up=' + s.etime);
+      try { process.kill(s.pid, 'SIGTERM'); } catch (_) {}
     }
-    log('   Run `troth clean --stuck` to inspect, `--kill` to terminate stuck ones.');
+    setTimeout(function () {
+      let killed = 0;
+      for (const s of siblings) {
+        try { process.kill(s.pid, 0); process.kill(s.pid, 'SIGKILL'); killed++; } catch (_) { /* already gone */ }
+      }
+      if (killed) log('   ' + killed + ' ignored SIGTERM and got SIGKILL.');
+    }, 2500);
   } catch (e) { /* ps unavailable — skip silently */ }
 }
 
@@ -4828,12 +5603,41 @@ server.listen(listenPort, BIND_HOST, () => {
           if (!alive) return;
           var last = 0;
           try { last = parseInt(_fs.readFileSync(_pathI.join(_os.homedir(), '.troth', 'lastuse-' + t.port + '.txt'), 'utf8'), 10) || 0; } catch (_) { last = 0; }
-          // No stamp at all means it has not served a single call since the
-          // stamping shipped: that is the strongest idle signal there is.
+          if (t.what === 'browser') {
+            // A browser is not a llama-server. Humans drive browsers, and
+            // human use never writes a lastuse stamp, so "no stamp" here
+            // means "cannot know", never "idle". Three rules:
+            // the operator's own debug session (9222) is never ours to kill;
+            // no stamp means no reap; and a headed window may have someone
+            // reading it right now, so only a headless tree is collected.
+            // The agent's browser keeps its own profile, so nothing here can
+            // reach an operator session either way.
+            if (t.port === 9222) return;
+            if (!last) return;
+            var headed = false;
+            try {
+              headed = _cp.execSync('pgrep -fl "' + needle + '" || true', { encoding: 'utf8' })
+                .split('\n').some(function (l) { return l && l.indexOf('headless') === -1; });
+            } catch (_) { headed = true; }
+            if (headed) return;
+          } else {
+            // No stamp on a llama-server means it has not served a single
+            // call since stamping shipped: the strongest idle signal there is.
+          }
           var idleMs = Date.now() - (last || 0);
           if (idleMs < _idleMin * 60000 * (t.mult || 1)) return;
           try {
-            _cp.execSync('pkill -f "' + needle + '" || true', { stdio: 'ignore' });
+            // Ask first, insist after. A browser given SIGTERM flushes its
+            // cookie store on the way out; one given SIGKILL loses whatever
+            // had not hit disk yet, which is how a fresh login can vanish.
+            if (t.what === 'browser') {
+              _cp.execSync('pkill -TERM -f "' + needle + '" || true', { stdio: 'ignore' });
+              setTimeout(function () {
+                try { _cp.execSync('pkill -KILL -f "' + needle + '" || true', { stdio: 'ignore' }); } catch (_) {}
+              }, 4000).unref();
+            } else {
+              _cp.execSync('pkill -f "' + needle + '" || true', { stdio: 'ignore' });
+            }
             log('reaped idle ' + t.what + ' on :' + t.port + ' (idle ' + Math.round(idleMs / 60000) + 'm) — respawns on next use');
           } catch (_) {}
         });
@@ -4863,7 +5667,7 @@ server.listen(listenPort, BIND_HOST, () => {
   // callback returns to the loop first — a request that arrives during the walk
   // is answered with an empty repo map rather than waiting for one.
   setImmediate(startProjectIndexing);
-  warnAboutSiblings();
+  cleanSiblingsAtBoot();
   scheduler.start();
   // Auto-start the embedded Claude Code session watcher unless
   // explicitly disabled. Without this, every proxy restart leaves

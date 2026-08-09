@@ -130,6 +130,39 @@ if (command === "init") {
       }
     }
 
+    // 6.5 Operator key: the ceremony that makes the machine yours. The app
+    // runs this on its bootstrap screen; the terminal path runs it here.
+    // Interactive reads are done, so the readline can close before the
+    // raw-fd passphrase reads begin.
+    rl.close();
+    try {
+      var bootC = require(path.join(__dirname, "..", "shared-core", "bootstrap.js"));
+      var bootSt = bootC.status();
+      if (bootSt.has_bootstrap_seal) {
+        tick("Operator key", true, "(already sealed)");
+      } else {
+        console.log("");
+        console.log("  \x1b[1mCryptographically yours.\x1b[0m One passphrase creates your operator");
+        console.log("  keypair: it signs the memories you confirm, seals high-stakes actions,");
+        console.log("  and encrypts the vault. Nobody can reset it for you.");
+        var passC = ctx._readPassphraseSync("  Set operator passphrase (>= 8 chars, Enter to skip)");
+        if (!passC) {
+          tick("Operator key", false, "(skipped: dashboard Vault page or `troth init --seal` later)");
+        } else if (passC.length < 8) {
+          tick("Operator key", false, "(too short, 8 chars minimum: run `troth init --seal` when ready)");
+        } else {
+          var passC2 = ctx._readPassphraseSync("  The same, again");
+          if (passC2 !== passC) {
+            tick("Operator key", false, "(mismatch: run `troth init --seal` when ready)");
+          } else {
+            var rInit = bootC.runInit({ passphrase: passC, charter: "" });
+            if (rInit.ok) tick("Operator key sealed", true, "(" + rInit.public_key_id + ")");
+            else tick("Operator key", false, "(" + (rInit.error || "failed") + ")");
+          }
+        }
+      }
+    } catch (eC) { tick("Operator key", false, "(" + (eC && eC.message || eC) + ")"); }
+
     // 7. Watcher start hint
     console.log("");
     console.log("  Live session watcher (captures every new Claude Code conversation):");

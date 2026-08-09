@@ -29,6 +29,15 @@ require('./suite-21-claude-backbone-browser-rule.js')({ test, skip });
 require('./suite-22-secret-redactor.js')({ test, skip });
 require('./suite-23-kimi-cli-lane.js')({ test, skip });
 require('./suite-24-loopback-origin-guard.js')({ test, skip });
+require('./suite-25-sandbox-seatbelt.js')({ test, skip });
+require('./suite-26-mcp-child-boundary.js')({ test, skip });
+require('./suite-27-workspace-jail.js')({ test, skip });
+require('./suite-28-tool-path-walls.js')({ test, skip });
+require('./suite-29-dmg-pass-walls.js')({ test, skip });
+require('./suite-30-derive-coherence.js')({ test, skip });
+require('./suite-31-memory-readiness.js')({ test, skip });
+require('./suite-32-plan-usage.js')({ test, skip });
+require('./suite-33-archive-provenance.js')({ test, skip });
 
 // --- SUMMARY ---
 flushAsyncTests().then(() => {

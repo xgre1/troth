@@ -239,6 +239,27 @@ const OUR_TOOLS = [
       },
       required: ['prompt']
     }
+  },
+  // Same promotion as troth_image_generate above, for the same reported
+  // failure: memory lived solely behind mcp_call(troth-substrate, …) whose
+  // description never says the word memory, so panes answered "what did we
+  // decide about X" by grepping files through troth-bash — or worse, by
+  // opening state.db raw. A capability the model cannot see in tools/list
+  // does not exist. This entry only NAMES it upstream; the call is
+  // delegated verbatim to troth-substrate, so governance stays put.
+  {
+    name: 'troth_recall',
+    description: 'USE INSTEAD OF grepping files or reading state.db for memory questions. Recall from the partner\'s persistent substrate memory: prior work, past decisions, operator preferences, lessons, anything "we did/said before". Class-routed (identity / episodic / semantic / procedural, default all) with cross-encoder rerank. Call it BEFORE claiming something is unknown or re-deriving prior work.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query:  { type: 'string', description: 'Natural-language query.' },
+        class:  { type: 'string', enum: ['identity', 'episodic', 'semantic', 'procedural', 'all'], description: 'Memory class to route to; default "all".' },
+        limit:  { type: 'integer', minimum: 1, maximum: 50, description: 'Max items (default 5).' },
+        cwd:    { type: 'string' }
+      },
+      required: ['query']
+    }
   }
 ];
 
@@ -266,6 +287,12 @@ async function handleTool(name, args) {
     // SLOW_TOOLS timeout already covers image_generate by name.
     const state = await getDownstream('troth-substrate');
     return await rpc(state, 'tools/call', { name: 'troth_image_generate', arguments: args || {} });
+  }
+  if (name === 'troth_recall') {
+    // Delegate verbatim, like the image tool: promotion is discoverability,
+    // not a second implementation.
+    const state = await getDownstream('troth-substrate');
+    return await rpc(state, 'tools/call', { name: 'troth_recall', arguments: args || {} });
   }
   throw new Error('unknown router tool: ' + name);
 }

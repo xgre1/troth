@@ -9,6 +9,7 @@ Thanks for considering a contribution. troth is solo-maintained, so we keep cont
 1. **Read [`docs/HONEST-LIMITS.md`](docs/HONEST-LIMITS.md).** Understand what troth does NOT solve before suggesting features for those areas.
 2. **Open an issue first** for anything beyond a single-file fix. We say no a lot — better to know early.
 3. **Match the existing style.** This codebase is opinionated. Read the adjacent file before writing.
+4. **AI-assisted PRs are welcome.** Point your agent at [`AGENTS.md`](AGENTS.md) to orient it, and at [`VISION.md`](VISION.md) so it knows what the tree is for. The sign-off is yours, not the model's: you read the diff, you certify it. A PR whose author cannot answer questions about it will be closed.
 
 ---
 

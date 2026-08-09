@@ -132,6 +132,22 @@ function handle(req, res, url, deps) {
     try {
       subscriptionActive = require("../../shared-core/claude-subscription.js").claudeSubscriptionActive();
     } catch (_) {}
+    // Per-client wiring for the Connections tab. TCC-protected configs
+    // (Cline, Claude Desktop on macOS) are NOT probed unless the operator
+    // explicitly asked (?include_tcc=cline,claude_desktop) — reading another
+    // app's folder can raise the macOS data-protection prompt.
+    let clients = [];
+    try {
+      const mh = require("../../shared-core/mcp-hosts.js");
+      const inc = String((new URL((req && req.url) || url, "http://x")).searchParams.get("include_tcc") || "")
+        .split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+      clients = mh.hosts().filter(function (h) { return h.id !== "claude"; }).map(function (h) {
+        if (h.tcc && process.platform === "darwin" && inc.indexOf(h.id) === -1) {
+          return { id: h.id, label: h.label, status: "not checked", checked: false };
+        }
+        return { id: h.id, label: h.label, status: mh.hostStatus(h), checked: true };
+      });
+    } catch (_) {}
     jsonResponse(res, 200, {
       ok: true,
       claude_code: {
@@ -141,6 +157,7 @@ function handle(req, res, url, deps) {
         cli_installed: cliInstalled,
         subscription_active: subscriptionActive
       },
+      clients: clients,
       plugin_name: PLUGIN_NAME,
       marketplace: marketplaceSource(),
     });

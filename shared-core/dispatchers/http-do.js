@@ -219,6 +219,18 @@ async function dispatch(intent, capability, ctx) {
     try {
       const vault = require('../vault.js');
       const hit = vault.getValueForCapability(capability.scope);
+      if (hit && hit.ambiguous) {
+        // Several entries cover this scope, usually two accounts on the
+        // same service. Attaching one at random could act as the wrong
+        // account, so refuse before any bytes leave the machine. Keys are
+        // metadata (listEntries shows them); values never ride along.
+        return {
+          ok: false,
+          error: 'vault_ambiguous_credentials: entries [' + hit.keys.join(', ')
+            + '] all cover ' + capability.scope
+            + '. Name the account: narrow each entry\'s capability_scope_glob or keep one per scope.'
+        };
+      }
       if (hit && hit.value) {
         const inj = hit.injection || { kind: 'bearer' };
         if (inj.kind === 'bearer') {
@@ -229,7 +241,7 @@ async function dispatch(intent, capability, ctx) {
         // 'env' is for shell:do (irrelevant here); 'raw' is caller-pulls
         // (skip auto-attach).
       }
-    } catch (_) { /* vault unavailable / locked — no auto-attach */ }
+    } catch (_) { /* vault unavailable / locked, no auto-attach */ }
   }
 
   // Test injection.
@@ -294,7 +306,10 @@ async function dispatch(intent, capability, ctx) {
           value: value,
           capability_scope_glob: capability.scope || 'capability:http:do:*',
           injection: { kind: 'bearer' },
-          description: 'http-do scrub from ' + (capability.scope || '?') + ' path=' + dotPath
+          description: 'http-do scrub from ' + (capability.scope || '?') + ' path=' + dotPath,
+          // The key is derived from capability + path, so the same dispatch
+          // repeated deterministically refreshes the same slot on purpose.
+          overwrite: true
         });
         if (writeRes.ok) {
           parent[leaf] = { __vault_handle: vaultKey, __bytes_len: Buffer.byteLength(value, 'utf8') };

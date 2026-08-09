@@ -17,12 +17,18 @@ const HOME = os.homedir();
 // --distill: instead of raw chunk+embed (chameleon docs:chats archive), extract
 // durable identity/knowledge engrams via the local proxy (GENTLE: one remote/local
 // inference per session over HTTP, NO heavy claude-code process spawn) and record
-// them as recallable memory:chat-distilled engrams. Wizard/Settings import uses this;
-// the bare CLI (no --distill) keeps the raw searchable archive path unchanged.
+// them as recallable memory:chat-distilled engrams.
+// --full: BOTH halves — the raw chunk+embed archive (docs:chats, the
+// searchable record) AND the distilled identity facts. The app's import used
+// to force --distill alone, so "Import your chat history" claimed an archive
+// it never built — docs:chats sat at 0 rows while the UI said imported
+// (AUDIT-2026-08-09). The app now sends --full; the bare CLI (no flag)
+// keeps the raw-only path unchanged.
 const DISTILL = process.argv.includes('--distill');
+const FULL    = process.argv.includes('--full');
 const _http = require('http');
 let _state = null, _ar = null;
-if (DISTILL) { try { _state = require('../shared-core/state.js'); _ar = require('../shared-core/action-record.js'); } catch (_) {} }
+if (DISTILL || FULL) { try { _state = require('../shared-core/state.js'); _ar = require('../shared-core/action-record.js'); } catch (_) {} }
 const DISTILL_PROMPT = "Extract ONLY durable recall-worthy facts about the OPERATOR (identity, projects, hardware, goals, decisions, preferences, working style) from this conversation. Output 3-8 lines, each starting with '- ', standalone facts, NOT 'the user asked X'. Skip generic model facts and transient one-off Q&A.";
 function _proxyDistill(text) {
   return new Promise((resolve) => {
@@ -40,7 +46,13 @@ async function distillAndRecord(text, source) {
   const facts = String(out).split('\n').filter(l => /^\s*[-*]\s+/.test(l)).map(l => l.replace(/^\s*[-*]\s+/, '').trim()).filter(l => l.length >= 8);
   let rec = 0;
   for (const f of facts) {
-    const r = { id: _ar.uuidv7(), timestamp: Date.now(), type: 'commitment', agent_id: AGENT, user_id: 'default', cwd: null, memory_class: 'semantic', audience: 'model_visible', input: { source: 'import:chat-distill' }, output: { statement: f, commitment_type: 'fact', scope: 'memory:chat-distilled', source: source } };
+    // input.source carries the SESSION provenance key ('import:<src>:...'),
+    // because listIngestedSources reads exactly that field — the old
+    // constant 'import:chat-distill' there meant the distill half NEVER
+    // registered as done and every re-run re-distilled (and re-billed)
+    // every session. The kind marker moves to input.kind; output.source
+    // keeps the same provenance for the read side, unchanged.
+    const r = { id: _ar.uuidv7(), timestamp: Date.now(), type: 'commitment', agent_id: AGENT, user_id: 'default', cwd: null, memory_class: 'semantic', audience: 'model_visible', input: { source: source, kind: 'chat-distill' }, output: { statement: f, commitment_type: 'fact', scope: 'memory:chat-distilled', source: source } };
     try { const v = _ar.validate(r); if (v && v.ok) { _state.recordAction(r, _ar.toSearchText(r)); rec++; } } catch (_) {}
   }
   return { ok: rec > 0, recorded: rec };
@@ -135,18 +147,98 @@ function parseClaudeAiExport(arr) {
   return out;
 }
 
-// Provenance already in the substrate for scope docs:chats. Lets the import
-// skip sessions it already ingested -> re-running is idempotent (additive, no
+// Provenance already in the substrate, per scope. Lets the import skip
+// sessions it already ingested -> re-running is idempotent (additive, no
 // duplicates). Best-effort: empty set on any failure.
-function loadExisting() {
-  try { return new Set(chameleon.listIngestedSources(DISTILL ? 'memory:chat-distilled' : 'docs:chats')); }
+function loadExisting(scope) {
+  try { return new Set(chameleon.listIngestedSources(scope)); }
   catch (_) { return new Set(); }
+}
+const RAW_SCOPE = 'docs:chats', DIST_SCOPE = 'memory:chat-distilled';
+const wantRaw  = FULL || !DISTILL;
+const wantDist = FULL || DISTILL;
+// RAW provenance is PREFIX-matched: sessions live in per-project scopes
+// (docs:chats:<encoded-project-dir>) since 2026-08-09, and legacy rows sit
+// in the flat scope — exact matching would re-import every legacy session
+// as a duplicate the moment scoping shipped.
+const exRaw  = wantRaw  ? new Set(chameleon.listIngestedSourcesPrefix(RAW_SCOPE)) : null;
+const exDist = wantDist ? loadExisting(DIST_SCOPE) : null;
+// A session is skippable only when EVERY wanted half already holds it —
+// a machine that ran distill-only earlier still owes the raw archive.
+const allDone = (src) => (!exRaw || exRaw.has(src)) && (!exDist || exDist.has(src));
+// One conversation through every wanted half, each half independently
+// idempotent. `recorded` sums raw chunks + distilled facts for the
+// progress counter — the number was always "things written", not one kind.
+async function ingestOne(cap, src, title, scope, cwd) {
+  let any = false, rec = 0;
+  if (exRaw && !exRaw.has(src)) {
+    const r = await chameleon.ingestDocument({ agent_id: AGENT, scope: scope || RAW_SCOPE, cwd: cwd || null, text: cap, title: title, source: src });
+    if (r && r.ok) { any = true; rec += r.recorded || 0; exRaw.add(src); }
+  }
+  if (exDist && !exDist.has(src)) {
+    const r = await distillAndRecord(cap, src);
+    if (r && r.ok) { any = true; rec += r.recorded || 0; exDist.add(src); }
+  }
+  return { ok: any, recorded: rec };
+}
+
+// Per-project provenance for claude-cli sessions. The projects dir encodes
+// the working directory in its NAME ('-Users-x-snap'), and the import used
+// to throw that away: every chunk was titled by session uuid with cwd null,
+// so "remember what we did in snap" had nothing to hold on to (field
+// report, 2026-08-09). Decoding the name back to a path is AMBIGUOUS when
+// the path itself contains hyphens, so: the SCOPE carries the full encoded
+// dir (unique + stable), the cwd is stored only when the naive decode
+// verifiably exists on disk, and the title gets a human tail either way.
+function projectMetaFor(file, source) {
+  if (source !== 'claude-cli') return { scope: RAW_SCOPE, cwd: null, tail: null };
+  const dirBase = path.basename(path.dirname(file));
+  if (!dirBase || dirBase === 'projects') return { scope: RAW_SCOPE, cwd: null, tail: null };
+  let cwd = null;
+  const naive = dirBase.replace(/-/g, '/');
+  try { if (naive.startsWith('/') && fs.existsSync(naive)) cwd = naive; } catch (_) {}
+  const tail = cwd ? path.basename(cwd) : (dirBase.split('-').filter(Boolean).pop() || null);
+  return { scope: RAW_SCOPE + ':' + dirBase, cwd: cwd, tail: tail };
+}
+
+// One-time healing for rows imported before scoping existed: flat-scope
+// archive rows whose session file still exists under SOME project dir get
+// their real scope (and cwd when decodable) stamped in place. The uuid is
+// globally unique across project dirs, so the mapping is unambiguous; rows
+// whose file is gone stay flat — nothing invents provenance it cannot see.
+function repairClaudeProvenance() {
+  let repaired = 0;
+  try {
+    const st = require('../shared-core/state.js');
+    const d = st._dbForQuery();
+    const byUuid = new Map();
+    for (const f of walk(SOURCES['claude-cli'].root)) byUuid.set(path.basename(f, '.jsonl'), f);
+    if (!byUuid.size) return 0;
+    const rows = d.prepare(
+      "SELECT id, json_extract(input,'$.source') AS src FROM action_records " +
+      "WHERE json_extract(output,'$.scope') = 'docs:chats' AND json_extract(input,'$.source') LIKE 'import:claude-cli:%'").all();
+    if (!rows.length) return 0;
+    const upd = d.prepare("UPDATE action_records SET cwd = COALESCE(cwd, ?), output = json_set(output, '$.scope', ?) WHERE id = ?");
+    const tx = d.transaction(() => {
+      for (const r of rows) {
+        const uuid = String(r.src || '').split(':').pop();
+        const file = uuid && byUuid.get(uuid);
+        if (!file) continue;
+        const meta = projectMetaFor(file, 'claude-cli');
+        if (meta.scope === RAW_SCOPE) continue;
+        upd.run(meta.cwd, meta.scope, r.id);
+        repaired++;
+      }
+    });
+    tx();
+  } catch (_) { /* healing is additive; a locked db just waits for the next run */ }
+  return repaired;
 }
 
 (async () => {
   const a = process.argv.slice(2);
   if (a.includes('--detect')) {
-    const existing = loadExisting();
+    const existing = exRaw || exDist || new Set();
     const found = [];
     for (const [id, s] of Object.entries(SOURCES)) {
       const files = walk(s.root);
@@ -173,7 +265,7 @@ function loadExisting() {
       provider = first.mapping ? 'chatgpt' : (Array.isArray(first.chat_messages) ? 'claude-ai' : 'chatgpt');
     }
     const convs = provider === 'claude-ai' ? parseClaudeAiExport(arr) : parseChatGPTExport(arr);
-    const existing = loadExisting();
+    // (exRaw/exDist above carry the per-half provenance; allDone asks both.)
     let imported = 0, chunks = 0, turns = 0, skipped = 0;
     for (let i = 0; i < convs.length; i++) {
       const cv = convs[i], cap = cv.text.length > 200000 ? cv.text.slice(0, 200000) : cv.text;
@@ -181,10 +273,10 @@ function loadExisting() {
       // (a conversation keeps its key even when the export grows; index would not).
       const wkey = crypto.createHash('sha1').update((cv.title || '') + '\n' + cv.text).digest('hex').slice(0, 16);
       const src = 'import:' + provider + ':web:' + wkey;
-      if (existing.has(src)) { skipped++; }
+      if (allDone(src)) { skipped++; }
       else if (cap.length >= 50) {
-        const r = DISTILL ? await distillAndRecord(cap, src) : await chameleon.ingestDocument({ agent_id: AGENT, scope: 'docs:chats', text: cap, title: provider + ': ' + cv.title, source: src });
-        if (r && r.ok) { imported++; chunks += (r.recorded || 0); turns += cv.text.split('\n\n').length; existing.add(src); }
+        const r = await ingestOne(cap, src, provider + ': ' + cv.title);
+        if (r && r.ok) { imported++; chunks += (r.recorded || 0); turns += cv.text.split('\n\n').length; }
       }
       console.log(JSON.stringify({ progress: { done: i + 1, total: convs.length, chunks, skipped } }));
     }
@@ -195,11 +287,15 @@ function loadExisting() {
   const limit = parseInt(a[a.indexOf('--limit') + 1] || '0') || 0;
   const def = SOURCES[source]; if (!def) { console.error('ERR unknown source ' + source); process.exit(1); }
   const files = walk(def.root); const pick = limit > 0 ? files.slice(0, limit) : files;
-  const existing = loadExisting();
+  // (exRaw/exDist above carry the per-half provenance; allDone asks both.)
+  // Heal first, then import: legacy flat-scope rows get their project scope
+  // stamped from the session files still on disk, so "remember what we did
+  // in <project>" starts working for history imported before scoping existed.
+  const repaired = source === 'claude-cli' ? repairClaudeProvenance() : 0;
   let imported = 0, chunks = 0, turns = 0, skipped = 0;
   for (let i = 0; i < pick.length; i++) {
     const src = `import:${source}:` + path.basename(pick[i], '.jsonl');
-    if (existing.has(src)) {
+    if (allDone(src)) {
       skipped++;
       console.log(JSON.stringify({ progress: { done: i + 1, total: pick.length, chunks, skipped } }));
       continue;
@@ -207,10 +303,12 @@ function loadExisting() {
     const { text, turns: n } = extract(pick[i]);
     if (text && text.length >= 100) {
       const cap = text.length > 200000 ? text.slice(0, 200000) : text;
-      const r = DISTILL ? await distillAndRecord(cap, src) : await chameleon.ingestDocument({ agent_id: AGENT, scope: 'docs:chats', text: cap, title: `${def.label}: ${path.basename(pick[i], '.jsonl').slice(0, 40)}`, source: src });
-      if (r && r.ok) { imported++; chunks += (r.recorded || 0); turns += n; existing.add(src); }
+      const meta = projectMetaFor(pick[i], source);
+      const title = def.label + (meta.tail ? ' · ' + meta.tail : '') + ': ' + path.basename(pick[i], '.jsonl').slice(0, 40);
+      const r = await ingestOne(cap, src, title, meta.scope, meta.cwd);
+      if (r && r.ok) { imported++; chunks += (r.recorded || 0); turns += n; }
     }
     console.log(JSON.stringify({ progress: { done: i + 1, total: pick.length, chunks, skipped } }));
   }
-  console.log(JSON.stringify({ result: { source, label: def.label, sessions: imported, chunks, turns, skipped } }));
+  console.log(JSON.stringify({ result: { source, label: def.label, sessions: imported, chunks, turns, skipped, repaired } }));
 })().catch(e => { console.error('ERR ' + e.message); process.exit(1); });

@@ -12,9 +12,12 @@
 //   hashline_edit(file_path, edits)
 //       Apply one or more edits expressed in {op, pos, end?, lines}
 //       format. Runs the batch through:
+//         0. Destination policy (path-policy.js, Wall 6) — refuses the
+//            targets no edit may reach: credentials, shell rc, agent-host
+//            hook settings, the L4 config, the MCP registry
 //         1. Hash validation (drift rejection)
 //         2. AST parse check on the resulting content (syntactic safety)
-//       Only commits if BOTH pass. Otherwise returns structured errors
+//       Only commits if ALL pass. Otherwise returns structured errors
 //       so the agent can retry with a fresh hashline_read.
 //
 // Rationale / research: Can Bölük, "The Harness Problem" (Feb 2026).
@@ -27,6 +30,7 @@
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { resolve, dirname, join } from 'node:path';
 
 const require = createRequire(import.meta.url);
@@ -34,6 +38,13 @@ const serverDir = fileURLToPath(new URL('.', import.meta.url));
 const hashline    = require(serverDir + '../../../shared-core/hashline.js');
 const astValidate = require(serverDir + '../../../shared-core/ast-validate.js');
 const state       = require(serverDir + '../../../shared-core/state.js');
+// Wall 6. It knows which destinations are never a legitimate edit target —
+// ~/.ssh, ~/.aws, the shell rc tree, the agent-host hook settings, the L4
+// config, the MCP registry — and it resolves symlinks before judging, so a
+// link planted inside an allowed directory cannot carry a write out of it.
+// Required unconditionally like every other dependency here: an install
+// missing the wall must fail to start, not start without it.
+const pathPolicy  = require(serverDir + '../../../shared-core/tools/path-policy.js');
 
 const TOOLS = [
   {
@@ -132,6 +143,43 @@ function handleEdit(args) {
   const fp = args.file_path;
   if (!fp) return errorReply({ error: 'missing_file_path' });
   const abs = resolve(fp);
+
+  // Destination policy, before anything is read, applied, or even checked
+  // for existence. The drift and AST gates below ask "is this edit
+  // coherent"; neither asks "should this file be edited at all". Without
+  // this, the primary edit tool would rewrite ~/.claude/settings.json —
+  // whose hook entries execute a command on every tool use — as readily as
+  // a source file, and a batch that is hash-valid and parses clean would
+  // sail through both existing gates.
+  //
+  // It runs ahead of the existence check on purpose: asking "does it exist"
+  // first turns the refusal into an oracle, answering not_found on a machine
+  // without an ~/.ssh/authorized_keys and blocked on a machine with one. A
+  // destination is permitted or it is not, and that must not depend on what
+  // happens to be there.
+  const dest = pathPolicy.isWritablePath(abs, {});
+  if (!dest.allowed) {
+    try {
+      state.recordHookEvent({
+        event: 'mcp.hashline_edit',
+        tool: 'hashline_edit',
+        decision: 'block',
+        reason: dest.reason,
+        metadata: JSON.stringify({ file: abs, pattern: dest.pattern, via: dest.via })
+      });
+    } catch (_) {}
+    return errorReply({
+      error: 'blocked_destination',
+      reason: dest.reason,
+      pattern: dest.pattern,
+      detail: dest.detail,
+      // When the two differ the operator needs to see BOTH: the path asked
+      // for and the path the filesystem actually points at.
+      resolved: dest.via ? dest.path : undefined,
+      hint: 'This destination is operator-only by policy. Ask the operator to make the change themselves.'
+    });
+  }
+
   if (!existsSync(abs)) return errorReply({ error: 'not_found', path: abs });
 
   const edits = args.edits;
@@ -205,6 +253,26 @@ function handleEdit(args) {
       })
     });
     state.recordSavings('hashline_edit_applied', edits.length, null, 'file=' + abs);
+  } catch (_) {}
+
+  // The substrate's edit ledger must include edits made through troth's OWN
+  // tool, or the Code Map calls hashline-built files "never edited". Same
+  // record shape as the mark-edit hook writes for native Edit/Write.
+  try {
+    const actionRecord = require(serverDir + '../../../shared-core/action-record.js');
+    const rec = actionRecord.create({
+      agent_id: 'claude-code',
+      session_id: null,
+      cwd: process.cwd(),
+      type: 'edit',
+      input: { file_path: abs, format: 'hashline', hash_before: createHash('sha256').update(content).digest('hex') },
+      output: {
+        hash_after: createHash('sha256').update(result.content).digest('hex'),
+        lines_changed: (result.applied || []).reduce(function (a, r) { return a + (r.lines_in || 0); }, 0)
+      },
+      verification: { ast: { ok: !!check.ok, skipped: !!check.skipped } }
+    });
+    if (actionRecord.validate(rec).ok) state.recordAction(rec, actionRecord.toSearchText(rec));
   } catch (_) {}
 
   return textReply(JSON.stringify({

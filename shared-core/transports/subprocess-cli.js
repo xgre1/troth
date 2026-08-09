@@ -147,6 +147,21 @@ const CLAUDE_SECRETS_RULE =
   'with fill_from_vault / capture_to_vault). If the operator must know, name the destination and the ' +
   'credential NAME, never the value. If a tool result echoes a secret, do not repeat it.';
 
+// Memory discoverability for the backbone (live find: memory questions
+// funnelled into troth-bash file reads and a raw sqlite open of state.db,
+// because troth_recall was reachable only behind mcp_call whose description
+// never says the word memory). Bound to the claude_cli profile the same way
+// the browser rule is, and pushed ONLY when the substrate MCP actually rides
+// the spawn (TROTH_CLAUDE_MCP=1) - naming tools that are not mounted would
+// be the same fiction the 41-tool advert was. No em-dash per repo
+// authored-string rule.
+const CLAUDE_MEMORY_RULE =
+  'MEMORY: your persistent memory is the troth substrate, served by the troth-substrate MCP server ' +
+  'in your tool list. For anything about prior work, past decisions, operator preferences, or things ' +
+  'you are expected to remember, call mcp__troth-substrate__troth_recall FIRST - never grep files, ' +
+  'never open ~/.troth/state.db, never answer \"I do not remember\" before recalling. To persist a ' +
+  'durable fact the operator states, call mcp__troth-substrate__troth_engram_record.';
+
 const PROFILES = Object.freeze({
   gemini_cli: {
     binary:     'gemini',
@@ -215,13 +230,36 @@ const PROFILES = Object.freeze({
         }
         if (m) { a.push('--model', m); }
       }
-      // ONLY pass --model when it's actually a Claude model. The entity's
-      // router/dispatch hands us the ambient default model id, which is often a
-      // LOCAL model (e.g. "Qwen3.6-35B-A3B"). `claude -p --model <non-claude>`
-      // exits 1 with EMPTY stdout → the reply came back blank and the UI showed
-      // "Done."/"έγινε". Skipping a non-Claude model lets claude use the
-      // operator's own subscription default, which works.
-      else if (vars.model && /claude/i.test(String(vars.model))) { a.push('--model', String(vars.model)); }
+      // ONLY pass --model when it's actually a Claude model. `claude -p
+      // --model <non-claude>` exits 1 with EMPTY stdout → the reply came back
+      // blank and the UI showed "Done."/"έγινε" — so every source below is
+      // gated on the same /claude/ test, and passing nothing lets claude use
+      // the operator's own subscription default, which works.
+      else {
+        // Source order: the operator's EXPLICIT pick outranks the dispatcher's
+        // ambient guess. Settings → Claude → model is durably written to
+        // providers.anthropic.model in ~/.troth/config.json (through the proxy
+        // /api/config) — and until this read, NOTHING on the claude_cli chat
+        // path ever loaded that key. The pick sat in storage while the spawn
+        // used the subscription default: "Fable 5" selectable and silently
+        // unserved, the badge honest about a choice that never took effect
+        // (AUDIT-2026-08-09 item 15). Read at spawn time so a new pick takes
+        // effect on the NEXT turn with no daemon respawn. TROTH_CLAUDE_MODEL
+        // (env) wins over the config, mirroring TROTH_KIMI_SUB_MODEL above;
+        // vars.model — the ambient default id, often a LOCAL model (e.g.
+        // "Qwen3.6-35B-A3B") — stays the last resort it always was.
+        let m = (process.env.TROTH_CLAUDE_MODEL || '').trim();
+        if (!m) {
+          try {
+            const _fs = require('fs');
+            const _cfgPath = require('../config-file.js').configPath();
+            const _cfg = JSON.parse(_fs.readFileSync(_cfgPath, 'utf8'));
+            m = String((((_cfg || {}).providers || {}).anthropic || {}).model || '').trim();
+          } catch (_) { /* lenient read (per config-file.js header): no or broken config → subscription default */ }
+        }
+        if (!m) m = String(vars.model || '');
+        if (m && /claude/i.test(m)) { a.push('--model', m); }
+      }
       // ALWAYS carry the governed-browser directive (see CLAUDE_BROWSER_RULE),
       // combined with the caller's system prefix (identity+memory). Present even
       // when no prefix was passed, so the harness never defaults to a scripted
@@ -231,6 +269,9 @@ const PROFILES = Object.freeze({
       if (vars.system && String(vars.system).trim()) { _sysParts.push(String(vars.system).trim()); }
       _sysParts.push(CLAUDE_BROWSER_RULE);
       _sysParts.push(CLAUDE_SECRETS_RULE);
+      // Gated on the same flag that mounts the server below: the rule names
+      // mcp__troth-substrate__* ids, which only exist when the MCP rides.
+      if (process.env.TROTH_CLAUDE_MCP === '1') { _sysParts.push(CLAUDE_MEMORY_RULE); }
       a.push('--append-system-prompt', _sysParts.join('\n\n'));
       // Liveness during LONG generations: without partial messages, claude
       // emits its assistant event only when the WHOLE message is done - a big
@@ -359,6 +400,41 @@ function makeSubprocessCliTransport(opts) {
     const _os = require('os'); const _path = require('path'); const _fs = require('fs');
     claudeFacultyHome = _path.join(process.env.HOME || _os.homedir(), '.troth', 'claude-faculty-home');
     try { _fs.mkdirSync(claudeFacultyHome, { recursive: true }); } catch (_) {}
+    // WALLS for this isolated home. Isolation is the point (the organ brings
+    // no second memory) — but it also means NONE of the operator's ~/.claude
+    // wiring loads here: no troth-bash, no bash-steer hook, and with
+    // --dangerously-skip-permissions the faculty's native Bash ran with no
+    // wall at all. Both AUDIT-2026-08-09 incidents (`cut` on a .env, raw
+    // sqlite3 against state.db) ran on exactly this surface. Provision the
+    // faculty home's OWN settings.json with a PreToolUse hook that asks the
+    // same bash-safety verdict the troth-bash server asks — one wall, two
+    // doors. Idempotent + self-healing: recomputed each spawn so an app
+    // move/update refreshes the absolute node/script paths; merge preserves
+    // anything else the file holds; a stale gate entry is replaced in
+    // place. Best-effort like the credential seeding below.
+    try {
+      const _gate = _path.resolve(__dirname, '..', '..', 'plugin', 'hooks', 'faculty-bash-gate.mjs');
+      if (_fs.existsSync(_gate)) {
+        const _sPath = _path.join(claudeFacultyHome, 'settings.json');
+        let _s = null;
+        try { _s = JSON.parse(_fs.readFileSync(_sPath, 'utf8')); } catch (_) { _s = null; }
+        if (!_s || typeof _s !== 'object') _s = {};
+        if (!_s.hooks || typeof _s.hooks !== 'object') _s.hooks = {};
+        if (!Array.isArray(_s.hooks.PreToolUse)) _s.hooks.PreToolUse = [];
+        const _entry = {
+          matcher: 'Bash',
+          hooks: [{ type: 'command',
+                    command: JSON.stringify(process.execPath) + ' ' + JSON.stringify(_gate),
+                    timeout: 5 }]
+        };
+        const _i = _s.hooks.PreToolUse.findIndex((h) => JSON.stringify(h).indexOf('faculty-bash-gate.mjs') !== -1);
+        const _before = JSON.stringify(_s);
+        if (_i === -1) _s.hooks.PreToolUse.push(_entry); else _s.hooks.PreToolUse[_i] = _entry;
+        if (JSON.stringify(_s) !== _before || !_fs.existsSync(_sPath)) {
+          _fs.writeFileSync(_sPath, JSON.stringify(_s, null, 2) + '\n');
+        }
+      }
+    } catch (_) { /* gate provisioning is best-effort; the spawn must not die */ }
     // Auth: CLAUDE_CONFIG_DIR (below) isolates MEMORY but also cut the operator's
     // login — modern claude keeps credentials in the macOS keychain (service
     // "Claude Code-credentials"), NOT this dir, so `claude -p` here returned
@@ -664,6 +740,28 @@ function makeSubprocessCliTransport(opts) {
           sawResultError = true;
           if (!(useResume && !didRetry)) {
             push({ done: true, _abort_reason: 'cli_result_' + (ev.subtype || 'error') });
+          }
+        } else if (ev.type === 'result') {
+          // The SUCCESS result frame. Its TEXT is left to the close handler's
+          // single {done:true} (avoids a double-done chunk) — but its USAGE is
+          // the only place the CLI states the turn's real token accounting,
+          // and it was dropped on the floor: the claude_cli lane reported no
+          // usage at all, so the app's context meter had nothing to show for
+          // the one lane a subscription user actually runs. The prompt size
+          // must include the cache columns — with a warm prompt cache
+          // input_tokens alone is a few hundred while the real context is
+          // hundreds of thousands. modelUsage (newer CLIs) also names the
+          // model's context window, which beats any hardcoded table.
+          const u = ev.usage;
+          if (u && typeof u === 'object') {
+            const n = (x) => { const v = Number(x); return Number.isFinite(v) && v > 0 ? v : 0; };
+            const prompt = n(u.input_tokens) + n(u.cache_read_input_tokens) + n(u.cache_creation_input_tokens);
+            const usage = { input_tokens: prompt, output_tokens: n(u.output_tokens), context_used: prompt };
+            try {
+              const mu = ev.modelUsage && Object.values(ev.modelUsage)[0];
+              if (mu && n(mu.contextWindow)) usage.context_window = n(mu.contextWindow);
+            } catch (_) { /* older CLI: no modelUsage — the meter shows tokens, not a percent */ }
+            if (prompt > 0 || usage.output_tokens > 0) push({ usage });
           }
         }
       };

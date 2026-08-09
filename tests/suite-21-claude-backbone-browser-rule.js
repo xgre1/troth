@@ -79,4 +79,107 @@ module.exports = function run({ test }) {
       'must forbid the "here is the secret, you place it" pattern');
     assert(!sys.includes('—'), 'no em-dash in the native prompt');
   });
+
+  // ── Model pick (AUDIT-2026-08-09 item 15: "Fable 5 selected, does not
+  // play"). Settings → Claude → model writes providers.anthropic.model in
+  // ~/.troth/config.json, and the claude_cli spawn used to consult only the
+  // dispatcher's ambient vars.model — the pick was durably stored in a key
+  // no spawn ever read. These pin the source order the profile now walks:
+  // TROTH_CLAUDE_MODEL env > config pick > ambient vars.model, every source
+  // behind the same /claude/ guard (a non-claude id makes `claude -p` exit 1
+  // with empty stdout — the blank-reply failure the guard has always caught).
+  test('MODEL-PICK-1: the configured providers.anthropic.model rides --model', () => {
+    const fs = require('fs'); const os = require('os'); const path = require('path');
+    const p = path.join(os.tmpdir(), 'troth-model-pick-' + process.pid + '.json');
+    fs.writeFileSync(p, JSON.stringify({ providers: { anthropic: { enabled: true, model: 'claude-fable-5' } } }));
+    const saved = process.env.TROTH_CONFIG_PATH;
+    process.env.TROTH_CONFIG_PATH = p;
+    try {
+      const a = PROFILES.claude_cli.buildArgs({ user: 'x' });
+      const i = a.indexOf('--model');
+      assert(i >= 0, 'the operator pick must reach the spawn; got ' + JSON.stringify(a));
+      assert.strictEqual(a[i + 1], 'claude-fable-5', 'the pick itself, verbatim');
+    } finally {
+      if (saved === undefined) delete process.env.TROTH_CONFIG_PATH; else process.env.TROTH_CONFIG_PATH = saved;
+      try { fs.unlinkSync(p); } catch (_) {}
+    }
+  });
+
+  test('MODEL-PICK-2: env override wins; non-claude ids never reach the flag; ambient fallback survives', () => {
+    const fs = require('fs'); const os = require('os'); const path = require('path');
+    const p = path.join(os.tmpdir(), 'troth-model-pick2-' + process.pid + '.json');
+    const savedPath = process.env.TROTH_CONFIG_PATH;
+    const savedModel = process.env.TROTH_CLAUDE_MODEL;
+    try {
+      // (a) env outranks the config pick — the Rust side's override hook,
+      //     mirroring TROTH_KIMI_SUB_MODEL.
+      fs.writeFileSync(p, JSON.stringify({ providers: { anthropic: { model: 'claude-fable-5' } } }));
+      process.env.TROTH_CONFIG_PATH = p;
+      process.env.TROTH_CLAUDE_MODEL = 'claude-opus-5';
+      let a = PROFILES.claude_cli.buildArgs({ user: 'x' });
+      assert.strictEqual(a[a.indexOf('--model') + 1], 'claude-opus-5', 'env override must win');
+      // (b) a stale non-claude value — wherever it came from — stays off the
+      //     command line entirely; the subscription default answers instead.
+      delete process.env.TROTH_CLAUDE_MODEL;
+      fs.writeFileSync(p, JSON.stringify({ providers: { anthropic: { model: 'Qwen3.6-35B-A3B' } } }));
+      a = PROFILES.claude_cli.buildArgs({ user: 'x', model: 'Qwen3.6-35B-A3B' });
+      assert.strictEqual(a.indexOf('--model'), -1, 'non-claude ids must never reach --model: ' + JSON.stringify(a));
+      // (c) with no pick anywhere, the ambient claude id still rides — the
+      //     pre-fix behaviour this change must not lose.
+      fs.writeFileSync(p, JSON.stringify({}));
+      a = PROFILES.claude_cli.buildArgs({ user: 'x', model: 'claude-opus-4-8' });
+      assert.strictEqual(a[a.indexOf('--model') + 1], 'claude-opus-4-8', 'ambient fallback preserved');
+    } finally {
+      if (savedPath === undefined) delete process.env.TROTH_CONFIG_PATH; else process.env.TROTH_CONFIG_PATH = savedPath;
+      if (savedModel === undefined) delete process.env.TROTH_CLAUDE_MODEL; else process.env.TROTH_CLAUDE_MODEL = savedModel;
+      try { fs.unlinkSync(p); } catch (_) {}
+    }
+  });
+
+  // ── Memory rule (AUDIT-2026-08-09: memory questions funnelled into
+  // troth-bash file greps and a raw sqlite open of state.db, because
+  // troth_recall was reachable only behind mcp_call whose description never
+  // says the word memory). The rule rides ONLY when the substrate MCP
+  // actually mounts — naming tools that are not there would be the same
+  // fiction the 41-tool advert was.
+  test('MEMORY-RULE-1: with the substrate MCP mounted, the append names the real recall ids', () => {
+    const saved = process.env.TROTH_CLAUDE_MCP;
+    process.env.TROTH_CLAUDE_MCP = '1';
+    try {
+      const sys = appended({ user: 'what did we decide about the parser?' });
+      assert(/MEMORY:/.test(sys), 'memory rule must ride when the MCP mounts');
+      assert(/mcp__troth-substrate__troth_recall/.test(sys), 'must name the real recall id');
+      assert(/mcp__troth-substrate__troth_engram_record/.test(sys), 'must name the write path too');
+      assert(/never open ~\/\.troth\/state\.db/.test(sys), 'must forbid the raw sqlite road the incident took');
+      assert(!sys.includes('—'), 'no em-dash in authored strings');
+    } finally {
+      if (saved === undefined) delete process.env.TROTH_CLAUDE_MCP; else process.env.TROTH_CLAUDE_MCP = saved;
+    }
+  });
+
+  test('MEMORY-RULE-2: without the MCP, the rule stays out (never name tools that are not mounted)', () => {
+    const saved = process.env.TROTH_CLAUDE_MCP;
+    delete process.env.TROTH_CLAUDE_MCP;
+    try {
+      const sys = appended({ user: 'x' });
+      assert(!/troth_recall/.test(sys), 'unmounted tools must go unnamed: ' + JSON.stringify(sys.slice(0, 120)));
+    } finally {
+      if (saved === undefined) delete process.env.TROTH_CLAUDE_MCP; else process.env.TROTH_CLAUDE_MCP = saved;
+    }
+  });
+
+  // ── Advert suppression (AUDIT-2026-08-09: the backbone prompt shipped 41
+  // native-loop tool names — Bash/Read/engram_search… — that do not exist in
+  // the harness, while the mcp__troth-substrate__* tools that DO exist went
+  // unnamed). troth-entity passes available_tools: [] for the claude_cli
+  // faculty; this pins what an empty list renders.
+  test('NATIVE-ADVERT-1: an empty available_tools renders no tool advert at all', () => {
+    const { buildSystemPrompt } = require('../shared-core/tools/system-prompt.js');
+    const sys = String(buildSystemPrompt({ agent_id: 'test', cwd: process.cwd(), available_tools: [], audio: false }));
+    assert(!/Use Bash for one-shot commands/.test(sys), 'the tool-usage advert must not ride an empty list');
+    assert(!/engram_search|hashline/.test(sys), 'no phantom tool names');
+    // The style + honesty guards are tool-independent and must survive.
+    assert(/Style: direct, factual/.test(sys), 'style guard rides regardless of tools');
+    assert(/Honesty: you have NO background execution/.test(sys), 'honesty guard rides regardless of tools');
+  });
 };

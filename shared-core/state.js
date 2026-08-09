@@ -256,9 +256,70 @@ function migrate(d) {
   try {
     d.exec('ALTER TABLE l4_cost_events ADD COLUMN provider TEXT');
   } catch (_) { /* column already there */ }
+  // Which model the saving belongs to, where the writer knows it (the
+  // output-sandbox hook reads it off the session transcript). Older rows:
+  // NULL — analytics resolves them via a model-stamped row of the same
+  // session, else prices them at the baseline model.
+  try {
+    d.exec('ALTER TABLE savings_ledger ADD COLUMN model TEXT');
+  } catch (_) { /* column already there */ }
+  // One-time unit repair (user_version 0 -> 1): output_archive and
+  // bash_compression recorded BYTES in the tokens column; every other kind
+  // records estimated tokens (bytes/4). The mixed units ran the archive
+  // share of every savings figure ~4x hot. Writers now record bytes/4;
+  // this converts the historical rows once. BEGIN IMMEDIATE + re-check
+  // keeps the division race-safe across the proxy, the MCP servers, and
+  // the one-shot hooks that all open this DB.
+  try {
+    if (d.pragma('user_version', { simple: true }) < 1) {
+      d.exec('BEGIN IMMEDIATE');
+      try {
+        if (d.pragma('user_version', { simple: true }) < 1) {
+          d.exec("UPDATE savings_ledger SET tokens = CAST((tokens + 3) / 4 AS INTEGER) WHERE kind IN ('output_archive','bash_compression')");
+          d.pragma('user_version = 1');
+        }
+        d.exec('COMMIT');
+      } catch (e2) { try { d.exec('ROLLBACK'); } catch (_) {} }
+    }
+  } catch (_) { /* repair is best-effort; analytics works either way */ }
   try {
     d.exec('CREATE INDEX IF NOT EXISTS idx_session_lessons_cwd ON session_lessons(cwd, ts)');
   } catch (_) { /* noop */ }
+
+  // Persisted supersession index (user_version 1 -> 2). Supersession
+  // pointers (output.lifetime.supersedes) were honoured only when the
+  // successor happened to land in the same fetched window as its
+  // predecessor — a retired fact whose successor fell outside the window
+  // kept surfacing, which is what made /forget look broken. The table is
+  // maintained by recordAction from here on; this one-time scan indexes
+  // every pointer already on disk. BEGIN IMMEDIATE + re-check keeps it
+  // race-safe across the proxy, the MCP servers and the one-shot hooks,
+  // same shape as the savings repair above.
+  try {
+    d.exec('CREATE TABLE IF NOT EXISTS superseded_ids (' +
+           'superseded_id TEXT PRIMARY KEY, successor_id TEXT NOT NULL, ts INTEGER NOT NULL)');
+    if (d.pragma('user_version', { simple: true }) < 2) {
+      d.exec('BEGIN IMMEDIATE');
+      try {
+        if (d.pragma('user_version', { simple: true }) < 2) {
+          const rows = d.prepare(
+            "SELECT id, timestamp, json_extract(output, '$.lifetime.supersedes') AS sup " +
+            "FROM action_records WHERE output LIKE '%supersedes%'").all();
+          const ins = d.prepare('INSERT OR REPLACE INTO superseded_ids (superseded_id, successor_id, ts) VALUES (?, ?, ?)');
+          for (const r of rows) {
+            if (!r.sup) continue;
+            // json_extract returns a JSON-array STRING for the array shape.
+            let ids = r.sup;
+            if (typeof ids === 'string' && ids[0] === '[') { try { ids = JSON.parse(ids); } catch (_) { ids = [r.sup]; } }
+            if (!Array.isArray(ids)) ids = [ids];
+            for (const sid of ids) { if (sid) ins.run(String(sid), r.id, r.timestamp || 0); }
+          }
+          d.pragma('user_version = 2');
+        }
+        d.exec('COMMIT');
+      } catch (e2) { try { d.exec('ROLLBACK'); } catch (_) {} }
+    }
+  } catch (_) { /* index is additive; reads fall back to the window scan */ }
 
   //  substrate-as-mind invariant fix (P1 of fragmentation
   // crisis handoff). principal_id is the READ-side brain identity:
@@ -1041,11 +1102,11 @@ function recordProxyUsage(model, tokensIn, tokensOut, cachedIn) {
   } catch (_) { /* usage history is a feature, never a request blocker */ }
 }
 
-function recordSavings(kind, tokens, session_id, note) {
+function recordSavings(kind, tokens, session_id, note, model) {
   db().prepare(`
-    INSERT INTO savings_ledger (ts, kind, tokens, session_id, note)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(Date.now(), kind, tokens, session_id || null, note || null);
+    INSERT INTO savings_ledger (ts, kind, tokens, session_id, note, model)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(Date.now(), kind, tokens, session_id || null, note || null, model || null);
 }
 
 function recordModuleError(opts) {
@@ -1345,6 +1406,10 @@ function recordAction(rec, searchText) {
      @principal_id, @audience, @memory_class, @transition_signature,
      @transition_kind, @schema_version)
   `);
+  // Which parent_id actually landed (the retry path below strips it). The
+  // signed-chain attestation at the end hashes what was STORED, not what was
+  // asked for, so a verifier can recompute record_hash from the row alone.
+  let _storedParent;
   try {
     // Default-stamp principal_id at the substrate boundary so EVERY writer
     // contributes to the unified read-side brain regardless of whether the
@@ -1436,6 +1501,7 @@ function recordAction(rec, searchText) {
       // always stamped with CURRENT_SCHEMA.
       schema_version:       rec.schema_version || CURRENT_SCHEMA
     });
+    _storedParent = rec.parent_id || null;
   } catch (e) {
     // Duplicate id (rare with UUIDv7) or FK violation on parent_id. A dangling
     // parent must NOT cost the record itself: E2E-1 (post L4-split) caught a
@@ -1469,6 +1535,7 @@ function recordAction(rec, searchText) {
           transition_kind:      rec.transition_kind || null,
           schema_version:       rec.schema_version || CURRENT_SCHEMA
         });
+        _storedParent = null;
       } catch (_) { return null; }
     } else {
       return null;
@@ -1488,6 +1555,55 @@ function recordAction(rec, searchText) {
       }
     } catch (_) { /* FTS mirror failure is non-fatal */ }
   }
+  // Persisted supersession index. buildSupersededIds (recall.js) and the
+  // listEngrams filter scan only the rows a query happened to fetch, so a
+  // successor outside the window let its retired predecessor keep surfacing
+  // — the window was the whole guarantee. Mirror every lifetime.supersedes
+  // pointer into its own table at write time; the read side unions this set
+  // with the window scan. Best-effort like the FTS mirror: losing an index
+  // row degrades back to exactly the old window behaviour, never worse.
+  try {
+    const _sup = rec.output && rec.output.lifetime && rec.output.lifetime.supersedes;
+    if (_sup) {
+      const _ids = Array.isArray(_sup) ? _sup : [_sup];
+      const _ins = d.prepare('INSERT OR REPLACE INTO superseded_ids (superseded_id, successor_id, ts) VALUES (?, ?, ?)');
+      for (const _sid of _ids) { if (_sid) _ins.run(String(_sid), rec.id, rec.timestamp || Date.now()); }
+    }
+  } catch (_) { /* index mirror failure is non-fatal */ }
+  // Extend the tamper-evident signed chain over THIS write. The chain used
+  // to attest only control-channel dispatches — 40 rows against ~582,000
+  // engram writes — so a raw UPDATE of memory, identity or goals was
+  // invisible to `troth audit verify`: it attested a chain that covered
+  // nothing. Every recordAction now appends one signed row (sha256 of the
+  // stored columns, ed25519 over the running chain hash; the read-head +
+  // append is one immediate transaction so concurrent writers serialize
+  // instead of forking the chain). Synchronous — sub-millisecond — and
+  // fail-open: losing one chain row beats losing the memory.
+  try {
+    const _sa = require('./signed-audit.js');   // lazy: signed-audit requires state at its top
+    _sa.attestSync({
+      action_id: rec.id,
+      kind: 'action_record',
+      record: {
+        id: rec.id,
+        timestamp: rec.timestamp,
+        type: rec.type,
+        agent_id: rec.agent_id,
+        session_id: rec.session_id || null,
+        user_id: rec.user_id || null,
+        cwd: rec.cwd || null,
+        parent_id: _storedParent === undefined ? (rec.parent_id || null) : _storedParent,
+        context_hash: rec.context_hash || null,
+        input: JSON.stringify(rec.input || {}),
+        output: JSON.stringify(rec.output || {}),
+        verification: JSON.stringify(rec.verification || {}),
+        outcome: JSON.stringify(rec.outcome || {}),
+        principal_id: rec.principal_id || process.env.TROTH_PRINCIPAL || 'partner',
+        audience: rec.audience || 'substrate_internal',
+        memory_class: rec.memory_class || 'operational'
+      }
+    });
+  } catch (_) { /* attestation is best-effort; the write stands */ }
   return rec.id;
 }
 
@@ -2042,7 +2158,8 @@ const _INCOGNITO_MUTED_WRITES = new Set([
   'recordCostEvent', 'recordBriefing', 'recordOperatorRequest', 'resolveOperatorRequest',
   'recordAllowlistAudit', 'recordFailureEvent', 'recordThoughtTick',
   'recordCalibrationPoint', 'updateCalibrationOutcome',
-  'recordPaymentEvent', 'updatePaymentStatus', 'appendSignedAuditRow'
+  'recordPaymentEvent', 'updatePaymentStatus', 'appendSignedAuditRow',
+  'appendSignedAuditRowChained'
 ]);
 
 // cost subsystem — persistent per-charge cost ledger. Called by
@@ -2271,6 +2388,33 @@ function lastSignedAuditRow() {
        ORDER BY id DESC LIMIT 1`
     ).get();
   } catch (_) { return null; }
+}
+
+// Read-head + append in ONE immediate transaction. Two processes signing
+// concurrently could each read the same head and fork the chain — twin rows
+// with one prev_chain_hash, which the verifier reports as tamper where there
+// was only a race. BEGIN IMMEDIATE serializes writers across processes; on
+// SQLITE_BUSY the caller loses this one attestation (fail-open), never the
+// chain's integrity. `build(last)` returns the finished row for the head it
+// was shown, or null to abstain.
+function appendSignedAuditRowChained(build) {
+  try {
+    const tx = db().transaction(() => {
+      const ev = build(lastSignedAuditRow());
+      return ev ? appendSignedAuditRow(ev) : null;
+    });
+    return tx.immediate();
+  } catch (_) { return null; }
+}
+
+// The persisted supersession index (see the user_version 2 migration).
+// Small by nature — one row per retirement, not per engram — so readers
+// load the whole set and union it with their window scan.
+function listSupersededIds() {
+  try {
+    return db().prepare('SELECT superseded_id FROM superseded_ids').all()
+      .map((r) => r.superseded_id);
+  } catch (_) { return []; }
 }
 
 function listSignedAuditChain(opts) {
@@ -2559,6 +2703,61 @@ function listRecallableMissingEmbeddings(limit, currentModel) {
   } catch (_) { return []; }
 }
 
+// The imported archive's own embedding backlog (docs:chats), for the
+// bounded background drain. Missing-only ON PURPOSE — no model-swap
+// re-embed here: migrating a big archive would burn every idle cycle for
+// marginal gain, and scoped search tolerates mixed spaces (recall skips
+// dim-mismatched vectors). Same column set as the recall lister so the
+// backfill's embedTextForRow path serves both.
+function listArchiveMissingEmbeddings(limit) {
+  limit = Math.max(1, Math.min(500, parseInt(limit || 64, 10)));
+  try {
+    return db().prepare(`
+      SELECT ar.id, ar.type, ar.input, ar.output, ar.timestamp
+      FROM action_records ar
+      LEFT JOIN engram_embeddings ee ON ee.engram_id = ar.id
+      WHERE json_extract(ar.output,'$.scope') LIKE 'docs:chats%'
+        AND ee.engram_id IS NULL
+      ORDER BY ar.timestamp DESC
+      LIMIT ?
+    `).all(limit) || [];
+  } catch (_) { return []; }
+}
+// Readiness counts for the memory pipeline (memory-readiness.js). Three
+// honest numbers, one cheap pass each:
+//   recall_missing   — recallable rows the backfill still owes vectors for
+//                      (same predicate as listRecallableMissingEmbeddings,
+//                      COUNTed instead of fetched)
+//   archive_chunks   — docs:chats archive rows (the imported record)
+//   archive_embedded — archive rows that hold a vector (ingest-time OR the
+//                      bounded background drain below).
+// recall_missing keeps the archive OUT (recall's pool excludes docs:chats);
+// the archive drains separately via listArchiveMissingEmbeddings, capped
+// per idle cycle, so an import done before the embed host was warm heals
+// instead of staying keyword-only forever (field-hit 2026-08-09).
+function memoryIndexCounts(currentModel) {
+  const out = { recall_missing: 0, archive_chunks: 0, archive_embedded: 0 };
+  try {
+    const d = db();
+    const RECALL_WHERE = `
+      FROM action_records ar
+      LEFT JOIN engram_embeddings ee ON ee.engram_id = ar.id
+      WHERE ar.memory_class IN ('episodic','semantic','identity','procedural')
+        AND (ar.audience IS NULL OR ar.audience = 'model_visible')
+        AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'docs:chats%')`;
+    out.recall_missing = currentModel
+      ? d.prepare('SELECT COUNT(*) AS n ' + RECALL_WHERE +
+          ' AND (ee.engram_id IS NULL OR ee.model IS NULL OR ee.model <> ?)').get(currentModel).n
+      : d.prepare('SELECT COUNT(*) AS n ' + RECALL_WHERE + ' AND ee.engram_id IS NULL').get().n;
+    out.archive_chunks = d.prepare(
+      "SELECT COUNT(*) AS n FROM action_records WHERE json_extract(output,'$.scope') LIKE 'docs:chats%'").get().n;
+    out.archive_embedded = d.prepare(
+      "SELECT COUNT(*) AS n FROM action_records ar JOIN engram_embeddings ee ON ee.engram_id = ar.id " +
+      "WHERE json_extract(ar.output,'$.scope') LIKE 'docs:chats%'").get().n;
+  } catch (_) { /* fresh db or missing tables: zeros are the honest answer */ }
+  return out;
+}
+
 // Dense-retrieval support — TRUE hybrid recall. Stream ALL
 // recallable embeddings so recall.js can cosine-scan them as a candidate
 // SOURCE (not merely rerank lexical hits), enabling pure-semantic retrieval
@@ -2811,6 +3010,10 @@ const _exports = {
   appendSignedAuditRow,
   lastSignedAuditRow,
   listSignedAuditChain,
+  appendSignedAuditRowChained,
+  // persisted supersession index (maintained by recordAction; unioned into
+  // every supersedes filter on the read side)
+  listSupersededIds,
   // operator-request subsystem — operator-request inbox
   recordOperatorRequest,
   listOperatorRequests,
@@ -2859,6 +3062,8 @@ const _exports = {
   getEmbedding,
   listEngramsMissingEmbeddings,
   listRecallableMissingEmbeddings,
+  memoryIndexCounts,
+  listArchiveMissingEmbeddings,
   streamRecallableEmbeddings,
   getActionsByIds,
   close,

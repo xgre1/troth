@@ -117,9 +117,20 @@ async function ensure(opts) {
       return { ok: false, error: 'no_chromium_browser_found',
         detail: 'no Chrome/Chromium/Brave/Edge found — install one or set TROTH_BROWSER_BIN' };
     }
+    // PRIVATE profile, the twin of the private port above. This used to be
+    // ~/.troth/chrome-profile, the same directory the operator's own opt-in
+    // browser uses, which quietly handed the agent every session that
+    // operator was logged into: mail, bank, everything, with nobody having
+    // agreed to it. Worse, both instances fought over one profile lock, and
+    // reaping one could kill a window a human was typing in.
+    //
+    // The agent's browser now owns its own directory and starts signed out of
+    // everything. Sessions reach it one of two deliberate ways: the operator
+    // seals a credential in the vault and the agent signs itself in, or the
+    // operator points it at port 9222, their real browser, on purpose.
     const profile = opts.user_data_dir ||
-      path.join(process.env.HOME || os.homedir(), '.troth', 'chrome-profile');
-    try { fs.mkdirSync(profile, { recursive: true }); } catch (_) {}
+      path.join(process.env.HOME || os.homedir(), '.troth', 'agent-browser-profile');
+    try { fs.mkdirSync(profile, { recursive: true, mode: 0o700 }); } catch (_) {}
 
     const headless = opts.headless != null ? !!opts.headless : (process.env.TROTH_BROWSER_HEADLESS === '1');
     const args = [

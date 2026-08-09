@@ -605,8 +605,12 @@ console.log('\nL4 sandbox runtime (cross-platform):');
   const docker  = require('../shared-core/tools/docker-sandbox.js');
   const bare    = require('../shared-core/tools/sandbox-bare-exec.js');
 
-  test('L4-SBR-1: adapter priority is apple-container → docker → bare', () => {
-    assert.deepStrictEqual(runtime.ADAPTER_PRIORITY, ['apple-container', 'docker', 'bare']);
+  test('L4-SBR-1: adapter priority is apple-container → docker → seatbelt → bare', () => {
+    // seatbelt sits below docker (shared kernel, no memory or pid caps) and
+    // above bare (which is a refusal, not a sandbox). It ships in macOS, so
+    // on a stock Mac this is the rung that actually catches.
+    assert.deepStrictEqual(runtime.ADAPTER_PRIORITY,
+      ['apple-container', 'docker', 'seatbelt', 'bare']);
   });
 
   test('L4-SBR-2: bare adapter is always available with NO_ISOLATION warning', () => {
@@ -679,16 +683,22 @@ console.log('\nL4 sandbox runtime (cross-platform):');
   });
 
   test('L4-SBR-9: runtime selector falls back to bare when nothing else available', () => {
-    const origApple  = apple.isAvailable;
-    const origDocker = docker.isAvailable;
-    apple.isAvailable  = () => ({ available: false, error: 'sim' });
-    docker.isAvailable = () => ({ available: false, error: 'sim' });
+    // "nothing else available" now has to include seatbelt, or this asserts
+    // the fallback while a real sandbox is standing right above it.
+    const seatbelt = require('../shared-core/tools/sandbox-seatbelt.js');
+    const origApple    = apple.isAvailable;
+    const origDocker   = docker.isAvailable;
+    const origSeatbelt = seatbelt.isAvailable;
+    apple.isAvailable    = () => ({ available: false, error: 'sim' });
+    docker.isAvailable   = () => ({ available: false, error: 'sim' });
+    seatbelt.isAvailable = () => ({ available: false, error: 'sim' });
     try {
       const kind = runtime.getActiveAdapter({ fresh: true });
       assert.strictEqual(kind, 'bare');
     } finally {
-      apple.isAvailable  = origApple;
-      docker.isAvailable = origDocker;
+      apple.isAvailable    = origApple;
+      docker.isAvailable   = origDocker;
+      seatbelt.isAvailable = origSeatbelt;
     }
   });
 
@@ -4906,7 +4916,8 @@ console.log('\ndesign phase encrypted vault + http:do auto-attach:');
     _setVaultPath();
     vault.lock();
     vault.unlock('correct-vault-pass', { scrypt_n: 1024 });
-    vault.writeEntry({ key: 'x', value: 'y', capability_scope_glob: 'capability:http:do:*' });
+    // A concrete scope: family-and-verb-only globs are scope_too_broad now.
+    vault.writeEntry({ key: 'x', value: 'y', capability_scope_glob: 'capability:http:do:api.wrongpass.test' });
     vault.lock();
     assert.throws(() => vault.unlock('wrong-vault-pass', { scrypt_n: 1024 }),
       /decryption failed/);
@@ -5370,6 +5381,173 @@ console.log('\ndesign phase encrypted vault + http:do auto-attach:');
     dispatcher.unregisterAdapter(browserDo.scope_match);
   });
 
+  // ── Security-review regressions: boundary bypass, breadth gate,
+  //    no-silent-overwrite, ambiguity refusal, drop-box ──
+
+  test('VAULT-19: trailing-* glob no longer crosses a token boundary', () => {
+    // The verified bypass: a raw prefix compare let this glob cover an
+    // attacker-registered instagram.evil.com.
+    assert.strictEqual(vault._scopeMatches(
+      'capability:browser:fill:instagram*',
+      'capability:browser:fill:instagram.evil.com'), false);
+    // A mid-token wildcard now matches nothing at all, same site included.
+    assert.strictEqual(vault._scopeMatches(
+      'capability:browser:fill:instagram*',
+      'capability:browser:fill:instagram.com'), false);
+    // The section-edge forms keep working: ':*' and '/*'.
+    assert.strictEqual(vault._scopeMatches(
+      'capability:http:do:api.supabase.com:*',
+      'capability:http:do:api.supabase.com:/v1/projects'), true);
+    assert.strictEqual(vault._scopeMatches(
+      'capability:http:do:blog.example.com/*',
+      'capability:http:do:blog.example.com/posts'), true);
+    // '*' matches nothing, the empty host of about:blank included.
+    assert.strictEqual(vault._scopeMatches('*', 'capability:browser:fill:evil.com'), false);
+    assert.strictEqual(vault._scopeMatches('*', 'capability:browser:fill:'), false);
+    // Subdomain semantics preserved exactly.
+    assert.strictEqual(vault._scopeMatches(
+      'capability:browser:fill:*.instagram.com',
+      'capability:browser:fill:www.instagram.com'), true);
+    assert.strictEqual(vault._scopeMatches(
+      'capability:browser:fill:*.instagram.com',
+      'capability:browser:fill:instagram.evil.com'), false);
+  });
+
+  test('VAULT-20: writeEntry refuses a glob that can match everything', () => {
+    _setVaultPath();
+    vault.lock();
+    vault.unlock('vault-test-pass-20', { scrypt_n: 1024 });
+    for (const glob of ['*', '   ', 'capability:http:do:*', 'capability:browser:fill:*', 'capability:mcp:*']) {
+      const r = vault.writeEntry({ key: 'broad', value: 'v', capability_scope_glob: glob });
+      assert.strictEqual(r.ok, false, 'must refuse glob ' + JSON.stringify(glob));
+      assert.strictEqual(r.error, 'scope_too_broad', 'glob ' + JSON.stringify(glob) + ' gave ' + r.error);
+    }
+    // A mid-token wildcard is refused too: it would seal an entry the
+    // matcher can never use again.
+    const dead = vault.writeEntry({ key: 'dead', value: 'v', capability_scope_glob: 'capability:browser:fill:instagram*' });
+    assert.strictEqual(dead.error, 'scope_glob_unmatchable');
+    // Concrete scopes of every supported shape still write fine.
+    assert.strictEqual(vault.writeEntry({ key: 'ok1', value: 'v', capability_scope_glob: 'capability:http:do:api.x.test' }).ok, true);
+    assert.strictEqual(vault.writeEntry({ key: 'ok2', value: 'v', capability_scope_glob: 'capability:browser:fill:*.x.test' }).ok, true);
+    assert.strictEqual(vault.writeEntry({ key: 'ok3', value: 'v', capability_scope_glob: 'capability:http:do:api.x.test:*' }).ok, true);
+    vault.lock();
+  });
+
+  test('VAULT-21: writeEntry refuses to replace silently; overwrite is explicit', () => {
+    _setVaultPath();
+    vault.lock();
+    vault.unlock('vault-test-pass-21', { scrypt_n: 1024 });
+    const scope = 'capability:browser:fill:*.collision.test';
+    assert.strictEqual(vault.writeEntry({ key: 'site-login', value: 'first-account', capability_scope_glob: scope, injection: { kind: 'raw' } }).ok, true);
+    const clobber = vault.writeEntry({ key: 'site-login', value: 'second-account', capability_scope_glob: scope, injection: { kind: 'raw' } });
+    assert.strictEqual(clobber.ok, false);
+    assert.strictEqual(clobber.error, 'key_exists');
+    // The first account is untouched by the refused write.
+    const kept = vault.getValueByKey('site-login', 'capability:browser:fill:www.collision.test');
+    assert.ok(kept && kept.value === 'first-account');
+    // Explicit overwrite stays available as the rotation path.
+    assert.strictEqual(vault.writeEntry({ key: 'site-login', value: 'rotated', capability_scope_glob: scope, injection: { kind: 'raw' }, overwrite: true }).ok, true);
+    const rotated = vault.getValueByKey('site-login', 'capability:browser:fill:www.collision.test');
+    assert.ok(rotated && rotated.value === 'rotated');
+    vault.lock();
+  });
+
+  test('VAULT-22: two entries covering one scope: refuse, never guess', () => {
+    _setVaultPath();
+    vault.lock();
+    vault.unlock('vault-test-pass-22', { scrypt_n: 1024 });
+    const scope = 'capability:browser:fill:*.two-accounts.test';
+    vault.writeEntry({ key: 'acct-a', value: 'pw-a', capability_scope_glob: scope, injection: { kind: 'raw' } });
+    vault.writeEntry({ key: 'acct-b', value: 'pw-b', capability_scope_glob: scope, injection: { kind: 'raw' } });
+    const r = vault.getValueForCapability('capability:browser:fill:www.two-accounts.test');
+    assert.ok(r && r.ambiguous === true, 'expected ambiguity, got ' + JSON.stringify(r));
+    assert.deepStrictEqual(r.keys.slice().sort(), ['acct-a', 'acct-b']);
+    // The refusal carries key names only, never values.
+    const blob = JSON.stringify(r);
+    assert.ok(blob.indexOf('pw-a') < 0 && blob.indexOf('pw-b') < 0, 'ambiguity result must not leak values');
+    // No match stays null; a single match still resolves.
+    assert.strictEqual(vault.getValueForCapability('capability:browser:fill:elsewhere.test'), null);
+    vault.removeEntry('acct-b');
+    const single = vault.getValueForCapability('capability:browser:fill:www.two-accounts.test');
+    assert.ok(single && single.value === 'pw-a' && single.key === 'acct-a');
+    vault.lock();
+  });
+
+  test('VAULT-23: drop-box round trip: sealed while locked, appears after unlock', () => {
+    _setVaultPath();
+    vault.lock();
+    // First unlock mints the keypair and publishes the public half.
+    vault.unlock('vault-test-pass-23', { scrypt_n: 1024 });
+    assert.ok(fs.existsSync(vault._dropboxPubPath()), 'public key file appears on first unlock');
+    vault.lock();
+    const SECRET = 'dropbox-roundtrip-secret-' + Date.now();
+    assert.strictEqual(vault.status().pending_drops, 0);
+    const s = vault.seal({
+      key: 'gmail-someone-login',
+      value: SECRET,
+      capability_scope_glob: 'capability:browser:fill:*.gmail.test',
+      injection: { kind: 'raw' }
+    });
+    assert.strictEqual(s.ok, true, 'seal while locked: ' + JSON.stringify(s));
+    assert.strictEqual(s.pending_drops, 1);
+    // Still locked, still unreadable, but the pending count is visible.
+    assert.strictEqual(vault.listEntries().error, 'vault_locked');
+    assert.strictEqual(vault.status().pending_drops, 1);
+    // The drop file never holds the plaintext.
+    const raw = fs.readFileSync(vault._dropsPath(), 'utf8');
+    assert.strictEqual(raw.indexOf(SECRET), -1, 'drops file must hold ciphertext only');
+    // Unlock reveals: the drop becomes a real entry, the file is gone.
+    const u = vault.unlock('vault-test-pass-23', { scrypt_n: 1024 });
+    assert.strictEqual(u.drops_drained, 1, 'drained: ' + JSON.stringify(u));
+    assert.strictEqual(fs.existsSync(vault._dropsPath()), false);
+    const got = vault.getValueByKey('gmail-someone-login', 'capability:browser:fill:mail.gmail.test');
+    assert.ok(got && got.value === SECRET, 'dropped entry must be usable after unlock');
+    // The reserved keypair entry stays invisible on every surface.
+    const l = vault.listEntries();
+    assert.ok(l.entries.every(e => e.key !== vault.DROPBOX_ENTRY_KEY), 'reserved entry must not list');
+    assert.strictEqual(vault.getValueByKey(vault.DROPBOX_ENTRY_KEY, 'capability:http:do:x.test'), null);
+    assert.strictEqual(vault.status().entry_count, l.entries.length, 'entry_count must not count the reserved entry');
+    vault.lock();
+  });
+
+  test('VAULT-24: a dropped key collision keeps both accounts', () => {
+    _setVaultPath();
+    vault.lock();
+    vault.unlock('vault-test-pass-24', { scrypt_n: 1024 });
+    const scope = 'capability:browser:fill:*.samesite.test';
+    vault.writeEntry({ key: 'samesite-login', value: 'account-one', capability_scope_glob: scope, injection: { kind: 'raw' } });
+    vault.lock();
+    const s = vault.seal({ key: 'samesite-login', value: 'account-two', capability_scope_glob: scope, injection: { kind: 'raw' } });
+    assert.strictEqual(s.ok, true);
+    const u = vault.unlock('vault-test-pass-24', { scrypt_n: 1024 });
+    assert.strictEqual(u.drops_drained, 1);
+    const one = vault.getValueByKey('samesite-login', 'capability:browser:fill:www.samesite.test');
+    const two = vault.getValueByKey('samesite-login-2', 'capability:browser:fill:www.samesite.test');
+    assert.ok(one && one.value === 'account-one', 'original account survives');
+    assert.ok(two && two.value === 'account-two', 'dropped account lands under a suffixed key');
+    vault.lock();
+  });
+
+  test('VAULT-25: seal refuses cleanly with no drop-box key; drop validation holds', () => {
+    // An isolated directory: this vault path has never been unlocked, so
+    // no public key exists to seal to. (_setVaultPath reuses SUITE_DIR,
+    // where earlier tests already minted one.)
+    const freshDir = path.join(SUITE_DIR, 'never-unlocked-' + Date.now());
+    fs.mkdirSync(freshDir, { recursive: true });
+    process.env.TROTH_VAULT_BIN_PATH = path.join(freshDir, 'vault.bin');
+    vault.lock();
+    const s = vault.seal({ key: 'k', value: 'v', capability_scope_glob: 'capability:http:do:a.test' });
+    assert.strictEqual(s.ok, false);
+    assert.strictEqual(s.error, 'dropbox_not_initialized');
+    // seal enforces the same gates as writeEntry, while still locked.
+    vault.unlock('vault-test-pass-25', { scrypt_n: 1024 });
+    vault.lock();
+    assert.strictEqual(vault.seal({ key: 'b', value: 'v', capability_scope_glob: '*' }).error, 'scope_too_broad');
+    assert.strictEqual(vault.seal({ key: '__troth_evil', value: 'v', capability_scope_glob: 'capability:http:do:a.test' }).error, 'key_reserved');
+    // And writeEntry itself still refuses everything while locked.
+    assert.strictEqual(vault.writeEntry({ key: '__troth_evil', value: 'v', capability_scope_glob: 'capability:http:do:a.test' }).error, 'vault_locked');
+  });
+
   test('L4-VAULT-CLEANUP', () => {
     dispatcher.unregisterAdapter(httpDo.scope_match);
     vault.lock();
@@ -5823,6 +6001,48 @@ console.log('\ndesign phase subprocess-CLI transport:');
     }
     assert.deepStrictEqual(deltas, ['hello\n', 'world\n']);
     assert.ok(done && !done.error, 'clean done, no error');
+  });
+
+  test('SUBP-USAGE-1: the success result frame yields real usage, cache columns included', async () => {
+    // The claude_cli lane's ONLY token accounting lives in the CLI's final
+    // success result — and it was dropped, so the one lane a subscription
+    // user actually runs reported no usage at all. The prompt size must sum
+    // the cache columns (warm cache: input_tokens is a few hundred while
+    // the live context is hundreds of thousands), and modelUsage's
+    // contextWindow rides along when the CLI states it.
+    const fake = makeFakeChild();
+    const t = subp.makeSubprocessCliTransport({
+      binary: 'fake', args: [], parse: 'claude_stream_json', _spawn: () => fake
+    });
+    const iter = t.stream({ user: 'hi' });
+    setImmediate(() => {
+      fake.stdout.emit('data', Buffer.from(
+        JSON.stringify({ type: 'assistant', message: { model: 'claude-fable-5', content: [{ type: 'text', text: 'yo' }] } }) + '\n' +
+        JSON.stringify({ type: 'result', subtype: 'success', usage: { input_tokens: 12, cache_read_input_tokens: 41000, cache_creation_input_tokens: 900, output_tokens: 250 }, modelUsage: { 'claude-fable-5': { contextWindow: 1000000 } } }) + '\n'));
+      fake.emit('close', 0);
+    });
+    let usage = null, done = null;
+    for await (const ev of iter) {
+      if (ev.usage) usage = ev.usage;
+      if (ev.done)  { done = ev; break; }
+    }
+    assert.ok(done && !done.error, 'clean done');
+    assert.ok(usage, 'a usage chunk rode the stream');
+    assert.strictEqual(usage.input_tokens, 41912, 'prompt = input + cache read + cache creation');
+    assert.strictEqual(usage.context_used, 41912);
+    assert.strictEqual(usage.context_window, 1000000, 'window taken from modelUsage, not a table');
+    assert.strictEqual(usage.output_tokens, 250);
+    // An ERROR result must NOT emit usage (the abort path owns that frame).
+    const fake2 = makeFakeChild();
+    const t2 = subp.makeSubprocessCliTransport({ binary: 'fake', args: [], parse: 'claude_stream_json', _spawn: () => fake2 });
+    const iter2 = t2.stream({ user: 'hi' });
+    setImmediate(() => {
+      fake2.stdout.emit('data', Buffer.from(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, usage: { input_tokens: 9 } }) + '\n'));
+      fake2.emit('close', 1);
+    });
+    let usage2 = null;
+    for await (const ev of iter2) { if (ev.usage) usage2 = ev.usage; if (ev.done) break; }
+    assert.strictEqual(usage2, null, 'error results carry no usage chunk');
   });
 
   test('L4-5_2C-SUBP-4: pipe_stdin writes {system,user,model} JSON to stdin', async () => {
@@ -6457,8 +6677,7 @@ console.log('\ndesign phase analytics token-savings USD equiv:');
   });
 
   // A cache WRITE is not a saving: analytics counts its tokens but mints no
-  // dollars for them (the honesty guard that stopped output_archive inflating
-  // the headline ~30x). Asserted as a delta so it does not depend on what the
+  // dollars for them. Asserted as a delta so it does not depend on what the
   // earlier fixtures in this section happened to leave behind.
   test('L4-5_2C-ANALEQ-5: gemcache:populate is instrumented but not credited', () => {
     const before = analytics.getAnalytics({ window: 'today', session_id: FIXTURE_SID }).overview;
@@ -6470,6 +6689,43 @@ console.log('\ndesign phase analytics token-savings USD equiv:');
       'the tokens are counted');
     assert.strictEqual(after.tokens_saved_usd_equiv, before.tokens_saved_usd_equiv,
       'and priced at nothing, because writing a cache saves the user no billed token');
+  });
+
+  // Archived tool output is REMOVED from the live window, and the window is
+  // re-sent as input on every later request — one pass at the input rate is
+  // the conservative price. Pinned so the dashboard's token count and its $
+  // keep describing the same set.
+  test('L4-5_2C-ANALEQ-6: output_archive priced at the input rate', () => {
+    const before = analytics.getAnalytics({ window: 'today', session_id: FIXTURE_SID }).overview;
+    state.db().prepare(
+      `INSERT INTO savings_ledger (ts, kind, tokens, session_id) VALUES (?, ?, ?, ?)`
+    ).run(Date.now(), 'output_archive', 2_000_000, FIXTURE_SID);
+    const after = analytics.getAnalytics({ window: 'today', session_id: FIXTURE_SID }).overview;
+    assert.strictEqual(after.tokens_saved_billable - before.tokens_saved_billable, 2_000_000,
+      'the archived tokens join the priced set');
+    assert.strictEqual(
+      +(after.tokens_saved_usd_equiv - before.tokens_saved_usd_equiv).toFixed(6),
+      +(2 * after.tokens_saved_baseline_rate_input_per_1m).toFixed(6),
+      'and are valued at the input rate');
+  });
+
+  // A row stamped with a model prices at THAT model's input rate; an
+  // unstamped row of the same session inherits the stamp. Uses its own
+  // session id so the deltas stay local, and cleans itself up.
+  test('L4-5_2C-ANALEQ-7: model-stamped rows price at their model', () => {
+    const SID2 = FIXTURE_SID + '-model';
+    state.db().prepare(
+      `INSERT INTO savings_ledger (ts, kind, tokens, session_id, note, model) VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(Date.now(), 'output_archive', 1_000_000, SID2, null, 'claude-fable-5');
+    const o = analytics.getAnalytics({ window: 'today', session_id: SID2 }).overview;
+    assert.strictEqual(o.tokens_saved_usd_equiv, 10.0, 'Fable input rate, not the baseline');
+    assert.ok(o.tokens_saved_by_model['claude-fable-5'], 'per-model bucket exposed');
+    state.db().prepare(
+      `INSERT INTO savings_ledger (ts, kind, tokens, session_id) VALUES (?, ?, ?, ?)`
+    ).run(Date.now(), 'bash_compression', 1_000_000, SID2);
+    const o2 = analytics.getAnalytics({ window: 'today', session_id: SID2 }).overview;
+    assert.strictEqual(o2.tokens_saved_usd_equiv, 20.0, 'same-session rows inherit the stamped model');
+    state.db().prepare(`DELETE FROM savings_ledger WHERE session_id = ?`).run(SID2);
   });
 
   test('L4-5_2C-ANALEQ-CLEANUP', () => {

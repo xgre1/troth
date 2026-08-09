@@ -10,13 +10,17 @@
 // Adapter priority (auto mode):
 //   1. apple-container — Apple Silicon native, no Docker Desktop
 //   2. docker          — broadest compatibility
-//   3. bare            — refuse-by-default fallback
+//   3. seatbelt        — macOS sandbox-exec: ships in the OS, so every
+//                        stock Mac has a real deny-default jail with zero
+//                        installs (weaker than a container: shared kernel,
+//                        no memory/pid caps — hence below docker)
+//   4. bare            — refuse-by-default fallback
 //
 // Operator override via ~/.troth/config.json:
 //   {
 //     "l4": {
 //       "sandbox": {
-//         "runtime": "auto" | "apple-container" | "docker" | "bare"
+//         "runtime": "auto" | "apple-container" | "docker" | "seatbelt" | "bare"
 //       }
 //     }
 //   }
@@ -36,11 +40,12 @@
 
 'use strict';
 
-const ADAPTER_PRIORITY = ['apple-container', 'docker', 'bare'];
+const ADAPTER_PRIORITY = ['apple-container', 'docker', 'seatbelt', 'bare'];
 
 const ADAPTERS = {
   'apple-container': () => require('./sandbox-apple-container.js'),
   'docker':          () => require('./docker-sandbox.js'),
+  'seatbelt':        () => require('./sandbox-seatbelt.js'),
   'bare':            () => require('./sandbox-bare-exec.js')
 };
 
@@ -48,12 +53,32 @@ function _readOperatorOverride() {
   // Read l4.sandbox.runtime from ~/.troth/config.json if present.
   // Safe-fails to null so the runtime stays auto when config is unset
   // or unreadable.
+  //
+  // Preferred reader first: it applies defaults and validation.
   try {
     const l4cfg = require('../l4-config.js');
     const cfg = l4cfg.getL4Config();
     if (cfg && cfg.sandbox && typeof cfg.sandbox.runtime === 'string') {
       return cfg.sandbox.runtime;
     }
+  } catch (_) {}
+  // Then the file itself. l4-config.js belongs to the closed overlay and is
+  // absent from the shipped tree, where the require above throws and the
+  // catch swallows it — so this switch silently did nothing in exactly the
+  // build most operators run, while reading as working here. The config path
+  // and this key are both public, so reading them directly costs nothing and
+  // makes the setting mean the same thing in both builds.
+  //
+  // HOME is read per call, not captured at load: the operator can move it,
+  // and a test that pins a throwaway home expects to be obeyed.
+  try {
+    const fs   = require('fs');
+    const path = require('path');
+    const os   = require('os');
+    const home = process.env.HOME || os.homedir();
+    const raw  = JSON.parse(fs.readFileSync(path.join(home, '.troth', 'config.json'), 'utf8'));
+    const runtime = raw && raw.l4 && raw.l4.sandbox && raw.l4.sandbox.runtime;
+    if (typeof runtime === 'string' && runtime) return runtime;
   } catch (_) {}
   return null;
 }
@@ -118,5 +143,8 @@ module.exports = {
   getActiveAdapter,
   // exposed for tests + introspection
   ADAPTER_PRIORITY,
-  _pickAdapter
+  _pickAdapter,
+  // The workspace jail reads the same key, so one operator setting governs
+  // every jailed surface rather than each growing its own switch.
+  _readOperatorOverride
 };

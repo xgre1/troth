@@ -702,6 +702,10 @@ function listEngrams(opts) {
           supersededIds.add(sup);
         }
       }
+      // The window scan misses a successor that fell outside this fetch;
+      // the persisted superseded_ids index (state.js) does not. Union both
+      // — fail-open to the pure window behaviour.
+      try { for (const id of state.listSupersededIds()) supersededIds.add(id); } catch (_) {}
     }
     const out = [];
     for (const row of rows) {

@@ -189,10 +189,27 @@ function listIngestedSources(scope) {
   } catch (_) { return []; }
 }
 
+// Prefix variant for scope FAMILIES (docs:chats + docs:chats:<project>).
+// The import's idempotency must see a session as ingested no matter which
+// project scope it landed in — exact-match here is how per-project scoping
+// would have re-imported every legacy flat-scope session as a duplicate.
+function listIngestedSourcesPrefix(scopePrefix) {
+  if (!scopePrefix) return [];
+  try {
+    const state = require('./state.js');
+    const rows = state._dbForQuery().prepare(
+      "SELECT DISTINCT json_extract(input,'$.source') AS src FROM action_records " +
+      "WHERE json_extract(output,'$.scope') LIKE ? AND json_extract(input,'$.source') LIKE 'import:%'"
+    ).all(scopePrefix + '%');
+    return rows.map(r => r.src).filter(Boolean);
+  } catch (_) { return []; }
+}
+
 module.exports = {
   chunkText,
   ingestDocument,
   listIngestedSources,
+  listIngestedSourcesPrefix,
   queryScope,
   listScopes,
   DEFAULT_CHUNK_CHARS,

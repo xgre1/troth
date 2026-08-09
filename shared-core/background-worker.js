@@ -1157,6 +1157,14 @@ const taskEmbeddingBackfill = {
     // embed returns null and we stop quietly (recall stays lexical).
     const RUN_BUDGET_MS = 10 * 1000;
     const CHUNK = 128;
+    // The imported archive (docs:chats) drains AFTER the recall pool, at a
+    // smaller cap: recall quality is the product promise, the archive is
+    // depth. Bounded so the old cost fear (that justified excluding the
+    // archive entirely) stays controlled — an import done before the embed
+    // host was warm now heals over idle cycles instead of staying
+    // keyword-only forever (field-hit 2026-08-09, a real user's ~1000-chunk
+    // import held 39 vectors).
+    const ARCHIVE_CHUNK = 64;
     const t0 = Date.now();
     let embedded = 0, failed = 0, scanned = 0, more = false;
     while (Date.now() - t0 < RUN_BUDGET_MS) {
@@ -1164,9 +1172,14 @@ const taskEmbeddingBackfill = {
       // not just commitment-engrams — recall's pool is dominated by episodic +
       // semantic, which must have vectors or semantic rerank stays blind.
       // Pass MODEL_ID → also re-embeds rows from a PREVIOUS model (swap migration).
-      const rows = state.listRecallableMissingEmbeddings(CHUNK, embedder.MODEL_ID);
+      let rows = state.listRecallableMissingEmbeddings(CHUNK, embedder.MODEL_ID);
+      let cap = CHUNK;
+      if (!rows.length) {
+        rows = state.listArchiveMissingEmbeddings(ARCHIVE_CHUNK);
+        cap = ARCHIVE_CHUNK;
+      }
       if (!rows.length) { more = false; break; }
-      more = rows.length === CHUNK;
+      more = rows.length === cap;
       // Extract the clean per-class semantic text (NOT toSearchText — that
       // prepends type/agent_id/cwd metadata that pollutes the vector).
       const work = [];

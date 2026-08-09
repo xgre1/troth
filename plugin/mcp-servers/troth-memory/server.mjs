@@ -41,6 +41,25 @@ const atlas       = require(serverDir + '../../../shared-core/atlas.js');
 const wireFormat  = require(serverDir + '../../../shared-core/wire-format.js');
 const identity    = require(serverDir + '../../../shared-core/identity.js');
 const mindState   = require(serverDir + '../../../shared-core/mind-state.js');
+const claudeUsage = require(serverDir + '../../../shared-core/claude-usage-ingest.js');
+
+// Claude Code writes its own per-message token usage next to the transcript;
+// the proxy never sees that lane. Tail it into usage_ledger from here — this
+// server lives exactly as long as a Claude session, which is exactly when new
+// usage appears. Timers are unref'd: ingestion must never hold the process
+// open. Stdout is the JSON-RPC channel — diagnostics go to stderr only.
+if (process.env.TROTH_CLAUDE_USAGE_INGEST !== '0') {
+  const runClaudeUsageIngest = () => {
+    try {
+      const s = claudeUsage.ingestOnce();
+      if (s.messages > 0) process.stderr.write('[claude-usage] +' + s.messages + ' messages from ' + s.files_ingested + ' files\n');
+    } catch (e) {
+      process.stderr.write('[claude-usage] ingest failed: ' + ((e && e.message) || e) + '\n');
+    }
+  };
+  setTimeout(runClaudeUsageIngest, 20 * 1000).unref();
+  setInterval(runClaudeUsageIngest, 60 * 1000).unref();
+}
 
 const PROTOCOL_VERSION = '0.1';
 const SERVER_NAME      = 'troth-memory';

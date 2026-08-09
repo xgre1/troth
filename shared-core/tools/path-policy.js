@@ -42,6 +42,15 @@ function _expandHome(p) {
 // Canonical blocked-path PREFIXES. Any absolute path that starts with one
 // of these is refused. Order doesn't matter — first match wins on report.
 // Keep TIGHT: every entry maps to a real attacker objective.
+//
+// A file entry matches by PREFIX, not by whole name, so ~/.zshrc also covers
+// ~/.zshrc.local and ~/.env also covers ~/.envrc. That reads like sloppiness
+// and is kept deliberately: both of those siblings are executed by the same
+// startup path as the file named here, so blocking them is the answer the
+// list would give anyway. The cost is that an inert neighbour such as
+// config.json.example is refused too, which is an annoyance rather than a
+// hole. Directory entries end in / and match only real children, so no
+// entry here can capture a sibling directory that merely shares a prefix.
 const BLOCKED_PREFIXES = Object.freeze([
   { name: 'etc',                prefix: '/etc/',                      why: 'system config — /etc/ holds OS-level config; partner writes here are privilege escalation' },
   { name: 'private_etc',        prefix: '/private/etc/',              why: 'macOS canonical /etc/ — same risk as /etc/' },
@@ -62,6 +71,15 @@ const BLOCKED_PREFIXES = Object.freeze([
   { name: 'web_allowlist_tmp',  prefix: _expandHome('~/.troth/web-allowlist.json.tmp'), why: 'L4 web allowlist temp file (atomic-write target)' },
   { name: 'mcp_clients',        prefix: _expandHome('~/.troth/mcp-clients.json'), why: 'external MCP registry — operator-only; a partner-written entry is self-authorization' },
   { name: 'mcp_clients_tmp',    prefix: _expandHome('~/.troth/mcp-clients.json.tmp'), why: 'external MCP registry temp file (atomic-write target)' },
+  // router.json is the gateway's OWN registry: every entry names a command
+  // and its args, and the router spawns them. That is the same grant as a
+  // hook entry in settings.json — one write buys arbitrary execution at the
+  // next start — so it belongs beside mcp-clients.json, not outside the
+  // list. It was missing while its sibling registry was blocked. Written
+  // legitimately by `troth install-plugin` migration (bin/troth.js:441),
+  // which runs as the operator through the CLI, not through this layer.
+  { name: 'mcp_router',         prefix: _expandHome('~/.troth/router.json'), why: 'MCP router registry — each entry names a command the router spawns; a partner-written entry is arbitrary execution' },
+  { name: 'mcp_router_tmp',     prefix: _expandHome('~/.troth/router.json.tmp'), why: 'MCP router registry temp file (atomic-write target)' },
   // DELIBERATELY NOT BLOCKED: ~/.troth/mcp-pending.json (+ its .tmp), the
   // staged-registration parking lot.
   // The partner STAGES a server there via mcp_register_request; the file is
@@ -72,6 +90,11 @@ const BLOCKED_PREFIXES = Object.freeze([
   // on mcp-clients.json does not catch mcp-pending.json (different basename,
   // and prefix rules match from index 0). Pinned both ways by suite-18.
   { name: 'l4_config',          prefix: _expandHome('~/.troth/config.json'), why: 'L4 master config — operator-only' },
+  // The substrate database. It was absent from this list while every OTHER
+  // ~/.troth registry was on it, so the one file holding the partner's whole
+  // memory was the one file a shell could rewrite. The prefix also covers the
+  // -wal and -shm siblings, which are the same database.
+  { name: 'substrate_db',       prefix: _expandHome('~/.troth/state.db'), why: 'the substrate database — a shell write here rewrites the partner\'s memory outside every audited path' },
   { name: 'shell_rc',           prefix: _expandHome('~/.bashrc'),     why: 'shell init — persistence-implant anchor' },
   { name: 'shell_rc_zsh',       prefix: _expandHome('~/.zshrc'),      why: 'shell init — persistence-implant anchor' },
   { name: 'shell_rc_profile',   prefix: _expandHome('~/.profile'),    why: 'shell init — persistence-implant anchor' },
@@ -107,6 +130,57 @@ const BLOCKED_PREFIXES = Object.freeze([
 // Strict-taint switch (default OFF). See the Layer-2 comment in isWritablePath.
 function _strictTaint() {
   return /^(1|true|on|yes)$/i.test(String(process.env.TROTH_TAINT_STRICT || ''));
+}
+
+// Does the filesystem treat two spellings of one name as the same file?
+//
+// This decides whether the prefix comparison below may be case-sensitive.
+// On a stock Mac it may not: APFS is case-INSENSITIVE by default, so
+// ~/.SSH/authorized_keys and ~/.ssh/authorized_keys are one file, and a
+// case-sensitive compare refuses the second spelling while permitting the
+// first — a write through the permitted spelling lands in the refused file.
+// realpath does not rescue this: macOS returns the spelling it was given,
+// not the one stored on disk, so an all-caps ancestor survives resolution.
+//
+// The probe asks the filesystem instead of guessing: stat the path, stat a
+// case-flipped spelling of its last component, and compare inode + device.
+// Same file under both names means insensitive. Linux answers no and keeps
+// its correct case-sensitive behaviour; a case-sensitive volume on a Mac
+// answers no too, which is right for that volume.
+//
+// If the probe cannot run at all, fall back on the platform default, biased
+// toward insensitive on darwin/win32. Over-blocking a genuinely distinct
+// ~/.SSH is a cost nobody pays in practice; under-blocking is the hole.
+let _caseFoldCache = null;
+function _flipLastComponent(p) {
+  const dir  = path.dirname(p);
+  const base = path.basename(p);
+  let flipped = '';
+  for (const ch of base) {
+    const lo = ch.toLowerCase(), up = ch.toUpperCase();
+    flipped += (ch === lo && lo !== up) ? up : lo;
+  }
+  return flipped === base ? null : path.join(dir, flipped);
+}
+function _caseFolds() {
+  if (_caseFoldCache !== null) return _caseFoldCache;
+  _caseFoldCache = (process.platform === 'darwin' || process.platform === 'win32');
+  try {
+    const probe = HOME && fs.existsSync(HOME) ? HOME : path.sep;
+    const other = _flipLastComponent(probe);
+    if (other) {
+      const a = fs.statSync(probe);
+      let b = null;
+      try { b = fs.statSync(other); } catch (_) { b = null; }
+      _caseFoldCache = !!(b && a.ino === b.ino && a.dev === b.dev);
+    }
+  } catch (_) { /* keep the platform default */ }
+  return _caseFoldCache;
+}
+// Comparison key for a path: identity where spelling matters, folded where
+// the filesystem itself ignores it.
+function _key(p) {
+  return _caseFolds() ? String(p).toLowerCase() : String(p);
 }
 
 
@@ -186,7 +260,9 @@ function isWritablePath(targetPath, ctx) {
     for (const prefix of _prefixForms(entry.prefix)) {
       const bare = prefix.replace(/\/$/, '');
       for (const candidate of (real === abs ? [abs] : [abs, real])) {
-        if (candidate === bare || candidate.indexOf(prefix) === 0) {
+        // Compared through _key so a case-folding filesystem cannot be
+        // handed the same file under a spelling this list does not match.
+        if (_key(candidate) === _key(bare) || _key(candidate).indexOf(_key(prefix)) === 0) {
           return {
             allowed:  false,
             reason:   'blocked_system_path',
@@ -239,8 +315,119 @@ function _resolveSymlinks(abs) {
 }
 
 
+// ---------------------------------------------------------------------------
+// Read policy.
+//
+// isWritablePath answers "may this be MUTATED". Nothing answered "may this be
+// READ", and they are different questions wanting different lists: /usr/ and
+// /etc/ must never be written and are read constantly, while a project's .env
+// is rewritten by its owner every day and is the single file least suited to
+// being handed to a model. Because no read policy existed at all, a plain
+// `cat` of a credential file reached no policy — there was nothing to refuse
+// it with, so it was not that the wall was weak, it was that no wall was
+// consulted.
+//
+// Two rules, because one shape cannot cover both cases.
+
+// 1. By LOCATION — directories and files whose entire purpose is holding
+//    secrets. Everything under them is refused.
+const SECRET_READ_PREFIXES = Object.freeze([
+  { name: 'ssh_keys',         prefix: _expandHome('~/.ssh/'),                     why: 'SSH private keys and host inventory — the contents ARE the credential' },
+  { name: 'aws_creds',        prefix: _expandHome('~/.aws/'),                     why: 'AWS credential and config store' },
+  { name: 'gcp_creds',        prefix: _expandHome('~/.config/gcloud/'),           why: 'GCP credential store' },
+  { name: 'gnupg',            prefix: _expandHome('~/.gnupg/'),                   why: 'GnuPG secret keyring' },
+  { name: 'kube_config',      prefix: _expandHome('~/.kube/'),                    why: 'a kubeconfig is a live cluster token' },
+  { name: 'docker_config',    prefix: _expandHome('~/.docker/config.json'),       why: 'container registry auth tokens' },
+  { name: 'gh_hosts',         prefix: _expandHome('~/.config/gh/hosts.yml'),      why: 'GitHub CLI OAuth token' },
+  { name: 'keychains',        prefix: _expandHome('~/Library/Keychains/'),        why: 'macOS keychain databases' },
+  { name: 'agent_host_creds', prefix: _expandHome('~/.claude/.credentials.json'), why: 'agent-host OAuth credentials' },
+  { name: 'troth_vault',      prefix: _expandHome('~/.troth/credentials.json'),   why: 'the partner credential vault' },
+  // Every archived tool output lives in the substrate, which is where secrets
+  // that were once printed to a terminal now sit at rest. The substrate tools
+  // apply their own policy on the way out; a raw sqlite3 read is the way
+  // around all of it.
+  { name: 'substrate_db',     prefix: _expandHome('~/.troth/state.db'),           why: 'the substrate database — a raw read bypasses every substrate-level policy' },
+  { name: 'unix_shadow',      prefix: '/etc/shadow',                              why: 'system password hashes' },
+  { name: 'unix_master_pw',   prefix: '/etc/master.passwd',                       why: 'system password hashes (BSD/macOS)' },
+  { name: 'unix_master_pw_p', prefix: '/private/etc/master.passwd',               why: 'system password hashes (macOS canonical path)' }
+]);
+
+// 2. By NAME, anywhere on disk. A prefix list can only protect paths that live
+//    where it expects, and the file that actually leaked did not: a project's
+//    .env sits under ~/Documents/<whatever>/, which no home-anchored prefix
+//    will ever name. Matching the basename is the only rule that reaches it.
+//
+//    A bare `.key` extension is deliberately absent. It is common enough in
+//    ordinary source trees that refusing it would teach people the wall is
+//    noise, and a wall people route around protects nothing. The private-key
+//    shapes worth having are named explicitly instead.
+const SECRET_READ_NAMES = Object.freeze([
+  { name: 'dotenv',       test: (b) => /^\.env(\..+)?$/i.test(b),                              why: 'a .env file is a credential file by convention' },
+  { name: 'private_key',  test: (b) => /^id_(?:rsa|dsa|ecdsa|ed25519)(?:[_.-][\w.-]+)?$/i.test(b), why: 'SSH private key' },
+  { name: 'key_material', test: (b) => /\.(?:pem|p12|pfx|jks|keystore|asc)$/i.test(b),         why: 'key or certificate material' },
+  { name: 'netrc',        test: (b) => /^_?\.?netrc$/i.test(b),                                why: 'netrc holds plaintext login credentials' },
+  { name: 'pgpass',       test: (b) => /^\.pgpass$/i.test(b),                                  why: 'PostgreSQL password file' },
+  { name: 'npmrc',        test: (b) => /^\.npmrc$/i.test(b),                                   why: 'npm registry auth token' },
+  { name: 'pypirc',       test: (b) => /^\.pypirc$/i.test(b),                                  why: 'PyPI upload credentials' }
+]);
+
+// Names that match a rule above and hold nothing worth protecting. Checked
+// first, and against the LOCATION rules too, so ~/.ssh/id_rsa.pub stays
+// readable: a wall that refuses the file whose whole job is to be published
+// is the kind of wall people stop believing.
+const SECRET_READ_EXEMPT = Object.freeze([
+  /\.pub$/i,
+  /^\.env\.(?:example|sample|template|dist|defaults?|schema)$/i,
+  /^\.npmrc\.example$/i
+]);
+
+function _isExemptName(base) {
+  return SECRET_READ_EXEMPT.some((re) => re.test(base));
+}
+
+// isReadablePath(absPath, ctx) → { allowed, reason?, pattern?, detail?, path?, via? }
+//
+// Same normalization and symlink resolution as isWritablePath, for the same
+// reason: ./notes pointing at ~/.ssh/id_rsa is a read of the key whatever the
+// spelling asked for.
+function isReadablePath(targetPath, ctx) {
+  if (typeof targetPath !== 'string' || !targetPath.length) {
+    return { allowed: false, reason: 'empty_path' };
+  }
+  const expanded = _expandHome(targetPath);
+  const abs  = path.isAbsolute(expanded) ? path.normalize(expanded) : path.resolve(expanded);
+  const real = _resolveSymlinks(abs);
+
+  for (const candidate of (real === abs ? [abs] : [abs, real])) {
+    const base = path.basename(candidate);
+    if (_isExemptName(base)) continue;
+    const via = candidate === real && real !== abs ? abs : undefined;
+
+    for (const entry of SECRET_READ_PREFIXES) {
+      for (const prefix of _prefixForms(entry.prefix)) {
+        const bare = prefix.replace(/\/$/, '');
+        if (_key(candidate) === _key(bare) || _key(candidate).indexOf(_key(prefix)) === 0) {
+          return { allowed: false, reason: 'blocked_secret_read', pattern: entry.name,
+                   detail: entry.why, path: candidate, via };
+        }
+      }
+    }
+    for (const entry of SECRET_READ_NAMES) {
+      if (entry.test(base)) {
+        return { allowed: false, reason: 'blocked_secret_read', pattern: entry.name,
+                 detail: entry.why, path: candidate, via };
+      }
+    }
+  }
+  return { allowed: true, path: abs };
+}
+
+
 module.exports = {
   isWritablePath,
+  isReadablePath,
+  SECRET_READ_PREFIXES,
+  SECRET_READ_NAMES,
   BLOCKED_PREFIXES,
   // exposed for tests
   _expandHome

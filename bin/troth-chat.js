@@ -284,6 +284,19 @@ function banner() {
   const mark  = gradient('troth');
   console.log('  ' + glyph + '  ' + mark);
   if (model) console.log('      ' + color(DIM, model));
+  // Memory readiness, one line, core-authored wording (memory-readiness.js
+  // — the same truth the app and the dashboard render). Direct require, no
+  // proxy hop: the embedder fields read DISK truth so a foreign process
+  // sees the same answer; only a live download's progress ticker needs the
+  // owning process, and the banner does not tick. Silent on any failure —
+  // a banner must never crash the chat.
+  try {
+    const _mr = require('../shared-core/memory-readiness.js').readiness();
+    const _line = (_mr.stage === 'ready' && !(_mr.reasons && _mr.reasons.length))
+      ? 'memory ready · fully indexed'
+      : (_mr.reasons || []).join(' · ');
+    if (_line) console.log('      ' + color(DIM, _line));
+  } catch (_) { /* no readiness line beats no REPL */ }
   console.log('');
 }
 

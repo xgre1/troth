@@ -547,7 +547,19 @@ function makeOrchestrator(opts) {
 
     // Token accounting across ALL iterations of this turn — attached to
     // the final result so surfaces can show real counts (never estimated).
-    const _usage = { in: 0, out: 0, seen: false };
+    const _usage = { in: 0, out: 0, seen: false, ctx: 0, win: 0 };
+    // in/out SUM across iterations (billing truth); ctx/win take the LAST
+    // call's values — context is a live state, not a running total: after
+    // three agentic rounds the window holds the third prompt, not the sum of
+    // all three. Zero means the transport never said (API lanes without the
+    // fields), and the shape below omits what it does not know.
+    const _usageOut = () => {
+      if (!_usage.seen) return undefined;
+      const u = { input_tokens: _usage.in, output_tokens: _usage.out };
+      if (_usage.ctx > 0) u.context_used = _usage.ctx;
+      if (_usage.win > 0) u.context_window = _usage.win;
+      return u;
+    };
     for (let iter = 0; iter < max_iterations; iter++) {
       // Cancel between LLM calls / tool rounds - the cheap check point.
       if (cancelHit()) { aborted = true; abortReason = cancelReason(); break; }
@@ -715,6 +727,8 @@ function makeOrchestrator(opts) {
               _usage.seen = true;
               _usage.in  += Math.max(0, chunk.usage.input_tokens  || 0);
               _usage.out += Math.max(0, chunk.usage.output_tokens || 0);
+              if (Number(chunk.usage.context_used)   > 0) _usage.ctx = Number(chunk.usage.context_used);
+              if (Number(chunk.usage.context_window) > 0) _usage.win = Number(chunk.usage.context_window);
             }
             if (chunk && Array.isArray(chunk.tool_calls)) pendingToolCalls = chunk.tool_calls;
             if (chunk && chunk.finish_reason) finishReason = chunk.finish_reason;
@@ -787,7 +801,7 @@ function makeOrchestrator(opts) {
         let _emitExt = null;
         try { _emitExt = require('./core-ext.js'); } catch (_) {}
         if (!_emitExt || typeof _emitExt.commitParsedIntents !== 'function') {
-          return { status: 'ok', reason: null, text: withFailureNote(finalize()), trace, served_by: servedBy, usage: _usage.seen ? { input_tokens: _usage.in, output_tokens: _usage.out } : undefined };
+          return { status: 'ok', reason: null, text: withFailureNote(finalize()), trace, served_by: servedBy, usage: _usageOut() };
         }
         let parsed;
         try { parsed = _emitExt.commitParsedIntents(turnText, ctx); }
@@ -798,7 +812,7 @@ function makeOrchestrator(opts) {
         const hadIntents = committed.length + refused.length + parseErrors.length > 0;
         trace.push({ iter, faculty_emit: { committed: committed.length, refused: refused.length, parse_errors: parseErrors.length } });
         // No <intent> in the text → a spoken-only turn → the response is done.
-        if (!hadIntents) return { status: 'ok', reason: null, text: withFailureNote(finalize()), trace, served_by: servedBy, usage: _usage.seen ? { input_tokens: _usage.in, output_tokens: _usage.out } : undefined };
+        if (!hadIntents) return { status: 'ok', reason: null, text: withFailureNote(finalize()), trace, served_by: servedBy, usage: _usageOut() };
         // Feed the commit/refusal verdicts back so the model reasons about the
         // outcomes next iteration (dispatch + observation happen async via the
         // entity daemon; the verdict is the immediate signal).
@@ -1026,13 +1040,13 @@ function makeOrchestrator(opts) {
           status: 'aborted', reason: 'transport_empty_turn',
           text: '(The model returned nothing. Try again; if it keeps happening, switch engines in Settings.)',
           trace, served_by: servedBy,
-          usage: _usage.seen ? { input_tokens: _usage.in, output_tokens: _usage.out } : undefined
+          usage: _usageOut()
         };
       }
       // Text-only turn (or already forced) — we're done. Final text passes the
       // structural secret wall: any tool-result secret the model echoed is
       // masked here regardless of stream behavior.
-      return { status: 'ok', reason: null, text: require('./secret-redactor.js').redact(withFailureNote(finalize())), trace, served_by: servedBy, usage: _usage.seen ? { input_tokens: _usage.in, output_tokens: _usage.out } : undefined };
+      return { status: 'ok', reason: null, text: require('./secret-redactor.js').redact(withFailureNote(finalize())), trace, served_by: servedBy, usage: _usageOut() };
     }
 
     // Honest tail: if we were ABORTED (timeout / loop), do NOT claim "Done." —

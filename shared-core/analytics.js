@@ -42,16 +42,25 @@ function getAnalytics(opts) {
   const db = state.db();
 
   // ── savings_ledger aggregation ────────────────────────────────────────
+  // Grouped by kind AND model/session so each saving prices at the rate of
+  // the model that actually did the work — a token kept out of a Fable
+  // window is a $10/M token, not a $3/M one. Rows without a model inherit
+  // one stamped by another row of the SAME session (the output-sandbox
+  // hook stamps; the bash lane cannot), else the baseline prices them.
   const savingsRows = db.prepare(
-    `SELECT kind, SUM(tokens) AS tokens, COUNT(*) AS events
+    `SELECT kind, model, session_id, SUM(tokens) AS tokens, COUNT(*) AS events
      FROM savings_ledger
      WHERE ts >= ? AND ts <= ?` + sessFilter +
-    ` GROUP BY kind ORDER BY tokens DESC`
+    ` GROUP BY kind, model, session_id`
   ).all(w.from_ts, w.to_ts);
+  const sessionModel = {};
+  for (const r of savingsRows) {
+    if (r.model && r.session_id && !sessionModel[r.session_id]) sessionModel[r.session_id] = r.model;
+  }
   const tokens_saved_by_kind = {};
   let tokens_saved_total = 0;
   for (const r of savingsRows) {
-    tokens_saved_by_kind[r.kind] = r.tokens || 0;
+    tokens_saved_by_kind[r.kind] = (tokens_saved_by_kind[r.kind] || 0) + (r.tokens || 0);
     tokens_saved_total += r.tokens || 0;
   }
 
@@ -296,40 +305,56 @@ function getAnalytics(opts) {
   if (!_rate) _rate = { in: 3.00, out: 15.00, cached_in: 0.30 };
   const rateInputPer1M  = _rate.in  || 0;
   const rateOutputPer1M = _rate.out || 0;
-  function _kindRate(kind) {
-    // HONESTY GUARD: only credit $ to kinds that genuinely remove
-    // tokens the model would otherwise be BILLED for. The old `default →
-    // rateInputPer1M` minted dollars for EVERY ledger kind, so `output_archive`
-    // (tool output moved to the archive — 121M tokens) valued at the Sonnet input
-    // rate dominated the headline and inflated "saved" ~30x ($384 vs the ~$17 of
-    // real savings). Those rows still appear in tokens-saved + the surfaces table;
-    // they just don't mint fake dollars.
+  function _kindRate(kind, rateIn, rateOut) {
+    // Credit $ only to kinds whose tokens would otherwise reach the model's
+    // BILLED context. Cache writes and event counters are instrumented but
+    // mint nothing — writing a cache or counting an event saves no billed
+    // token.
     //   gemcache:hit  → request + response both skipped → average in+out rate.
-    if (kind === 'gemcache:hit') return (rateInputPer1M + rateOutputPer1M) / 2;
-    //   real prompt-token reductions billed at the input rate:
+    if (kind === 'gemcache:hit') return (rateIn + rateOut) / 2;
+    //   Prompt-token reductions, priced at the input rate. output_archive
+    //   belongs here: archived output is REMOVED from the live window, and
+    //   the window is re-sent as input with every subsequent request — one
+    //   pass at the input rate is the conservative price, not an inflation.
+    //   (Priced at zero it made the dashboard pair 216M "tokens saved" with
+    //   $17 — two numbers describing different sets.)
     if (kind === 'mcp_cache:hit' ||
         kind === 'context_filter' ||
         kind === 'bash_compression' ||
         kind === 'hashline_edit_applied' ||
-        kind === 'compaction') return rateInputPer1M;
-    // Everything else — output_archive (archival, not prompt reduction),
+        kind === 'output_archive' ||
+        kind === 'compaction') return rateIn;
     // gemcache:populate (a cache WRITE, not a hit), verifyfirst_blocked /
-    // loopbreaker_denied / editmatch_rescued / test (event counters, not tokens)
-    // is NOT a billable-token saving. No dollars.
+    // loopbreaker_denied / editmatch_rescued / test (event counters, not
+    // tokens) — counted in the ledger, priced at nothing.
     return 0;
   }
   let tokens_saved_usd_equiv = 0;
-  // tokens_saved_billable = ONLY the tokens that genuinely produced the $ equiv
-  // (kinds where _kindRate > 0). The headline `tokens_saved_total` sums EVERY
-  // ledger kind — incl. output_archive (archived bytes, ~121M) + gemcache
-  // populates (cache WRITES) + event counters — so pairing the honest $ with
-  // that 157M count read as nonsense. This is the number the dashboard should
-  // show next to the cache/context $.
+  // tokens_saved_billable = the tokens that produced the $ equiv (kinds where
+  // _kindRate > 0). tokens_saved_total additionally counts cache writes and
+  // event counters, so the dashboard pairs THIS count with the $ — one set
+  // of tokens, one valuation.
   let tokens_saved_billable = 0;
-  for (const [kind, tokens] of Object.entries(tokens_saved_by_kind)) {
-    const r = _kindRate(kind);
-    if (r > 0) tokens_saved_billable += (tokens || 0);
-    tokens_saved_usd_equiv += (tokens || 0) / 1_000_000 * r;
+  // Priced set split by resolved model — the dashboard's rate label and the
+  // per-model lines in the $ split read from this.
+  const tokens_saved_by_model = {};
+  let _rateForFn = null;
+  try { _rateForFn = require('../proxy/modules/cost.js').rateFor; } catch (_) {}
+  for (const r of savingsRows) {
+    const resolved = r.model || (r.session_id && sessionModel[r.session_id]) || null;
+    const mr = (resolved && _rateForFn) ? _rateForFn(resolved) : null;
+    const kr = _kindRate(r.kind, (mr && mr.in) || rateInputPer1M, (mr && mr.out) || rateOutputPer1M);
+    if (kr > 0) {
+      tokens_saved_billable += (r.tokens || 0);
+      const label = mr ? resolved : tokens_saved_baseline_model;
+      const slot = tokens_saved_by_model[label] || (tokens_saved_by_model[label] = { tokens: 0, usd: 0 });
+      slot.tokens += (r.tokens || 0);
+      slot.usd += (r.tokens || 0) / 1_000_000 * kr;
+    }
+    tokens_saved_usd_equiv += (r.tokens || 0) / 1_000_000 * kr;
+  }
+  for (const k of Object.keys(tokens_saved_by_model)) {
+    tokens_saved_by_model[k].usd = +tokens_saved_by_model[k].usd.toFixed(6);
   }
   tokens_saved_usd_equiv = +tokens_saved_usd_equiv.toFixed(6);
 
@@ -338,6 +363,7 @@ function getAnalytics(opts) {
     tokens_saved_total,
     tokens_saved_billable,
     tokens_saved_by_kind,
+    tokens_saved_by_model,
     estimated_usd_saved,
     actual_usd_spent,
     baseline_usd,

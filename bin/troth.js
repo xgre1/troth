@@ -547,108 +547,12 @@ function applyBashDenyDefault() {
   return { applied: true, backup: backupPath };
 }
 
-var SUBCOMMANDS = new Set([
-  "setup", "init", "doctor", "accounts", "start", "restart", "tail", "reset",
-  "version", "help", "ui", "app",
-  // `troth classic` as an explicit subcommand: force Claude-Code-through-proxy
-  // for ONE run without flipping default_command (the gate below honors it).
-  "classic",
-  // Run lifecycle:
-  "run", "status", "logs", "diff", "merge", "kill", "clean",
-  // MCP server (stdio protocol for AI chat agents):
-  "mcp",
-  // ChatGPT-subscription OAuth (cmd-codex.js). The comment pass of 2026-08-03
-  // folded this entry into the comment above it, so `troth codex login` — the
-  // command docs/SETUP_GUIDE.md tells people to run to use their own ChatGPT
-  // account — answered "Run not found: codex" in every published release.
-  "codex",
-  // Scheduled runs (the timer is off unless TROTH_ENABLE_SCHEDULER=1):
-  "schedule",
-  // Scaffolding introspection:
-  "stats", "telemetry", "checkpoint", "rollback", "reflect", "dream", "plan",
-  // Memory management:
-  "memory-clear",
-  // Plugin ecosystem:
-  "mcp-audit", "install-plugin", "uninstall-plugin",
-  // Substrate CLI:
-  "race", "race-result", "atlas",
-  // Counterfactual replay CLI:
-  "replay", "record-intent",
-  // Schema reflector CLI:
-  "schema",
-  // Mind layer introspection CLI:
-  "mind",
-  // Knowledge import (curriculum tier — pre-Chameleon):
-  "knowledge",
-  // L3 Chameleon Protocol — adapter registry + runtime driver:
-  "chameleon",
-  //  multi-tenant + role orchestrator:
-  "tenant", "orchestrate", "orchestrate-status",
-  //  incognito mode (substrate read-only, no writes/persists):
-  "incognito",
-  //  substrate skills layer — human-facing REPL on top of the
-  // troth substrate brain. Use the same backend, same tools, same
-  // substrate that the voice app uses; bypass `claude` entirely.
-  // `cli` is the canonical name; `chat` is kept as a back-compat alias.
-  "cli",
-  "chat",
-  // autonomous mode — REPL into the autonomous runtime. Same partner
-  // as cli/chat/app, just reached through the signed control channel.
-  // `troth body` interactive, `troth body --once 'go build X'`
-  // one-shot for scripts + Claude-as-operator autonomous use.
-  "body",
-  //  local llama-server KV slot health-check (Mode A
-  // physical-continuity diagnostic). Pure HTTP probe, no proxy spawn.
-  "kv-state",
-  // operator-controlled config gate for autonomous features.
-  // `troth config l4 <get|enable|disable|set|verify>` mirrors the
-  // dashboard knobs from the shell.
-  "config",
-  // design: operator cryptographic surface.
-  // init     — first-time substrate bootstrap (integration point root)
-  // confirm  — promote an llm_inferred engram to operator_confirmed (signed)
-  // pause    — global kill-switch on (signed)
-  // resume   — global kill-switch off (signed)
-  // recover  — re-anchor authority via pre-authorized recovery key
-  "init", "confirm", "pause", "resume", "recover",
-  // design: operator presence proof + WAL replication
-  "presence", "replicate-wal",
-  // design: operator seal for high-irreversibility intents
-  "seal",
-  // design: encrypted vault (cryptographically protected, capability-scope auto-attach)
-  "vault",
-  // design: voice profile (faculty-swap continuity)
-  "voice",
-  // design: end-of-life inheritance (successor claim)
-  "inheritance",
-  // design: operator-self primitives for autonomous setup
-  "cap", "schedule", "project",
-  // design: vessel deployment wrapper. Spawns / manages the
-  // partner docker container locally OR remotely (DOCKER_HOST=ssh://).
-  "partner",
-  // design: two-regime FS graduation: copy sandbox workspace to
-  // operator host path after scanner + diff review.
-  "graduate",
-  // design note — session-scoped signer cache. `troth unlock`
-  // unlocks the operator key once for N hours; subsequent CLI calls
-  // pick up the cached signer instead of re-prompting passphrase.
-  // `troth lock` wipes the session.
-  "unlock", "lock",
-  // design audit — draft active_project pipeline. When operator
-  // chats with the partner and the substrate classifier detects a
-  // directive shape, a DRAFT active_project lands at llm_inferred
-  // tier. Operator inspects + confirms via `troth drafts confirm <id>`
-  // to promote to operator_confirmed — uses session cache so no
-  // passphrase prompt. `troth drafts list` shows the queue.
-  "drafts",
-  // Read-only activity snapshot for Tauri Activity tab + CLI overview.
-  "activity",
-  // operator audit step — operator audit verifier. `troth audit verify`
-  // walks the tamper-evident signed_audit chain end-to-end and exits 0
-  // on intact / 1 on first tamper / 2 on bad invocation. The design
-  // acceptance A4.4.
-  "audit",
-]);
+// The command surface lives in shared-core/cli-commands.js as DATA - one
+// list feeding this dispatch Set AND the dashboard reference endpoint.
+// It moved out of this file because the reference used to regex THIS
+// file's source for the literal, and shipped bundles are minified: every
+// published build answered the reference page with zero CLI commands.
+var SUBCOMMANDS = new Set(require(__dirname + "/../shared-core/cli-commands.js"));
 
 for (var i = 0; i < args.length; i++) {
   var arg = args[i];
@@ -757,6 +661,7 @@ if (command === "help" || args.indexOf("-h") !== -1 || args.indexOf("--help") !=
     "  troth setup               guided setup   troth doctor           environment checks",
     "  troth codex login         sign in with your own ChatGPT subscription",
     "  troth start / restart     proxy control  troth tail             follow proxy logs",
+    "  troth service [install]   start at login (launchd on macOS, systemd on Linux)",
     "",
     "More: config, mcp, schedule, memory-clear, atlas, mind, knowledge, chameleon,",
     "      tenant, orchestrate, incognito, vault, voice, inheritance, presence,",
@@ -1699,6 +1604,29 @@ require('./cmd-memory-clear.js')(__cliCtx);
 
 require('./cmd-plan.js')(__cliCtx);
 
+if (command === "service") {
+  var svcMod = require(path.join(__dirname, "..", "proxy", "modules", "service.js"));
+  var svcSub = args[1] || "status";
+  if (svcSub === "install") {
+    var svcCfg = loadConfig();
+    var ri = svcMod.install({ port: svcCfg.port || 8000 });
+    console.log(ri.ok
+      ? "troth service installed (" + ri.kind + "). The proxy now starts at login.\n  unit: " + ri.unit
+      : "install failed: " + ri.error);
+    process.exit(ri.ok ? 0 : 1);
+  }
+  if (svcSub === "uninstall") {
+    var ru = svcMod.uninstall();
+    console.log(ru.ok ? "troth service removed. The proxy runs only when you start it." : "uninstall failed: " + ru.error);
+    process.exit(ru.ok ? 0 : 1);
+  }
+  var svcSt = svcMod.status();
+  if (!svcSt.supported) { console.log("login service: not supported on " + svcSt.platform); process.exit(0); }
+  console.log("login service (" + svcSt.kind + "): " + (svcSt.installed ? "installed" + (svcSt.loaded ? ", loaded" : ", not loaded") : "not installed"));
+  console.log("  " + (svcSt.installed ? "remove with: troth service uninstall" : "install with: troth service install"));
+  process.exit(0);
+}
+
 if (command === "restart") {
   // Gracefully shut down any running proxy, then spawn a fresh one.
   // Useful when the user changes project directories and wants CodeLens
@@ -1710,6 +1638,25 @@ if (command === "restart") {
     console.error("Your config points at " + cfg.host + ":" + cfg.port + " — restart that machine manually.");
     process.exit(1);
   }
+  // If the background service owns this proxy, cycle it through its own
+  // manager. Shutting it down and spawning a loose child here would evict
+  // the supervised instance, and the operator who switched the service on
+  // would be left with a proxy nobody restarts.
+  try {
+    var svcMod = require("../proxy/modules/service.js");
+    if (svcMod.status().loaded) {
+      var cycled = svcMod.restart();
+      if (cycled.ok) {
+        for (var w = 0; w < 40; w++) {
+          sleepMs(250);
+          if (checkHealthSync(cfg.host, cfg.port)) break;
+        }
+        console.log("troth proxy restarted through the background service.");
+        process.exit(0);
+      }
+      console.error("Could not cycle the background service (" + cycled.error + "), falling back to a direct restart.");
+    }
+  } catch (_) { /* no service module or no service: plain restart below */ }
   // Best-effort shutdown of whatever is currently on cfg.host:cfg.port.
   if (checkHealthSync(cfg.host, cfg.port)) {
     try {
@@ -1773,6 +1720,25 @@ if (command === "doctor") {
   // Node.js version
   var nodeVer = parseInt(process.versions.node.split(".")[0]);
   checks.push({ name: "Node.js >= 22", ok: nodeVer >= 22, detail: "v" + process.versions.node });
+
+  // Memory hooks runtime. Claude Code launches the plugin's recall hooks
+  // with bare `node` from PATH, and those hooks load native better-sqlite3;
+  // on a node whose ABI mismatches the built binding they FAIL OPEN — no
+  // auto-recall, no orientation, no error anywhere — and the model falls
+  // back to grepping files for memory questions (the Linux friend-install
+  // find, 2026-08-09). Probe with the exact resolution a hook gets: bare
+  // `node` + this tree's node_modules.
+  try {
+    var _hp = require("child_process").spawnSync("node",
+      ["-e", "require('better-sqlite3'); console.log('ok')"],
+      { cwd: require("path").join(__dirname, ".."), encoding: "utf8", timeout: 15000 });
+    var _hooksOk = _hp.status === 0 && /ok/.test(String(_hp.stdout || ""));
+    checks.push({ name: "Memory hooks runtime", ok: _hooksOk, detail: _hooksOk
+      ? "better-sqlite3 loads under `node` on PATH — recall hooks live"
+      : "better-sqlite3 does NOT load under `node` on PATH — the Claude Code recall hooks fail open (no memory injection). Fix: `npm rebuild better-sqlite3` here, or put a Node >= 22 first on PATH." });
+  } catch (_e) {
+    checks.push({ name: "Memory hooks runtime", ok: false, detail: "could not probe `node` on PATH — recall hooks likely fail open in Claude Code" });
+  }
 
   // Claude Code (OPTIONAL — only needed for the classic proxy mode;
   // the substrate-native default does not require it).

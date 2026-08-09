@@ -86,13 +86,15 @@ function audienceOk(rowAudience, want) {
 // follows the supersession chain" contract that lability-reconsolidation
 // has documented since day one but no consumer enforced.
 //
-// Best-effort: scan only the candidate pool. If a successor lives outside
-// the fetched window (rare in practice — supersession typically writes
-// the successor moments after the predecessor and both fall in the same
-// recent slice), the predecessor leaks through. For audit/correctness
-// queries that need bulletproof supersession honoring, pass
-// opts.include_superseded=false explicitly to skip this filter and see
-// every row including retired ones.
+// The window scan alone was best-effort: a successor outside the fetched
+// window let its retired predecessor keep surfacing — which is exactly how
+// a "forgotten" fact came back (the /forget superseder is written once,
+// then falls out of every later window while the popular original keeps
+// ranking in). The persisted superseded_ids index (state.js, maintained on
+// every write + one-time backfill) closes that: the window scan still
+// catches rows the index migration never saw, the index catches successors
+// no window holds. For audit/correctness queries that need retired rows
+// visible, pass opts.include_superseded=true to skip the filter entirely.
 function buildSupersededIds(rows) {
   const set = new Set();
   if (!Array.isArray(rows)) return set;
@@ -113,6 +115,8 @@ function buildSupersededIds(rows) {
       set.add(sup);
     }
   }
+  // Union in the persisted index — fail-open to the pure window scan.
+  try { for (const id of state.listSupersededIds()) set.add(id); } catch (_) {}
   return set;
 }
 
@@ -402,10 +406,11 @@ function recallSemantic(opts) {
       // searchable corpus, NOT auto-mount material. It floods the no-scope auto-
       // recall pool (conversational fragments out-match curated research/facts).
       // Excluded here from the default recall; still fully retrievable via an
-      // EXPLICIT scoped query (chameleon_query scope='docs:chats' -> the scoped
-      // retrieveRelevant path, which is untouched). Verified: explicit chat
-      // search returns chats (crypto query 5/5) so they are NOT lost.
-      if (String(out.scope || '') === 'docs:chats') return null;
+      // EXPLICIT scoped query (chameleon_query scope='docs:chats[:project]').
+      // PREFIX match since 2026-08-09: sessions land in per-project scopes
+      // (docs:chats:<encoded-dir>) — exact equality would have let every
+      // scoped chunk flood the very pool this exclusion protects.
+      if (String(out.scope || '').startsWith('docs:chats')) return null;
       // Lessons store body at output.text; engrams store at output.statement.
       const text = String(out.text || out.statement || '').toLowerCase();
       if (!text) return null;
@@ -814,7 +819,7 @@ async function recall(opts) {
             let outJson = {};
             try { outJson = typeof row.output === 'string' ? JSON.parse(row.output) : (row.output || {}); } catch (_) {}
             if (!opts.include_flagged && outJson.tier === 'flagged') continue; // PLR-flagged contradiction
-            if (String(outJson.scope || '') === 'docs:chats') continue; // IMPORT-FIX: raw chat archive excluded from auto-recall (explicit scope-query only)
+            if (String(outJson.scope || '').startsWith('docs:chats')) continue; // IMPORT-FIX: raw chat archive (flat OR per-project scope) excluded from auto-recall (explicit scope-query only)
             const stmt = statementForRow(row);
             if (!stmt) continue;
             results.push({
@@ -901,6 +906,33 @@ async function recall(opts) {
   }
   // Collapse the (wider) candidate pool back to the requested `limit`.
   results = results.slice(0, limit);
+  // Archive arm (2026-08-09): "what did we do in <project>" must reach the
+  // imported archive WITHOUT unleashing it into the general pool — the
+  // IMPORT-FIX exclusion above stands, because raw fragments out-match
+  // curated facts. When a query token names a known per-project archive
+  // scope, take the EXPLICIT scoped road for that one scope and append up
+  // to 3 labeled hits AFTER the curated results: depth on request, never
+  // flood. Additive + fail-open — losing the arm costs depth, not recall.
+  if (q && (cls === 'all' || cls === 'semantic')) {
+    try {
+      const scopes = state._dbForQuery().prepare(
+        "SELECT DISTINCT json_extract(output,'$.scope') AS s FROM action_records WHERE json_extract(output,'$.scope') LIKE 'docs:chats:%'").all()
+        .map((r) => String(r.s || ''));
+      if (scopes.length) {
+        const qTokens = new Set(q.toLowerCase().split(/[^a-z0-9Ͱ-Ͽ]+/).filter((t) => t.length >= 3));
+        const hitScope = scopes.find((s) => s.slice('docs:chats:'.length).toLowerCase()
+          .split(/[^a-z0-9Ͱ-Ͽ]+/).filter((t) => t.length >= 3)
+          .some((t) => qTokens.has(t)));
+        if (hitScope) {
+          const engram = require('./engram.js');   // lazy: avoids a require cycle at module load
+          const items = await engram.retrieveRelevant({ query: q, k: 3, scope: hitScope, cwd: opts.cwd || null });
+          for (const it of (items || [])) {
+            results.push(Object.assign({}, it, { class: 'episodic', source: 'chat-archive', archive_scope: hitScope }));
+          }
+        }
+      }
+    } catch (_) { /* additive arm; see above */ }
+  }
   // bump retrieval counter on returned hits.
   // Fire-and-forget; bumpRetrievalBatch is wrapped in try/catch so a
   // stats-table issue can't break recall. Skip when caller opts out

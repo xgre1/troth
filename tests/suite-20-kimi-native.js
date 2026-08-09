@@ -316,6 +316,11 @@ test('KIMI-ENS-1a: with the key and no pin, kimi_sub is a priority_default ensem
     TROTH_ENTITY_LLM: 'echo',                  // boots without a real key; not a hosted faculty
     TROTH_ENTITY_DISPATCH_PREFER: 'hosted',
     TROTH_KIMI_SUB_KEY: 'fake-key-ensemble',   // membership present => kimi_sub WIRES
+    // This test pins the ENSEMBLE layer below coherence derivation: a
+    // kimi-only machine legitimately derives the claude_cli harness shape
+    // (DERIVE-2 owns that contract), which would swallow the native-lane
+    // mechanics asserted here. Declare the layer explicitly.
+    TROTH_DERIVE: '0',
     TROTH_KIMI_SUB_BASE: 'https://127.0.0.1:1/coding/',
     TROTH_LLM_TIMEOUT_MS: '8000',
   });
@@ -351,6 +356,7 @@ test('KIMI-ENS-1b: with the key and no pin, a dead PRIMARY above kimi_sub rescue
     TROTH_LLAMACPP_HOST: 'http://127.0.0.1:1', // connect refused => transport abort, zero output
     TROTH_LLAMA_SERVER_BIN: '/nonexistent-e2e-no-autostart',
     TROTH_KIMI_SUB_KEY: 'fake-key-ensemble',   // membership present => kimi_sub WIRES as a walk rung
+    TROTH_DERIVE: '0',                         // ensemble-layer test; see KIMI-ENS-1a
     TROTH_KIMI_SUB_BASE: 'https://127.0.0.1:1/coding/',
     TROTH_LLM_TIMEOUT_MS: '8000',
   });

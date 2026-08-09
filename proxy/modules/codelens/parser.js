@@ -379,6 +379,12 @@ function walkFiles(dir, onFile, opts) {
 
   function walk(currentDir, depth) {
     if (stop || depth > maxDepth) return;
+    // Timed PER DIRECTORY, not only per matched file: a tree of candidate-
+    // free directories (cloud-backed mounts under a home — every readdir
+    // there can block on network) otherwise walks forever with the time
+    // cap never consulted. Observed live 2026-08-08: minutes inside
+    // readdir on ~/Library/CloudStorage while the cap sat at 10s.
+    if (maxMs && (Date.now() - startedAt) > maxMs) { stop = 'time limit (' + maxMs + 'ms)'; return; }
     let entries;
     try { entries = fs.readdirSync(currentDir, { withFileTypes: true }); }
     catch (e) { return; }
@@ -416,10 +422,17 @@ function listFiles(dir, opts) {
   opts = opts || {};
   const maxDepth = opts.maxDepth == null ? 5 : opts.maxDepth;
   const maxFiles = opts.maxFiles == null ? 20000 : opts.maxFiles;
+  // The 0.4s-for-13761-directories figure above holds for a local disk and
+  // is off by orders of magnitude for cloud-backed mounts, where a single
+  // readdir can block on network. Same per-directory time cap as walkFiles;
+  // callers that pass nothing still get a bounded walk.
+  const maxMs    = opts.maxMs == null ? 10000 : opts.maxMs;
+  const startedAt = Date.now();
   const files = [];
   let stop = null;
   (function walk(currentDir, depth) {
     if (stop || depth > maxDepth) return;
+    if (maxMs && (Date.now() - startedAt) > maxMs) { stop = 'time limit (' + maxMs + 'ms)'; return; }
     let entries;
     try { entries = fs.readdirSync(currentDir, { withFileTypes: true }); }
     catch (e) { return; }

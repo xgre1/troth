@@ -54,7 +54,10 @@ if (command === "vault") {
     var w7 = vault7.writeEntry({
       key: key7, value: val7,
       capability_scope_glob: capScope7,
-      injection: injName ? { kind: injKind, name: injName } : { kind: injKind }
+      injection: injName ? { kind: injKind, name: injName } : { kind: injKind },
+      // The operator typed this key by hand; `vault set` on an existing
+      // key is the rotation path, so replacing here is intentional.
+      overwrite: true
     });
     if (!w7.ok) { console.error("Refused: " + w7.error); process.exit(2); }
     console.log("Vault entry written: " + w7.key);

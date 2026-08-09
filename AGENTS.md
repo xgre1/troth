@@ -38,6 +38,16 @@ entry, no key. Offer the operator a history import (dashboard → Memory →
 "Import your chat history"): Claude Code and Codex conversations already on the
 machine become recall. Additive; nothing is deleted.
 
+## Browser
+
+Once the plugin is mounted you have a `browse` tool (troth-bash server): a real
+Chrome over CDP. Navigate, read the DOM, click and fill through `eval`,
+screenshot. Call it with no port and it finds or starts the troth browser with
+a private profile; nothing needs to be running first. Do not script around it
+(no puppeteer installs, no throwaway selenium): the tool already is the
+browser. Port 9222 attaches to the operator's own debug Chrome and is their
+opt-in, never yours to start.
+
 ## Rules for you, the agent
 
 - Never echo, log, or commit an API key. Config is written to disk, not pasted

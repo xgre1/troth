@@ -145,7 +145,7 @@ async function initIndex(dir) {
   let cosmeticOnlyCount = 0;
 
   const storedHashes = store.getAllFileHashes();
-  const listing = listFiles(dir, { maxFiles: MAX_INDEX_FILES });
+  const listing = listFiles(dir, { maxFiles: MAX_INDEX_FILES, maxMs: MAX_INDEX_MS });
   const budgetUntil = MAX_INDEX_MS ? Date.now() + MAX_INDEX_MS : 0;
   let overBudget = false;
 
@@ -360,25 +360,67 @@ async function initIndex(dir) {
   // them, one file write woke all of them, and the machine re-indexed on a
   // loop: 208 runs, every one reporting "81 files unchanged" after ~5s of
   // hashing, which is a laptop that never idles: fans audible, proxy at the
-  // top of the CPU list. The guard is the whole fix;
-  // one watcher and one shared debounce timer behave exactly as intended.
+  // top of the CPU list. The guard is the whole fix; one registration and
+  // one shared debounce timer behave exactly as intended.
+  //
+  // Watcher shape is per-platform. macOS/Windows recursive fs.watch is a
+  // single OS handle (FSEvents / ReadDirectoryChangesW) whatever the tree
+  // size. Linux emulates recursive with one inotify watch PER SUBDIRECTORY
+  // — node_modules and dot-dirs included, since the filter above runs
+  // after registration — and WATCH_DIR is the operator's whole home when
+  // the desktop app spawns the proxy, so it exhausts
+  // fs.inotify.max_user_watches (ENOSPC) before the filter ever helps.
+  // Linux gets non-recursive watches on just the directories that hold
+  // indexed files (directories born later re-index only on restart).
+  // Watch errors surface asynchronously on the FSWatcher — the try/catch
+  // never sees them, and unhandled they become uncaughtExceptions, one per
+  // failed inotify add — so the first error closes every watcher and
+  // auto re-index stops for the session.
   const SOURCE_EXTS = new Set(['.js', '.ts', '.tsx', '.jsx', '.mjs', '.cjs', '.py']);
   if (!initIndex._watching) initIndex._watching = new Set();
   if (initIndex._watching.has(dir)) return;
+  if (initIndex._watchDead) return;
+  initIndex._watching.add(dir);
+  const registered = [];
+  const onEvent = (event, filename) => {
+    if (!filename) return;
+    if (filename.includes('node_modules')) return;
+    if (filename.startsWith('.')) return;
+    const ext = path.extname(filename).toLowerCase();
+    if (!SOURCE_EXTS.has(ext)) return;
+    clearTimeout(initIndex._timer);
+    initIndex._timer = setTimeout(() => {
+      console.log('[CodeLens] Incremental re-index...');
+      initIndex(dir);
+    }, 15000);
+  };
+  const onError = (err) => {
+    if (initIndex._watchDead) return; // ENOSPC fires once per failed inotify add — log once
+    initIndex._watchDead = true;
+    console.error('[CodeLens] watcher failed (' + ((err && err.code) || err) + ') — auto re-index disabled');
+    for (const w of registered) { try { w.close(); } catch (e) {} }
+    registered.length = 0;
+  };
+  const watchOne = (d, opts) => {
+    const w = fs.watch(d, opts, onEvent);
+    w.on('error', onError);
+    registered.push(w);
+  };
+  const MAX_WATCHED_DIRS = 1024;
   try {
-    fs.watch(dir, { recursive: true }, (event, filename) => {
-      if (!filename) return;
-      if (filename.includes('node_modules')) return;
-      if (filename.startsWith('.')) return;
-      const ext = path.extname(filename).toLowerCase();
-      if (!SOURCE_EXTS.has(ext)) return;
-      clearTimeout(initIndex._timer);
-      initIndex._timer = setTimeout(() => {
-        console.log('[CodeLens] Incremental re-index...');
-        initIndex(dir);
-      }, 15000);
-    });
-    initIndex._watching.add(dir);
+    if (process.platform === 'linux') {
+      const dirs = new Set([dir]);
+      for (const p of currentPaths) dirs.add(path.dirname(p));
+      for (const d of dirs) {
+        if (registered.length >= MAX_WATCHED_DIRS) break;
+        try { watchOne(d, {}); } catch (e) {}
+      }
+      if (registered.length < dirs.size) {
+        console.warn('[CodeLens] watching ' + registered.length + '/' + dirs.size + ' dirs (cap ' + MAX_WATCHED_DIRS + ') — changes in the rest won\'t auto re-index');
+      }
+    } else {
+      watchOne(dir, { recursive: true });
+    }
   } catch (e) {}
 }
 
