@@ -38,6 +38,8 @@ require('./suite-30-derive-coherence.js')({ test, skip });
 require('./suite-31-memory-readiness.js')({ test, skip });
 require('./suite-32-plan-usage.js')({ test, skip });
 require('./suite-33-archive-provenance.js')({ test, skip });
+require('./suite-34-maintenance.js')({ test, skip });
+require('./suite-35-import-atomicity.js')({ test, skip });
 
 // --- SUMMARY ---
 flushAsyncTests().then(() => {

@@ -106,9 +106,10 @@ async function ingestDocument(opts) {
   const embeddingHost = opts.embedding_host || cfg.embeddingHost();
 
   const chunks = chunkText(text, opts);
-  let recorded = 0;
+  // Phase 1 — compute OUTSIDE the write path: chunk statements and their
+  // best-effort embeddings (async, can take seconds on a long document).
   let embedded = 0;
-  const ids = [];
+  const prepared = [];
   for (let i = 0; i < chunks.length; i++) {
     const stmt = title ? '[' + title + ' #' + (i + 1) + '] ' + chunks[i] : chunks[i];
     let embedding = null;
@@ -117,23 +118,51 @@ async function ingestDocument(opts) {
       catch (_) { embedding = null; }
     }
     if (embedding) embedded++;
-    const id = engram.recordEngram({
-      agent_id, user_id, cwd,
-      statement: stmt,
-      source,
-      salience: typeof opts.salience === 'number' ? opts.salience : 1.0,
-      embedding,
-      scope,
-      //  engram.recordEngram now defaults
-      // auto_verify=true. Bulk ingest paths (this one) opt out: each
-      // chunk would run pool-comparison against existing engrams,
-      // O(N²) for an N-chunk document — would push a 1000-chunk import
-      // from seconds to minutes. Caller still gets default truth_score=1
-      // / tier='working' (the safe defaults engram.recordEngram applies
-      // when verify is skipped).
-      auto_verify: false
-    });
-    if (id) { recorded++; ids.push(id); }
+    prepared.push({ stmt: stmt, embedding: embedding });
+  }
+  // Phase 2 — ONE synchronous transaction writes every chunk row. The
+  // document's ingest marker IS its chunk rows (listIngestedSources reads
+  // input.source off them), so a half-written document would read as
+  // "already imported" and its missing tail could never be completed —
+  // the close-the-laptop interrupt (field question, 2026-08-10).
+  // All-or-nothing instead: an interrupted import leaves NOTHING behind
+  // and the next run ingests the document whole; a completed one is
+  // complete. No duplicates on either road. recordEngram is synchronous
+  // on the same connection, so the whole batch commits or rolls back as
+  // one — vectors included.
+  let recorded = 0;
+  const ids = [];
+  try {
+    const stateDb = require('./state.js')._dbForQuery();
+    stateDb.transaction(() => {
+      for (const p of prepared) {
+        const id = engram.recordEngram({
+          agent_id, user_id, cwd,
+          statement: p.stmt,
+          source,
+          salience: typeof opts.salience === 'number' ? opts.salience : 1.0,
+          embedding: p.embedding,
+          scope,
+          //  engram.recordEngram now defaults
+          // auto_verify=true. Bulk ingest paths (this one) opt out: each
+          // chunk would run pool-comparison against existing engrams,
+          // O(N²) for an N-chunk document — would push a 1000-chunk import
+          // from seconds to minutes. Caller still gets default truth_score=1
+          // / tier='working' (the safe defaults engram.recordEngram applies
+          // when verify is skipped).
+          auto_verify: false
+        });
+        // Strict all-or-nothing: recordEngram returning null (validation
+        // refusal, write failure) would leave a session that LOOKS
+        // imported while missing chunks — the soft variant of the
+        // interrupt bug. One bad chunk rolls the whole session back;
+        // the next run retries it complete.
+        if (!id) throw new Error('chunk ' + (ids.length + 1) + '/' + prepared.length + ' refused — rolling the session back');
+        recorded++; ids.push(id);
+      }
+    })();
+  } catch (e) {
+    return { ok: false, error: 'ingest_tx_failed: ' + String(e && e.message || e), scope, chunks: chunks.length, recorded: 0, embedded: 0, ids: [] };
   }
   return { ok: true, scope, chunks: chunks.length, recorded, embedded, ids };
 }

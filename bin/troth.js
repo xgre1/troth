@@ -1611,7 +1611,10 @@ if (command === "service") {
     var svcCfg = loadConfig();
     var ri = svcMod.install({ port: svcCfg.port || 8000 });
     console.log(ri.ok
-      ? "troth service installed (" + ri.kind + "). The proxy now starts at login.\n  unit: " + ri.unit
+      ? ("troth service installed (" + ri.kind + "). The proxy — and memory upkeep with it — now starts at login.\n  unit: " + ri.unit
+        + (ri.kind === "systemd" && ri.linger === false
+          ? "\n  note: lingering is off, so it runs only while you are logged in. `loginctl enable-linger` extends it to boot."
+          : ""))
       : "install failed: " + ri.error);
     process.exit(ri.ok ? 0 : 1);
   }
@@ -1739,6 +1742,41 @@ if (command === "doctor") {
   } catch (_e) {
     checks.push({ name: "Memory hooks runtime", ok: false, detail: "could not probe `node` on PATH — recall hooks likely fail open in Claude Code" });
   }
+
+  // Background drain heartbeat. Frozen readiness counts LOOK like slow
+  // progress; the ledger says whether anyone is actually draining (the
+  // proxy's maintenance worker or the entity daemon). Only a verdict when
+  // there is work owed — a drained index needs no heartbeat.
+  try {
+    var _mrD = require("../shared-core/memory-readiness.js").readiness();
+    var _ixD = _mrD.indexing || {};
+    var _owed = (_ixD.recall_missing || 0) > 0 || (_ixD.archive_chunks || 0) > (_ixD.archive_embedded || 0);
+    if (_owed) {
+      var _dr = _mrD.drain || {};
+      var _ago = _dr.last_run_ts ? Math.round((Date.now() - _dr.last_run_ts) / 60000) : null;
+      checks.push({ name: "Background drain", ok: !!_dr.alive, detail: _dr.alive
+        ? ("draining — last run " + (_ago === 0 ? "just now" : _ago + " min ago") + (_dr.last_notes ? " (" + _dr.last_notes + ")" : ""))
+        : (_dr.last_run_ts
+          ? ("stalled — last run " + _ago + " min ago; keep the proxy (troth start), the app, or the daemon running and it drains on idle. `troth service install` makes that permanent.")
+          : "never ran here — start the proxy (troth start) or the app; the drain runs on idle. `troth service install` makes that permanent.") });
+    }
+  } catch (_e) { /* readiness probe is optional — doctor must finish */ }
+
+  // Login service sanity. Not-installed is a fact, not a failure; a
+  // service whose unit points at a tree that no longer exists IS one —
+  // launchd keeps respawning a ghost and the operator sees a dead port
+  // with the switch on (installs move under npm updates).
+  try {
+    var _svc = require("../proxy/modules/service.js").status();
+    if (_svc.supported) {
+      var _stale = _svc.installed && _svc.target_exists === false;
+      checks.push({ name: "Login service", ok: !_stale, detail: _stale
+        ? "installed but points at a missing tree — reinstall it from here: troth service install"
+        : (_svc.installed
+          ? ("installed (" + _svc.kind + (_svc.loaded ? ", running" : ", not loaded") + (_svc.kind === "systemd" && _svc.linger === false ? ", no linger" : "") + ")")
+          : "not installed — `troth service install` keeps troth and its memory upkeep running from login") });
+    }
+  } catch (_e) { /* service module is optional — doctor must finish */ }
 
   // Claude Code (OPTIONAL — only needed for the classic proxy mode;
   // the substrate-native default does not require it).

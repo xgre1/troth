@@ -2667,6 +2667,22 @@ function listEngramsMissingEmbeddings(limit) {
 // the memories most queries need. This spans all recallable classes (~57K),
 // excluding operational/substrate_internal (259K) which is never recalled.
 // Returns type + input + output so the backfill can extract per-class text.
+// A row is INDEXABLE only if it carries text to embed — the SQL mirror of
+// the backfill's embedTextForRow (statement / text / name / a dialogue
+// turn with words). Rows with none of these (tool_call telemetry, blank
+// turns) can never leave a missing-list: counting them as "still indexing"
+// promised a drain that can never finish, and their permanent presence at
+// the head of the recall lane starved the archive lane behind them (the
+// frozen dashboard numbers, field 2026-08-09). They are NOT deleted and
+// NOT touched — they simply are not part of the index promise.
+const EMBEDDABLE_SQL = `(
+         COALESCE(json_extract(ar.output,'$.statement'),'') <> ''
+      OR COALESCE(json_extract(ar.output,'$.text'),'') <> ''
+      OR COALESCE(json_extract(ar.output,'$.name'),'') <> ''
+      OR (json_extract(ar.input,'$.tool_name') = 'dialogue.turn'
+          AND (COALESCE(json_extract(ar.input,'$.args.user_text'),'') <> ''
+            OR COALESCE(json_extract(ar.output,'$.assistant_text'),'') <> '')))`;
+
 function listRecallableMissingEmbeddings(limit, currentModel) {
   limit = Math.max(1, Math.min(500, parseInt(limit || 50, 10)));
   try {
@@ -2685,6 +2701,7 @@ function listRecallableMissingEmbeddings(limit, currentModel) {
           AND (ar.audience IS NULL OR ar.audience = 'model_visible')
           AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'docs:chats%')  -- skip recall-EXCLUDED docs:chats (never recalled; embedding them = wasted CPU + 45GB logs)
           AND (ee.engram_id IS NULL OR ee.model IS NULL OR ee.model <> ?)
+          AND ${EMBEDDABLE_SQL}
         ORDER BY ar.timestamp DESC
         LIMIT ?
       `).all(currentModel, limit) || [];
@@ -2697,6 +2714,7 @@ function listRecallableMissingEmbeddings(limit, currentModel) {
         AND (ar.audience IS NULL OR ar.audience = 'model_visible')
         AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'docs:chats%')  -- skip recall-EXCLUDED docs:chats
         AND ee.engram_id IS NULL
+        AND ${EMBEDDABLE_SQL}
       ORDER BY ar.timestamp DESC
       LIMIT ?
     `).all(limit) || [];
@@ -2723,20 +2741,23 @@ function listArchiveMissingEmbeddings(limit) {
     `).all(limit) || [];
   } catch (_) { return []; }
 }
-// Readiness counts for the memory pipeline (memory-readiness.js). Three
+// Readiness counts for the memory pipeline (memory-readiness.js). Five
 // honest numbers, one cheap pass each:
-//   recall_missing   — recallable rows the backfill still owes vectors for
-//                      (same predicate as listRecallableMissingEmbeddings,
-//                      COUNTed instead of fetched)
+//   recall_total     — indexable recallable rows (the index PROMISE)
+//   recall_embedded  — of those, rows holding a vector (for the current
+//                      model when given — a model swap honestly re-opens
+//                      the gap while the migration re-embeds)
+//   recall_missing   — rows the backfill still owes vectors for (same
+//                      predicate as listRecallableMissingEmbeddings, so
+//                      the number a surface shows IS the drain's queue)
 //   archive_chunks   — docs:chats archive rows (the imported record)
 //   archive_embedded — archive rows that hold a vector (ingest-time OR the
-//                      bounded background drain below).
-// recall_missing keeps the archive OUT (recall's pool excludes docs:chats);
-// the archive drains separately via listArchiveMissingEmbeddings, capped
-// per idle cycle, so an import done before the embed host was warm heals
-// instead of staying keyword-only forever (field-hit 2026-08-09).
+//                      bounded background drain).
+// recall counts keep the archive OUT (recall's pool excludes docs:chats)
+// and count ONLY embeddable rows — total = embedded + missing holds, so a
+// surface can render real progress instead of a number that never moves.
 function memoryIndexCounts(currentModel) {
-  const out = { recall_missing: 0, archive_chunks: 0, archive_embedded: 0 };
+  const out = { recall_total: 0, recall_embedded: 0, recall_missing: 0, archive_chunks: 0, archive_embedded: 0 };
   try {
     const d = db();
     const RECALL_WHERE = `
@@ -2744,11 +2765,16 @@ function memoryIndexCounts(currentModel) {
       LEFT JOIN engram_embeddings ee ON ee.engram_id = ar.id
       WHERE ar.memory_class IN ('episodic','semantic','identity','procedural')
         AND (ar.audience IS NULL OR ar.audience = 'model_visible')
-        AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'docs:chats%')`;
+        AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'docs:chats%')
+        AND ${EMBEDDABLE_SQL}`;
     out.recall_missing = currentModel
       ? d.prepare('SELECT COUNT(*) AS n ' + RECALL_WHERE +
           ' AND (ee.engram_id IS NULL OR ee.model IS NULL OR ee.model <> ?)').get(currentModel).n
       : d.prepare('SELECT COUNT(*) AS n ' + RECALL_WHERE + ' AND ee.engram_id IS NULL').get().n;
+    out.recall_total = d.prepare('SELECT COUNT(*) AS n ' + RECALL_WHERE).get().n;
+    out.recall_embedded = currentModel
+      ? d.prepare('SELECT COUNT(*) AS n ' + RECALL_WHERE + ' AND ee.engram_id IS NOT NULL AND ee.model = ?').get(currentModel).n
+      : d.prepare('SELECT COUNT(*) AS n ' + RECALL_WHERE + ' AND ee.engram_id IS NOT NULL').get().n;
     out.archive_chunks = d.prepare(
       "SELECT COUNT(*) AS n FROM action_records WHERE json_extract(output,'$.scope') LIKE 'docs:chats%'").get().n;
     out.archive_embedded = d.prepare(
@@ -2756,6 +2782,106 @@ function memoryIndexCounts(currentModel) {
       "WHERE json_extract(ar.output,'$.scope') LIKE 'docs:chats%'").get().n;
   } catch (_) { /* fresh db or missing tables: zeros are the honest answer */ }
   return out;
+}
+
+// Cross-process heartbeat for the maintenance ledger: the most recent
+// background_task_run decision row for a task — ANY process, ANY cwd (the
+// entity daemon and the proxy's maintenance worker share this as a lease,
+// and readiness reads it as the drain's proof-of-life). The task filter
+// lives IN the SQL (a serialized-JSON LIKE, confirmed by a real parse):
+// a windowed "read 400 recent rows and scan" version missed long-cadence
+// tasks in a busy ledger — the drain writes a row every 30s, so a WEEKLY
+// backup's last run fell outside any bounded window and its lease read
+// as free, re-running it far too often. Timestamp-bounded + LIKE → ms.
+function lastBackgroundRun(taskName, sinceMs) {
+  try {
+    const since = Date.now() - (sinceMs > 0 ? sinceMs : 24 * 60 * 60 * 1000);
+    const rows = db().prepare(`
+      SELECT timestamp, input, output FROM action_records
+      WHERE type = 'decision' AND timestamp >= ?
+        AND input LIKE ?
+      ORDER BY timestamp DESC LIMIT 20
+      -- Strip only '%' from the name: every real task name carries
+      -- underscores (embedding_backfill), and stripping those would make
+      -- the filter match nothing — heartbeat dead, lease always free.
+      -- '_' as a LIKE single-char wildcard can only over-match, and the
+      -- JSON parse below verifies the exact name anyway.
+    `).all(since, '%"task":"' + String(taskName).replace(/%/g, '') + '"%') || [];
+    for (const r of rows) {
+      let inp; try { inp = JSON.parse(r.input); } catch (_) { continue; }
+      if (!inp || inp.kind !== 'background_task_run' || inp.task !== taskName) continue;
+      let notes = null;
+      try { const o = JSON.parse(r.output); if (o && o.notes) notes = String(o.notes).slice(0, 500); } catch (_) {}
+      return { timestamp: r.timestamp, notes };
+    }
+  } catch (_) {}
+  return null;
+}
+
+// Hygiene for the maintenance ledger. The drain writes a
+// background_task_run row every 30s BY DESIGN (that row is the heartbeat
+// readiness proves life with, and the lease other workers yield to), so
+// left alone the bookkeeping grows ~3K rows/day forever on an idle
+// machine. Keep every task's MOST RECENT row at any age — leases and
+// hydrate always find their anchor — and drop the rest once they age out.
+// Scheduler bookkeeping only: the two predicates (type + kind) cannot
+// reach a memory row.
+function pruneBackgroundRunLedger(maxAgeMs) {
+  try {
+    const cutoff = Date.now() - (maxAgeMs > 0 ? maxAgeMs : 7 * 24 * 60 * 60 * 1000);
+    const r = db().prepare(`
+      DELETE FROM action_records
+      WHERE type = 'decision'
+        AND json_extract(input,'$.kind') = 'background_task_run'
+        AND timestamp < ?
+        AND id NOT IN (
+          SELECT keep_id FROM (
+            SELECT id AS keep_id, MAX(timestamp)
+            FROM action_records
+            WHERE type = 'decision' AND json_extract(input,'$.kind') = 'background_task_run'
+            GROUP BY json_extract(input,'$.task')
+          )
+        )
+    `).run(cutoff);
+    return r.changes || 0;
+  } catch (_) { return 0; }
+}
+
+// Same hygiene family, second ledger: usage_ledger rows feed the trailing
+// plan-window (≤168h) and nothing else, yet nothing ever pruned them —
+// ~20K rows in days of real use, growing forever. 30 days kept: 4× the
+// widest window the API serves, so no reachable read ever misses a row.
+function pruneUsageLedger(maxAgeMs) {
+  try {
+    const cutoff = Date.now() - (maxAgeMs > 0 ? maxAgeMs : 30 * 24 * 60 * 60 * 1000);
+    const r = db().prepare('DELETE FROM usage_ledger WHERE ts < ?').run(cutoff);
+    return r.changes || 0;
+  } catch (_) { return 0; }
+}
+
+// The memories a human can SEE — newest distilled/committed facts (never
+// docs:chats raw chunks, never substrate_internal bookkeeping). Serves the
+// dashboard's Recent memories list so "did the import actually produce
+// memories?" has a visible answer instead of a bare count (field question,
+// 2026-08-09: "δεν βλέπω κάπου τα engrams").
+function listRecentMemories(limit) {
+  limit = Math.max(1, Math.min(50, parseInt(limit || 10, 10)));
+  try {
+    return db().prepare(`
+      SELECT ar.id, ar.timestamp,
+             json_extract(ar.output,'$.statement') AS statement,
+             json_extract(ar.output,'$.scope')     AS scope,
+             ar.memory_class
+      FROM action_records ar
+      WHERE ar.type = 'commitment'
+        AND ar.memory_class IN ('semantic','identity','procedural')
+        AND (ar.audience IS NULL OR ar.audience = 'model_visible')
+        AND COALESCE(json_extract(ar.output,'$.statement'),'') <> ''
+        AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'docs:chats%')
+      ORDER BY ar.timestamp DESC
+      LIMIT ?
+    `).all(limit) || [];
+  } catch (_) { return []; }
 }
 
 // Dense-retrieval support — TRUE hybrid recall. Stream ALL
@@ -3064,6 +3190,10 @@ const _exports = {
   listRecallableMissingEmbeddings,
   memoryIndexCounts,
   listArchiveMissingEmbeddings,
+  lastBackgroundRun,
+  pruneBackgroundRunLedger,
+  pruneUsageLedger,
+  listRecentMemories,
   streamRecallableEmbeddings,
   getActionsByIds,
   close,

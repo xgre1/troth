@@ -2289,6 +2289,12 @@ function main() {
   }
 
   const bgWorker = backgroundWorker.startWorker({
+    // The proxy hosts a maintenance worker for the same two upkeep tasks
+    // (embedding drain, import sync) so dashboard-only topologies drain at
+    // all; the background_task_run ledger is the shared lease. This daemon
+    // opts in too — whichever process fires first wins the cadence window,
+    // and neither ever double-works a queue the other just drained.
+    cross_process_lease: true,
     submit: (event) => runtime.submit(event),
     getView: () => {
       const derived = runtime.state().derived || {};

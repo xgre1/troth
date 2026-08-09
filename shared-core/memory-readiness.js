@@ -28,7 +28,12 @@ function readiness() {
     // its absence never blocks 'ready' — it is stated, not hidden.
     reranker: { ready: false },
     imported: { chat_sessions: 0, distilled_sessions: 0 },
-    indexing: { recall_missing: 0, archive_chunks: 0, archive_embedded: 0 },
+    indexing: { recall_total: 0, recall_embedded: 0, recall_missing: 0, archive_chunks: 0, archive_embedded: 0 },
+    // The drain's proof-of-life, read from the background_task_run ledger.
+    // Counts without a heartbeat were the field failure mode: a frozen "28
+    // still indexing" for two days LOOKED like slow progress when in truth
+    // no process anywhere was draining (dashboard-only topology, 2026-08-09).
+    drain: { alive: false, last_run_ts: null, last_notes: null },
     reasons: []
   };
 
@@ -57,6 +62,18 @@ function readiness() {
     out.indexing = state.memoryIndexCounts(model);
   } catch (_) {}
 
+  try {
+    const state = require('./state.js');
+    const lr = state.lastBackgroundRun('embedding_backfill', 24 * 60 * 60 * 1000);
+    if (lr) {
+      out.drain.last_run_ts = lr.timestamp;
+      out.drain.last_notes = lr.notes || null;
+      // 2 min > idle threshold (60s) + tick (30s): a living worker always
+      // lands inside this window once the machine has had one quiet minute.
+      out.drain.alive = (Date.now() - lr.timestamp) < 2 * 60 * 1000;
+    }
+  } catch (_) {}
+
   if (out.embedder.unavailable) {
     out.stage = 'unavailable';
     out.reasons.push('the embedding engine cannot run here: recall is word-matching only');
@@ -65,7 +82,9 @@ function readiness() {
     out.reasons.push('memory engine downloading (' + Math.round(out.embedder.progress * 100) + '%)');
   } else if (out.indexing.recall_missing > 0) {
     out.stage = 'indexing';
-    out.reasons.push(out.indexing.recall_missing + ' memories still indexing — answers get sharper as this drains');
+    out.reasons.push(out.indexing.recall_missing + ' memories still indexing ('
+      + out.indexing.recall_embedded + '/' + out.indexing.recall_total
+      + ' indexed) — answers get sharper as this drains');
   } else {
     out.stage = 'ready';
   }
@@ -76,9 +95,21 @@ function readiness() {
     // The archive drains AFTER the recall pool, bounded per idle cycle
     // (background-worker ARCHIVE_CHUNK) — an import done before the embed
     // host was warm heals instead of staying keyword-only forever. Until it
-    // drains, say so; do not imply full semantic search over the archive.
+    // drains, say so; do not imply full semantic search over the archive —
+    // and only claim a background drain when one is PROVABLY alive.
     out.reasons.push((out.indexing.archive_chunks - out.indexing.archive_embedded)
-      + ' imported archive chunks still embedding (background drain)');
+      + ' imported archive chunks still embedding ('
+      + out.indexing.archive_embedded + '/' + out.indexing.archive_chunks + ' done'
+      + (out.drain.alive ? ', background drain running' : '') + ')');
+  }
+  // The heartbeat verdict itself: work is owed but nobody has drained in
+  // the last 2 minutes → say it, instead of letting frozen counts imply
+  // progress. (With the proxy's maintenance worker this should only appear
+  // in the first idle minute after boot, or when maintenance is disabled.)
+  if (!out.drain.alive && out.stage !== 'unavailable'
+      && (out.indexing.recall_missing > 0
+          || out.indexing.archive_chunks > out.indexing.archive_embedded)) {
+    out.reasons.push('no background worker has drained memory recently — it runs on idle while the proxy (troth start), the app, or the daemon is up; `troth service` keeps one up from login');
   }
   return out;
 }

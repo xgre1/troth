@@ -108,7 +108,7 @@ function install(opts) {
     'Description=troth proxy\n' +
     'After=network.target\n\n' +
     '[Service]\n' +
-    'ExecStart=' + node + ' ' + server + '\n' +
+    'ExecStart="' + node + '" "' + server + '"\n' +
     'Environment=GF_PORT=' + port + '\n' +
     'Restart=on-failure\n' +
     'WorkingDirectory=' + workDir + '\n\n' +
@@ -117,7 +117,17 @@ function install(opts) {
   fs.writeFileSync(p.unit, unitText);
   execFileSync('systemctl', ['--user', 'daemon-reload'], { stdio: 'pipe' });
   execFileSync('systemctl', ['--user', 'enable', '--now', 'troth-proxy.service'], { stdio: 'pipe' });
-  return { ok: true, kind: p.kind, unit: p.unit };
+  // Without lingering a --user unit lives only inside a login session:
+  // fine on a desktop, but a reboot nobody logs into (or a headless box)
+  // would leave troth — and its memory upkeep — down until someone signs
+  // in. enable-linger needs no sudo for one's own user on standard
+  // logind; best-effort because containers and odd distros may lack it.
+  let linger = false;
+  try {
+    execFileSync('loginctl', ['enable-linger', os.userInfo().username], { stdio: 'pipe' });
+    linger = true;
+  } catch (_) { /* stated in the result; the login-session scope still works */ }
+  return { ok: true, kind: p.kind, unit: p.unit, linger: linger };
 }
 
 function uninstall() {
@@ -149,7 +159,31 @@ function status() {
       loaded = out.trim() === 'active';
     }
   } catch (_) { loaded = false; }
-  return { supported: true, platform: process.platform, kind: p.kind, unit: p.unit, installed: installed, loaded: loaded };
+  let linger = null;
+  if (p.kind === 'systemd') {
+    try {
+      const out = execFileSync('loginctl', ['show-user', os.userInfo().username, '--property=Linger'], { encoding: 'utf8' });
+      linger = /Linger=yes/.test(out);
+    } catch (_) { linger = null; }
+  }
+  // A unit survives the tree it points at (npm updates move installs,
+  // uninstalled repos leave launchd respawning a ghost). Read the server
+  // path back out of the unit/shim and check the disk, so `troth doctor`
+  // can say "your login service points at a missing tree" instead of the
+  // operator wondering why the port is dead with the service on.
+  let target_exists = null;
+  try {
+    if (installed) {
+      let body = fs.readFileSync(p.unit, 'utf8');
+      if (p.kind === 'launchd') {
+        const shim = path.join(os.homedir(), '.troth', 'bin', 'troth');
+        if (fs.existsSync(shim)) body = fs.readFileSync(shim, 'utf8');
+      }
+      const m = body.match(/["' =]([^"'\n]*server\.js)/);
+      target_exists = m ? fs.existsSync(m[1]) : null;
+    }
+  } catch (_) { target_exists = null; }
+  return { supported: true, platform: process.platform, kind: p.kind, unit: p.unit, installed: installed, loaded: loaded, linger: linger, target_exists: target_exists };
 }
 
 // Restart the proxy THROUGH its manager, when it has one.

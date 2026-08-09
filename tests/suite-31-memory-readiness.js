@@ -86,4 +86,52 @@ test('READY-3: the proxy serves it read-only on the authed GET chain (source pin
   assert.ok(/memory-readiness\.js/.test(handler), 'the branch serves the shared module');
   assert.ok(!/prepareModel|ensureServer|downloadFollow/.test(handler), 'a status read never starts a download');
 });
+
+test('READY-4: rows with no embeddable text are OUTSIDE the index promise (never counted, never listed)', () => {
+  const before = state.memoryIndexCounts(null);
+  const mk = (input, output) => {
+    const id = ar.uuidv7();
+    const wrote = state.recordAction({ id, timestamp: Date.now(), type: 'tool_call',
+      agent_id: 'ready-test', cwd: null, user_id: 'operator',
+      audience: 'model_visible', memory_class: 'episodic',
+      input, output }, 'poison probe');
+    assert.ok(wrote, 'poison row persisted');
+    return id;
+  };
+  // The two field shapes behind the frozen dashboards: a blank dialogue
+  // turn and bare tool telemetry (sql_exec-style) in a recallable class.
+  // They stay in the db untouched — they are simply not "still indexing".
+  const p1 = mk({ tool_name: 'dialogue.turn', args: { user_text: '' } }, { assistant_text: '' });
+  const p2 = mk({ tool_name: 'sql_exec', args: { q: 'SELECT 1' } }, { status: 'ok' });
+  const after = state.memoryIndexCounts(null);
+  assert.strictEqual(after.recall_missing, before.recall_missing, 'poison never inflates recall_missing');
+  assert.strictEqual(after.recall_total, before.recall_total, 'nor the index-promise total');
+  assert.strictEqual(after.recall_total, after.recall_embedded + after.recall_missing,
+    'total = embedded + missing stays a true progress pair');
+  const ids = state.listRecallableMissingEmbeddings(500).map((r) => r.id);
+  assert.ok(!ids.includes(p1) && !ids.includes(p2), 'and the drain lister never pulls them — the archive lane cannot starve behind them');
+});
+
+test('READY-5: the drain heartbeat reads the ledger and gates every "background drain" claim', () => {
+  // This hermetic home has work owed (READY-1 seeded an unembedded row)
+  // and no ledger row yet → not alive, and the verdict is STATED.
+  let r = mr.readiness();
+  assert.strictEqual(r.drain.alive, false, 'no ledger row → not alive: ' + JSON.stringify(r.drain));
+  if (r.stage !== 'unavailable') {
+    assert.ok(r.reasons.some((s) => /no background worker/.test(s)),
+      'work owed + no heartbeat → the not-running verdict is a reason: ' + JSON.stringify(r.reasons));
+  }
+  // A fresh run record — exactly what startWorker submits — flips it.
+  const id = ar.uuidv7();
+  const wrote = state.recordAction({ id, timestamp: Date.now(), type: 'decision',
+    agent_id: 'maintenance', cwd: null, user_id: 'default',
+    audience: 'substrate_internal', memory_class: 'operational',
+    input: { kind: 'background_task_run', task: 'embedding_backfill', signals: { scheduler: true } },
+    output: { decision: 'ran', reason: 'startWorker', notes: 'embedding_backfill: embedded=64 failed=0 this_run (more remaining)' } }, 'background task run');
+  assert.ok(wrote, 'ledger row persisted');
+  r = mr.readiness();
+  assert.strictEqual(r.drain.alive, true, 'fresh ledger row → alive');
+  assert.ok(/embedded=64/.test(String(r.drain.last_notes)), 'the run notes ride home: ' + r.drain.last_notes);
+  assert.ok(!r.reasons.some((s) => /no background worker/.test(s)), 'and the verdict clears');
+});
 };

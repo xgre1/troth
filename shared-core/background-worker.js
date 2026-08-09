@@ -702,7 +702,10 @@ const taskBackup = {
       fs2 = require('fs'); path2 = require('path'); os2 = require('os');
     } catch (_) { return { events: [], notes: ['backup: module missing'] }; }
     const dir = path2.join(process.env.HOME || os2.homedir(), '.troth', 'backups');
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    // pid suffix: two workers racing the same lease window (login burst)
+    // must never write the same bundle path — worst case is two backups,
+    // never one corrupted by interleaved writers.
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19) + '-' + process.pid;
     const bundle = path2.join(dir, 'substrate-' + stamp);
     try {
       const r = backup.exportArchive({ out_path: bundle });
@@ -1139,6 +1142,24 @@ function embedTextForRow(row) {
   return '';
 }
 
+// Per-process quarantine for rows the drain already tried and failed —
+// whitespace-only text the SQL embeddable-predicate cannot see, an embed
+// that returned null while its batch-mates succeeded, a setEmbedding
+// refusal. Retried at most once per process lifetime (the Set dies with
+// the process), so a deterministic bad row costs one attempt instead of
+// wedging every idle cycle on the same stone.
+const _embedQuarantine = new Set();
+
+function collectEmbedWork(rows) {
+  const work = []; let dropped = 0;
+  for (const row of rows) {
+    const text = embedTextForRow(row);
+    if (!text) { _embedQuarantine.add(row.id); dropped++; continue; }
+    work.push({ id: row.id, statement: text });
+  }
+  return { work: work, dropped: dropped };
+}
+
 const taskEmbeddingBackfill = {
   name: 'embedding_backfill',
   // Short cadence so it keeps draining the backlog across idle windows; once
@@ -1167,29 +1188,32 @@ const taskEmbeddingBackfill = {
     const ARCHIVE_CHUNK = 64;
     const t0 = Date.now();
     let embedded = 0, failed = 0, scanned = 0, more = false;
+    let quarantined = 0;
     while (Date.now() - t0 < RUN_BUDGET_MS) {
       // Scan the FULL recallable corpus (episodic/semantic/identity/procedural),
       // not just commitment-engrams — recall's pool is dominated by episodic +
       // semantic, which must have vectors or semantic rerank stays blind.
       // Pass MODEL_ID → also re-embeds rows from a PREVIOUS model (swap migration).
-      let rows = state.listRecallableMissingEmbeddings(CHUNK, embedder.MODEL_ID);
+      let rows = state.listRecallableMissingEmbeddings(CHUNK, embedder.MODEL_ID)
+        .filter(function (r) { return !_embedQuarantine.has(r.id); });
       let cap = CHUNK;
-      if (!rows.length) {
-        rows = state.listArchiveMissingEmbeddings(ARCHIVE_CHUNK);
+      let picked = collectEmbedWork(rows);
+      if (!picked.work.length) {
+        // The recall lane is drained OR holds only quarantined residue —
+        // either way the archive lane gets its turn NOW. Before this
+        // fall-through, residue at the head of the recall lane starved the
+        // archive forever (the frozen "still embedding" dashboards, field
+        // report 2026-08-09).
+        rows = state.listArchiveMissingEmbeddings(ARCHIVE_CHUNK)
+          .filter(function (r) { return !_embedQuarantine.has(r.id); });
         cap = ARCHIVE_CHUNK;
+        picked = collectEmbedWork(rows);
       }
-      if (!rows.length) { more = false; break; }
+      scanned += rows.length;
+      quarantined += picked.dropped;
+      const work = picked.work;
+      if (!work.length) { more = false; break; }
       more = rows.length === cap;
-      // Extract the clean per-class semantic text (NOT toSearchText — that
-      // prepends type/agent_id/cwd metadata that pollutes the vector).
-      const work = [];
-      for (const row of rows) {
-        scanned++;
-        const text = embedTextForRow(row);
-        if (!text) { failed++; continue; }
-        work.push({ id: row.id, statement: text });
-      }
-      if (!work.length) break;
       // Documents are embedded raw (role:'document'); the query side adds the
       // Qwen3 Instruct/Query wrapper. wait:true — the backfill may load the model.
       const vecs = await embedder.embedBatch(work.map(w => w.statement), { role: 'document' });
@@ -1199,15 +1223,20 @@ const taskEmbeddingBackfill = {
         if (Array.isArray(vec) && vec.length) {
           anyOk = true;
           const ok = state.setEmbedding(work[i].id, vec, { model: embedder.MODEL_ID });
-          if (ok) embedded++; else failed++;
+          if (ok) { embedded++; } else { failed++; quarantined++; _embedQuarantine.add(work[i].id); }
         } else {
           failed++;
         }
       }
       // Embedder unavailable (node-llama-cpp missing or still downloading):
       // a whole chunk came back null → stop this run, try again next cadence.
+      // NOTHING is quarantined for that — a cold embedder is not the rows'
+      // fault; per-row nulls inside an otherwise-successful batch ARE.
       if (!anyOk) {
         return { events: [], notes: ['embedding_backfill: embedder not ready (downloading/unavailable) — staying lexical this cycle'] };
+      }
+      for (let i = 0; i < work.length; i++) {
+        if (!(Array.isArray(vecs[i]) && vecs[i].length)) { quarantined++; _embedQuarantine.add(work[i].id); }
       }
     }
     if (scanned === 0) {
@@ -1216,8 +1245,94 @@ const taskEmbeddingBackfill = {
     return {
       events: [],
       notes: ['embedding_backfill: embedded=' + embedded + ' failed=' + failed +
+              (quarantined ? ' quarantined=' + quarantined : '') +
               ' this_run' + (more ? ' (more remaining)' : ' (backlog drained)')]
     };
+  }
+};
+
+// taskImportSync — the FLOW half of chat-history import (the manual button/
+// CLI is the BOOTSTRAP half). Once an operator has imported a source ONCE
+// (their standing consent marker in the ingest ledger), new sessions of
+// that same source keep flowing in on idle cycles — raw archive only:
+// chunking + local embedding cost nothing and leave the machine never.
+// The distill half calls a model through the proxy and spends real quota,
+// so it stays on the explicit button/CLI where the operator presses it.
+// Never a new source uninvited; TROTH_IMPORT_SYNC=0 or config
+// import_auto=false turns the task off entirely. Spawns the SAME importer
+// CLI the button spawns (idempotent by provenance prefix) so "import"
+// keeps meaning ONE thing on every surface.
+const taskImportSync = {
+  name: 'import_sync',
+  cadence_ms: 15 * 60 * 1000,
+  run: async function () {
+    const fs = require('fs');
+    const os = require('os');
+    const cp = require('child_process');
+    const path = require('path');
+    if (process.env.TROTH_IMPORT_SYNC === '0') {
+      return { events: [], notes: ['import_sync: disabled by env'] };
+    }
+    try {
+      const cfg = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.troth', 'config.json'), 'utf8'));
+      if (cfg && cfg.import_auto === false) {
+        return { events: [], notes: ['import_sync: disabled by config (import_auto=false)'] };
+      }
+    } catch (_) { /* no config — default on */ }
+    const ch = require('./chameleon.js');
+    const prior = ch.listIngestedSourcesPrefix('docs:chats') || [];
+    const ROOTS = {
+      'claude-cli': path.join(os.homedir(), '.claude', 'projects'),
+      'codex': path.join(os.homedir(), '.codex', 'sessions')
+    };
+    const due = [];
+    for (const src of Object.keys(ROOTS)) {
+      if (!fs.existsSync(ROOTS[src])) continue;
+      // Consent: a human imported this source at least once before.
+      if (!prior.some(function (s) { return String(s).indexOf('import:' + src + ':') === 0; })) continue;
+      due.push(src);
+    }
+    if (!due.length) {
+      return { events: [], notes: ['import_sync: nothing consented yet (first import stays a human act)'] };
+    }
+    if (process.env.TROTH_IMPORT_SYNC_DRY === '1') {
+      return { events: [], notes: ['import_sync: dry — would sync ' + due.join(',')] };
+    }
+    const notes = [];
+    for (const src of due) {
+      try {
+        const r = cp.spawnSync(process.execPath, [path.join(__dirname, '..', 'bin', 'troth-import-chats.js'), '--source', src], {
+          encoding: 'utf8', timeout: 10 * 60 * 1000,
+          env: process.env
+        });
+        const lines = String(r.stdout || '').trim().split('\n');
+        let res = null;
+        try { res = JSON.parse(lines[lines.length - 1]).result; } catch (_) {}
+        notes.push('import_sync ' + src + ': ' + (res
+          ? ('sessions=' + (res.sessions || 0) + ' skipped=' + (res.skipped || 0) + (res.repaired ? ' repaired=' + res.repaired : ''))
+          : ('exit=' + r.status)));
+      } catch (e) {
+        notes.push('import_sync ' + src + ': failed — ' + (e && e.message || e));
+      }
+    }
+    return { events: [], notes: notes };
+  }
+};
+
+// taskLedgerPrune — the maintenance ledger's own hygiene (the policy and
+// the two-predicate safety live in state.pruneBackgroundRunLedger).
+const taskLedgerPrune = {
+  name: 'ledger_prune',
+  cadence_ms: 24 * 60 * 60 * 1000,
+  run: async function () {
+    const state = require('./state.js');
+    try {
+      const n = state.pruneBackgroundRunLedger(7 * 24 * 60 * 60 * 1000);
+      const u = state.pruneUsageLedger(30 * 24 * 60 * 60 * 1000);
+      return { events: [], notes: ['ledger_prune: removed ' + n + ' aged background_task_run rows (most-recent per task kept)' + (u ? ' + ' + u + ' usage rows past 30d' : '')] };
+    } catch (e) {
+      return { events: [], notes: ['ledger_prune: ' + (e && e.message || e)] };
+    }
   }
 };
 
@@ -1361,7 +1476,7 @@ function hydrateLastRunFromRecords(cwd, stateOverride) {
   return lastRun;
 }
 
-const DEFAULT_TASKS = [taskContradictionScan, taskDormantReview, taskStateSummary, taskDriftScan, taskEngramGc, taskAnchorSuggest, taskIdentityExtract, taskProcedureCompile, taskReconsolidationReview, taskSchemaDeltaCompress, taskBackup, taskOrchestrationReview, taskHypothesisGeneration, taskPurposeRefresh, taskWorkingMemoryConsolidation, taskEmbeddingBackfill, taskDormancyWarn, taskWalReplicate];
+const DEFAULT_TASKS = [taskContradictionScan, taskDormantReview, taskStateSummary, taskDriftScan, taskEngramGc, taskAnchorSuggest, taskIdentityExtract, taskProcedureCompile, taskReconsolidationReview, taskSchemaDeltaCompress, taskBackup, taskOrchestrationReview, taskHypothesisGeneration, taskPurposeRefresh, taskWorkingMemoryConsolidation, taskEmbeddingBackfill, taskDormancyWarn, taskWalReplicate, taskImportSync, taskLedgerPrune];
 // Closed-extension worker tasks (guarded optional require — absent in the open build).
 try { const _ext = require('./core-ext.js'); if (Array.isArray(_ext.workerTasks)) DEFAULT_TASKS.push(..._ext.workerTasks); } catch (_) {}
 
@@ -1394,6 +1509,12 @@ function startWorker(opts) {
   // to render "the substrate just noticed X" without polling L1.
   // Signature: notify({task, events, notes, elapsed_ms, ts})
   const notify = typeof opts.notify === 'function' ? opts.notify : null;
+  // Cross-process lease: when true, a due task is skipped if ANY process
+  // recorded a run of it within its cadence (the background_task_run ledger
+  // IS the lease). This is what lets the proxy's maintenance worker and the
+  // entity daemon's full worker coexist without double-draining one queue —
+  // whichever fires first wins the window, the other sees the fresh row.
+  const crossLease = opts.cross_process_lease === true;
 
   // Hydrated, not born empty: restarts inherit what already ran.
   const lastRun = hydrateLastRunFromRecords(opts.cwd || (opts.substrate_ctx && opts.substrate_ctx.cwd) || process.cwd(), opts.state);
@@ -1421,6 +1542,12 @@ function startWorker(opts) {
           ? taskCadenceOverrides[task.name]
           : task.cadence_ms;
         if (Date.now() - last < cadence) continue;
+        if (crossLease) {
+          try {
+            const led = require('./state.js').lastBackgroundRun(task.name, cadence);
+            if (led && led.timestamp) { lastRun.set(task.name, led.timestamp); continue; }
+          } catch (_) { /* ledger unreadable — run rather than stall */ }
+        }
         const taskStart = Date.now();
         let result;
         try { result = await Promise.resolve(task.run(view)); }
@@ -1431,7 +1558,7 @@ function startWorker(opts) {
           submit({
             type: 'decision',
             input: { kind: 'background_task_run', task: task.name, signals: { scheduler: true } },
-            output: { decision: 'ran', reason: 'startWorker' }
+            output: { decision: 'ran', reason: 'startWorker', notes: (result && result.notes || []).slice(0, 4).join(' | ').slice(0, 500) }
           });
         } catch (_) { /* best-effort */ }
         const elapsed = Date.now() - taskStart;
@@ -1484,8 +1611,13 @@ function startWorker(opts) {
     }
   }
 
-  // Boot
-  timer = setTimeout(tick, tickMs);
+  // Boot — with a small first-tick jitter. Login starts several workers at
+  // once (the launchd proxy, the app's proxy, the entity daemon), and
+  // perfectly synchronized first cycles all see an empty lease and fire
+  // the same task before any of them has written its ledger row. A few
+  // desynchronized seconds make the lease real; capped so tight test
+  // ticks (40ms) stay tight.
+  timer = setTimeout(tick, tickMs + Math.floor(Math.random() * Math.min(tickMs, 15000)));
 
   return { stop, noteForegroundActivity, _tasks: tasks };
 }
@@ -1668,6 +1800,9 @@ module.exports = {
     backup:            taskBackup,
     hypothesisGeneration: taskHypothesisGeneration,
     dormancyWarn:      taskDormancyWarn,
-    walReplicate:      taskWalReplicate
+    walReplicate:      taskWalReplicate,
+    embeddingBackfill: taskEmbeddingBackfill,
+    importSync:        taskImportSync,
+    ledgerPrune:       taskLedgerPrune
   }
 };

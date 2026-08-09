@@ -644,6 +644,20 @@ const server = http.createServer((req, res) => {
   const clearWatchdog = () => clearTimeout(watchdog);
   res.on('finish', clearWatchdog);
   res.on('close', clearWatchdog);
+  // The maintenance worker drains ONLY while the operator is quiet — and
+  // "quiet" means no WORK, not no polling. The dashboard breathes GETs
+  // constantly (stats 5s, logs 3s, connection 10s, readiness 15s), so an
+  // open tab would hold the worker hostage forever and the operator
+  // WATCHING the frozen numbers would be the one freezing them — a
+  // self-freezing gauge, the exact disease this worker cures. Every
+  // mutating request (chat turns, imports, saves are POST/PUT/DELETE)
+  // counts as foreground; GETs never do. Losing to a concurrent read is
+  // a CPU nicety; losing to the gauge is the bug.
+  try {
+    if (global.__troth_maintenance && req.method !== 'GET') {
+      global.__troth_maintenance.noteForegroundActivity();
+    }
+  } catch (_) {}
 
   let url = req.url.split('?')[0];
   const query = req.url.includes('?') ? new URLSearchParams(req.url.split('?')[1]) : new URLSearchParams();
@@ -1433,7 +1447,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.method === 'GET' && (url.startsWith('/api/substrate/') || url === '/api/embed/status' || url === '/api/localchat/status' || url === '/api/memory/readiness' || url === '/api/usage/plan-window' || url === '/api/config/coherence')) {
+  if (req.method === 'GET' && (url.startsWith('/api/substrate/') || url === '/api/embed/status' || url === '/api/localchat/status' || url === '/api/memory/readiness' || url === '/api/memory/recent' || url === '/api/usage/plan-window' || url === '/api/config/coherence')) {
     // A4: these reads serve the partner's MEMORY. The dead
     // duplicate handlers further down all carried checkRemoteAuth, but this
     // live chain had none - any non-loopback caller could read the substrate
@@ -1495,6 +1509,15 @@ const server = http.createServer((req, res) => {
         // kick; this never starts anything.
         try { out = require('../shared-core/memory-readiness.js').readiness(); }
         catch (e) { out = { stage: 'unavailable', error: String(e && e.message || e) }; }
+      } else if (url === '/api/memory/recent') {
+        // The memories a human can SEE — newest distilled/committed facts,
+        // so "did the import actually produce memories?" has a visible
+        // answer on the dashboard instead of a bare count (field question,
+        // 2026-08-09). Read-only; raw archive chunks and substrate
+        // bookkeeping never appear here.
+        try {
+          out = { memories: sharedState.listRecentMemories(query.get('limit')) };
+        } catch (e) { out = { memories: [], error: String(e && e.message || e) }; }
       } else if (url === '/api/usage/plan-window') {
         // Subscription consumption over a trailing window (?hours=5,
         // clamped 1..168). Ingest-on-read first: the tail is byte-
@@ -5684,6 +5707,54 @@ server.listen(listenPort, BIND_HOST, () => {
       log('Watcher: ' + (r.started || r.already_running ? 'started (' + resolveAgentId() + ', 10s poll)' : 'failed to start'));
     } catch (e) {
       log('Watcher autostart failed: ' + (e && e.message || e));
+    }
+  }
+  // ── Maintenance worker ────────────────────────────────────────
+  // The memory pipeline's upkeep (embedding drain, import delta-sync) has
+  // to live where EVERY topology keeps a process alive — and that is this
+  // proxy: a dashboard-only Linux install (`troth start` + browser) has no
+  // entity daemon, so before this block nothing there ever drained the
+  // index and the readiness numbers froze forever (field report,
+  // 2026-08-09). The entity daemon still runs the full task set when it is
+  // up; the background_task_run ledger acts as a cross-process lease so
+  // the two never double-work one queue. TROTH_MAINTENANCE=0 disables.
+  if (process.env.TROTH_MAINTENANCE !== '0') {
+    try {
+      const bw = require('../shared-core/background-worker.js');
+      const stM = require('../shared-core/state.js');
+      const arM = require('../shared-core/action-record.js');
+      global.__troth_maintenance = bw.startWorker({
+        // Upkeep only, never cognition: the drain, the import flow, the
+        // weekly backup, the (opt-in) WAL replica and the ledger's own
+        // hygiene — the things a substrate silently loses when no entity
+        // daemon exists. The thinking tasks stay the entity's alone.
+        tasks: [bw.tasks.embeddingBackfill, bw.tasks.importSync, bw.tasks.backup, bw.tasks.walReplicate, bw.tasks.ledgerPrune],
+        cross_process_lease: true,
+        idle_threshold_ms: Math.max(parseInt(process.env.TROTH_MAINT_IDLE_MS || '60000', 10) || 60000, 0),
+        tick_ms: Math.max(parseInt(process.env.TROTH_MAINT_TICK_MS || '30000', 10) || 30000, 250),
+        submit: (ev) => {
+          // Thin persistence shim: the proxy has no cognitive runtime; the
+          // ledger row (and only that) must still land so readiness gets a
+          // heartbeat and the lease binds across processes. operational/
+          // substrate_internal keeps these OUT of every recall pool.
+          try {
+            if (!ev || ev.type !== 'decision') return;
+            const rec = {
+              id: arM.uuidv7(), timestamp: Date.now(), type: 'decision',
+              agent_id: 'maintenance', user_id: 'default', cwd: null,
+              memory_class: 'operational', audience: 'substrate_internal',
+              input: ev.input || {}, output: ev.output || {}
+            };
+            const v = arM.validate(rec);
+            if (v && v.ok) stM.recordAction(rec, 'background task run');
+          } catch (_) { /* best-effort */ }
+        },
+        getView: () => ({}),
+        notify: (n) => { try { log('[maintenance] ' + n.task + ': ' + (n.notes || []).join(' | ')); } catch (_) {} }
+      });
+      log('Maintenance: embedding drain + import sync (idle-gated, cross-process lease)');
+    } catch (e) {
+      log('Maintenance worker failed to start: ' + (e && e.message || e));
     }
   }
 });

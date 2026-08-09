@@ -45,16 +45,26 @@ async function distillAndRecord(text, source) {
   const out = await _proxyDistill(text);
   const facts = String(out).split('\n').filter(l => /^\s*[-*]\s+/.test(l)).map(l => l.replace(/^\s*[-*]\s+/, '').trim()).filter(l => l.length >= 8);
   let rec = 0;
-  for (const f of facts) {
-    // input.source carries the SESSION provenance key ('import:<src>:...'),
-    // because listIngestedSources reads exactly that field — the old
-    // constant 'import:chat-distill' there meant the distill half NEVER
-    // registered as done and every re-run re-distilled (and re-billed)
-    // every session. The kind marker moves to input.kind; output.source
-    // keeps the same provenance for the read side, unchanged.
-    const r = { id: _ar.uuidv7(), timestamp: Date.now(), type: 'commitment', agent_id: AGENT, user_id: 'default', cwd: null, memory_class: 'semantic', audience: 'model_visible', input: { source: source, kind: 'chat-distill' }, output: { statement: f, commitment_type: 'fact', scope: 'memory:chat-distilled', source: source } };
-    try { const v = _ar.validate(r); if (v && v.ok) { _state.recordAction(r, _ar.toSearchText(r)); rec++; } } catch (_) {}
-  }
+  // One transaction for the whole session's facts — the distill marker is
+  // the fact rows themselves (input.source), so a half-written session
+  // would register as distilled and its missing tail could never be
+  // completed (same interrupt family as the raw half, chameleon.js).
+  // The model call above already happened; these writes are sync and
+  // commit or roll back as one.
+  try {
+    _state._dbForQuery().transaction(() => {
+      for (const f of facts) {
+        // input.source carries the SESSION provenance key ('import:<src>:...'),
+        // because listIngestedSources reads exactly that field — the old
+        // constant 'import:chat-distill' there meant the distill half NEVER
+        // registered as done and every re-run re-distilled (and re-billed)
+        // every session. The kind marker moves to input.kind; output.source
+        // keeps the same provenance for the read side, unchanged.
+        const r = { id: _ar.uuidv7(), timestamp: Date.now(), type: 'commitment', agent_id: AGENT, user_id: 'default', cwd: null, memory_class: 'semantic', audience: 'model_visible', input: { source: source, kind: 'chat-distill' }, output: { statement: f, commitment_type: 'fact', scope: 'memory:chat-distilled', source: source } };
+        try { const v = _ar.validate(r); if (v && v.ok) { _state.recordAction(r, _ar.toSearchText(r)); rec++; } } catch (_) {}
+      }
+    })();
+  } catch (_) { rec = 0; }
   return { ok: rec > 0, recorded: rec };
 }
 
@@ -252,6 +262,31 @@ function repairClaudeProvenance() {
     console.log(JSON.stringify({ detected: found }));
     return;
   }
+  // One importer at a time, machine-wide. The auto-sync task and the
+  // dashboard button can otherwise race the same fresh session: both read
+  // provenance before either has written, and the session lands twice.
+  // O_EXCL is the arbiter; a dead holder's stale lock is reclaimed. The
+  // --detect path above stays lock-free (read-only).
+  const LOCK = path.join(HOME, '.troth', 'import.lock');
+  const takeLock = () => {
+    try { fs.mkdirSync(path.dirname(LOCK), { recursive: true }); } catch (_) {}
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try { fs.writeFileSync(LOCK, String(process.pid), { flag: 'wx' }); return true; }
+      catch (_) {
+        let pid = 0; try { pid = parseInt(fs.readFileSync(LOCK, 'utf8'), 10) || 0; } catch (_) {}
+        let live = false;
+        if (pid > 0) { try { process.kill(pid, 0); live = true; } catch (e) { live = !!(e && e.code === 'EPERM'); } }
+        if (live) return false;
+        try { fs.unlinkSync(LOCK); } catch (_) {}
+      }
+    }
+    return false;
+  };
+  if (!takeLock()) {
+    console.log(JSON.stringify({ result: { skipped_locked: true, sessions: 0, chunks: 0, skipped: 0, note: 'another import is already running on this machine' } }));
+    return;
+  }
+  process.on('exit', () => { try { if (parseInt(fs.readFileSync(LOCK, 'utf8'), 10) === process.pid) fs.unlinkSync(LOCK); } catch (_) {} });
   // Web export-drop: --export-file <conversations.json> --provider chatgpt|claude-ai
   const expIdx = a.indexOf('--export-file');
   if (expIdx >= 0) {

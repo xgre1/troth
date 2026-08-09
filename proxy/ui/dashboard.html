@@ -943,6 +943,7 @@ body.op-on #op-row { color: var(--text-dim); }
          the app's Memory page and chat hint render, so no two surfaces can
          disagree about whether memory is done. -->
     <div id="memory-readiness" style="margin-top:6px;font-size:11px;color:var(--text-muted)"></div>
+    <div id="memory-recent" style="margin-top:8px"></div>
   </div>
 
   <div class="settings-card full-width">
@@ -4474,17 +4475,51 @@ function installStackPart(part){
 }
 // ── Chat import card ───────────────────────────────────────────────────────
 var _importTimer = null;
-// Memory readiness line — the same core-authored wording every surface
-// renders (shared-core/memory-readiness.js). Reasons are already human;
-// no dashboard-side rephrasing to drift.
+// Memory readiness — the same core-authored wording every surface renders
+// (shared-core/memory-readiness.js), PLUS what a frozen number can never
+// say: real progress pairs as bars and the drain's proof-of-life. A count
+// that sits at 28 for two days looks like slow progress; "28 left · no
+// worker running" and "61,388 / 61,819 · 99%" are different sentences.
+function _readyBar(done, total, label){
+  if (!total) return '';
+  var pct = Math.max(0, Math.min(100, Math.round(done * 100 / total)));
+  return '<div style="margin-top:6px">' +
+    '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--text-muted)">' +
+      '<span>' + label + '</span><span>' + done.toLocaleString() + ' / ' + total.toLocaleString() + ' · ' + pct + '%</span></div>' +
+    '<div style="height:4px;border-radius:2px;background:var(--border);overflow:hidden;margin-top:2px">' +
+      '<div style="height:100%;width:' + pct + '%;background:var(--accent,#7aa2f7)"></div></div></div>';
+}
 function loadMemoryReadiness(){
   var el = document.getElementById('memory-readiness'); if (!el) return;
   fetch('/api/memory/readiness').then(function(r){return r.json();}).then(function (m) {
     if (!m || !m.stage) { el.textContent = ''; return; }
-    el.textContent = (m.stage === 'ready' && !(m.reasons && m.reasons.length))
+    var head = (m.stage === 'ready' && !(m.reasons && m.reasons.length))
       ? 'Memory ready · fully indexed'
       : ((m.reasons || []).join(' · ') || '');
+    var ix = m.indexing || {};
+    var bars = '';
+    if (ix.recall_total > 0 && ix.recall_missing > 0) bars += _readyBar(ix.recall_embedded, ix.recall_total, 'Memory index');
+    if (ix.archive_chunks > 0 && ix.archive_chunks > ix.archive_embedded) bars += _readyBar(ix.archive_embedded, ix.archive_chunks, 'Imported archive');
+    var hb = '';
+    if (m.drain && m.drain.last_run_ts) {
+      var mins = Math.max(0, Math.round((Date.now() - m.drain.last_run_ts) / 60000));
+      hb = '<div style="margin-top:5px;font-size:10.5px;color:var(--text-muted)">Background drain: ' +
+           (m.drain.alive ? 'active' : 'idle') + ' · last run ' + (mins === 0 ? 'just now' : mins + ' min ago') + '</div>';
+    }
+    el.innerHTML = '<div>' + escapeHtml(head) + '</div>' + bars + hb;
   }).catch(function () { el.textContent = ''; });
+  var rc = document.getElementById('memory-recent');
+  if (rc) fetch('/api/memory/recent?limit=8').then(function(r){return r.json();}).then(function (j) {
+    var ms = (j && j.memories) || [];
+    if (!ms.length) { rc.innerHTML = ''; return; }
+    rc.innerHTML = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">Recent memories</div>' +
+      ms.map(function (mm) {
+        var when = ''; try { when = new Date(mm.timestamp).toLocaleDateString(); } catch (_) {}
+        return '<div style="padding:3px 0;border-top:1px solid var(--border);font-size:11px">' +
+               escapeHtml(String(mm.statement || '').slice(0, 160)) +
+               ' <span style="color:var(--text-muted)">· ' + when + (mm.scope ? ' · ' + escapeHtml(String(mm.scope)) : '') + '</span></div>';
+      }).join('');
+  }).catch(function(){ rc.innerHTML = ''; });
 }
 function loadImportCard(){
   var card = document.getElementById('import-card'); if (!card) return;
@@ -4496,7 +4531,7 @@ function loadImportCard(){
       return '<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-top:1px solid var(--border)">' +
              '<span>' + (s.label || s.source) + ' <span style="color:var(--text-muted)">' + (s.fresh != null ? (s.fresh + ' new of ' + s.sessions) : '') + '</span></span>' +
              '<button class="btn" style="font-size:10.5px;padding:2px 10px" onclick="startImport(\'' + s.source + '\')">Import</button></div>';
-    }).join('');
+    }).join('') + '<div style="margin-top:4px;font-size:10.5px;color:var(--text-muted)">New sessions auto-sync into the memory archive every ~15 min while idle. Import also distills them into memories (uses your model once per session). Safe to re-run anytime — already-imported sessions are skipped, nothing is overwritten, and an interrupted import resumes whole on the next run.</div>';
   }).catch(function () { card.style.display = 'none'; });
 }
 function startImport(source){

@@ -11,7 +11,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.14] — 2026-08-10
+
 ### Added
+- Memory maintenance now lives where every install keeps a process: the
+  proxy hosts the upkeep worker (embedding drain, import sync, weekly
+  backup, opt-in WAL replica) under a cross-process ledger lease, so a
+  dashboard-only machine drains its index — and takes backups — instead of
+  freezing its counts. Readiness gained the drain's
+  proof-of-life (last run, its notes) and true progress pairs; the
+  dashboard renders them as bars with a heartbeat line, plus a Recent
+  memories list served read-only at `/api/memory/recent`. `troth doctor`
+  gains a Background drain verdict whenever work is owed.
+- Chat-history import grew its flow half: once a source has been imported
+  by a human, new sessions auto-sync into the archive on idle cycles —
+  raw half only (local, free); the distill half stays on the explicit
+  Import action. `TROTH_IMPORT_SYNC=0` or `import_auto: false` turns it
+  off; a source never joins uninvited.
+- `troth service install` on Linux now also enables lingering
+  (best-effort), so the login service survives reboots nobody has logged
+  into yet; `service status` reports it, and the doctor's drain verdict
+  points at the service as the permanent fix.
+
+### Changed
+- The memory index counts only rows that carry embeddable text — blank
+  turns and bare tool telemetry are no longer promised as "still
+  indexing" (they are untouched, simply outside the promise), and the
+  drain quarantines per-row failures so the archive lane can never starve
+  behind them.
+- Document ingest is atomic per session: chunk rows (the import's own
+  done-marker) commit in one transaction, so an interrupt — closed
+  laptop, killed process — leaves nothing behind and the next run
+  imports the session whole. No duplicates, no half-remembered
+  sessions; re-running Import stays safe and is stated as such in the
+  dashboard.
+- The upkeep worker hardened around its own perimeter: only mutating
+  requests count as foreground (an open dashboard's status polls can no
+  longer hold the drain hostage), the ledger lease finds long-cadence
+  runs through any amount of drain noise, first ticks carry a jitter and
+  backups a pid suffix so a login burst can never race two workers into
+  the same window or the same bundle path, one machine-wide lock keeps
+  the auto-sync and the Import button from importing the same session
+  twice, and a daily ledger prune keeps the heartbeat bookkeeping from
+  growing forever (each task's newest row survives at any age).
+- `troth doctor` gains a Login service verdict — including the stale-unit
+  case where the service points at a tree an update moved — and systemd
+  units quote their paths.
+
 - Every shell the partner runs now answers to the same walls. The app's
   claude_cli spawns live in an isolated config home that loads none of the
   operator's Claude Code wiring, so their native Bash ran ungated; the
