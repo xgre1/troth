@@ -16,10 +16,9 @@ import { readStdinJson, allow, addContext, log, state, recordAction } from './_l
 const require = createRequire(import.meta.url);
 const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || process.cwd();
 const errortax = require(pluginRoot + '/../shared-core/errortax-hook.js');
-// Read paths — pull precedent from substrate so classifier
-// can reference "you've failed this way N times before; recovery that
-// worked last time was X".
-const query = require(pluginRoot + '/../shared-core/query.js');
+// Precedent reads the delivery queue directly (below) — seven days of it
+// survive the sweep, which is exactly the window "you failed this way
+// recently" should mean.
 
 function extractErrorText(payload) {
   const r = payload.tool_response;
@@ -66,58 +65,45 @@ log('PostToolUse.errortax', {
   metadata: { recovery: diag.recovery.slice(0, 80) }
 });
 
-// Record both the lesson (learned pattern) and the causally-
-// linked recovery decision. The lesson is the durable artifact; the
-// decision is the action trail.
-const lessonRec = recordAction({
-  type: 'lesson',
-  session_id: session, cwd: payload.cwd,
-  input: {
-    source: 'errortax',
-    fingerprint: createHash('sha1').update('errortax|' + tool + '|' + diag.class).digest('hex').slice(0, 12),
-    failing_tool: tool
-  },
-  output: {
-    text: 'Previous ' + tool + ' call failed (' + diag.class + '). Recovery: ' + diag.recovery
-  }
-});
-recordAction({
-  type: 'decision',
-  session_id: session, cwd: payload.cwd,
-  parent_id: lessonRec,
-  input: { kind: 'errortax', tool, error_class: diag.class },
-  output: { decision: 'allow_with_context', reason: diag.class }
-});
-
-// record a reflexion lesson so the next injector turn re-surfaces
-// the recovery hint if the agent keeps bouncing off the same error. Same
-// pattern as critic → lesson → injector.
+// One write, one policy. This used to record every failure THREE times — a
+// direct durable lesson, recordLesson's durable mirror, and the queue — so a
+// single timeout minted two permanent rows. Measured: 283 durable errortax
+// lessons, 238 of them infrastructure weather. Now recordLesson is the only
+// writer, and errortax-hook's policy decides what deserves the shelf: a
+// failure that reflects a CHOICE (edit-unread, overwrite, missing command)
+// persists; weather is delivered in the moment and swept with the queue.
+const fp = createHash('sha1').update('errortax|' + tool + '|' + diag.class).digest('hex').slice(0, 12);
 try {
-  const fp = createHash('sha1').update('errortax|' + tool + '|' + diag.class).digest('hex').slice(0, 12);
   state.recordLesson(
     session,
     payload.cwd || process.cwd(),
     'errortax',
     fp,
-    'Previous ' + tool + ' call failed (' + diag.class + '). Recovery: ' + diag.recovery
+    'Previous ' + tool + ' call failed (' + diag.class + '). Recovery: ' + diag.recovery,
+    { durable: errortax.durable(diag.class) }
   );
 } catch (e) { /* never break the hook on telemetry */ }
+recordAction({
+  type: 'decision',
+  session_id: session, cwd: payload.cwd,
+  input: { kind: 'errortax', tool, error_class: diag.class },
+  output: { decision: 'allow_with_context', reason: diag.class }
+});
 
-// Substrate READ: look up prior identical failures in this
-// project. If we've classified the same (tool × error_class) before,
-// tell the agent how many times and attach the most recent successful
-// recovery so it doesn't re-try the same dead end.
+// Precedent: has this exact (tool × class) failed in OTHER recent sessions?
+// Reads the delivery queue — seven days of it survive the sweep — rather than
+// the permanent store, because most failure classes no longer persist there
+// and last week's weather is precedent enough.
 let precedentBlock = '';
 try {
-  const fp = createHash('sha1').update('errortax|' + tool + '|' + diag.class).digest('hex').slice(0, 12);
-  const priorLessons = query.getLessons(state, { cwd: payload.cwd, limit: 20 }) || [];
-  const sameClass = priorLessons.filter(l =>
-    l.input && l.input.fingerprint === fp && l.session_id !== session
-  );
-  if (sameClass.length > 0) {
+  const rows = state._dbForQuery().prepare(
+    'SELECT COUNT(DISTINCT session_id) AS n FROM session_lessons ' +
+    'WHERE fingerprint = ? AND session_id != ? AND ts >= ?'
+  ).get(fp, session || '', Date.now() - 7 * 24 * 60 * 60 * 1000);
+  if (rows && rows.n > 0) {
     precedentBlock =
       '\n[troth/errortax] Precedent: this exact failure class (' + diag.class + ' on ' + tool +
-      ') occurred in ' + sameClass.length + ' prior session(s) in this project. ' +
+      ') occurred in ' + rows.n + ' other session(s) this week. ' +
       'Don\'t re-derive from scratch.';
   }
 } catch (_) { /* never break the hook on telemetry */ }

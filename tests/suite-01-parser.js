@@ -1128,20 +1128,6 @@ test('buildStateBlock returns null when no active task', () => {
   assert(buildStateBlock() === null);
 });
 
-// --- TRAJECTORY (Phase 2) ---
-console.log('\nTrajectory:');
-const { findSimilarTrajectory, recordIfSuccessful, getStats: trajStats } = require('../proxy/modules/trajectory');
-
-test('findSimilarTrajectory returns array', () => {
-  const r = findSimilarTrajectory('build a task manager rest api');
-  assert(Array.isArray(r));
-});
-
-test('trajectory stats has totalStored', () => {
-  const s = trajStats();
-  assert(typeof s.totalStored === 'number');
-});
-
 // --- COCHANGE (Phase 6) ---
 console.log('\nCo-change:');
 const { getRelated, buildCoChangeHint, getStats: coStats } = require('../proxy/modules/cochange');
@@ -1154,20 +1140,6 @@ test('getRelated returns array', () => {
 test('buildCoChangeHint returns null for empty input', () => {
   assert(buildCoChangeHint([]) === null);
   assert(buildCoChangeHint(null) === null);
-});
-
-// --- REFLEXION (Phase 2) ---
-console.log('\nReflexion:');
-const { buildReflectionBlock, getRelevantReflections, getStats: reflStats } = require('../proxy/modules/reflexion');
-
-test('reflexion stats has totalStored', () => {
-  const s = reflStats();
-  assert(typeof s.totalStored === 'number');
-});
-
-test('getRelevantReflections returns array', () => {
-  const r = getRelevantReflections(5);
-  assert(Array.isArray(r));
 });
 
 // --- INJECTOR FILE-TYPE RULES (Phase 3, expanded Phase 15-16) ---
@@ -1641,44 +1613,6 @@ test('filterContext drops 100-char text but keeps 200-char text', () => {
   const parsed = JSON.parse(r.body);
   const hasMedium = parsed.messages.some(m => Array.isArray(m.content) && m.content.some(b => b.type === 'text' && b.text && b.text.length === 200));
   assert(hasMedium, 'medium-length reasoning block should survive filter');
-});
-
-// --- AUTODREAM memory consolidation ---
-console.log('\nAutoDream:');
-const autodream = require('../proxy/modules/autodream');
-
-test('jaccard similarity on identical word sets is 1', () => {
-  const a = autodream._wordSet('when editing files use read first');
-  const b = autodream._wordSet('when editing files use read first');
-  assert.strictEqual(autodream._jaccard(a, b), 1);
-});
-
-test('jaccard similarity on near-duplicate reflections exceeds 0.85', () => {
-  const a = autodream._wordSet('When editing files I have not read, use Read first; old_string often mismatches.');
-  const b = autodream._wordSet('When editing files I have not read, use Read first; old_string often mismatch.');
-  assert(autodream._jaccard(a, b) >= 0.85, 'expected similarity >=0.85');
-});
-
-test('jaccard similarity on unrelated reflections is low', () => {
-  const a = autodream._wordSet('When editing files use Read first to avoid old_string mismatches.');
-  const b = autodream._wordSet('When running tests in the background, remember to check logs.');
-  assert(autodream._jaccard(a, b) < 0.4, 'expected low similarity');
-});
-
-test('consolidate returns skipped when no reflexion DB exists', () => {
-  // The DB path is per-project and won't exist during tests for a fresh checkout.
-  // If the CI runner happens to have one, the test still succeeds — we only
-  // assert that the function returns a valid shape.
-  const r = autodream.consolidate();
-  assert(r && typeof r === 'object');
-  assert(r.skipped === 'no-db' || typeof r.merged === 'number' || r.error);
-});
-
-test('getStats returns expected shape', () => {
-  const s = autodream.getStats();
-  assert.strictEqual(s.module, 'autodream');
-  assert(typeof s.runs === 'number');
-  assert(typeof s.maxRows === 'number');
 });
 
 // --- LOOPGUARD Layer 2 (Phase 2) ---

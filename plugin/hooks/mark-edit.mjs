@@ -94,31 +94,24 @@ log('PostToolUse.mark-edit', {
   }
 });
 
-// codelens entity attachment — bridges substrate edits to the
-// code-graph. Out-of-process from the proxy, so we open the per-project
-// codelens SQLite directly. Path mirrors codelens/index.js:91-99: a sha256
-// hash of the watch dir, first 12 chars. Best-effort: missing DB or read
-// error degrades to no-op rather than failing the edit record.
+// codelens entity attachment — bridges substrate edits to the code-graph, so
+// the graph can answer what has been worked on and not only what calls what.
+//
+// The lookup lives in code-graph.js because troth's own hashline tool records
+// edits too, and its comment claimed "the same record shape" while writing
+// neither of these fields. One function, both callers, so the claim is checked
+// by the compiler rather than by a reader.
+//
+// The project is the one the EDITED FILE belongs to, not the one the session
+// happens to be standing in: a hook started from home resolved a home-wide
+// store while the indexer wrote the project's own.
 let codelensEntityIds = null;
 let codelensSymbols = null;
 try {
-  const homeDir = process.env.HOME || (await import('node:os')).homedir();
-  const watchDir = process.env.GF_WATCH_DIR || payload.cwd || process.cwd();
-  const dirHash = createHash('sha256').update(watchDir).digest('hex').slice(0, 12);
-  const clDbPath = `${homeDir}/.troth/codelens/${dirHash}.db`;
-  if (existsSync(clDbPath)) {
-    const Database = require('better-sqlite3');
-    const cldb = new Database(clDbPath, { readonly: true, fileMustExist: true });
-    try {
-      const rows = cldb.prepare(
-        'SELECT id, name, type FROM entities WHERE file_path = ? LIMIT 50'
-      ).all(abs);
-      if (rows.length) {
-        codelensEntityIds = rows.map(r => r.id);
-        codelensSymbols = rows.slice(0, 8).map(r => `${r.type}:${r.name}`);
-      }
-    } finally { cldb.close(); }
-  }
+  const found = require(pluginRoot + '/../shared-core/code-graph.js')
+    .entitiesForFile(abs, process.env.GF_WATCH_DIR || payload.cwd || process.cwd());
+  codelensEntityIds = found.ids;
+  codelensSymbols = found.symbols;
 } catch (e) {
   // Codelens index missing or unreadable — substrate edit still records.
 }

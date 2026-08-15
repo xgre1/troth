@@ -318,56 +318,11 @@ const taskIdentityExtract = {
   }
 };
 
-// Phase C — compiled procedures detection. Scans recent tool_call
-// streams grouped by session_id, finds n-grams of tool sequences that
-// recur across ≥2 distinct sessions (Trace2Skill threshold per Agent 3
-// audit), persists them as compiled_procedure ActionRecords.
-// The pre-LLM dispatcher (dispatch.js) reads these to bypass the LLM
-// when a known workflow matches the user's request. Closes the "skills
-// compiled into behavior" gap from the core design note Property #3 + #5.
-//
-// Daily cadence: detection is read-heavy but cheap (in-memory n-gram
-// grouping over ~1000 rows). Idempotent — pre-existing signatures are
-// deduped against agent's compiled_procedure pool, so daily reruns
-// don't bloat the substrate.
-const taskProcedureCompile = {
-  name: 'procedure_compile',
-  cadence_ms: 24 * 60 * 60 * 1000,   // daily
-  run: async function (view) {
-    const ctx = (view && view.substrate_ctx) || {};
-    if (!ctx.agent_id) return { events: [], notes: ['procedure_compile: no agent_id in view'] };
-    let pc;
-    try { pc = require('./procedure-compiler.js'); }
-    catch (_) { return { events: [], notes: ['procedure_compile: module missing'] }; }
-    try {
-      const r = pc.recordProcedures({
-        agent_id: ctx.agent_id,
-        cwd:      ctx.cwd,
-        user_id:  ctx.user_id || 'default',
-        limit:    1000,
-        min_sessions: 2
-      });
-      const writtenN = (r.written && r.written.length) || 0;
-      const events = writtenN > 0 ? [{
-        type: 'tool_call',
-        input: {
-          tool_name: 'background_worker.procedure_compiled',
-          args: { written: writtenN, detected: r.detected_count, deduped: r.deduped_count }
-        },
-        output: { status: 'completed' }
-      }] : [];
-      return {
-        events,
-        notes: ['procedure_compile: detected=' + r.detected_count +
-                ' deduped=' + r.deduped_count +
-                ' written=' + writtenN],
-        notify_always: writtenN > 0
-      };
-    } catch (e) {
-      return { events: [], notes: ['procedure_compile threw: ' + (e && e.message || e)] };
-    }
-  }
-};
+// The procedure-compile and schema-delta tasks lived here. Measured before
+// retirement: four months of daily runs produced 348 distinct "procedures"
+// of which five were test fixtures repeated 239 times each and the rest
+// trivial two-step shapes; the schema-delta pass never emitted a single
+// row. Learning that nothing reads is load, not memory.
 
 // PLR graduation phase 2 — periodic reviewer that converts
 // reconsolidation_candidate observations (emitted by the Stop hook
@@ -568,124 +523,6 @@ const taskReconsolidationReview = {
   }
 };
 
-// Schema-Delta graduation phase 1 — periodic discovery of
-// recent action sequences that match a compiled_procedure schema
-// ≥80%. Emits schema_delta_candidate decisions per match (sequence
-// ids + schema_ref + parameter_overrides + score). NO write redirect
-// yet — that's phase 2 (active-session heuristic per paper spec) and
-// requires a sequence-completion abstraction the cognitive-runtime
-// doesn't have today. Phase 1 closes the discovery half: substrate
-// becomes aware of repeat patterns + dispatcher / replay can later
-// consume the candidates to compress on next occurrence.
-const taskSchemaDeltaCompress = {
-  name: 'schema_delta_compress',
-  cadence_ms: 12 * 60 * 60 * 1000,   // twice daily — pattern density grows slowly
-  run: async function (view) {
-    const ctx = (view && view.substrate_ctx) || {};
-    if (!ctx.agent_id) return { events: [], notes: ['schema_delta: no agent_id in view'] };
-    let sd;
-    try { sd = require('./schema-delta.js'); }
-    catch (_) { return { events: [], notes: ['schema_delta: module missing'] }; }
-    const stateMod = require('./state.js');
-    const ar = require('./action-record.js');
-    const lookbackMs = 24 * 60 * 60 * 1000;
-    const since = Date.now() - lookbackMs;
-
-    // Pull recent tool_call records + the compiled_procedure pool.
-    let recent = [], schemas = [];
-    try {
-      recent = stateMod.queryActions({
-        type: 'tool_call', agent_id: ctx.agent_id, cwd: ctx.cwd || null,
-        since, limit: 500, order: 'asc'
-      }) || [];
-      schemas = stateMod.queryActions({
-        type: 'commitment', agent_id: ctx.agent_id, limit: 200, order: 'desc'
-      }) || [];
-    } catch (e) {
-      return { events: [], notes: ['schema_delta: queryActions threw: ' + (e && e.message || e)] };
-    }
-    // Filter schemas to compiled_procedure rows.
-    const procSchemas = [];
-    for (const row of schemas) {
-      let outp; try { outp = (typeof row.output === 'string') ? JSON.parse(row.output) : row.output; } catch (_) { continue; }
-      if (outp && outp.commitment_type === 'compiled_procedure') procSchemas.push(row);
-    }
-    if (recent.length < 3 || procSchemas.length === 0) {
-      return { events: [], notes: ['schema_delta: nothing to scan (recent=' + recent.length + ' schemas=' + procSchemas.length + ')'] };
-    }
-
-    // Group recent into sequences — gap > 5 min ends a sequence.
-    const SEQ_GAP_MS = 5 * 60 * 1000;
-    const sequences = [];
-    let cur = [];
-    let lastTs = 0;
-    for (const row of recent) {
-      const ts = row.timestamp || 0;
-      if (cur.length && (ts - lastTs) > SEQ_GAP_MS) {
-        if (cur.length >= 3) sequences.push(cur);
-        cur = [];
-      }
-      cur.push(row);
-      lastTs = ts;
-    }
-    if (cur.length >= 3) sequences.push(cur);
-
-    // Pull already-emitted candidate sequence ids (idempotency — don't
-    // re-emit for the same sequence).
-    let prevCands = [];
-    try {
-      prevCands = stateMod.queryActions({
-        type: 'decision', agent_id: ctx.agent_id, cwd: ctx.cwd || null,
-        since: Date.now() - 7 * 24 * 60 * 60 * 1000, limit: 500, order: 'desc'
-      }) || [];
-    } catch (_) {}
-    const emittedSets = new Set();
-    for (const row of prevCands) {
-      let inp; try { inp = (typeof row.input === 'string') ? JSON.parse(row.input) : row.input; } catch (_) { continue; }
-      if (!inp || inp.kind !== 'schema_delta_candidate') continue;
-      const ids = (inp.signals && inp.signals.sequence_ids) || [];
-      if (ids.length) emittedSets.add(ids.join('|'));
-    }
-
-    // Match each sequence; emit candidates for fresh matches.
-    const events = [];
-    let matched = 0;
-    for (const seq of sequences) {
-      const seqIds = seq.map(r => r.id).join('|');
-      if (emittedSets.has(seqIds)) continue;
-      let match;
-      try { match = sd.matchingSchema({ actions: seq, schemas: procSchemas, threshold: 0.80 }); }
-      catch (_) { match = null; }
-      if (!match) continue;
-      let delta;
-      try { delta = sd.compressToDelta(seq, match); }
-      catch (_) { delta = null; }
-      if (!delta || !delta.ok) continue;
-      matched++;
-      events.push({
-        type: 'tool_call',
-        input: {
-          tool_name: 'background_worker.schema_delta_candidate',
-          args: {
-            sequence_ids: seq.map(r => r.id),
-            schema_ref: delta.schema_ref,
-            schema_score: delta.schema_score,
-            original_count: delta.original_count,
-            delta_size: delta.delta_size
-          }
-        },
-        output: { status: 'completed' }
-      });
-    }
-    return {
-      events,
-      notes: ['schema_delta: sequences=' + sequences.length +
-              ' procs=' + procSchemas.length +
-              ' matched=' + matched],
-      notify_always: matched > 0
-    };
-  }
-};
 
 // G11 — substrate backup automation. Weekly export of L1 state via
 // substrate-backup.exportArchive. Keeps last 4 bundles in
@@ -1329,9 +1166,73 @@ const taskLedgerPrune = {
     try {
       const n = state.pruneBackgroundRunLedger(7 * 24 * 60 * 60 * 1000);
       const u = state.pruneUsageLedger(30 * 24 * 60 * 60 * 1000);
-      return { events: [], notes: ['ledger_prune: removed ' + n + ' aged background_task_run rows (most-recent per task kept)' + (u ? ' + ' + u + ' usage rows past 30d' : '')] };
+      // Vectors whose memory is already dead. The garbage collector now takes
+      // them at the moment it kills an engram; this clears whatever earlier
+      // runs left behind — 711 vectors on this substrate when first measured
+      // (1.1% of the index, ~13ms of a 164ms dense scan).
+      let vec = { tombstoned: 0, orphaned: 0 };
+      try { if (typeof state.pruneDeadEmbeddings === 'function') vec = state.pruneDeadEmbeddings(5000); } catch (_) {}
+      const vecNote = (vec.tombstoned || vec.orphaned)
+        ? ' + ' + (vec.tombstoned + vec.orphaned) + ' vectors of deleted memories'
+        : '';
+      // The session-lessons delivery queue. Grew monotonically for four months
+      // before this line existed; anything durable was mirrored at write time.
+      let sl = 0;
+      try { if (typeof state.pruneSessionLessons === 'function') sl = state.pruneSessionLessons(); } catch (_) {}
+      const slNote = sl ? ' + ' + sl + ' delivered session lessons' : '';
+      return { events: [], notes: ['ledger_prune: removed ' + n + ' aged background_task_run rows (most-recent per task kept)' + (u ? ' + ' + u + ' usage rows past 30d' : '') + vecNote + slNote] };
     } catch (e) {
       return { events: [], notes: ['ledger_prune: ' + (e && e.message || e)] };
+    }
+  }
+};
+
+// Did the work survive? The substrate records every change and, until this
+// task existed, never learned the answer: 21,188 edit records, 0 outcome
+// events (measured 2026-08-11). action-outcome.js has been able to answer it
+// since it was written and had no caller — this is the first observer it
+// named, the one that links a change to the commit that kept it.
+//
+// Runs on the idle worker rather than a hook because it shells out to git,
+// and the operator's tool calls already carry 488ms of hook time.
+const taskOutcomeFold = {
+  name: 'outcome_fold',
+  cadence_ms: 6 * 60 * 60 * 1000,
+  run: async function () {
+    const state = require('./state.js');
+    try {
+      const fold = require('./outcome-fold.js');
+      const r = fold.foldOnce(state, { limit: 100 });
+      if (!r.scanned) return { events: [], notes: ['outcome_fold: nothing settled to fold'] };
+      return { events: [], notes: ['outcome_fold: ' + r.linked + ' change(s) linked to the commit that kept them' +
+        ' · ' + r.uncommitted + ' not yet committed · ' + r.unversioned + ' outside version control' +
+        ' (of ' + r.scanned + ' scanned)'] };
+    } catch (e) {
+      return { events: [], notes: ['outcome_fold: ' + (e && e.message || e)] };
+    }
+  }
+};
+
+// The reservoir of what the partner has seen. The proxy queues a pointer the
+// moment a document is read; this turns pointers into recallable passages.
+//
+// Runs often (15 min) but small (8 documents), because the cost is embedding
+// — 51ms per 800 characters, measured — and the point of putting it here is
+// that the operator never waits for it.
+const taskKnowledgeDrain = {
+  name: 'knowledge_drain',
+  cadence_ms: 15 * 60 * 1000,
+  run: async function () {
+    const state = require('./state.js');
+    try {
+      const drain = require('./knowledge-drain.js');
+      const r = await drain.drainOnce(state, {});
+      if (!r.scanned) return { events: [], notes: ['knowledge_drain: nothing new was seen'] };
+      return { events: [], notes: ['knowledge_drain: kept ' + r.ingested + ' document(s) as ' + r.chunks +
+        ' passages (· ' + (r.reasons||0) + ' with the reason they were opened) · ' + r.already + ' already held · ' + r.gone + ' gone · ' + r.skipped + ' skipped' +
+        ' (of ' + r.scanned + ' queued)'] };
+    } catch (e) {
+      return { events: [], notes: ['knowledge_drain: ' + (e && e.message || e)] };
     }
   }
 };
@@ -1476,7 +1377,7 @@ function hydrateLastRunFromRecords(cwd, stateOverride) {
   return lastRun;
 }
 
-const DEFAULT_TASKS = [taskContradictionScan, taskDormantReview, taskStateSummary, taskDriftScan, taskEngramGc, taskAnchorSuggest, taskIdentityExtract, taskProcedureCompile, taskReconsolidationReview, taskSchemaDeltaCompress, taskBackup, taskOrchestrationReview, taskHypothesisGeneration, taskPurposeRefresh, taskWorkingMemoryConsolidation, taskEmbeddingBackfill, taskDormancyWarn, taskWalReplicate, taskImportSync, taskLedgerPrune];
+const DEFAULT_TASKS = [taskContradictionScan, taskDormantReview, taskStateSummary, taskDriftScan, taskEngramGc, taskAnchorSuggest, taskIdentityExtract, taskReconsolidationReview, taskBackup, taskOrchestrationReview, taskHypothesisGeneration, taskPurposeRefresh, taskWorkingMemoryConsolidation, taskEmbeddingBackfill, taskDormancyWarn, taskWalReplicate, taskImportSync, taskLedgerPrune, taskOutcomeFold, taskKnowledgeDrain];
 // Closed-extension worker tasks (guarded optional require — absent in the open build).
 try { const _ext = require('./core-ext.js'); if (Array.isArray(_ext.workerTasks)) DEFAULT_TASKS.push(..._ext.workerTasks); } catch (_) {}
 
@@ -1526,6 +1427,17 @@ function startWorker(opts) {
 
   async function tick() {
     if (!running) return;
+    // The operator's pause, honoured by every process that could pick this
+    // work up. Checked here rather than at startup because a pause has to
+    // land on a worker that is ALREADY running — the whole point is a button,
+    // not a restart. One stat per tick; the file is absent on every machine
+    // where nobody has pressed it.
+    let _gate = null;
+    try { _gate = require('./maintenance-gate.js').isPaused(); } catch (_) { _gate = null; }
+    if (_gate && _gate.paused) {
+      timer = setTimeout(tick, tickMs);
+      return;
+    }
     const idleFor = Date.now() - lastFgActivity;
     if (idleFor < idleThresholdMs) {
       timer = setTimeout(tick, tickMs);
@@ -1699,6 +1611,14 @@ async function runDueTasks(opts) {
   const minCadence = opts.min_cadence_ms != null ? opts.min_cadence_ms : (12 * 60 * 60 * 1000);
   const perCycleBudget = opts.per_cycle_budget_ms != null ? opts.per_cycle_budget_ms : DEFAULT_PER_CYCLE_BUDGET;
 
+  // Same pause, second door. A one-shot scheduler that ignored it would let
+  // every SessionStart hook quietly restart the work the operator just
+  // stopped — a pause honoured by one runner out of two is not a pause.
+  try {
+    const g = require('./maintenance-gate.js').isPaused();
+    if (g && g.paused) return { ran: [], skipped: [{ task: '*', reason: 'paused_by_operator' }], errors: [], paused: true };
+  } catch (_) { /* unreadable gate means running, never stalled */ }
+
   let view;
   try { view = getView(); } catch (_) { view = null; }
   if (!view) return { ran: [], skipped: [], errors: ['getView_returned_null'] };
@@ -1706,12 +1626,9 @@ async function runDueTasks(opts) {
 
   // Per-task agent_id overrides — for the case where different tasks
   // need to source data from different agent buckets in the same tick.
-  // Concrete trigger: dialogue.turn rows live under the operator
-  // agent_id (correct for taskIdentityExtract), but real Edit/Bash/Read
-  // tool_calls live under 'claude-code' (correct for
-  // taskProcedureCompile). Without this override the procedure detector
-  // scans the operator's near-empty tool_call pool and finds 0
-  // patterns. Tests PSW4 covers the override path.
+  // Concrete trigger: dialogue.turn rows live under the operator agent_id
+  // (correct for taskIdentityExtract) while real tool_calls live under
+  // 'claude-code'. Tests PSW4 covers the override path.
   const agentOverrides = opts.agent_id_overrides || {};
 
   // One ledger, one reader — shared with the long-running scheduler.
@@ -1796,13 +1713,20 @@ module.exports = {
     engramGc:          taskEngramGc,
     anchorSuggest:     taskAnchorSuggest,
     identityExtract:   taskIdentityExtract,
-    procedureCompile:  taskProcedureCompile,
     backup:            taskBackup,
     hypothesisGeneration: taskHypothesisGeneration,
     dormancyWarn:      taskDormancyWarn,
     walReplicate:      taskWalReplicate,
     embeddingBackfill: taskEmbeddingBackfill,
     importSync:        taskImportSync,
-    ledgerPrune:       taskLedgerPrune
+    ledgerPrune:       taskLedgerPrune,
+    // Both of these were written, tested and scheduled — into DEFAULT_TASKS,
+    // which only the entity daemon runs. In the topology the operator
+    // actually has (Claude Code + proxy) nothing referenced them, so the
+    // document queue had no reader and edits were never linked to the commit
+    // that kept them. The suite passed because it asserted membership in
+    // DEFAULT_TASKS and never asked which list the running process uses.
+    knowledgeDrain:    taskKnowledgeDrain,
+    outcomeFold:       taskOutcomeFold
   }
 };

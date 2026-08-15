@@ -53,9 +53,42 @@ function dashboardUrl(suffix) {
 // the other family and a person never notices; an HTTP client takes the first
 // answer and fails. dashboardUrl() may say localhost — it is read by a human.
 // This is dialled by a program, so it says the address.
+// The ports a proxy actually HOLDS right now. The proxy writes
+// proxy-<port>.pid at bind and unlinks it on exit; a pid that still
+// answers signal-0 marks a living proxy. Every SNAPSHOT of the address
+// (spawn env, saved config, adopted-at-boot cells) each went stale across
+// consecutive boots (field-verified 2026-08-15) — races handed daemons a port that died a
+// second later, and every engine read as offline. The pid file is written
+// by the bound process itself; it cannot lie about where the proxy lives.
+function liveProxyPorts() {
+  const out = [];
+  try {
+    const dir = path.join(process.env.HOME || os.homedir(), '.troth');
+    for (const f of fs.readdirSync(dir)) {
+      const m = /^proxy-(\d+)\.pid$/.exec(f);
+      if (!m) continue;
+      let pid = 0;
+      try { pid = parseInt(fs.readFileSync(path.join(dir, f), 'utf8'), 10); } catch (_) { continue; }
+      if (!pid) continue;
+      try { process.kill(pid, 0); out.push(parseInt(m[1], 10)); } catch (_) { /* stale pid file */ }
+    }
+  } catch (_) { /* no dir / unreadable — fall through to snapshots */ }
+  return out.sort((a, b) => a - b);
+}
+
 function proxyBaseUrl() {
-  const fromEnv = String(process.env.TROTH_PROXY_URL || '').trim();
-  if (fromEnv) return fromEnv.replace(/\/+$/, '');
+  const fromEnv = String(process.env.TROTH_PROXY_URL || '').trim().replace(/\/+$/, '');
+  const live = liveProxyPorts();
+  if (fromEnv) {
+    const m = /:(\d+)(?:\/|$)/.exec(fromEnv);
+    const envPort = m ? parseInt(m[1], 10) : null;
+    // An env URL whose port is actually held wins — explicit choice,
+    // verified alive. An env URL pointing at a DEAD port while a living
+    // proxy exists is last boot's snapshot: follow the living.
+    if (!live.length || (envPort && live.indexOf(envPort) !== -1)) return fromEnv;
+    return 'http://127.0.0.1:' + live[0];
+  }
+  if (live.length) return 'http://127.0.0.1:' + live[0];
   const c = readConfig();
   const host = (typeof c.host === 'string' && c.host) ? c.host : '127.0.0.1';
   const port = parseInt(c.port, 10) || 8000;

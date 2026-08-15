@@ -383,7 +383,7 @@ function resolveTransport(mode) {
     if ((process.env.TROTH_GPT_VIA_PROXY || '').trim() === '1') {
       const { makeAnthropicTransport } = require('../shared-core/transports/anthropic.js');
       const { resolveCodexModel } = require('../shared-core/transports/codex-oauth.js');
-      let m = 'gpt-5.6-sol';
+      let m = 'gpt-5.5'; // literal fallback mirrors codex-oauth DEFAULT_MODEL — keep in step
       try { m = resolveCodexModel(null, null) || m; } catch (_) {}
       return makeAnthropicTransport({
         api_key: 'troth-proxy',
@@ -522,7 +522,28 @@ function emit(obj) {
 }
 
 function main() {
-  const decide = decisionEngine.makeEngine((_closedExt && _closedExt.rules && _closedExt.rules.length) ? [..._closedExt.rules, ...decisionEngine.DEFAULT_RULES] : undefined);
+  const _decideBase = decisionEngine.makeEngine((_closedExt && _closedExt.rules && _closedExt.rules.length) ? [..._closedExt.rules, ...decisionEngine.DEFAULT_RULES] : undefined);
+  // P7.3 — memory-shaped user turns get recall attached BEFORE the engine
+  // decides, so ruleMemoryDispatch can answer straight from the substrate.
+  // The engine stays pure (no I/O in rules); the runtime awaits decide, so
+  // an async wrapper is contract-clean. Recall failure just drops the
+  // attachment — the llm road mounts the same memories as context anyway.
+  const _memShaped = (() => { try { return require('../shared-core/memory-shaped.js'); } catch (_) { return null; } })();
+  const decide = async (view, event) => {
+    if (_memShaped && event && event.type === 'user_input' && event.input &&
+        typeof event.input.text === 'string' && !event.recall &&
+        _memShaped.isMemoryShaped(event.input.text)) {
+      try {
+        const recallMod = require('../shared-core/recall.js');
+        const hits = await recallMod.recall({
+          query: event.input.text, class: 'all', audience: 'model_visible',
+          cwd: CWD, limit: 3
+        });
+        if (Array.isArray(hits) && hits.length) event = { ...event, recall: { hits } };
+      } catch (_) { /* recall is a gift, never a gate */ }
+    }
+    return _decideBase(view, event);
+  };
 
   // Build all wired faculties up front. Primary is LLM_MODE; secondaries
   // come from EXTRA_FACULTIES env. Each gets its own orchestrator.
@@ -1933,6 +1954,25 @@ function main() {
             }).catch(function () {});
           }
         } catch (_) { /* never block the turn on the fidelity critic */ }
+      } else if (action.prompt) {
+        // The scribe writes what the operator said even when the faculty
+        // failed. Before the per-role mirror was retired this half was its
+        // accidental job; without it an errored-then-abandoned question
+        // leaves no trace in the substrate. A retry that succeeds writes
+        // the full pair beside this half (pairs are only tuple-checked),
+        // and the echo wall keeps a second failure — or the cancel
+        // mirror's own user half — from writing it twice.
+        dialogueMemory.recordTurn({
+          agent_id: AGENT_ID,
+          cwd: CWD,
+          user_id: USER_ID,
+          user_text: action.prompt,
+          assistant_text: '',
+          faculty: choice.faculty,
+          elapsed_ms,
+          parent_id: ctx && ctx.record_id || null,
+          conversation_id: _ts.conversation_id
+        });
       }
       // Auto-persist hook: when the active slash skill declares
       // auto-persist in its frontmatter, write response.text as a

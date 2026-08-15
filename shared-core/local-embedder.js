@@ -235,6 +235,10 @@ function _resolveEmbedModelPath() {
 
 let _embServerPromise = null;
 let _embServerDead = false;       // ONLY for unrecoverable (no binary / spawn fail) — stops retrying
+// Set once if a spawn that ASKED for accelerator offload never answered its
+// health check, so the failed attempt is paid once per process and every later
+// start goes straight to the configuration that works.
+let _offloadFailed = false;
 let _embModelDownloading = false; // transient: model GGUF being fetched in the background
 let _embServerStderrTail = '';    // tail of the embed server's stderr (load/OOM errors live here)
 let _embServerLastError = null;   // surfaced reason the embed server failed — for status() / GUI
@@ -304,11 +308,19 @@ async function _ensureEmbServer() {
         try { fsE.mkdirSync(dir, { recursive: true }); } catch (_) {}
         _errFd = fsE.openSync(pathE.join(dir, 'embed-server.err.log'), 'w');
       } catch (_) { _errFd = 'ignore'; }
+      // What this server may spend, from the one place that answers it for
+      // every local model — accelerator offload where a backend exists, and a
+      // thread count bounded by the machine instead of llama.cpp's "take every
+      // core you can see".
+      const _embFlags = require('./device-capabilities.js')
+        .inferenceFlags({ bin: BIN, noOffload: _offloadFailed });
       const child = _spawn(BIN, [
         '-m', modelPath, '--embeddings', '--pooling', 'mean',
         '-lv', '0', // errors only: verbosity=3 flooded embed-server.err.log to 45GB (no rotation)
         '--port', String(EMB_PORT), '--host', '127.0.0.1',
-        '-c', String(CONTEXT_SIZE), '-ngl', String(EMB_NGL),
+        '-c', String(CONTEXT_SIZE),
+        '-ngl', String(_embFlags.ngl),
+        '--threads', String(_embFlags.threads),
         // Embeddings are non-causal: the WHOLE input must fit one physical batch.
         // Default ubatch is 512, so 2048-token doc chunks were REJECTED ("input
         // too large to process") → fell back to slow CPU. Match batch to context.
@@ -337,6 +349,16 @@ async function _ensureEmbServer() {
       while (Date.now() < deadline) {
         if (await _embServerHealth()) return true;
         await new Promise((r) => setTimeout(r, 1000));
+      }
+      // Offload is attempted, not assumed. If a spawn that ASKED for offload
+      // never answered, remember it for this process and let the caller try
+      // again — the next attempt goes out without it. What llama.cpp does when
+      // a backend exists but cannot start is the one behaviour here that was
+      // never measured, so it is not trusted to a flag.
+      if (_embFlags.ngl > 0 && !_offloadFailed) {
+        _offloadFailed = true;
+        try { console.error('[local-embedder] offload did not come up — next start uses cpu'); } catch (_) {}
+        return false;
       }
       _markEmbServerDead('health check timed out after 40s' + (_readEmbErrTail() ? ' — stderr: ' + _readEmbErrTail() : ''));
       return false;

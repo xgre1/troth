@@ -118,17 +118,36 @@ function resolveImportPath(importSource, fromFilePath, allFilePaths) {
 // with a yield between them, so a request that arrives mid-index is answered
 // (with an empty repo map) instead of queued behind the filesystem.
 async function initIndex(dir) {
+  // A directory that holds projects is not one. The proxy hands this the
+  // "project dir", which inside a .app bundle is substituted with the
+  // operator's home — right for where state is kept, wrong for which codebase
+  // this is. Taken literally it walked an entire home directory, browser
+  // profiles and backups included, into a 201 MB index.
+  const projectId = require('../../../shared-core/project-id.js');
+  if (!projectId.isIndexableRoot(dir)) {
+    baseDir = null;
+    store = null;
+    console.log('[CodeLens] Not a project directory, not indexing: ' + dir);
+    return { skipped: true, reason: 'not_a_project_root', dir: dir };
+  }
   baseDir = dir;
 
-  // Persistent DB: ~/.troth/codelens/<hash>.db
+  // Persistent DB: ~/.troth/codelens/<project key>.db — keyed by identity so
+  // the store survives the project moving, and so the reader in code-graph.js
+  // and the edit hook look under the same name. projectStorePath also adopts
+  // an index left under an older key, which is the difference between an
+  // operator's first run on a new version being an upgrade and being a reset.
   var dbPath = ':memory:';
   try {
-    var HOME = process.env.HOME || require('os').homedir();
-    var dirHash = crypto.createHash('sha256').update(dir).digest('hex').slice(0, 12);
-    var dbDir = path.join(HOME, '.troth', 'codelens');
-    dbPath = path.join(dbDir, dirHash + '.db');
+    dbPath = projectId.projectStorePath(dir, 'codelens/{key}.db');
+    var adopted = projectId.lastAdoption();
+    if (adopted && adopted.to === dbPath) {
+      console.log('[CodeLens] carried the existing index over: ' +
+        path.basename(adopted.from) + ' -> ' + path.basename(adopted.to));
+    }
   } catch (e) {}
   store = new CodeStore(dbPath);
+
 
   const startMs = Date.now();
   // ── Decide first, work second ──

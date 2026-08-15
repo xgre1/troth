@@ -40,6 +40,36 @@ require('./suite-32-plan-usage.js')({ test, skip });
 require('./suite-33-archive-provenance.js')({ test, skip });
 require('./suite-34-maintenance.js')({ test, skip });
 require('./suite-35-import-atomicity.js')({ test, skip });
+require('./suite-36-forget-target.js')({ test, skip });
+require('./suite-37-router-resilience.js')({ test, skip });
+require('./suite-38-corpus-inventory.js')({ test, skip });
+require('./suite-39-operator-rules.js')({ test, skip });
+require('./suite-40-ingest-secret-gate.js')({ test, skip });
+require('./suite-41-outcome-fold.js')({ test, skip });
+require('./suite-42-knowledge-reservoir.js')({ test, skip });
+require('./suite-43-code-graph.js')({ test, skip });
+require('./suite-44-dead-vectors.js')({ test, skip });
+require('./suite-45-web-provenance.js')({ test, skip });
+require('./suite-46-external-not-truth.js')({ test, skip });
+require('./suite-47-pause-and-queue.js')({ test, skip });
+require('./suite-48-project-identity.js')({ test, skip });
+require('./suite-49-inference-flags.js')({ test, skip });
+require('./suite-50-browser-reap.js')({ test, skip });
+require('./suite-51-recall-whole.js')({ test, skip });
+require('./suite-52-system-load.js')({ test, skip });
+require('./suite-53-lesson-hygiene.js')({ test, skip });
+require('./suite-54-knowledge-import.js')({ test, skip });
+require('./suite-55-read-ledger.js')({ test, skip });
+require('./suite-56-protocol-contract.js')({ test, skip });
+require('./suite-57-memory-surface.js')({ test, skip });
+require('./suite-58-agents-contract.js')({ test, skip });
+require('./suite-59-how-rails.js')({ test, skip });
+require('./suite-60-recallforce.js')({ test, skip });
+require('./suite-61-hook-budget.js')({ test, skip });
+require('./suite-62-decision-record.js')({ test, skip });
+require('./suite-63-memory-dispatch.js')({ test, skip });
+require('./suite-64-irreversibility-floor.js')({ test, skip });
+require('./suite-65-dialogue-dedup.js')({ test, skip });
 
 // --- SUMMARY ---
 flushAsyncTests().then(() => {

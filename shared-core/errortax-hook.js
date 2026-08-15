@@ -60,4 +60,23 @@ function diagnose(text) {
   return { class: cls, description: CLASSES[cls], recovery: RECOVERY[cls] };
 }
 
-module.exports = { classify, diagnose, CLASSES, RECOVERY };
+// Which failure classes deserve a PERMANENT lesson.
+//
+// Measured before this existed: 283 durable errortax lessons on one
+// substrate, 238 of them infrastructure weather — timeouts, MCP errors
+// (76 about a router that had been retired for months), missing paths.
+// A timeout is not a lesson; nobody can choose differently next week
+// because a server was slow in July. Its recovery hint is worth exactly
+// two moments: the failure itself (the hook's immediate context) and the
+// next turn or two (the session queue). Persisting it teaches recall that
+// "lessons" are noise.
+//
+// What persists is what changes a future CHOICE: an Edit sent without
+// reading the file first, a Write over something that existed, a command
+// this machine simply does not have. Those are about how the agent works
+// and what this environment is — true next month, worth the shelf.
+const DURABLE_CLASSES = new Set(['string_not_found', 'file_already_exists', 'command_not_found']);
+
+function durable(cls) { return DURABLE_CLASSES.has(cls); }
+
+module.exports = { classify, diagnose, durable, CLASSES, RECOVERY };

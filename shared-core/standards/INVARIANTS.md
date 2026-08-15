@@ -22,7 +22,7 @@ region invoked at a bounded set of sites; it never *is* the control loop.
 (`shared-core/transports/*`, `transport-config.js`) directly, except the sanctioned
 faculty seam (`shared-core/faculty.js`) and the transport plumbing itself. A census of
 offenders is printed so the migration target is explicit.
-**Grounds:** a module-by-module census, plus `procedure-matcher`/`procedure-runner` drift.
+**Grounds:** a module-by-module census, plus historical `procedure-matcher` drift.
 **Status:** enforced by `tests/standards/s1_substrate_subject.js` on every run.
 
 ## S2 — Intents, not tools (the LLM holds no authority)

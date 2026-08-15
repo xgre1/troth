@@ -663,11 +663,11 @@ if (command === "help" || args.indexOf("-h") !== -1 || args.indexOf("--help") !=
     "  troth start / restart     proxy control  troth tail             follow proxy logs",
     "  troth service [install]   start at login (launchd on macOS, systemd on Linux)",
     "",
-    "More: config, mcp, schedule, memory-clear, atlas, mind, knowledge, chameleon,",
+    "More: config, mcp, schedule, memory-clear, atlas, mind, knowledge, chameleon, agents,",
     "      tenant, orchestrate, incognito, vault, voice, inheritance, presence,",
     "      replicate-wal, seal, cap, project, partner, graduate, drafts,",
     "      activity, kv-state, replay, record-intent, schema, stats, telemetry,",
-    "      checkpoint, rollback, reflect, dream, plan, accounts, reset.",
+    "      checkpoint, rollback, reflect, plan, accounts, reset.",
     "",
     "  A command with wrong/missing args prints that command's usage.",
   ].join("\n"));
@@ -1008,6 +1008,8 @@ require('./cmd-record-intent.js')(__cliCtx);
 //   troth knowledge stats                          # how many chunks indexed, by source
 //   troth knowledge search "<query>" [--limit N]   # FTS5 search over imported lessons
 require('./cmd-knowledge.js')(__cliCtx);
+
+require('./cmd-agents.js')(__cliCtx);
 
 // ============================================================
 // `troth chameleon` — Chameleon Protocol adapter management.
@@ -1586,20 +1588,6 @@ if (command === "rollback") {
 
 require('./cmd-reflect.js')(__cliCtx);
 
-if (command === "dream") {
-  // Manually trigger AutoDream memory consolidation
-  try {
-    var autodream = require(path.join(__dirname, '..', 'proxy', 'modules', 'autodream.js'));
-    var r = autodream.consolidate();
-    if (r.error) { console.error('Dream failed:', r.error); process.exit(1); }
-    if (r.skipped) { console.log('Dream skipped: ' + r.skipped); process.exit(0); }
-    console.log('=== AutoDream consolidation ===');
-    console.log('Merged (dupes):  ' + (r.merged || 0));
-    console.log('Pruned (stale):  ' + (r.pruned || 0));
-    process.exit(0);
-  } catch (e) { console.error('Dream failed:', e.message); process.exit(1); }
-}
-
 require('./cmd-memory-clear.js')(__cliCtx);
 
 require('./cmd-plan.js')(__cliCtx);
@@ -1754,11 +1742,20 @@ if (command === "doctor") {
     if (_owed) {
       var _dr = _mrD.drain || {};
       var _ago = _dr.last_run_ts ? Math.round((Date.now() - _dr.last_run_ts) / 60000) : null;
-      checks.push({ name: "Background drain", ok: !!_dr.alive, detail: _dr.alive
-        ? ("draining — last run " + (_ago === 0 ? "just now" : _ago + " min ago") + (_dr.last_notes ? " (" + _dr.last_notes + ")" : ""))
-        : (_dr.last_run_ts
-          ? ("stalled — last run " + _ago + " min ago; keep the proxy (troth start), the app, or the daemon running and it drains on idle. `troth service install` makes that permanent.")
-          : "never ran here — start the proxy (troth start) or the app; the drain runs on idle. `troth service install` makes that permanent.") });
+      var _pz = _mrD.paused || {};
+      // Paused is not stalled. Doctor calling the operator's own decision a
+      // failure is the same defect the intake card had: it spends the
+      // credibility that the REAL warnings need.
+      if (_pz.paused) {
+        checks.push({ name: "Background drain", ok: true,
+          detail: "paused by you — resume it in the dashboard (Memory → Taking in), or remove ~/.troth/maintenance-paused.json" });
+      } else {
+        checks.push({ name: "Background drain", ok: !!_dr.alive, detail: _dr.alive
+          ? ("draining — last run " + (_ago === 0 ? "just now" : _ago + " min ago") + (_dr.last_notes ? " (" + _dr.last_notes + ")" : ""))
+          : (_dr.last_run_ts
+            ? ("stalled — last run " + _ago + " min ago; keep the proxy (troth start), the app, or the daemon running and it drains on idle. `troth service install` makes that permanent.")
+            : "never ran here — start the proxy (troth start) or the app; the drain runs on idle. `troth service install` makes that permanent.") });
+      }
     }
   } catch (_e) { /* readiness probe is optional — doctor must finish */ }
 

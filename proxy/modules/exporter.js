@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Memory exporter — dump troth state for backup/migration.
 //
-// Exports: reflexions, trajectories, workflow, codelens, decisions, audit.
+// Exports: workflow, codelens, decisions, audit.
 // Format: single JSON file, restorable via importer.
 
 const fs = require('fs');
@@ -18,17 +18,9 @@ function exportAll(outFile) {
     data: {},
   };
 
-  // Reflexions
-  try {
-    const reflexion = require('./reflexion');
-    exportData.data.reflexions = reflexion.getRelevantReflections(1000);
-  } catch (e) { exportData.data.reflexions = null; }
-
-  // Trajectories
-  try {
-    const trajectory = require('./trajectory');
-    exportData.data.trajectoryStats = trajectory.getStats();
-  } catch (e) { exportData.data.trajectoryStats = null; }
+  // Reflexion and trajectory exports lived here until the modules retired
+  // (proxy-lane learning that never saw traffic). Old export files carrying
+  // those keys still restore: the importer ignores keys it does not know.
 
   // Workflow
   try {
@@ -70,8 +62,8 @@ function exportAll(outFile) {
 function importBackup(filePath) {
   try {
     const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    // Currently only restore workflow — reflexions/trajectories are project-keyed
-    // and would need careful merging. Future work.
+    // Only workflow restores. Keys from older exports (reflexions,
+    // trajectory stats) are ignored — their modules are retired.
     let restored = [];
     if (data.data && data.data.workflow) {
       const wfPath = path.join(process.cwd(), '.troth', 'workflow.json');

@@ -178,6 +178,39 @@ PYKEY
     note 'export TROTH_GATE_IDENTIFIERS="firstname,handle,city,otherproduct"'
   fi
 
+  # 5c. Working-language text stays out of the tree. A handful of files carry
+  #     Greek phrases ON PURPOSE — language pins and detection vocabularies,
+  #     features for an operator who works in Greek — but a comment quoting
+  #     what an operator actually said is a piece of somebody's private
+  #     conversation in a public repository. Review caught two such quotes
+  #     before they ever shipped; this keeps the count at zero. A file that
+  #     legitimately needs working-language text joins the list below in the
+  #     same commit that adds the text, as a conscious act.
+  local greek_ok=" plugin/hooks/voice-shape.mjs plugin/hooks/session-start.mjs shared-core/decision-patterns.js scripts/backfill-mind-from-transcripts.js bin/troth-entity.js shared-core/engram.js shared-core/intent-decisions.js shared-core/intent-extract.js shared-core/intent-router.js shared-core/lang/base.js shared-core/lang/el.js shared-core/lang/index.js shared-core/memory-shaped.js tests/suite-06-voice-triage.js tests/suite-07-intent-routed-mounting-policy.js tests/suite-60-recallforce.js tests/suite-63-memory-dispatch.js "
+  local greek_hits="" gf
+  for gf in $(git grep -lIP '[\x{03B1}-\x{03C9}\x{03AC}-\x{03CE}]' -- '*.js' '*.mjs' '*.py' '*.sh' '*.md' '*.html' 2>/dev/null); do
+    case "$greek_ok" in *" $gf "*) ;; *) greek_hits="$greek_hits $gf";; esac
+  done
+  [ -z "$greek_hits" ] && pass "no conversation-language text outside the multilingual feature files" \
+                       || fail "working-language text in:$greek_hits"
+
+  # 5d. The maker's process never ships inside the artifact. An assistant that
+  #     helped build a deliverable can leak its own working voice into it — a
+  #     newsletter once went to a real client carrying the agent's design
+  #     notes (palette, layout rationale) inside the body. The equivalents
+  #     here are unambiguous machine artifacts: raw thinking tags, assistant
+  #     self-narration, references to other agents or injected reminders.
+  #     Files whose JOB is to strip those artifacts from transcripts must name
+  #     them to remove them — they are declared below, the same conscious act
+  #     as the working-language list. Everything else fails on any hit.
+  local voice_ok=" bin/troth-import-chats.js proxy/modules/router.js scripts/backfill-mind-from-transcripts.js tools/backfill-claude-sessions.js tests/suite-02-ratelimit-behavior.js "
+  local voice_hits="" vf
+  for vf in $(git grep -lIiE '<thinking|as an ai language model|the previous agent|system-reminder|antml' -- ':!scripts/release-gate.sh' 2>/dev/null); do
+    case "$voice_ok" in *" $vf "*) ;; *) voice_hits="$voice_hits $vf";; esac
+  done
+  [ -z "$voice_hits" ] && pass "no assistant process-voice artifacts outside the transcript strippers" \
+                       || fail "process-voice artifacts in:$voice_hits"
+
   # 6. No database or environment files.
   local data
   data=$(git ls-files | grep -iE '\.(db|sqlite3?|db-wal|db-shm)$|(^|/)\.env' | head -3)
@@ -384,7 +417,21 @@ print("\n".join(sorted(out)))' \
   fi
 
   # 9. The suite and the standards must be green.
-  node tests/test-all.js >/dev/null 2>&1 && pass "test suite green" || fail "test suite is not green"
+  #
+  #    The export run above already drove the FULL suite over the tracked
+  #    tree. When the working tree is exactly HEAD, running it again here
+  #    re-tests the same code — and a gate invocation is two of the heaviest
+  #    things this machine does back to back, which is how five gate runs in
+  #    an afternoon became ten all-core suite passes and a hot lap. The
+  #    working-tree run earns its cost only when the tree differs from what
+  #    the export saw.
+  if [ -z "$(git status --porcelain 2>/dev/null)" ]; then
+    echo "$suite_out" | grep -qE '(^|[^0-9])0 failed' \
+      && pass "test suite green (export run covers the identical clean tree)" \
+      || fail "test suite is not green"
+  else
+    node tests/test-all.js >/dev/null 2>&1 && pass "test suite green" || fail "test suite is not green"
+  fi
   npm run --silent test:standards >/dev/null 2>&1 && pass "standards green" || fail "standards are not green"
 
   # 10. Every version a user can see says the same thing. Three manifests

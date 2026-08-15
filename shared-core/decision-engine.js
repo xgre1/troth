@@ -88,6 +88,41 @@ const ruleEchoForShortInput = {
   }
 };
 
+// P7.3 — memory dispatch. A memory-shaped question whose recall is
+// CONFIDENT is answered by the substrate itself: the mind speaks, no
+// language faculty summoned. The runtime attaches pre-fetched recall to
+// the event (this engine stays pure — no I/O in a rule); confidence is
+// structural, not numeric, because per-class recall scores share no
+// calibrated scale: the top hit must DOMINATE its runner-up (≥1.5×) and
+// be lexically GROUNDED in the question (≥1/2 of its content tokens
+// present). Anything less falls through to the llm road, which mounts
+// the same memories as context — the fallback loses nothing.
+const ruleMemoryDispatch = {
+  name: 'memory_dispatch',
+  match: (view, event) => {
+    if (!event || event.type === 'tool_result') return null;
+    if (!event.input || typeof event.input.text !== 'string') return null;
+    const hits = event.recall && Array.isArray(event.recall.hits) ? event.recall.hits : null;
+    if (!hits || !hits.length) return null;
+    let shaped;
+    try { shaped = require('./memory-shaped.js'); } catch (_) { return null; }
+    const text = event.input.text;
+    if (!shaped.isMemoryShaped(text)) return null;
+    const top = hits[0];
+    if (!top || !top.statement) return null;
+    const second = hits[1];
+    if (second && second.score && !(top.score >= 1.5 * second.score)) return null;
+    if (shaped.queryOverlap(text, top.statement) < 0.5) return null;
+    return {
+      kind: 'respond_directly',
+      text: String(top.statement) + '\n— recalled from substrate (' + (top.class || 'memory') + ')',
+      reason: 'memory_dispatch',
+      recall_class: top.class || null,
+      recall_source: top.source || null
+    };
+  }
+};
+
 // G2 — structural disagreement. When the user's text contradicts an
 // active commitment, the substrate prepends a stance preface forcing
 // the LLM into push-back-or-formally-revise mode rather than silent
@@ -168,6 +203,7 @@ const DEFAULT_RULES = [
   ruleGoalEvent,
   ruleHonorRefusal,
   ruleEchoForShortInput,
+  ruleMemoryDispatch,
   ruleStructuralDisagreement,
   ruleNeedsLanguage,
   ruleDefault
@@ -232,6 +268,7 @@ module.exports = {
     stateQuery:               ruleStateQuery,
     honorRefusal:             ruleHonorRefusal,
     shortPassthrough:         ruleEchoForShortInput,
+    memoryDispatch:           ruleMemoryDispatch,
     structuralDisagreement:   ruleStructuralDisagreement,
     routeToLanguage:          ruleNeedsLanguage,
     defaultWait:              ruleDefault

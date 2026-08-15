@@ -42,7 +42,13 @@ function makeAnthropicTransport(opts) {
   const apiKeyDefault = opts.api_key || null;
   const modelDefault  = opts.model   || null;
   const baseDefault   = opts.base_url || null;
-  const maxTokensDefault = opts.max_tokens || 1024;
+  // Turn-sized, not probe-sized. Lane audit 2026-08-15: no caller on the
+  // entity path ever passed max_tokens, so every lane built on this
+  // transport (anthropic, kimi_sub) inherited a 1024 ceiling and real
+  // replies hit the wall mid-sentence. One knob for every lane:
+  // TROTH_ENTITY_MAX_TOKENS, hosted fallback 8192.
+  const maxTokensDefault = opts.max_tokens ||
+    parseInt(process.env.TROTH_ENTITY_MAX_TOKENS || '8192', 10);
 
   function stream(req) {
     const apiKey = apiKeyDefault || process.env.ANTHROPIC_API_KEY;

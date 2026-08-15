@@ -364,13 +364,32 @@ function login(opts) {
     });
 
     let _binds = 0;
+    let _evicted = false;
     server.on('error', (e) => {
       // The superseded attempt's close() can release :1455 a beat after we
       // try to bind — absorb that race instead of failing the fresh click.
-      if (e && e.code === 'EADDRINUSE' && _binds < 10 && !settled) {
-        _binds++;
-        setTimeout(() => { if (!settled) { try { server.listen(port, '127.0.0.1'); } catch (e2) { finish(e2); } } }, 150);
-        return;
+      // And when a PARKED flow still owns the port (first click opened the
+      // wrong browser, second click found the door locked — field report
+      // 2026-08-15: the button just died silently), EVICT it once: the old
+      // handler treats a mismatched state as a failed callback, answers 400
+      // and closes its server, freeing the port for THIS click. A fresh
+      // click must always win over an abandoned one.
+      if (e && e.code === 'EADDRINUSE' && !settled) {
+        if (!_evicted) {
+          _evicted = true;
+          try {
+            const _req = http.request({ hostname: '127.0.0.1', port, path: '/auth/callback?code=x&state=__superseded__', method: 'GET', timeout: 2000 },
+              (r) => { r.resume(); });
+            _req.on('error', () => {});
+            _req.on('timeout', () => { try { _req.destroy(); } catch (_) {} });
+            _req.end();
+          } catch (_) { /* eviction is best-effort; the retry loop still runs */ }
+        }
+        if (_binds < 10) {
+          _binds++;
+          setTimeout(() => { if (!settled) { try { server.listen(port, '127.0.0.1'); } catch (e2) { finish(e2); } } }, 250);
+          return;
+        }
       }
       finish(e);
     });
@@ -384,8 +403,16 @@ function login(opts) {
       // a first-day Ubuntu user clicked into silence on 2026-08-04. The URL
       // is only valid from THIS attempt (state + PKCE live in this closure),
       // which is why callers cannot rebuild it themselves.
+      // Exactly ONE opener owns the URL. When a caller passes onUrl, the
+      // caller's surface opens/shows it — opening here TOO sent the link
+      // through the OS default handler, and macOS routes same-bundle URLs
+      // to whichever Chrome instance is already running: on 2026-08-15
+      // that was the managed CDP browser, and the operator's sign-in
+      // landed in a profile with no ChatGPT session. Server-side open
+      // remains ONLY for surfaces that cannot open a browser themselves
+      // (CLI without onUrl), where it is the sole opener.
       if (typeof opts.onUrl === 'function') { try { opts.onUrl(authUrl); } catch (_) {} }
-      if (!opts.noBrowser) openBrowser(authUrl);
+      else if (!opts.noBrowser) openBrowser(authUrl);
     });
     server.listen(port, '127.0.0.1');
 

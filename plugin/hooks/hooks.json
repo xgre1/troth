@@ -63,7 +63,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "Write|Edit|MultiEdit|hashline_edit",
         "hooks": [
           {
             "type": "command",
@@ -95,7 +95,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Read|Grep|Glob",
+        "matcher": "Read|Grep|Glob|WebFetch",
         "hooks": [
           {
             "type": "command",

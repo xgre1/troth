@@ -34,6 +34,7 @@ import { createHash } from 'node:crypto';
 import { resolve, dirname, join } from 'node:path';
 
 const require = createRequire(import.meta.url);
+const _greet = require(fileURLToPath(new URL('../../../shared-core/mcp-greeting.js', import.meta.url))).makeGreeter();
 const serverDir = fileURLToPath(new URL('.', import.meta.url));
 const hashline    = require(serverDir + '../../../shared-core/hashline.js');
 const astValidate = require(serverDir + '../../../shared-core/ast-validate.js');
@@ -256,10 +257,22 @@ function handleEdit(args) {
   } catch (_) {}
 
   // The substrate's edit ledger must include edits made through troth's OWN
-  // tool, or the Code Map calls hashline-built files "never edited". Same
-  // record shape as the mark-edit hook writes for native Edit/Write.
+  // tool, or the Code Map calls hashline-built files "never edited".
+  //
+  // "Same record shape as the mark-edit hook" is what this comment used to
+  // claim while writing the hash and the line count and nothing else — no
+  // codelens link at all. Measured over 120 consecutive edit records, 101
+  // carried none, because this is the tool contributors here are told to use:
+  // the path that ran most was the path that taught the graph least. Both
+  // writers now call one function for it, so the shape is shared rather than
+  // described.
   try {
     const actionRecord = require(serverDir + '../../../shared-core/action-record.js');
+    let entities = { ids: null, symbols: null };
+    try {
+      entities = require(serverDir + '../../../shared-core/code-graph.js')
+        .entitiesForFile(abs, process.env.GF_WATCH_DIR || process.cwd());
+    } catch (_) { /* no index here — the edit is still recorded */ }
     const rec = actionRecord.create({
       agent_id: 'claude-code',
       session_id: null,
@@ -268,7 +281,9 @@ function handleEdit(args) {
       input: { file_path: abs, format: 'hashline', hash_before: createHash('sha256').update(content).digest('hex') },
       output: {
         hash_after: createHash('sha256').update(result.content).digest('hex'),
-        lines_changed: (result.applied || []).reduce(function (a, r) { return a + (r.lines_in || 0); }, 0)
+        lines_changed: (result.applied || []).reduce(function (a, r) { return a + (r.lines_in || 0); }, 0),
+        codelens_entity_ids: entities.ids,
+        codelens_symbols: entities.symbols
       },
       verification: { ast: { ok: !!check.ok, skipped: !!check.skipped } }
     });
@@ -319,12 +334,19 @@ async function handleUpstream(msg) {
       reply({
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
-        serverInfo: { name: 'troth-hashline', version: '1.0.0' }
+        serverInfo: { name: 'troth-hashline', version: '1.0.0' },
+        // Protocol-level contract for clients that surface it. Short on purpose.
+        instructions:
+          'For edits, hashline_read then hashline_edit: line anchors carry a ' +
+          'content hash, so a stale or never-read line is rejected instead of ' +
+          'mis-applied, and every edit is AST-validated before it touches ' +
+          'disk. This replaces guess-based old_string editing; read first is ' +
+          'enforced by construction, not by convention.'
       });
     } else if (msg.method === 'tools/list') {
       reply({ tools: TOOLS });
     } else if (msg.method === 'tools/call') {
-      reply(await handleTool(msg.params.name, msg.params.arguments || {}));
+      reply(_greet(await handleTool(msg.params.name, msg.params.arguments || {})));
     } else if (msg.method === 'ping') {
       reply({});
     } else {

@@ -33,6 +33,7 @@ import { compressCommandOutput } from './compress.mjs';
 import { jailFor } from './workspace-jail.mjs';
 
 const require = createRequire(import.meta.url);
+const _greet = require(fileURLToPath(new URL('../../../shared-core/mcp-greeting.js', import.meta.url))).makeGreeter();
 
 // ── Process-level error handlers ────────────────────────────────────────
 // Without these, an uncaught throw inside `handleUpstream` (which is awaited
@@ -590,13 +591,20 @@ async function handleUpstream(msg) {
       reply({
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
-        serverInfo: { name: 'troth-bash', version: '1.0.0' }
+        serverInfo: { name: 'troth-bash', version: '1.0.0' },
+        // Protocol-level contract for clients that surface it. Short on purpose.
+        instructions:
+          'Run shell commands through the `run` tool instead of any native ' +
+          'bash: output over 4KB is compressed and the raw text archived ' +
+          'retrievably, and destructive commands (rm -rf, force-push, DROP) ' +
+          'are refused unless explicitly acknowledged. `browse` drives a real ' +
+          'Chrome over CDP — do not script your own browser automation around it.'
       });
     } else if (msg.method === 'tools/list') {
       reply({ tools: TOOLS });
     } else if (msg.method === 'tools/call') {
       const result = await handleTool(msg.params.name, msg.params.arguments || {});
-      reply(result);
+      reply(_greet(result));
     } else if (msg.method === 'ping') {
       reply({});
     } else {

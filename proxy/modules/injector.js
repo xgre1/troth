@@ -308,39 +308,12 @@ function buildInjection(bodyStr, repoMap) {
     if (failures) dynamicParts.push(failures);
   } catch (e) {}
 
-  // --- DYNAMIC: reflexion block — grows as new lessons persist
-  try {
-    if (!require('./modtoggle').isModuleEnabled('reflexion')) throw 0; // toggle off → skip block
-    const { buildReflectionBlock } = require('./reflexion');
-    const reflections = buildReflectionBlock();
-    if (reflections) dynamicParts.push(reflections);
-  } catch (e) {}
-
-  // --- DYNAMIC: trajectory hint (derived from latest user text)
-  try {
-    if (!require('./modtoggle').isModuleEnabled('trajectory')) throw 0; // toggle off → skip hint
-    const { buildTrajectoryHint } = require('./trajectory');
-    let userText = '';
-    try {
-      const parsed = JSON.parse(bodyStr);
-      const msgs = parsed.messages || [];
-      for (let mi = msgs.length - 1; mi >= 0; mi--) {
-        if (msgs[mi].role === 'user') {
-          const c = msgs[mi].content;
-          if (typeof c === 'string') userText = c;
-          else if (Array.isArray(c)) {
-            const t = c.filter(b => b.type === 'text' && b.text).map(b => b.text).join(' ');
-            userText = t;
-          }
-          break;
-        }
-      }
-    } catch (e) {}
-    if (userText && userText.length > 30) {
-      const hint = buildTrajectoryHint(userText);
-      if (hint) dynamicParts.push(hint);
-    }
-  } catch (e) {}
+  // Reflexion and trajectory blocks lived here — learning modules that only
+  // ever saw traffic through this proxy, which the editor surfaces do not
+  // route through. Measured across four months: zero reflections, four
+  // trajectories, nothing ever re-surfaced. The live lane learns elsewhere
+  // (errortax choice-lessons, the delivery queue, verifyfirst); these blocks
+  // and their modules are retired.
 
   // --- STATIC: architecture overview (once per session, gated by _archDone)
   // EXTRA gate: only inject when the conversation is actually about code in

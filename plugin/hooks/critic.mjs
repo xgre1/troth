@@ -144,8 +144,10 @@ if (result.ok) {
   if (Array.isArray(result.warnings) && result.warnings.length) {
     try {
       const wfp = createHash('sha1').update('howwarn|' + result.warnings.join('|')).digest('hex').slice(0, 12);
+      // "next turn" is the whole audience — queue-only, same reasoning as the
+      // fidelity warning in fidelity-run.js.
       state.recordLesson(payload.session_id, payload.cwd || process.cwd(), 'how_rails_warn', wfp,
-        'HOW-rule WARNING (not blocked): ' + result.warnings.join('; ') + '. Follow the operator working-style rule next turn.');
+        'HOW-rule WARNING (not blocked): ' + result.warnings.join('; ') + '. Follow the operator working-style rule next turn.', { durable: false });
     } catch (_) { /* telemetry must never break the hook */ }
   }
   // Layer 3 fidelity critic — out-of-band, never blocks this turn.

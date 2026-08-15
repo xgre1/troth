@@ -130,6 +130,25 @@ if (command === "init") {
       }
     }
 
+    // 6.4 The cross-tool contract. If this is being run inside a project,
+    // offer to put the troth block into its AGENTS.md — the file nearly every
+    // coding agent reads at session start, and the only road troth's guidance
+    // takes to agents that carry none of its hooks. Consent-gated: writing
+    // into the operator's repository is always the operator's act.
+    try {
+      var projectIdI = require(path.join(__dirname, "..", "shared-core", "project-id.js"));
+      var rootI = projectIdI.projectRootFor(process.cwd());
+      if (projectIdI.isIndexableRoot(rootI)) {
+        var doContract = await yes("\n  Add the troth contract to this project's AGENTS.md? (read by Codex, Cursor, Copilot, Gemini CLI, …)", false);
+        if (doContract) {
+          try {
+            var rC = require(path.join(__dirname, "..", "shared-core", "agents-contract.js")).applyToDir(rootI);
+            tick("AGENTS.md contract " + rC.action, true);
+          } catch (e) { tick("AGENTS.md contract", false, "(error: " + e.message + ")"); }
+        }
+      }
+    } catch (_) { /* no project here — nothing to offer */ }
+
     // 6.5 Operator key: the ceremony that makes the machine yours. The app
     // runs this on its bootstrap screen; the terminal path runs it here.
     // Interactive reads are done, so the readline can close before the

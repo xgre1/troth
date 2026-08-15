@@ -192,6 +192,44 @@ servers warm) — Ctrl-C when you have the `id:2` line.
 2. From Cursor (via the router): `mcp_call({server:"troth-substrate", tool:"troth_engram_search", args:{query:"cross-host check"}})`
 3. Same engram returned. Same substrate, different LLM faculty.
 
+## The proxy lane (optional depth)
+
+MCP gives any host the substrate's tools. Pointing the host's LLM traffic
+at the local proxy adds the layer MCP alone cannot provide: request-time
+context injection, payload guards, and — for memory questions — hard
+enforcement. When a fresh prompt is memory-shaped ("do you remember",
+"what did we decide" — detected in English, Greek and greeklish) and the
+request carries a
+`troth_recall` tool, the proxy sets `tool_choice` so the model's next
+response IS the recall call. Advice becomes protocol.
+
+The proxy speaks the Anthropic Messages API, so this lane is for clients
+that speak it too:
+
+```bash
+# Claude Code (and most Anthropic-protocol CLIs)
+export ANTHROPIC_BASE_URL=http://localhost:8000
+```
+
+For GUI clients (Cursor and similar), set the Anthropic base-URL override
+in the client's model settings to `http://localhost:8000`.
+
+Honest limits of this lane:
+
+- A client that does not speak the Anthropic Messages API cannot ride it.
+- Forcing needs a target: if the request carries no `troth_recall` tool
+  (MCP not wired in that host), the proxy can inject context but cannot
+  force the call.
+- The force rides only the engines that carry MCP tools (the Anthropic
+  and Responses lanes). OpenAI-compat chat engines and local backends
+  strip MCP tools at translation, so on those the force does not apply —
+  it is dropped whole, never sent pointing at a missing tool.
+- Requests with manual extended thinking are exempt — the API rejects
+  forced tool use there. Adaptive thinking is unaffected.
+- On hook-equipped hosts the proxy stays silent by design: when the hook
+  lane has already injected recall into the prompt, forcing would be a
+  wasted round-trip, so it is skipped.
+
 ## What this enables
 
 Every conversation in every host writes to one substrate. Drift

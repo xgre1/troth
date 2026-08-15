@@ -17,6 +17,18 @@ const { execFile } = require('child_process');
   const raw = process.env.GF_WATCH_DIR || process.cwd();
   if (/\.app\/Contents\//.test(path.resolve(raw))) {
     process.env.GF_WATCH_DIR = require('os').homedir();
+    return;
+  }
+  // A cwd inside a repository means the project is the repository, not the
+  // directory the operator happened to be standing in. The indexer prunes
+  // whatever is not under its root, so a proxy started in a subdirectory cut
+  // the project's index down to that subdirectory's files. An explicit
+  // GF_WATCH_DIR is an operator's answer to this question and is left alone.
+  if (!process.env.GF_WATCH_DIR) {
+    try {
+      const root = require('../shared-core/project-id.js').projectRootFor(raw);
+      if (root && root !== path.resolve(raw)) process.env.GF_WATCH_DIR = root;
+    } catch (_) { /* no git, no repo, nothing to correct */ }
   }
 })();
 
@@ -390,7 +402,6 @@ function startProjectIndexing() {
     }, 0);
   }, 0);
 }
-try { require('./modules/autodream').scheduleBackground(); } catch (e) {}
 
 const stats = {
   requests: 0, injected: 0, cleaned: 0, verified: 0,
@@ -1114,6 +1125,19 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // What troth is running on this machine and what it costs — the inventory
+  // the idle reaper works from, made visible. Exists because "why is the
+  // laptop hot" kept needing a shell and a diagnosis session to answer, and
+  // the number a shell shows first (%CPU) is a lifetime average that points
+  // at the wrong process. CPU time consumed and resident memory do not lie.
+  if (url === '/api/system/load' && req.method === 'GET') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    try {
+      jsonResponse(res, 200, require('../shared-core/system-load.js').snapshot());
+    } catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
+    return;
+  }
+
   // ── The vault: named secrets the agent can use but never see ─────────
   // Values go in and never come back out; list and status expose metadata
   // only. The passphrase is the operator passphrase (same ceremony as
@@ -1431,8 +1455,40 @@ const server = http.createServer((req, res) => {
           // One readable line per record. Each class carries its meaning in a
           // different field, so the fallback chain ends at the raw JSON head
           // rather than an empty row that hides a record exists.
-          let line = (out && (out.statement || out.summary || out.text || out.decision)) ||
-                     (inp && (inp.tool_name || inp.query || inp.source)) || '';
+          // mind_snapshot first: its stored summary is built from
+          // current_focus + active_projects, both of which hold steady for
+          // weeks, so thousands of snapshots rendered as one repeated line
+          // and the page looked broken. The field that moves every turn is
+          // the request itself. Derived here rather than at write time so the
+          // whole history reads as a timeline, not only new rows.
+          let line = '';
+          if (r.type === 'mind_snapshot' && out && out.mind_state) {
+            const ms = out.mind_state;
+            const what = ms.current_intent && ms.current_intent.what;
+            const focus = String(ms.current_focus || '').split('·')[0].trim();
+            line = what ? String(what) : (focus || '');
+          }
+          // avoided_path keeps its meaning in avoidance_text / suggest_instead,
+          // which no branch below knew about, so those rows fell through to a
+          // raw JSON head.
+          // A tool call is only meaningful WITH its subject: 11,746 Read rows
+          // that all say "Read" are a wall, the same rows saying which file
+          // are a history. The salient argument differs per tool and the
+          // record already holds it — nothing here was ever surfaced.
+          if (!line && r.type === 'tool_call' && inp && inp.tool_name) {
+            const a = inp.args || {};
+            const subject = a.file_path || a.command || a.pattern || a.query ||
+                            a.url || a.path || a.statement || a.user_text || '';
+            const where = (a.pattern && a.path) ? ' in ' + String(a.path).split('/').slice(-2).join('/') : '';
+            line = subject
+              ? String(inp.tool_name) + ' · ' + String(subject).replace(/\s+/g, ' ').slice(0, 120) + where
+              : String(inp.tool_name);
+          }
+          if (!line) {
+            line = (out && (out.statement || out.summary || out.text || out.avoidance_text ||
+                            out.suggest_instead || out.decision)) ||
+                   (inp && (inp.tool_name || inp.query || inp.source)) || '';
+          }
           if (!line) line = String(r.output || r.input || '').slice(0, 160);
           return {
             id: r.id, ts: r.timestamp, type: r.type,
@@ -1447,7 +1503,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.method === 'GET' && (url.startsWith('/api/substrate/') || url === '/api/embed/status' || url === '/api/localchat/status' || url === '/api/memory/readiness' || url === '/api/memory/recent' || url === '/api/usage/plan-window' || url === '/api/config/coherence')) {
+  if (req.method === 'GET' && (url.startsWith('/api/substrate/') || url === '/api/embed/status' || url === '/api/localchat/status' || url === '/api/memory/readiness' || url === '/api/memory/recent' || url === '/api/memory/queue' || url === '/api/usage/plan-window' || url === '/api/config/coherence')) {
     // A4: these reads serve the partner's MEMORY. The dead
     // duplicate handlers further down all carried checkRemoteAuth, but this
     // live chain had none - any non-loopback caller could read the substrate
@@ -1518,6 +1574,16 @@ const server = http.createServer((req, res) => {
         try {
           out = { memories: sharedState.listRecentMemories(query.get('limit')) };
         } catch (e) { out = { memories: [], error: String(e && e.message || e) }; }
+      } else if (url === '/api/memory/queue') {
+        // What is still owed, by name. The readiness card can say "183 still
+        // to read"; only this can say WHICH 183, and whether the one the
+        // operator is waiting for is in there. Searchable on both the path
+        // and the question that was in flight when the file was opened,
+        // because an operator remembers one or the other, never reliably the
+        // same one. Payloads are never returned — this feeds a list.
+        try {
+          out = sharedState.searchPendingKnowledge({ q: query.get('q'), limit: query.get('limit') });
+        } catch (e) { out = { rows: [], total: 0, error: String(e && e.message || e) }; }
       } else if (url === '/api/usage/plan-window') {
         // Subscription consumption over a trailing window (?hours=5,
         // clamped 1..168). Ingest-on-read first: the tail is byte-
@@ -1584,6 +1650,14 @@ const server = http.createServer((req, res) => {
             counts.by_type.commitment = db.prepare('SELECT COUNT(*) AS n FROM action_records WHERE' + COMMITMENT_HONEST_WHERE).get().n;
             var h24 = Date.now() - 24 * 3600 * 1000;
             counts.last_24h = db.prepare('SELECT COUNT(*) AS n FROM action_records WHERE timestamp >= ?').get(h24).n;
+            // Knowledge the operator handed over: passages under a docs:
+            // scope, minus the imported chat archive (that is conversation,
+            // not something they gave). Counted here so the class carries a
+            // number in the filter like every other class does — a filter
+            // that is the only one without a count reads as second-class.
+            counts.knowledge = db.prepare(
+              "SELECT COUNT(*) AS n FROM action_records WHERE json_extract(output,'$.scope') LIKE 'docs:%'" +
+              " AND json_extract(output,'$.scope') NOT LIKE 'docs:chats%'").get().n;
             // Consumer "things learned about you" hint: committed engrams in
             // the trailing week, same shape as last_24h — and the same honest
             // predicate, or "13,674 this week" is mostly GC markers again.
@@ -1778,13 +1852,80 @@ const server = http.createServer((req, res) => {
         var tm = require('../shared-core/telemetry.js');
         out = tm.status();
       } else if (url === '/api/substrate/scopes') {
-        // G13 — list chameleon scopes + their counts. Used by corpus
-        // management UI to show what corpora exist + offer delete.
+        // G13 — list chameleon scopes + their counts. Powers the Research
+        // screen (which corpora exist, how big, how much is searchable)
+        // and corpus deletion.
+        //
+        // agent_id is NOT applied by default. The brain identity at read
+        // time is principal_id — agent_id only says which SURFACE wrote a
+        // row. Hard-filtering on it hid 12 of this substrate's 30 research
+        // corpora, because ingest ran from whichever surface happened to be
+        // open that day. It stays available as an explicit audit filter
+        // ("what did the voice surface write?") and nothing more.
         var scU = new URL(req.url, 'http://localhost');
-        var scAgent = scU.searchParams.get('agent_id') || resolveAgentId();
+        var scAgent = scU.searchParams.get('agent_id') || null;
         var scCwd   = scU.searchParams.get('cwd') || null;
+        var scPrefix = scU.searchParams.get('prefix') || null;
         var chameleon = require('../shared-core/chameleon.js');
-        out = { agent_id: scAgent, scopes: chameleon.listScopes({ agent_id: scAgent, cwd: scCwd }) || [] };
+        out = {
+          agent_id: scAgent || resolveAgentId(),
+          filtered_by_agent: !!scAgent,
+          scopes: chameleon.listScopes({ agent_id: scAgent, cwd: scCwd, prefix: scPrefix }) || []
+        };
+      } else if (url.startsWith('/api/substrate/scope?') || url === '/api/substrate/scope') {
+        // Read ONE corpus, in ingest order. Recall answers "which chunk
+        // matches these words"; it cannot answer "what is in here", which
+        // is what an operator asks about research they ingested months ago.
+        // Without this road the only way in was guessing the right technical
+        // words — measured: a vague question about an ingested study returned
+        // conversation ABOUT it and not one chunk OF it.
+        var sgU = new URL(req.url, 'http://localhost');
+        var sgName = sgU.searchParams.get('name') || sgU.searchParams.get('scope') || '';
+        var stateMod2 = require('../shared-core/state.js');
+        if (!sgName) { status = 400; out = { error: 'name required' }; }
+        else {
+          out = stateMod2.scopeChunks({
+            scope:  sgName,
+            limit:  parseInt(sgU.searchParams.get('limit')  || '50', 10),
+            offset: parseInt(sgU.searchParams.get('offset') || '0', 10)
+          });
+        }
+      } else if (url.startsWith('/api/substrate/rules')) {
+        // The operator's own standing rules. They are type='lesson', so the
+        // Rules card — which reads commitment sub-kinds (refusal/anchor/fact)
+        // — could not see them at all: a rule could be written and never
+        // appear on the surface named after it.
+        var rlU = new URL(req.url, 'http://localhost');
+        var lessonMod2 = require('../shared-core/lesson.js');
+        var rlItems = lessonMod2.listRules({
+          limit: parseInt(rlU.searchParams.get('limit') || '20', 10),
+          cwd:   rlU.searchParams.get('cwd') || null
+        });
+        out = { count: rlItems.length, items: rlItems };
+      } else if (url.startsWith('/api/substrate/query')) {
+        // Search INSIDE one corpus. The general recall ranks a corpus against
+        // everything else the mind holds, so a vague question loses to
+        // conversation about the same topic. Scoped, the corpus competes only
+        // with itself — which is what "find this in that study" means.
+        var qsU = new URL(req.url, 'http://localhost');
+        var qsScope = qsU.searchParams.get('scope') || '';
+        var qsQ     = qsU.searchParams.get('q') || qsU.searchParams.get('query') || '';
+        var qsK     = Math.max(1, Math.min(50, parseInt(qsU.searchParams.get('k') || '10', 10)));
+        if (!qsScope || !qsQ) { status = 400; out = { error: 'scope and q required' }; }
+        else {
+          // The scoped search reaches the embedder, so it answers on its own
+          // clock and writes its own response — the surrounding block is
+          // synchronous and would otherwise reply with a null body first.
+          var chameleonQ = require('../shared-core/chameleon.js');
+          chameleonQ.queryScope({ scope: qsScope, query: qsQ, k: qsK }).then(function (qsR) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(qsR));
+          }).catch(function (qsE) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: qsE && qsE.message }));
+          });
+          return;
+        }
       } else if (url.startsWith('/api/substrate/anchor-suggestions')) {
         // Tier 1 / A — pattern detector for anchor suggestions.
         var asU = new URL(req.url, 'http://localhost');
@@ -1850,11 +1991,9 @@ const server = http.createServer((req, res) => {
 
   // ===== Health / Stats =====
   if (req.method === 'GET' && (url === '/health' || url === '/stats' || url === '/api/stats')) {
-    var critic = null, reflexion = null, trajectory = null, workflow = null, cochange = null, checkpoint = null;
+    var critic = null, workflow = null, cochange = null, checkpoint = null;
     var morph = null, buildgraph = null, abtest = null;
     try { critic = require('./modules/critic').getStats(); } catch (e) {}
-    try { reflexion = require('./modules/reflexion').getStats(); } catch (e) {}
-    try { trajectory = require('./modules/trajectory').getStats(); } catch (e) {}
     try { workflow = require('./modules/workflow').getState(); } catch (e) {}
     try { cochange = require('./modules/cochange').getStats(); } catch (e) {}
     try { checkpoint = require('./modules/checkpoint').getStats(); } catch (e) {}
@@ -1863,8 +2002,7 @@ const server = http.createServer((req, res) => {
     try { abtest = require('./modules/abtest').getStats(); } catch (e) {}
     var contextFilterData = null;
     try { contextFilterData = require('./modules/contextfilter').getStats(); } catch (e) {}
-    var autodreamData = null;
-    try { autodreamData = require('./modules/autodream').getStats(); } catch (e) {}
+
     var alibabaCapsData = null;
     try { alibabaCapsData = require('./modules/alibabaCaps').getStats(); } catch (e) {}
     var authModeData = null;
@@ -2052,9 +2190,9 @@ const server = http.createServer((req, res) => {
       })(),
       last_served: (typeof lastServed !== 'undefined') ? lastServed : null,
       providers: getProviders(), routing: Object.assign({ mode: routingMode }, getRoutingPrefs()),
-      critic: critic, reflexion: reflexion, trajectory: trajectory, workflow: workflow,
+      critic: critic, workflow: workflow,
       cochange: cochange, checkpoint: checkpoint, morph: morph, buildgraph: buildgraph, abtest: abtest,
-      contextfilter: contextFilterData, autodream: autodreamData,
+      contextfilter: contextFilterData,
       alibabaCaps: alibabaCapsData, authmode: authModeData,
       tokencount: tokenCountData, compressionbuffer: compressionBufferData,
       visionvalidator: visionValidatorData, ultrareview: ultraReviewData,
@@ -2068,63 +2206,6 @@ const server = http.createServer((req, res) => {
   }
 
   // ===== API: Memory management =====
-  // List recent reflexions
-  if (req.method === 'GET' && url === '/api/memory/reflexions') {
-    try {
-      const Database = require('better-sqlite3');
-      const dbPath = path.join(process.env.HOME || require('os').homedir(), '.troth', 'reflexion.db');
-      if (!fs.existsSync(dbPath)) { jsonResponse(res, 200, { reflections: [] }); return; }
-      const db = new Database(dbPath, { readonly: true });
-      const rows = db.prepare('SELECT id, signature, tool, file_path, error_summary, reflection, ts, used_count FROM reflections ORDER BY ts DESC LIMIT 100').all();
-      db.close();
-      jsonResponse(res, 200, { reflections: rows });
-    } catch (e) { jsonResponse(res, 500, { error: e.message }); }
-    return;
-  }
-  // Delete a specific reflexion by id
-  if (req.method === 'DELETE' && url.match(/^\/api\/memory\/reflexions\/(\d+)$/)) {
-    try {
-      const id = parseInt(url.match(/\/(\d+)$/)[1]);
-      const Database = require('better-sqlite3');
-      const dbPath = path.join(process.env.HOME || require('os').homedir(), '.troth', 'reflexion.db');
-      if (!fs.existsSync(dbPath)) { jsonResponse(res, 404, { error: 'no reflexions' }); return; }
-      const db = new Database(dbPath);
-      const result = db.prepare('DELETE FROM reflections WHERE id = ?').run(id);
-      db.close();
-      jsonResponse(res, 200, { ok: true, deleted: result.changes });
-    } catch (e) { jsonResponse(res, 500, { error: e.message }); }
-    return;
-  }
-  // Clear ALL reflexions (with safety confirmation header)
-  if (req.method === 'DELETE' && url === '/api/memory/reflexions') {
-    if (req.headers['x-confirm-clear'] !== 'yes') {
-      jsonResponse(res, 400, { error: 'send header X-Confirm-Clear: yes to confirm' });
-      return;
-    }
-    try {
-      const Database = require('better-sqlite3');
-      const dbPath = path.join(process.env.HOME || require('os').homedir(), '.troth', 'reflexion.db');
-      if (!fs.existsSync(dbPath)) { jsonResponse(res, 404, { error: 'no db' }); return; }
-      const db = new Database(dbPath);
-      const result = db.prepare('DELETE FROM reflections').run();
-      db.close();
-      jsonResponse(res, 200, { ok: true, deleted: result.changes });
-    } catch (e) { jsonResponse(res, 500, { error: e.message }); }
-    return;
-  }
-  // List trajectories
-  if (req.method === 'GET' && url === '/api/memory/trajectories') {
-    try {
-      const Database = require('better-sqlite3');
-      const dbPath = path.join(process.env.HOME || require('os').homedir(), '.troth', 'trajectories.db');
-      if (!fs.existsSync(dbPath)) { jsonResponse(res, 200, { trajectories: [] }); return; }
-      const db = new Database(dbPath, { readonly: true });
-      const rows = db.prepare('SELECT id, prompt_text, keywords, success, ts, used_count FROM trajectories ORDER BY ts DESC LIMIT 100').all();
-      db.close();
-      jsonResponse(res, 200, { trajectories: rows });
-    } catch (e) { jsonResponse(res, 500, { error: e.message }); }
-    return;
-  }
   // Clear workflow state
   if (req.method === 'DELETE' && url === '/api/memory/workflow') {
     try {
@@ -2547,13 +2628,34 @@ const server = http.createServer((req, res) => {
       try {
         const q = String((new URL(req.url, 'http://x')).searchParams.get('q') || '').trim();
         if (!q) { jsonResponse(res, 200, { items: [] }); return; }
-        const engram = require('../shared-core/engram.js');
-        const rows = await engram.retrieveRelevant({ cwd: WATCH_DIR, query: q, k: 20, commitment_only: true });
-        jsonResponse(res, 200, {
-          items: (rows || []).map(function (r) {
-            return { id: r.id, statement: r.statement, ts: r.ts || r.timestamp || null };
-          })
+        // The SAME recall the partner uses — hybrid lexical + dense over the
+        // whole recallable corpus. This used to call the legacy
+        // commitment-only path, whose candidate window is the newest 200
+        // engrams scored on word overlap with no embeddings at all: on a
+        // 43,209-engram substrate that is the last WEEK, so typing a memory's
+        // own words verbatim could not find it if it was older (measured
+        // 2026-08-10). The search a human runs and the recall the partner runs
+        // now answer from the same engine, or they teach the human that the
+        // memory is broken when it is not.
+        const recall = require('../shared-core/recall.js');
+        const st = require('../shared-core/state.js');
+        const hits = await recall.recall({ query: q, class: 'all', audience: 'model_visible', limit: 20, cwd: WATCH_DIR, rerank: true });
+        // Retirement applies to commitment engrams only, and never to a signed
+        // operator fact. Deciding that HERE lets the UI offer Forget only where
+        // it can actually work, instead of showing a button that fails.
+        const items = (hits || []).map(function (r) {
+          let forgettable = false;
+          try {
+            const row = st.getAction(r.id);
+            if (row && row.type === 'commitment') {
+              const o = typeof row.output === 'string' ? JSON.parse(row.output) : (row.output || {});
+              forgettable = (o.commitment_type || 'engram') === 'engram'
+                         && (o.source_authority || 'regex_extracted') !== 'operator_confirmed';
+            }
+          } catch (_) { forgettable = false; }
+          return { id: r.id, statement: r.statement, ts: r.ts || r.timestamp || null, forgettable: forgettable };
         });
+        jsonResponse(res, 200, { items: items });
       } catch (e) { jsonResponse(res, 200, { items: [], error: String(e && e.message || e) }); }
     })();
     return;
@@ -2566,19 +2668,107 @@ const server = http.createServer((req, res) => {
       (async () => {
         try {
           const body = JSON.parse(fb || '{}');
+          // The row id when the caller listed the row (the dashboard always
+          // has it), the statement only as the CLI-shaped fallback. Passing
+          // text made /forget re-derive its own target through a lookup whose
+          // window is the newest 200 engrams, which retired a DIFFERENT memory
+          // for anything older (measured 2026-08-10: 5 of 6 clicks hit the
+          // wrong row). Identity travels with the click now.
+          const targetId = String(body.id || '').trim();
           const stmt = String(body.statement || '').trim();
-          if (!stmt) { jsonResponse(res, 400, { ok: false, error: 'missing_statement' }); return; }
+          if (!targetId && !stmt) { jsonResponse(res, 400, { ok: false, error: 'missing_statement' }); return; }
           const loader = require('../shared-core/slash/loader.js');
           const executor = require('../shared-core/slash/executor.js');
           const skill = loader.load('forget', { cwd: WATCH_DIR });
           if (!skill) { jsonResponse(res, 500, { ok: false, error: 'forget_unavailable' }); return; }
           const r = await executor.executeDeterministic(skill,
-            { name: 'forget', raw_args: stmt, args_array: [stmt] },
+            { name: 'forget', raw_args: stmt, args_array: [stmt], target_id: targetId || null },
             { agent_id: null, cwd: WATCH_DIR, user_id: 'default', conversation_id: null });
           jsonResponse(res, 200, r || { ok: false, error: 'no_result' });
         } catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e) }); }
       })();
     });
+    return;
+  }
+
+  // Stop / start background upkeep. The embedding runs on this machine's own
+  // CPU, so "my laptop is frying" is a legitimate and frequent reason to want
+  // it to stop NOW — and before this the only answers were kill the proxy or
+  // set an environment variable and restart. Neither is available to someone
+  // who did not build this, and neither comes back on its own.
+  //
+  // Writes a file, not a process signal: the worker in THIS proxy, the one in
+  // the entity daemon and the one-shot scheduler in the hooks are three
+  // runners, and a pause only one of them honours is not a pause.
+  if (req.method === 'POST' && url === '/api/memory/pause') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    let pb = '';
+    req.on('data', (c) => { pb += c; });
+    req.on('end', () => {
+      try {
+        const body = JSON.parse(pb || '{}');
+        const gate = require('../shared-core/maintenance-gate.js');
+        const r = body.paused === false
+          ? gate.resume()
+          : gate.pause({ by: 'dashboard', reason: body.reason || null });
+        // Take the pause immediately rather than at the next 30s tick: the
+        // operator pressing this is watching the fans, not the clock.
+        try {
+          if (r.paused && global.__troth_maintenance && global.__troth_maintenance.noteForegroundActivity) {
+            global.__troth_maintenance.noteForegroundActivity();
+          }
+        } catch (_) {}
+        jsonResponse(res, 200, Object.assign({}, r, gate.isPaused()));
+      } catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e) }); }
+    });
+    return;
+  }
+
+  // Take one thing out of the reading queue. Seeing a queue you cannot act on
+  // just relocates the frustration — the operator who finds a folder in there
+  // that should not be there needs a way to say so.
+  if (req.method === 'POST' && url === '/api/memory/queue/drop') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    let db2 = '';
+    req.on('data', (c) => { db2 += c; });
+    req.on('end', () => {
+      try {
+        const body = JSON.parse(db2 || '{}');
+        const ok = require('../shared-core/state.js').dropPendingKnowledge(parseInt(body.id, 10));
+        jsonResponse(res, 200, { ok: !!ok });
+      } catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e) }); }
+    });
+    return;
+  }
+
+  // Read a batch NOW instead of waiting for the next idle window.
+  //
+  // The scheduled drain is deliberately gentle — 8 documents every 15 minutes,
+  // so it never competes with the operator — which means a queue of 183 takes
+  // most of a day. That is the right default and the wrong answer to someone
+  // sitting in front of the machine asking why it has not finished. So: the
+  // same drain, the same budget cap, on the operator's word.
+  //
+  // Bounded on purpose (25 documents, ~19s of embedder time). An unbounded
+  // "do it all" button is a bulk run that heats the machine for an hour;
+  // press it again for the next batch.
+  if (req.method === 'POST' && url === '/api/memory/drain-now') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    // Nothing here reads the body, but it must still be drained: an unread
+    // POST body stalls the NEXT request on a keep-alive connection, and this
+    // handler holds the socket open for ~19 seconds while it embeds.
+    req.resume();
+    (async () => {
+      try {
+        const gate = require('../shared-core/maintenance-gate.js');
+        // Refuses while paused rather than quietly overriding it: a button that
+        // ignores the stop button next to it makes both untrustworthy.
+        if (gate.isPaused().paused) { jsonResponse(res, 200, { ok: false, paused: true }); return; }
+        const stateD = require('../shared-core/state.js');
+        const r = await require('../shared-core/knowledge-drain.js').drainOnce(stateD, { budget: 25 });
+        jsonResponse(res, 200, Object.assign({ ok: true }, r));
+      } catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e) }); }
+    })();
     return;
   }
 
@@ -4559,8 +4749,7 @@ const server = http.createServer((req, res) => {
     const afterInjectKB = (Buffer.byteLength(body) / 1024).toFixed(1);
     log('PAYLOAD AFTER INJECT | ' + afterInjectKB + ' KB (added ' + (afterInjectKB - rawBodyKB).toFixed(1) + ' KB) | type: ' + projectType + '/' + mode);
 
-    // Trajectory recycling: record body BEFORE compression (we want full context for similarity matching)
-    try { if (isModuleEnabled('trajectory')) require('./modules/trajectory').recordIfSuccessful(body); } catch (e) {}
+
 
     // Predictive AST prefetch: warm cache for likely-next files (async, non-blocking)
     try { if (isModuleEnabled('prefetch')) require('./modules/prefetch').predictAndPrefetch(); } catch (e) {}
@@ -4973,33 +5162,27 @@ const server = http.createServer((req, res) => {
       }
     }
 
-    // substrate replay — true zero-LLM replay intercept.
-    // Opt-in via TROTH_REPLAY_EXECUTE=1. When enabled, and the latest
-    // user text in body.messages matches a compiled_procedure above
-    // TROTH_REPLAY_PLAN_THRESHOLD (default 0.50) AND the buildReplayPlan
-    // output has ZERO missing args, the substrate emits a synthetic
-    // Anthropic SSE tool_use response and bypasses the LLM entirely.
-    // The host (Claude Code) executes the tool, sends back the
-    // tool_result, and the next request resumes through the normal
-    // LLM path. Multi-turn continuation is the next ship —
-    // procedure-runner's gcr_-prefixed tool_use IDs make it trivial.
-    // Failure-soft: any precondition miss falls through to LLM.
-    if (process.env.TROTH_REPLAY_EXECUTE === '1' && routeTarget !== 'local') {
+    // P6: recall forcing. A fresh memory-shaped question on a request that
+    // carries a troth recall tool gets tool_choice forced to it — the one
+    // hard-enforcement mechanism the proxy lane has for agents without our
+    // hooks. Every guard (manual thinking, client choice, mid-loop, the
+    // hook lane having spoken) lives in the module. The explicit-local mode
+    // is skipped outright; on the fallback chain the force binds only on
+    // lanes that carry MCP tools (Anthropic, Responses) — the OpenAI-compat
+    // chat conversion strips them and drops tool_choice with them, so there
+    // it evaporates harmlessly. preprocessAnthropicBody stripped `thinking`
+    // back at the top of the pipeline, so the original type rides in as an
+    // opt — the manual-thinking guard would otherwise never see it.
+    if (routeTarget !== 'local' && isModuleEnabled('recallforce')) {
       try {
-        const interceptor = require('./modules/replay-intercept');
-        const r = await interceptor.tryIntercept({
-          body, res, requestedModel,
-          cwd: process.env.TROTH_CWD || process.cwd(),
-          threshold: parseFloat(process.env.TROTH_REPLAY_PLAN_THRESHOLD || '0.50')
+        const rf = require('./modules/recallforce').apply(body, {
+          thinkingType: preprocessed.thinkingConfig && preprocessed.thinkingConfig.thinkingType
         });
-        if (r && r.handled) {
-          stats.requests++;
-          log('REQ #' + stats.requests + ' | REPLAY-INTERCEPT | tool=' + r.tool +
-              ' score=' + r.score.toFixed(2) +
-              ' procedure=' + String(r.procedure_id || '').slice(0, 8));
-          return;
+        if (rf.forced) {
+          body = rf.body;
+          log('RECALLFORCE | ' + rf.reason + ' — memory-shaped prompt, recall is no longer optional');
         }
-      } catch (e) { log('replay-intercept threw: ' + (e.message || e)); }
+      } catch (e) {}
     }
 
     if (routeTarget === 'anthropic') {
@@ -5605,6 +5788,11 @@ server.listen(listenPort, BIND_HOST, () => {
       try {
         var _fs = require('fs'), _os = require('os'), _pathI = require('path');
         var _cp = require('child_process');
+        // The agent's own browser directory, from the daemon that creates it,
+        // so the reaper and the launcher can never disagree about which
+        // browser belongs to troth.
+        var _AGENT_PROFILE = '';
+        try { _AGENT_PROFILE = require('../shared-core/perception/chromium-daemon.js').defaultProfileDir(); } catch (_) {}
         // EVERY long-lived child the product can leave behind, not just the
         // two the operator happened to catch. A customer cannot diagnose a
         // hung daemon and has no reason to know these exist, so nothing may
@@ -5615,8 +5803,11 @@ server.listen(listenPort, BIND_HOST, () => {
           // The local CHAT model: same family, far more RAM. Idle-reaped on a
           // longer leash because reloading a chat model is the slowest respawn.
           { port: parseInt(process.env.TROTH_LOCAL_PORT  || '11436', 10), what: 'local chat', pat: 'llama-server', mult: 2 },
-          // Headless Chromium for browsing. Holds a full browser process tree.
-          { port: parseInt(process.env.TROTH_BROWSER_CDP_PORT || '18222', 10), what: 'browser', pat: 'remote-debugging-port' }
+          // A real browser for browsing — headed on purpose, since search
+          // pages block a headless CDP session. Holds a full process tree; a
+          // longer leash than a model server because a page an agent opened
+          // may still be on the operator's screen.
+          { port: parseInt(process.env.TROTH_BROWSER_CDP_PORT || '18222', 10), what: 'browser', pat: 'remote-debugging-port', mult: 4 }
         ].forEach(function (t) {
           var alive = '';
           var needle = t.pat === 'remote-debugging-port'
@@ -5627,22 +5818,23 @@ server.listen(listenPort, BIND_HOST, () => {
           var last = 0;
           try { last = parseInt(_fs.readFileSync(_pathI.join(_os.homedir(), '.troth', 'lastuse-' + t.port + '.txt'), 'utf8'), 10) || 0; } catch (_) { last = 0; }
           if (t.what === 'browser') {
-            // A browser is not a llama-server. Humans drive browsers, and
-            // human use never writes a lastuse stamp, so "no stamp" here
-            // means "cannot know", never "idle". Three rules:
-            // the operator's own debug session (9222) is never ours to kill;
-            // no stamp means no reap; and a headed window may have someone
-            // reading it right now, so only a headless tree is collected.
-            // The agent's browser keeps its own profile, so nothing here can
-            // reach an operator session either way.
-            if (t.port === 9222) return;
-            if (!last) return;
-            var headed = false;
+            // The rules, and why the third one changed, are in browser-reap.js.
+            // They live there rather than here because they are the part worth
+            // testing and this is a setInterval nobody can call.
+            var _lines = [];
             try {
-              headed = _cp.execSync('pgrep -fl "' + needle + '" || true', { encoding: 'utf8' })
-                .split('\n').some(function (l) { return l && l.indexOf('headless') === -1; });
-            } catch (_) { headed = true; }
-            if (headed) return;
+              _lines = _cp.execSync('pgrep -fl "' + needle + '" || true', { encoding: 'utf8' })
+                .split('\n').filter(function (l) { return !!l; });
+            } catch (_) { _lines = []; }
+            var _verdict = require('../shared-core/browser-reap.js').mayReapBrowser({
+              port: t.port,
+              lastUse: last,
+              now: Date.now(),
+              idleMs: _idleMin * 60000 * (t.mult || 1),
+              procLines: _lines,
+              agentProfile: _AGENT_PROFILE
+            });
+            if (!_verdict.reap) return;
           } else {
             // No stamp on a llama-server means it has not served a single
             // call since stamping shipped: the strongest idle signal there is.
@@ -5685,7 +5877,7 @@ server.listen(listenPort, BIND_HOST, () => {
     log('⚠  Exposed on ' + BIND_HOST + ' — reachable from other machines on the network');
   }
   log('Dashboard: http://localhost:' + listenPort + '/ui');
-  log('Modules: injector | critic | guardian | pinning | loopguard | codelens | router | compressor | validator | reflexion | trajectory | workflow');
+  log('Modules: injector | critic | guardian | pinning | loopguard | codelens | router | compressor | validator | workflow');
   // The port is open and accepting; NOW walk the project. setImmediate so this
   // callback returns to the loop first — a request that arrives during the walk
   // is answered with an empty repo map rather than waiting for one.
@@ -5728,7 +5920,12 @@ server.listen(listenPort, BIND_HOST, () => {
         // weekly backup, the (opt-in) WAL replica and the ledger's own
         // hygiene — the things a substrate silently loses when no entity
         // daemon exists. The thinking tasks stay the entity's alone.
-        tasks: [bw.tasks.embeddingBackfill, bw.tasks.importSync, bw.tasks.backup, bw.tasks.walReplicate, bw.tasks.ledgerPrune],
+        // knowledgeDrain and outcomeFold belong here for the reason the whole
+        // block does: this is the ONLY process alive in a Claude Code + proxy
+        // install. Both were registered in DEFAULT_TASKS — the entity daemon's
+        // list — so on this machine the document queue had no reader at all
+        // and the operator watched "183 still to read" never move.
+        tasks: [bw.tasks.embeddingBackfill, bw.tasks.knowledgeDrain, bw.tasks.outcomeFold, bw.tasks.importSync, bw.tasks.backup, bw.tasks.walReplicate, bw.tasks.ledgerPrune],
         cross_process_lease: true,
         idle_threshold_ms: Math.max(parseInt(process.env.TROTH_MAINT_IDLE_MS || '60000', 10) || 60000, 0),
         tick_ms: Math.max(parseInt(process.env.TROTH_MAINT_TICK_MS || '30000', 10) || 30000, 250),

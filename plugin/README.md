@@ -4,7 +4,7 @@
 
 That's the whole pitch. troth is a brain — not a memory store, not a context window, not a RAG layer. A persistent SQLite-backed substrate that holds positions across sessions, reconsolidates them when you contradict yourself, compiles routines after watching you twice, and can run silent background hygiene tasks between sessions (off by default; `shared-core/deliberator.js` documents exactly what ships). Same brain whether you reach it by **voice** (Tauri desktop), **CLI** (`troth` REPL), **HTTP proxy + dashboard**, or the **Claude Code plugin documented below**.
 
-Memory tools forget the gap between turns. troth uses the gap. Drift detection, contradiction scan, dormant-commitment review, identity extraction, procedure compilation, schema-delta discovery, lability reconsolidation — all running while idle, none requiring an LLM to fire.
+Memory tools forget the gap between turns. troth uses the gap. Drift detection, contradiction scan, dormant-commitment review, identity extraction, lability reconsolidation — all running while idle, none requiring an LLM to fire.
 
 > *This README covers the Claude Code plugin surface. Standalone REPL: `troth cli`. Proxy + dashboard: `troth start` → `localhost:8000/ui`. The desktop app is a separate closed-source product built on this core.*
 

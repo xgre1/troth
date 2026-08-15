@@ -109,7 +109,15 @@ const slotSavePath  = () => get('slot_save_path');
 function embeddingHost() {
   const explicit = get('embedding_host');
   if (explicit) return explicit;
-  return llamacppHost();
+  // NEVER fall back to the chat-model host. Memory embedding and chat are
+  // unrelated concerns: the old fallback meant pointing the chat LLM at a
+  // remote box silently killed write-time embeddings whenever that box
+  // slept — found live 2026-08-15: every engram wrote embedded:false while
+  // the self-installed LOCAL embed server ran healthy on this machine, and
+  // recall went lexical-only, starving the memory-dispatch gate. The
+  // self-installed embedder is the product's own always-local organ; it is
+  // the only sane default, and it speaks the same /embedding shape.
+  return 'http://127.0.0.1:' + (parseInt(process.env.TROTH_EMBED_PORT || '11437', 10));
 }
 
 // Snapshot for UI: returns the resolved current values + their source

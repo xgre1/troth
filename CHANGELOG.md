@@ -11,6 +11,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The partner keeps what it reads. A document opened or a page fetched is
+  queued as a pointer on the operator's turn and becomes recallable passages
+  on the idle worker, so no turn ever waits on chunking or embedding. PDF,
+  RTF, DOCX and plain text are extracted with tools already on the machine;
+  what cannot be read is skipped rather than stored as noise. A redaction
+  gate runs before any passage is written, and captured material carries its
+  provenance so the model is offered it as reference, never as instruction.
+- Rules the operator states are a registry of their own: recorded once,
+  embedded at write time, surfaced where they apply, refused when a near
+  duplicate already exists unless confirmed, and scoped so a rule given for
+  one project stays out of the others.
+- A real call graph over the project: `troth_code_who_calls` and
+  `troth_code_calls` answer who reaches a function and what it reaches,
+  distinguishing production callers from test-only ones.
+- Changes are linked to the commit that kept them, so the substrate learns
+  which of its edits survived.
+- Control over the intake, on the Memory page and on every process that
+  could pick the work up: Pause and Resume, a searchable list of what is
+  still queued (with the question that was in flight when each document was
+  read) and a way to drop one, and a bounded "read a batch now" for when
+  waiting for the idle window is not what you want.
+
+### Changed
+- Progress for the intake is one number over the whole job — documents read
+  plus passages indexed — and the time remaining is derived from measured
+  throughput rather than assumed rates. The document reader and the indexer
+  each report their own heartbeat.
+- The handoff written before a compaction now carries the branch and the
+  most recent commits alongside the uncommitted files.
+- The MCP surface explains itself: aliased tools name the canonical one,
+  required arguments are documented where they cannot be guessed, and the
+  router gateway states that a tool missing from the list does not mean the
+  substrate is unavailable.
+- Continuity belongs to the substrate. Writes to claude-side memory files
+  are redirected to engrams, including through the hashline editor and for
+  the continuity files that sit beside the memory folder.
+
 ## [0.1.14] — 2026-08-10
 
 ### Added

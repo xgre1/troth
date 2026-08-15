@@ -19,8 +19,10 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
 const HOME = homedir();
+const _greet = createRequire(import.meta.url)(fileURLToPath(new URL('../../../shared-core/mcp-greeting.js', import.meta.url))).makeGreeter();
 const ROUTER_CONFIG = process.env.TROTH_ROUTER_CONFIG || join(HOME, '.troth', 'router.json');
 const DATA_DIR = join(HOME, '.troth');
 if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
@@ -104,6 +106,18 @@ function startDownstream(name, spec) {
   const env = Object.assign({}, process.env, spec.env || {});
   const proc = spawn(spec.command, spec.args || [], { stdio: ['pipe', 'pipe', 'pipe'], env });
   const state = { proc, nextId: 1, pending: new Map(), buffer: '', ready: false };
+  // Keep the child's own words. Without this a failed start could only report
+  // "init timeout", which says nothing about WHY — and the why (a native
+  // module built for another Node, a moved checkout, a permissions change) is
+  // the entire diagnosis. Bounded so a chatty child cannot grow memory.
+  state.stderr = '';
+  try {
+    proc.stderr.on('data', (c) => {
+      if (state.stderr.length < 4000) state.stderr += c.toString('utf8');
+    });
+  } catch (_) { /* no stderr stream: nothing to capture */ }
+  proc.on('error', (e) => { state.spawnError = (e && e.message) || String(e); });
+  proc.on('exit', (code, sig) => { state.exited = 'exit code ' + code + (sig ? ' signal ' + sig : ''); });
 
   proc.stdout.on('data', (chunk) => {
     state.buffer += chunk.toString('utf8');
@@ -141,15 +155,48 @@ function startDownstream(name, spec) {
         clientInfo: { name: 'troth-router', version: '1.0.0' }
       }
     }) + '\n');
-    setTimeout(() => reject(new Error('init timeout on ' + name)), 10000);
+    // Surface the child's real failure, not the symptom. An immediate crash
+    // and a genuine hang both land here; the stderr tail tells them apart.
+    setTimeout(() => reject(new Error('substrate did not answer initialize'
+      + (state.spawnError ? ' (spawn failed: ' + state.spawnError + ')' : '')
+      + (state.exited ? ' (process exited: ' + state.exited + ')' : '')
+      + (state.stderr ? ' stderr: ' + state.stderr.trim().split('\n').slice(-4).join(' | ').slice(0, 400) : ''))), 10000);
   });
+}
+
+// A downstream that will not start is the most expensive failure in the
+// product, because it does not look like a failure. The model asks memory a
+// question, gets a raw transport error, concludes the substrate is not
+// available, and falls back to grepping files — a field report cost 100k
+// tokens exactly this way, on an install whose router.json was correct. The
+// cause varies (a native module built against another Node ABI, a moved
+// checkout, a permissions change); the CURE is the same for all of them: say
+// what happened and what fixes it, in words the model will not mistake for
+// "there is no memory here".
+function downstreamHelp(name, detail) {
+  const d = String(detail || '').slice(0, 300);
+  const abi = /NODE_MODULE_VERSION|was compiled against a different Node|invalid ELF|\.node/i.test(d)
+    ? ' The native module was built for a different Node than the one running it — `npm rebuild better-sqlite3` in the troth checkout, using that same Node.'
+    : '';
+  return 'The troth substrate (' + name + ') is CONFIGURED but did not start, so memory is temporarily unreachable. '
+       + 'This is NOT an empty memory and NOT a missing feature: do not fall back to grepping files or reading state.db. '
+       + 'Tell the operator to run `troth doctor` in the troth checkout.' + abi
+       + ' Underlying error: ' + d;
 }
 
 async function getDownstream(name) {
   if (pool.has(name)) return pool.get(name);
   const downstream = loadDownstream();
-  if (!downstream[name]) throw new Error('unknown downstream server: ' + name);
-  return startDownstream(name, downstream[name]);
+  if (!downstream[name]) {
+    const known = Object.keys(downstream).join(', ') || '(none configured)';
+    throw new Error('unknown downstream server: ' + name + '. Configured: ' + known
+      + '. If the substrate is missing from ~/.troth/router.json, run `troth install-plugin` to reprovision it.');
+  }
+  try {
+    return await startDownstream(name, downstream[name]);
+  } catch (e) {
+    throw new Error(downstreamHelp(name, e && e.message || e));
+  }
 }
 
 // A flat 30s ceiling suits metadata calls and lies about generative ones.
@@ -195,25 +242,25 @@ const OUR_TOOLS = [
   },
   {
     name: 'mcp_describe',
-    description: 'Return the full schema (inputSchema, description) of a specific downstream tool.',
+    description: 'Return the full schema (inputSchema, description) of one downstream tool. Call this before mcp_call when you are unsure what arguments a tool takes — mcp_list gives you only a truncated one-liner.',
     inputSchema: {
       type: 'object',
       properties: {
-        server: { type: 'string' },
-        tool: { type: 'string' }
+        server: { type: 'string', description: 'Downstream server name as it appears in mcp_list, e.g. "troth-substrate" or "troth-memory"' },
+        tool: { type: 'string', description: 'Exact tool name on that server, e.g. "troth_engram_record"' }
       },
       required: ['server', 'tool']
     }
   },
   {
     name: 'mcp_call',
-    description: 'Invoke a tool on a downstream MCP server with arguments.',
+    description: 'Invoke a tool on a downstream MCP server. This is the gateway: on router-only installs the substrate tools are NOT in your tool list, and this is how you reach them — e.g. mcp_call({server:"troth-substrate", tool:"troth_engram_record", args:{statement:"…"}}). Discover names with mcp_list, argument shapes with mcp_describe. A tool missing from your list does NOT mean the substrate is down.',
     inputSchema: {
       type: 'object',
       properties: {
-        server: { type: 'string' },
-        tool: { type: 'string' },
-        args: { type: 'object' }
+        server: { type: 'string', description: 'Downstream server name, e.g. "troth-substrate" (engrams, recall, dialogue, slash) or "troth-memory" (ActionRecords, working set)' },
+        tool: { type: 'string', description: 'Exact tool name on that server' },
+        args: { type: 'object', description: 'Arguments object passed through verbatim, exactly as that tool\'s own schema defines them' }
       },
       required: ['server', 'tool']
     }
@@ -332,14 +379,26 @@ async function handleUpstream(msg) {
       reply({
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
-        serverInfo: { name: 'troth-router', version: '1.0.0' }
+        serverInfo: { name: 'troth-router', version: '1.0.0' },
+        // The protocol's own always-read: clients that honor the field put it
+        // in front of the model without costing a file anywhere. Curated and
+        // SHORT on purpose — a contract, not a manual; the tools document
+        // themselves in the listing.
+        instructions:
+          'This machine runs troth: a persistent substrate that remembers ' +
+          'decisions, preferences and prior work across sessions. For any ' +
+          '"do you remember / what did we decide / have we built X" question, ' +
+          'call troth_recall BEFORE reading or grepping CLAUDE.md, memory/*.md ' +
+          'or project files — the substrate holds more than those files do, and ' +
+          'blocks marked [troth/...] in your context are its ground truth. ' +
+          'Tools not in your list are reachable via mcp_list / mcp_call.'
       });
     } else if (msg.method === 'tools/list') {
       reply({ tools: OUR_TOOLS });
     } else if (msg.method === 'tools/call') {
       const { name, arguments: args } = msg.params || {};
       const result = await handleTool(name, args || {});
-      reply(result);
+      reply(_greet(result));
     } else if (msg.method === 'ping') {
       reply({});
     } else {

@@ -124,8 +124,9 @@ function _saveCliSessions() {
 // 18i pane ran `npx playwright` instead of the governed browser). Bind the
 // governed-browser rule to the claude_cli profile so EVERY backbone turn
 // carries it via --append-system-prompt, independent of whatever system prefix
-// the caller assembled (the stable prefix is identity+memory only, it does not
-// carry tool rules). troth_browser_do (troth-substrate MCP) drives the
+// the caller assembled (the caller's system is the static frame only — the
+// volatile memory rides the user message per the prefix-stability layout; it
+// does not carry tool rules). troth_browser_do (troth-substrate MCP) drives the
 // operator's real Chrome via CDP under STVC. No em-dash per repo authored-string rule.
 const CLAUDE_BROWSER_RULE =
   'BROWSER AND WEB WORK: use web_search and web_fetch for reading. For anything that needs a real ' +
@@ -216,7 +217,7 @@ const PROFILES = Object.freeze({
       if (engineOverride && !/^claude$/i.test(engineOverride)) {
         let m = engineOverride;
         if (/^gpt$/i.test(engineOverride)) {
-          try { m = require('./codex-oauth.js').DEFAULT_MODEL; } catch (_) { m = 'gpt-5.6-sol'; }
+          try { m = require('./codex-oauth.js').DEFAULT_MODEL; } catch (_) { m = 'gpt-5.5'; }
         } else if (/^router$/i.test(engineOverride)) {
           m = String(vars.model || '');
         } else if (/^kimi$/i.test(engineOverride)) {
@@ -232,7 +233,8 @@ const PROFILES = Object.freeze({
       }
       // ONLY pass --model when it's actually a Claude model. `claude -p
       // --model <non-claude>` exits 1 with EMPTY stdout → the reply came back
-      // blank and the UI showed "Done."/"έγινε" — so every source below is
+      // blank and the UI showed a bare "Done." acknowledgement — so every
+      // source below is
       // gated on the same /claude/ test, and passing nothing lets claude use
       // the operator's own subscription default, which works.
       else {
@@ -388,8 +390,9 @@ function makeSubprocessCliTransport(opts) {
 
   // Recall-source isolation (#41): the claude_cli faculty is a LANGUAGE ORGAN.
   // Its identity + memory come ONLY from the substrate — the entity already
-  // injects them as <memory_*> blocks via --append-system-prompt
-  // (troth-entity.js builds them from recall.js / identity-envelope.js). So we
+  // injects them as <turn_context>/<memory_*> blocks at the TOP of the user
+  // message (prefix-stability layout — llm-orchestrator resolvePrefix; the
+  // --append-system-prompt carries only the static frame + tool rules). So we
   // point CLAUDE_CONFIG_DIR at a dedicated empty dir (and run in it) so `claude`
   // does NOT load the operator's personal ~/.claude/CLAUDE.md or file-based
   // memory — that would give Troth a SECOND identity/memory store, the core design
@@ -551,7 +554,7 @@ function makeSubprocessCliTransport(opts) {
     // `messages` array, NOT {system,user}. The SSE transports (router/llamacpp)
     // consume messages, but the CLI transports only read user/system — so
     // claude_cli got an EMPTY prompt (`claude -p ""`) → exit 1 / empty stdout →
-    // a blank reply that surfaced as "Done."/"έγινε". Flatten the messages into
+    // a blank reply that surfaced as a bare "Done.". Flatten the messages into
     // a system block (system-role) + one user prompt so the CLI path works too.
     if (!user && Array.isArray(req && req.messages) && req.messages.length) {
       const toText = (c) => Array.isArray(c)

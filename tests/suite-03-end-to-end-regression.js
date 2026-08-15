@@ -1648,6 +1648,59 @@ console.log('\nPreCompact hook integration:');
     assert.ok(typeof handoff.output.summary === 'string', 'output.summary must exist');
   });
 
+  test('PreCompact hook: the handoff says WHERE the work sits — branch and recent commits', () => {
+    // The dirty list said what had changed and never what it changed FROM.
+    // A post-compact agent that knows the files but not the branch has to ask,
+    // and asking is the thing this record exists to prevent.
+    //
+    // The repository is BUILT here rather than borrowed from the surrounding
+    // checkout. The first version pointed at this tree and passed — then failed
+    // inside the public export, which is a plain directory with no git history
+    // at all, so the reads returned empty and the assertion had nothing to
+    // stand on. A test that only holds where its author ran it is not a test.
+    const gitEnv = Object.assign({}, process.env, {
+      GIT_AUTHOR_NAME: 'suite', GIT_AUTHOR_EMAIL: 'suite@invalid',
+      GIT_COMMITTER_NAME: 'suite', GIT_COMMITTER_EMAIL: 'suite@invalid'
+    });
+    const repo = pPC.join(TMP_PC, 'handoff-repo');
+    fPC.mkdirSync(repo, { recursive: true });
+    const git = (args) => childPC.execFileSync('git', args, { cwd: repo, env: gitEnv, stdio: ['ignore', 'pipe', 'ignore'] });
+    let haveGit = true;
+    try {
+      git(['init', '-q']);
+      fPC.writeFileSync(pPC.join(repo, 'note.txt'), 'first\n');
+      git(['add', 'note.txt']);
+      git(['commit', '-q', '-m', 'the commit the handoff should name']);
+      fPC.writeFileSync(pPC.join(repo, 'note.txt'), 'second\n');   // leave it dirty
+    } catch (_) { haveGit = false; }
+
+    process.env.CLAUDE_PLUGIN_DATA = TMP_PC;
+    delete require.cache[require.resolve('../shared-core/state')];
+    delete require.cache[require.resolve('../shared-core/working-set')];
+    const state = require('../shared-core/state');
+    const sess = 'PCGIT-' + Date.now();
+    const out = runPreCompact({ session_id: sess, cwd: repo });
+    assert.deepStrictEqual(out, {}, 'still allow()');
+    const handoff = (state.queryActions({ type: 'decision', session_id: sess, limit: 5 }) || [])
+      .map((row) => { try { return { input: JSON.parse(row.input), output: JSON.parse(row.output) }; } catch { return null; } })
+      .filter(Boolean)
+      .find((d) => d.input && d.input.kind === 'compact_handoff');
+    assert.ok(handoff, 'handoff persisted');
+    // Shape first: outside a repository these must be an empty string and an
+    // empty array, never absent and never a throw.
+    assert.strictEqual(typeof handoff.output.branch, 'string', 'branch is always a string');
+    assert.ok(Array.isArray(handoff.output.recent_commits), 'recent_commits is always an array');
+    if (!haveGit) return;   // no git on this machine — the shape above is the whole claim
+    assert.ok(handoff.output.branch.length > 0,
+      'inside a repository the branch is captured: ' + JSON.stringify(handoff.output.branch));
+    assert.ok(handoff.output.recent_commits.length > 0,
+      'and the last commits: ' + JSON.stringify(handoff.output.recent_commits));
+    assert.ok(/the commit the handoff should name/.test(handoff.output.recent_commits.join(' ')),
+      'the real subject line, not a placeholder: ' + JSON.stringify(handoff.output.recent_commits));
+    assert.ok(/Branch: /.test(String(handoff.output.summary)),
+      'and it reaches the summary the post-compact agent actually reads: ' + String(handoff.output.summary).slice(0, 200));
+  });
+
   test('PreCompact hook: records a type=compact ActionRecord in substrate', () => {
     process.env.CLAUDE_PLUGIN_DATA = TMP_PC;
     delete require.cache[require.resolve('../shared-core/state')];

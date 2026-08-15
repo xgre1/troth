@@ -44,6 +44,10 @@ let _serverPromise = null;
 // first load, or one network miss fetching llama-server — and recall stayed
 // degraded (lexical+dense only) for the entire daemon lifetime.
 let _deadAt = 0;             // 0 = healthy; else ts of last failure
+// Set once if a spawn WITH accelerator offload never answered its health
+// check. Process-lifetime, so a machine whose backend cannot start pays the
+// failed attempt once rather than on every respawn.
+let _offloadFailed = false;
 const DEAD_RETRY_MS = 10 * 60 * 1000;
 function _isDead() { return _deadAt > 0 && (Date.now() - _deadAt) < DEAD_RETRY_MS; }
 function _markDead() { _deadAt = Date.now(); }
@@ -118,28 +122,53 @@ async function ensureServer() {
     try {
       const logPath = path.join(process.env.HOME || os.homedir(), '.troth', 'desktop', 'rerank-server.log');
       try { require('fs').mkdirSync(path.dirname(logPath), { recursive: true }); } catch (_) {}
-      try { require('child_process').execSync('pkill -f "llama-server.*' + PORT + '" || true', { stdio: 'ignore' }); } catch (_) {}
-      // Truncate per spawn ('w', not 'a') + errors-only verbosity: append-mode
-      // verbose llama-server logging ballooned this file to 21GB (exact same bug
-      // as embed-server.err.log at 49GB). Mirrors local-embedder.js:287/291.
-      const fd = require('fs').openSync(logPath, 'w');
-      const child = _spawn(BIN, [
-        '-m', modelPath, '--reranking', '--pooling', 'rank',
-        '-lv', '0', // errors only (see log note above)
-        '--port', String(PORT), '--host', '127.0.0.1',
-        '-c', String(CONTEXT_SIZE), '-ngl', String(RERANK_NGL)
-        // Same as the embedder: Linux needs the loader pointed at the
-        // directory holding llama-server's shared objects.
-      ], { detached: true, stdio: ['ignore', fd, fd],
-           env: Object.assign({}, process.env, {
-             LD_LIBRARY_PATH: path.dirname(BIN) +
-               (process.env.LD_LIBRARY_PATH ? ':' + process.env.LD_LIBRARY_PATH : '')
-           }) });
-      child.unref();
-      const deadline = Date.now() + 40000;
-      while (Date.now() < deadline) {
-        if (await _health()) return true;
-        await new Promise((r) => setTimeout(r, 1000));
+      // What this server may spend, answered in one place for every local
+      // model. It used to be pinned to the CPU with no thread bound at all:
+      // llama.cpp then took every core it could see, and one rerank of fifty
+      // candidates cost 6.72 CPU-seconds where offload costs 441ms and four
+      // threads beat sixteen even without it.
+      const _dc = require('./device-capabilities.js');
+
+      // Offload is attempted, not assumed. What llama.cpp does when a backend
+      // is present but cannot start is the one thing here that was never
+      // measured — simulating it means breaking an installation — so the
+      // server is started, checked, and started again without offload if it
+      // never answered. The second failure is remembered for this process so
+      // every later spawn goes straight to the working configuration.
+      const attempts = _offloadFailed ? [true] : [false, true];
+      for (const noOffload of attempts) {
+        const flags = _dc.inferenceFlags({ bin: BIN, noOffload });
+        try { require('child_process').execSync('pkill -f "llama-server.*' + PORT + '" || true', { stdio: 'ignore' }); } catch (_) {}
+        // Truncate per spawn ('w', not 'a') + errors-only verbosity: append-mode
+        // verbose llama-server logging ballooned this file to 21GB (exact same bug
+        // as embed-server.err.log at 49GB). Mirrors local-embedder.js:287/291.
+        const fd = require('fs').openSync(logPath, 'w');
+        const child = _spawn(BIN, [
+          '-m', modelPath, '--reranking', '--pooling', 'rank',
+          '-lv', '0', // errors only (see log note above)
+          '--port', String(PORT), '--host', '127.0.0.1',
+          '-c', String(CONTEXT_SIZE),
+          '-ngl', String(flags.ngl),
+          '--threads', String(flags.threads)
+          // Same as the embedder: Linux needs the loader pointed at the
+          // directory holding llama-server's shared objects.
+        ], { detached: true, stdio: ['ignore', fd, fd],
+             env: Object.assign({}, process.env, {
+               LD_LIBRARY_PATH: path.dirname(BIN) +
+                 (process.env.LD_LIBRARY_PATH ? ':' + process.env.LD_LIBRARY_PATH : '')
+             }) });
+        child.unref();
+        const deadline = Date.now() + 40000;
+        while (Date.now() < deadline) {
+          if (await _health()) return true;
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+        if (flags.ngl > 0 && !noOffload) {
+          _offloadFailed = true;
+          try { console.error('[local-reranker] offload did not come up — retrying on cpu'); } catch (_) {}
+          continue;
+        }
+        break;
       }
       _markDead();
       try { console.error('[local-reranker] server health timeout'); } catch (_) {}

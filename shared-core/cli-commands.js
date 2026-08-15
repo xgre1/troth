@@ -40,6 +40,7 @@ module.exports = [
   "mind",
   // Knowledge import (curriculum tier — pre-Chameleon):
   "knowledge",
+  "agents",
   // L3 Chameleon Protocol — adapter registry + runtime driver:
   "chameleon",
   //  multi-tenant + role orchestrator:

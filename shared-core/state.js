@@ -188,6 +188,35 @@ function migrate(d) {
     CREATE INDEX IF NOT EXISTS idx_usage_ledger_ts    ON usage_ledger(ts);
     CREATE INDEX IF NOT EXISTS idx_usage_ledger_model ON usage_ledger(model);
 
+    -- Knowledge the partner SAW while working, queued for ingestion.
+    --
+    -- Measured 2026-08-11: 11,753 Read calls over 3,346 distinct files, 8,407
+    -- of them re-reads (72%) — one file opened 352 times. What survived of all
+    -- that reading: the path, the line count, the byte count. Not one byte of
+    -- content. The material the partner actually worked from was never kept,
+    -- so it had to be fetched again, and again.
+    --
+    -- This is a queue of POINTERS, not content: the file is on disk and
+    -- re-reading it costs nothing, while chunking and embedding cost 51ms per
+    -- 800 characters and must never run on the operator's turn. The proxy
+    -- appends a row the moment it sees the read; the idle worker drains it.
+    -- The sha is the content hash, so a file read 352 times is ingested once and
+    -- re-ingested only when it actually changes.
+    CREATE TABLE IF NOT EXISTS knowledge_spool (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind       TEXT NOT NULL,           -- 'file' | 'web'
+      ref        TEXT NOT NULL,           -- absolute path, or url
+      sha        TEXT,                    -- content hash at the time it was seen
+      bytes      INTEGER DEFAULT 0,
+      payload    TEXT,                    -- only for kinds with no durable source (web)
+      why        TEXT,                    -- the operator question in flight when this was read
+      created_at INTEGER NOT NULL,
+      done_at    INTEGER,                 -- null = pending
+      result     TEXT                     -- what the drain decided, for audit
+    );
+    CREATE INDEX IF NOT EXISTS idx_knowledge_spool_pending ON knowledge_spool(done_at, created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_spool_sha ON knowledge_spool(kind, ref, sha);
+
     CREATE TABLE IF NOT EXISTS proxy_stats (
       ts           INTEGER PRIMARY KEY,
       requests     INTEGER DEFAULT 0,
@@ -1268,12 +1297,20 @@ function getArchiveExcerpt(id, startLine, endLine) {
   };
 }
 
-// ── Session lessons (critic ↔ reflexion loop) ─────────────────────
-// Signature: recordLesson(session_id, cwd, source, fingerprint, lesson).
+// ── Session lessons (critic ↔ reflexion loop) ─────────────────
+// Signature: recordLesson(session_id, cwd, source, fingerprint, lesson, opts).
 // Older callers passed (session_id, source, fingerprint, lesson) — we
 // detect that shape and shift args so we don't break the plugin mid-
 // migration.
-function recordLesson(session_id, cwd, source, fingerprint, lesson) {
+//
+// opts.durable=false writes ONLY the delivery queue. The dual-write made
+// every lesson permanent, and most lessons are not: a working-style warning
+// about the previous turn is coaching for the next one, not a fact about the
+// world — yet 886 fidelity warnings sat in the permanent store as semantic,
+// model-visible memories, each one a sentence about a turn nobody can see
+// any more. What deserves to outlive the session says so; what does not is
+// delivered once and swept with the queue.
+function recordLesson(session_id, cwd, source, fingerprint, lesson, opts) {
   // Backwards-compat: old 4-arg call → shift.
   if (arguments.length === 4 && typeof cwd === 'string' && typeof fingerprint === 'string' &&
       lesson === undefined) {
@@ -1296,6 +1333,7 @@ function recordLesson(session_id, cwd, source, fingerprint, lesson) {
   // KnowledgeAtlas export contract. The legacy session_lessons table is
   // kept above so pullLessons() and existing readers still work, but the
   // substrate is now the canonical store.
+  if (opts && opts.durable === false) return info.lastInsertRowid;
   try {
     const actionRecord = require('./action-record.js');
     const rec = actionRecord.create({
@@ -1318,6 +1356,89 @@ function recordLesson(session_id, cwd, source, fingerprint, lesson) {
   }
 
   return info.lastInsertRowid;
+}
+
+// A lesson the OPERATOR taught, as opposed to one a guard noticed.
+//
+// The two are different animals wearing the same word. What errortax, the
+// critic and the fidelity rails write is a transient warning: relevant to the
+// next turn, consumed on read, forgotten after. What an operator states is a
+// standing rule: it must survive every session, never be consumed, and come
+// back through recall whenever it is relevant. Measured 2026-08-10: of 5,143
+// lesson rows, 3,785 were an imported curriculum and the rest were automated
+// warnings — ZERO came from operator instruction, because there was no way to
+// write one. A rule taught in conversation ended up in an engram if the
+// assistant happened to remember, and nowhere if it did not.
+//
+// This writes the durable half ONLY: an action_record of type='lesson' that
+// query.getLessons and recall's semantic arm both read. It deliberately does
+// NOT touch session_lessons, because pullLessons() marks what it returns as
+// consumed — a standing rule pushed through that path would be shown once and
+// then silently disappear, which is the opposite of the point.
+//
+// scope: 'global' (applies everywhere) | 'project' (this cwd only).
+// Dedup is by fingerprint so the same rule restated does not pile up.
+function recordOperatorLesson(opts) {
+  opts = opts || {};
+  const text = String(opts.lesson || opts.text || '').trim();
+  if (!text) return null;
+  const scope = opts.scope === 'project' ? 'project' : 'global';
+  const cwd = scope === 'project' ? (opts.cwd || null) : null;
+  // Fingerprint on the normalised text: restating the same rule in the same
+  // words is a no-op, restating it differently is a new rule the operator
+  // meant to add.
+  const fingerprint = 'operator:' + require('crypto').createHash('sha1')
+    .update(text.toLowerCase().replace(/\s+/g, ' ')).digest('hex').slice(0, 16);
+  try {
+    const existing = db().prepare(
+      "SELECT id FROM action_records WHERE type = 'lesson' AND json_extract(input,'$.fingerprint') = ? LIMIT 1"
+    ).get(fingerprint);
+    if (existing) return { id: existing.id, duplicate: true, fingerprint };
+  } catch (_) { /* first run / missing index: fall through and write */ }
+  try {
+    const actionRecord = require('./action-record.js');
+    const rec = actionRecord.create({
+      type: 'lesson',
+      agent_id: opts.agent_id || 'operator',
+      session_id: opts.session_id || null,
+      cwd,
+      input: { source: 'operator', fingerprint, scope, why: opts.why || null },
+      output: { text, scope, source_authority: 'operator_confirmed' }
+    });
+    // create() builds the causal shape and drops anything outside it, so
+    // these two ride on AFTER it. They are not decoration: recall filters on
+    // exactly these columns (memory_class in the recallable set AND audience
+    // model_visible), and the writer's fail-closed defaults are
+    // operational/substrate_internal. Passing them into create() looked
+    // right and produced a rule the partner could never retrieve — written,
+    // listed by the durable reader, invisible to every recall. Measured
+    // 2026-08-10 before this line existed.
+    rec.memory_class = 'semantic';
+    rec.audience = 'model_visible';
+    const v = actionRecord.validate(rec);
+    if (!v || !v.ok) return null;
+    const wrote = recordAction(rec, text);
+    return wrote ? { id: rec.id, duplicate: false, fingerprint, scope } : null;
+  } catch (_) { return null; }
+}
+
+// The standing rules, newest first. Read-only; never consumes.
+function listOperatorLessons(opts) {
+  opts = opts || {};
+  const limit = Math.max(1, Math.min(100, parseInt(opts.limit || 20, 10)));
+  try {
+    const rows = db().prepare(`
+      SELECT id, timestamp, cwd,
+             json_extract(output,'$.text')  AS text,
+             json_extract(output,'$.scope') AS scope
+      FROM action_records
+      WHERE type = 'lesson' AND json_extract(input,'$.source') = 'operator'
+      ORDER BY timestamp DESC LIMIT ?
+    `).all(limit) || [];
+    if (!opts.cwd) return rows;
+    // Global rules always apply; project rules only in their own project.
+    return rows.filter((r) => r.scope !== 'project' || r.cwd === opts.cwd);
+  } catch (_) { return []; }
 }
 
 // Pull up to `limit` unconsumed lessons. Returns current-session lessons
@@ -2642,6 +2763,60 @@ function getEmbedding(engram_id) {
     return new Float32Array(row.vector.buffer, row.vector.byteOffset, row.dim);
   } catch (_) { return null; }
 }
+// Remove one vector. The missing primitive: nothing in the codebase has ever
+// deleted from engram_embeddings, so a vector outlives the memory it belongs
+// to forever.
+function deleteEmbedding(engram_id) {
+  if (!engram_id) return false;
+  try {
+    const r = db().prepare('DELETE FROM engram_embeddings WHERE engram_id = ?').run(engram_id);
+    return !!(r && r.changes);
+  } catch (_) { return false; }
+}
+
+// Sweep vectors whose memory is already dead.
+//
+// Measured 2026-08-11: 706 of ~62,600 vectors (1.1%) belonged to engrams the
+// garbage collector had already tombstoned, and 5 more to rows that no longer
+// exist at all. Sweeping them moved the full dense scan from 164ms to 151ms
+// average on this substrate — real, and small.
+//
+// The first measurement of this said 41.6%, and it was wrong by 37x: it
+// counted rows of a JOIN between embeddings and tombstones, and many
+// tombstones point at the same engram, so pairs were counted as vectors. The
+// number that matters is COUNT(DISTINCT ee.engram_id). Recorded here because
+// the inflated figure was persuasive, quotable, and would have justified far
+// more work than the defect deserves.
+//
+// Superseded engrams are deliberately NOT swept. They are real memories kept
+// for audit ("what did I used to believe"), recall already excludes them by
+// following the supersession chain, and they are 336 vectors — half a percent.
+// Taking their vectors would trade an honest 0.5% for the loss of a real
+// answer.
+function pruneDeadEmbeddings(limit) {
+  const n = Math.max(1, Math.min(20000, parseInt(limit || 5000, 10)));
+  const out = { tombstoned: 0, orphaned: 0 };
+  try {
+    const d = db();
+    out.tombstoned = d.prepare(`
+      DELETE FROM engram_embeddings WHERE engram_id IN (
+        SELECT ee.engram_id FROM engram_embeddings ee
+        JOIN action_records t ON json_extract(t.output,'$.replaces') = ee.engram_id
+        WHERE json_extract(t.output,'$.commitment_type') = 'engram_tombstoned'
+        LIMIT ?
+      )
+    `).run(n).changes || 0;
+    out.orphaned = d.prepare(`
+      DELETE FROM engram_embeddings WHERE engram_id IN (
+        SELECT ee.engram_id FROM engram_embeddings ee
+        LEFT JOIN action_records a ON a.id = ee.engram_id
+        WHERE a.id IS NULL LIMIT ?
+      )
+    `).run(n).changes || 0;
+  } catch (_) { /* fresh db: nothing to sweep */ }
+  return out;
+}
+
 function listEngramsMissingEmbeddings(limit) {
   limit = Math.max(1, Math.min(500, parseInt(limit || 50, 10)));
   try {
@@ -2784,6 +2959,218 @@ function memoryIndexCounts(currentModel) {
   return out;
 }
 
+// Queue one thing the partner just saw, for later ingestion.
+//
+// Called from the proxy while a request is in flight, so it must be cheap and
+// it must never throw: one INSERT, unique on (kind, ref, sha). Re-reading the
+// same unchanged file is a no-op at the index level rather than a decision
+// anyone has to make — which is what makes 8,407 re-reads cost nothing.
+// The spool predates the `why` column on installs that ran the earlier build;
+// add it in place rather than making them drop a queue they already have.
+let _whyColumnChecked = false;
+function _ensureSpoolWhy() {
+  if (_whyColumnChecked) return;
+  _whyColumnChecked = true;
+  try {
+    const cols = db().prepare('PRAGMA table_info(knowledge_spool)').all().map((c) => c.name);
+    if (cols.length && cols.indexOf('why') === -1) db().exec('ALTER TABLE knowledge_spool ADD COLUMN why TEXT');
+  } catch (_) { /* fresh db: the CREATE above already has it */ }
+}
+
+function spoolKnowledge(opts) {
+  opts = opts || {};
+  const kind = opts.kind === 'web' ? 'web' : 'file';
+  const ref  = String(opts.ref || '').trim();
+  if (!ref) return null;
+  try {
+    _ensureSpoolWhy();
+    const r = db().prepare(`
+      INSERT OR IGNORE INTO knowledge_spool (kind, ref, sha, bytes, payload, why, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(kind, ref, opts.sha || null, opts.bytes || 0, opts.payload || null,
+           opts.why ? String(opts.why).replace(/\s+/g, ' ').slice(0, 400) : null, Date.now());
+    return r && r.changes ? r.lastInsertRowid : null;
+  } catch (_) { return null; }
+}
+
+// What the drain still owes. Oldest first: reading in the order the partner
+// saw things keeps a document's parts together when one arrives in pieces.
+function listPendingKnowledge(limit) {
+  const n = Math.max(1, Math.min(500, parseInt(limit || 50, 10)));
+  try {
+    return db().prepare(`
+      SELECT id, kind, ref, sha, bytes, payload, why, created_at
+      FROM knowledge_spool WHERE done_at IS NULL
+      ORDER BY created_at ASC LIMIT ?
+    `).all(n) || [];
+  } catch (_) { return []; }
+}
+
+// The same queue, for a human who wants to look INSIDE it.
+//
+// A count is not an answer. "183 still to read" tells the operator that
+// something is owed and nothing about what — whether it is their research or
+// a folder of junk, whether the thing they need is at the front or the back,
+// whether the queue is stuck on one file. This returns rows they can read and
+// search, newest first (what you just gave it is what you are looking for),
+// and it never returns the payload: web captures can be megabytes and this
+// feeds a list, not a reader.
+function searchPendingKnowledge(opts) {
+  opts = opts || {};
+  const n = Math.max(1, Math.min(200, parseInt(opts.limit || 50, 10)));
+  const q = String(opts.q || '').trim().toLowerCase();
+  try {
+    _ensureSpoolWhy();
+    const where = ['done_at IS NULL'];
+    const args = [];
+    if (q) {
+      // ref and why both: an operator searches by what the file is called OR
+      // by what they were asking when it was read, and cannot know which of
+      // the two they remember.
+      where.push('(LOWER(ref) LIKE ? OR LOWER(COALESCE(why,\'\')) LIKE ?)');
+      args.push('%' + q + '%', '%' + q + '%');
+    }
+    const rows = db().prepare(
+      'SELECT id, kind, ref, bytes, why, created_at FROM knowledge_spool WHERE ' +
+      where.join(' AND ') + ' ORDER BY created_at DESC LIMIT ?'
+    ).all(...args, n) || [];
+    const total = db().prepare(
+      'SELECT COUNT(*) AS n FROM knowledge_spool WHERE ' + where.join(' AND ')
+    ).get(...args).n;
+    return { rows: rows, total: total, shown: rows.length };
+  } catch (_) { return { rows: [], total: 0, shown: 0 }; }
+}
+
+// Drop something from the queue without reading it. The operator who can see
+// the queue is the operator who will find a folder in it that should not be
+// there; a list you cannot act on just relocates the frustration. Marked
+// done with a verbatim reason rather than deleted, so "why is this not in
+// memory" keeps an answer.
+function dropPendingKnowledge(id) {
+  if (!id) return false;
+  try {
+    const r = db().prepare(
+      "UPDATE knowledge_spool SET done_at = ?, result = 'dropped by operator' WHERE id = ? AND done_at IS NULL"
+    ).run(Date.now(), id);
+    return !!(r && r.changes);
+  } catch (_) { return false; }
+}
+
+// Close a spool row. `result` is kept verbatim so an operator can ask why
+// something was skipped rather than wondering whether it was seen at all.
+function markKnowledgeDone(id, result) {
+  if (!id) return false;
+  try {
+    const r = db().prepare('UPDATE knowledge_spool SET done_at = ?, result = ? WHERE id = ?')
+      .run(Date.now(), result ? String(result).slice(0, 200) : null, id);
+    return !!(r && r.changes);
+  } catch (_) { return false; }
+}
+
+// Has this exact content already been ingested? The drain asks before doing
+// any work, because the expensive half is embedding, not reading.
+function knowledgeAlreadyIngested(sha) {
+  if (!sha) return false;
+  try {
+    const r = db().prepare(
+      "SELECT 1 FROM action_records WHERE json_extract(input,'$.source') = ? LIMIT 1"
+    ).get('seen:' + sha);
+    return !!r;
+  } catch (_) { return false; }
+}
+
+// A TRUE inventory of the corpora a substrate holds.
+//
+// chameleon.listScopes() answered this by pulling engrams through
+// listEngrams() and counting scopes among them — and listEngrams caps its
+// LIMIT at 2000 rows. So the answer was never "which corpora exist", it was
+// "which corpora appear among the 2000 most recent engrams", with counts to
+// match. Measured 2026-08-11 on a 43k-engram substrate: it reported 57
+// scopes where the table holds 2024, and a corpus ingested before the last
+// 2000 writes was simply absent. A browse screen built on that would have
+// lied about every size it showed.
+//
+// One GROUP BY answers it exactly. Identity semantics mirror listEngrams:
+// principal_id is the brain (default 'partner'), agent_id an optional
+// secondary filter, and cwd applies only under strict isolation — passing
+// cwd without it was already a no-op there and stays one here.
+//
+// `embedded` rides along because a corpus that is 40% embedded answers
+// questions worse than one at 100%, and the operator should see which is
+// which rather than wonder why a search came back thin.
+function scopeInventory(opts) {
+  opts = opts || {};
+  const principal_id = (opts.principal === null)
+    ? null
+    : (opts.principal || process.env.TROTH_PRINCIPAL || 'partner');
+  const agent_id = opts.agent_id || null;
+  const cwd = opts.strict_isolation ? (opts.cwd || null) : null;
+  const prefix = opts.prefix ? String(opts.prefix) : null;
+  const limit = Math.max(1, Math.min(2000, parseInt(opts.limit || 500, 10)));
+  const where = ["ar.type = 'commitment'",
+    "COALESCE(json_extract(ar.output,'$.commitment_type'),'engram') = 'engram'",
+    "json_extract(ar.output,'$.scope') IS NOT NULL"];
+  const args = [];
+  if (principal_id) { where.push('ar.principal_id = ?'); args.push(principal_id); }
+  if (agent_id)     { where.push('ar.agent_id = ?');     args.push(agent_id); }
+  if (cwd)          { where.push('ar.cwd = ?');          args.push(cwd); }
+  if (prefix)       { where.push("json_extract(ar.output,'$.scope') LIKE ?"); args.push(prefix + '%'); }
+  try {
+    return db().prepare(`
+      SELECT json_extract(ar.output,'$.scope') AS scope,
+             COUNT(*)                          AS count,
+             SUM(CASE WHEN ee.engram_id IS NOT NULL THEN 1 ELSE 0 END) AS embedded,
+             MIN(ar.timestamp)                 AS first_ts,
+             MAX(ar.timestamp)                 AS last_ts
+      FROM action_records ar
+      LEFT JOIN engram_embeddings ee ON ee.engram_id = ar.id
+      WHERE ${where.join(' AND ')}
+      GROUP BY scope
+      ORDER BY count DESC
+      LIMIT ?
+    `).all(...args, limit) || [];
+  } catch (_) { return []; }
+}
+
+// The chunks of ONE corpus, in the order they were ingested.
+//
+// Recall answers "which chunk matches these words". It cannot answer "what
+// is in here" — and that was the operator's actual question about the
+// research they had ingested. Reading a corpus needed a query good enough
+// to guess its contents, which is backwards. This is the browse road:
+// oldest-first (ingest order, so a document reads as a document), paged.
+function scopeChunks(opts) {
+  opts = opts || {};
+  const scope = String(opts.scope || '').trim();
+  if (!scope) return { scope: '', total: 0, items: [] };
+  const principal_id = (opts.principal === null)
+    ? null
+    : (opts.principal || process.env.TROTH_PRINCIPAL || 'partner');
+  const limit  = Math.max(1, Math.min(200, parseInt(opts.limit || 50, 10)));
+  const offset = Math.max(0, parseInt(opts.offset || 0, 10));
+  const where = ["ar.type = 'commitment'", "json_extract(ar.output,'$.scope') = ?"];
+  const args = [scope];
+  if (principal_id) { where.push('ar.principal_id = ?'); args.push(principal_id); }
+  try {
+    const d = db();
+    const total = d.prepare(
+      `SELECT COUNT(*) AS n FROM action_records ar WHERE ${where.join(' AND ')}`
+    ).get(...args).n;
+    const rows = d.prepare(`
+      SELECT ar.id, ar.timestamp,
+             json_extract(ar.output,'$.statement') AS statement,
+             json_extract(ar.input,'$.source')     AS source,
+             (ee.engram_id IS NOT NULL)            AS embedded
+      FROM action_records ar
+      LEFT JOIN engram_embeddings ee ON ee.engram_id = ar.id
+      WHERE ${where.join(' AND ')}
+      ORDER BY ar.timestamp ASC, ar.id ASC
+      LIMIT ? OFFSET ?
+    `).all(...args, limit, offset) || [];
+    return { scope, total, offset, items: rows };
+  } catch (_) { return { scope, total: 0, offset, items: [] }; }
+}
+
 // Cross-process heartbeat for the maintenance ledger: the most recent
 // background_task_run decision row for a task — ANY process, ANY cwd (the
 // entity daemon and the proxy's maintenance worker share this as a lease,
@@ -2859,11 +3246,37 @@ function pruneUsageLedger(maxAgeMs) {
   } catch (_) { return 0; }
 }
 
+// The session-lessons DELIVERY QUEUE's own hygiene. pullLessons serves rows
+// consumed=0 inside a 24-hour window and marks what it returned; nothing ever
+// removed anything, so the queue grew monotonically — 1,178 rows on the
+// machine this was measured on, 1,175 of them past every window that could
+// still deliver them. This is a queue, not a history: anything worth keeping
+// was mirrored to the permanent store at write time by recordLesson, so
+// sweeping here loses delivery residue and nothing else.
+//
+// Two predicates, deliberately conservative: consumed rows go after two days
+// (a consumed row exists only for post-hoc debugging of "what was I shown"),
+// unconsumed rows only once they are a week old — far past the point any
+// pullLessons window could still return them.
+function pruneSessionLessons(opts) {
+  const o = opts || {};
+  const now = Date.now();
+  const consumedCutoff = now - (o.consumedMaxAgeMs > 0 ? o.consumedMaxAgeMs : 2 * 24 * 60 * 60 * 1000);
+  const anyCutoff      = now - (o.maxAgeMs > 0 ? o.maxAgeMs : 7 * 24 * 60 * 60 * 1000);
+  try {
+    const r = db().prepare(
+      'DELETE FROM session_lessons WHERE (consumed = 1 AND ts < ?) OR ts < ?'
+    ).run(consumedCutoff, anyCutoff);
+    return r.changes || 0;
+  } catch (_) { return 0; }
+}
+
 // The memories a human can SEE — newest distilled/committed facts (never
 // docs:chats raw chunks, never substrate_internal bookkeeping). Serves the
 // dashboard's Recent memories list so "did the import actually produce
-// memories?" has a visible answer instead of a bare count (field question,
-// 2026-08-09: "δεν βλέπω κάπου τα engrams").
+// memories?" has a visible answer instead of a bare count (2026-08-09 field
+// report: an operator who had just imported could not find the memories
+// anywhere on screen).
 function listRecentMemories(limit) {
   limit = Math.max(1, Math.min(50, parseInt(limit || 10, 10)));
   try {
@@ -2877,7 +3290,14 @@ function listRecentMemories(limit) {
         AND ar.memory_class IN ('semantic','identity','procedural')
         AND (ar.audience IS NULL OR ar.audience = 'model_visible')
         AND COALESCE(json_extract(ar.output,'$.statement'),'') <> ''
-        AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'docs:chats%')
+        -- Ingested documents are passages, not memories. A corpus chunk reads
+        -- "[PLAN.md #11] pply immediately) 2. Docker Compose" — a fragment cut
+        -- mid-word, eight of them from one file, and it buried what the
+        -- partner actually learned. The operator saw exactly that the hour
+        -- after the first backfill landed (2026-08-11). Documents have their
+        -- own shelf under the knowledge class; this list is for what was
+        -- LEARNED, not what was READ.
+        AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'docs:%')
       ORDER BY ar.timestamp DESC
       LIMIT ?
     `).all(limit) || [];
@@ -3102,6 +3522,8 @@ const _exports = {
   getArchiveExcerpt,
   listArchives,
   recordLesson,
+  recordOperatorLesson,
+  listOperatorLessons,
   pullLessons,
   // action_records substrate
   recordAction,
@@ -3189,10 +3611,21 @@ const _exports = {
   listEngramsMissingEmbeddings,
   listRecallableMissingEmbeddings,
   memoryIndexCounts,
+  scopeInventory,
+  scopeChunks,
+  deleteEmbedding,
+  pruneDeadEmbeddings,
+  spoolKnowledge,
+  listPendingKnowledge,
+  searchPendingKnowledge,
+  dropPendingKnowledge,
+  markKnowledgeDone,
+  knowledgeAlreadyIngested,
   listArchiveMissingEmbeddings,
   lastBackgroundRun,
   pruneBackgroundRunLedger,
   pruneUsageLedger,
+  pruneSessionLessons,
   listRecentMemories,
   streamRecallableEmbeddings,
   getActionsByIds,

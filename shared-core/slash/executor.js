@@ -498,6 +498,51 @@ async function execute(skill, parsed, ctx) {
 //   need an LLM — write the engram, say "Goal pinned: ship it." Done in
 //   ~30 ms instead of 2-5 s.
 
+// The retirement itself, shared by both /forget roads (by id from a surface
+// that already listed the row, by text from the CLI) so the protection check
+// and the supersession mechanism can never drift apart between them.
+//
+// Signed operator facts (operator_confirmed) are the crypto-anchored floor: a
+// casual /forget must NOT retire them — that needs a signed operation.
+//
+// Retirement is a supersession pointer written through the blessed
+// reconsolidation primitive: a successor points lifetime.supersedes at the
+// original (every recall path then hides the original) at tier='flagged' (so
+// the successor itself never surfaces), inheriting the prior's audience,
+// class and scope so both sit in the same recall pool where the pointer is
+// actually seen. The successor carries the original text so an FTS-driven
+// recall co-retrieves it — that is how the pointer registers, and it is safe
+// because tier='flagged' keeps it out of every default read.
+function retireEngram(raw, rawOut, ctx, triggerText) {
+  if ((rawOut.source_authority || 'regex_extracted') === 'operator_confirmed') {
+    return {
+      ok: false,
+      error: 'protected',
+      text: 'That is a signed operator fact — /forget can not retire it (it needs a signed operation).',
+      side_effects: { protected_id: raw.id }
+    };
+  }
+  const statement = String(rawOut.statement || '');
+  const id = lability.reconsolidate({
+    state,
+    prior_engram: raw,
+    new_statement: 'FORGOTTEN: ' + statement,
+    tier: 'flagged',
+    reason: 'operator_forget',
+    agent_id: ctx.agent_id || raw.agent_id || null,
+    cwd: ctx.cwd || raw.cwd || null,
+    user_id: ctx.user_id || raw.user_id || 'default',
+    trigger_text: triggerText || statement
+  });
+  return {
+    ok: !!id,
+    text: id
+      ? 'Forgotten: ' + statement.slice(0, 100) + (statement.length > 100 ? '…' : '')
+      : 'Could not forget that — the retire write was rejected (it may be a protected fact).',
+    side_effects: { engrams: id ? [id] : [], forgot_id: raw.id }
+  };
+}
+
 const DETERMINISTIC_HANDLERS = {
   goal: async (parsed, ctx) => {
     if (!parsed.raw_args) return { ok: false, error: 'missing_args', detail: '/goal needs a statement' };
@@ -637,6 +682,26 @@ const DETERMINISTIC_HANDLERS = {
   },
 
   forget: async (parsed, ctx) => {
+    // A caller that ALREADY knows which row it means (the dashboard lists
+    // engrams by id, then offers Forget on that exact row) passes the id and
+    // skips the lookup entirely. Re-deriving the target from the statement
+    // text was silently retiring a DIFFERENT memory: the lookup runs through
+    // the legacy commitment path, whose candidate window is the most recent
+    // 200 engrams, so anything older resolved to whatever recent row shared
+    // the most words. Measured 2026-08-10 on a live substrate: 5 of 6 clicks
+    // retired the wrong engram — e.g. clicking "user prefers tabs over
+    // spaces" would have retired a security note. Identity travels; text
+    // stays a fallback for the CLI, where there is no id to travel with.
+    if (parsed.target_id) {
+      let row = null;
+      try { row = state.getAction(String(parsed.target_id)); } catch (_) { row = null; }
+      if (!row) return { ok: false, error: 'target_row_missing', detail: 'no engram with that id' };
+      let o; try { o = typeof row.output === 'string' ? JSON.parse(row.output) : (row.output || {}); } catch (_) { o = {}; }
+      if (row.type !== 'commitment' || (o.commitment_type || 'engram') !== 'engram') {
+        return { ok: false, error: 'not_forgettable', detail: 'only commitment engrams can be retired' };
+      }
+      return retireEngram(row, o, ctx, String(o.statement || ''));
+    }
     if (!parsed.raw_args) return { ok: false, error: 'missing_args', detail: '/forget needs a query' };
     // Read across the whole partner brain — /forget should match an
     // engram regardless of which surface (cli/voice/claude-code/proxy)
@@ -664,48 +729,7 @@ const DETERMINISTIC_HANDLERS = {
       return { ok: false, error: 'target_row_missing', detail: 'could not load the matched engram to retire it' };
     }
     let rawOut; try { rawOut = typeof raw.output === 'string' ? JSON.parse(raw.output) : (raw.output || {}); } catch (_) { rawOut = {}; }
-    // Signed operator facts (operator_confirmed) are the crypto-anchored floor.
-    // A casual /forget must NOT retire them — that needs a signed operation.
-    // Say so honestly rather than pretend.
-    if ((rawOut.source_authority || 'regex_extracted') === 'operator_confirmed') {
-      return {
-        ok: false,
-        error: 'protected',
-        text: 'That is a signed operator fact — /forget can not retire it (it needs a signed operation).',
-        side_effects: { protected_id: target.id }
-      };
-    }
-    // The REAL suppression mechanism. The old code wrote a "TOMBSTONE: …" engram
-    // at scope 'system:tombstone', which NOTHING filters, so the original kept
-    // surfacing (the SKILL's claim that listEngrams excluded it was false).
-    // Retirement here is a supersession pointer, written via the blessed
-    // reconsolidation primitive: it writes a successor pointing
-    // lifetime.supersedes at the original (every recall path hides the
-    // original) at tier='flagged' (the successor itself never surfaces), and
-    // inherits the prior's audience/class/scope so both sit in the same recall
-    // pool where the pointer is actually seen. The successor statement carries
-    // the original text so an FTS-driven recall co-retrieves it (that is how
-    // the pointer registers) — safe because tier='flagged' keeps it out of
-    // every default read (recall + listEngrams both exclude flagged now).
-    const forgotMarker = 'FORGOTTEN: ' + rawOut.statement;
-    const id = lability.reconsolidate({
-      state,
-      prior_engram: raw,
-      new_statement: forgotMarker,
-      tier: 'flagged',
-      reason: 'operator_forget',
-      agent_id: ctx.agent_id || raw.agent_id || null,
-      cwd: ctx.cwd || raw.cwd || null,
-      user_id: ctx.user_id || raw.user_id || 'default',
-      trigger_text: parsed.raw_args
-    });
-    return {
-      ok: !!id,
-      text: id
-        ? 'Forgotten: ' + target.statement.slice(0, 100) + (target.statement.length > 100 ? '…' : '')
-        : 'Could not forget that — the retire write was rejected (it may be a protected fact).',
-      side_effects: { engrams: id ? [id] : [], forgot_id: target.id }
-    };
+    return retireEngram(raw, rawOut, ctx, parsed.raw_args);
   },
 
   context: async (_parsed, ctx) => {

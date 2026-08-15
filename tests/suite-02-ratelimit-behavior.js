@@ -208,6 +208,59 @@ console.log('\nPlugin hooks (behavior):');
     );
   });
 
+  test('MD-GUARD-5: blocks the continuity files that sit BESIDE the memory folder', () => {
+    // RESUME.md and progress.md live at ~/.claude/projects/<key>/, one level
+    // above memory/. The guard required '/memory/' in the path, so a full
+    // session handoff written to RESUME.md sailed past the guard whose entire
+    // purpose is to stop exactly that — observed live 2026-08-12 while troth
+    // was active. Nothing an agent authors belongs anywhere under that
+    // directory: it is Claude Code's own store, and continuity is the
+    // substrate's job.
+    const os5 = require('os');
+    for (const name of ['RESUME.md', 'progress.md']) {
+      const target = pathMod2.join(os5.homedir(), '.claude/projects/-Users-OPERATOR/' + name);
+      const r = runHook('memory-md-guard.mjs', {
+        session_id: 'md-guard-5', tool_name: 'Write',
+        tool_input: { file_path: target, content: '# handoff' }
+      });
+      assert.strictEqual(
+        r.hookSpecificOutput && r.hookSpecificOutput.permissionDecision, 'deny',
+        name + ' must be denied, not only files inside memory/'
+      );
+    }
+  });
+
+  test('MD-GUARD-6: the guard covers hashline_edit — troth\'s own editor cannot bypass it', () => {
+    // The two hooks were defeating each other: edit-steer pushes every edit
+    // onto troth-hashline, and this guard\'s matcher listed only
+    // Write|Edit|MultiEdit. So the product\'s PREFERRED editor was the one
+    // path into the operator\'s memory files that nothing checked — proven
+    // live on 2026-08-12 by editing ~/.claude/CLAUDE.md, a file this guard
+    // names explicitly, with no block. A guard every real edit routes around
+    // is decoration.
+    const fsG = require('fs');
+    const src = fsG.readFileSync(pathMod2.join(__dirname, '..', 'plugin', 'hooks', 'hooks.json'), 'utf8');
+    const cfg = JSON.parse(src);
+    const events = cfg.hooks || cfg;
+    const entry = (events.PreToolUse || []).find((e) =>
+      (e.hooks || []).some((h) => String(h.command || '').includes('memory-md-guard')));
+    assert.ok(entry, 'the guard is registered');
+    assert.match(String(entry.matcher), /hashline_edit/,
+      'and its matcher includes the editor troth itself steers every edit into: ' + entry.matcher);
+
+    // And it decides on the payload that editor actually sends.
+    const os6 = require('os');
+    const r = runHook('memory-md-guard.mjs', {
+      session_id: 'md-guard-6',
+      tool_name: 'mcp__plugin_troth_troth-hashline__hashline_edit',
+      tool_input: { file_path: pathMod2.join(os6.homedir(), '.claude/CLAUDE.md'), edits: [] }
+    });
+    assert.strictEqual(
+      r.hookSpecificOutput && r.hookSpecificOutput.permissionDecision, 'deny',
+      'a hashline edit of the global CLAUDE.md must be denied like any other'
+    );
+  });
+
   test('cache-populate: PostToolUse stores Read tool_response so next probe hits', () => {
     const tmpFile = pathMod2.join(TMP_DATA, 'cache-popul-' + process.pid + '.txt');
     fsMod2.writeFileSync(tmpFile, 'hello cached world\n');
@@ -307,14 +360,18 @@ console.log('\nPlugin hooks (behavior):');
     const toolNames = byId[2].result.tools.map(t => t.name);
     assert.deepStrictEqual(toolNames, ['cached_read', 'cached_grep']);
 
-    const firstText = byId[3].result.content[0].text;
-    const first = JSON.parse(firstText);
+    // The session's first result may lead with the one-shot [troth] greeting
+    // block; the payload is whichever content block parses as JSON.
+    const jsonBlock = (res) => {
+      for (const c of res.content) { try { return JSON.parse(c.text); } catch (_) {} }
+      throw new Error('no JSON content block in: ' + JSON.stringify(res.content).slice(0, 120));
+    };
+    const first = jsonBlock(byId[3].result);
     assert.strictEqual(first.cached, false, 'cold read must miss');
     assert.strictEqual(first.source, 'fs');
     assert.strictEqual(first.content, 'original content\n');
 
-    const secondText = byId[4].result.content[0].text;
-    const second = JSON.parse(secondText);
+    const second = jsonBlock(byId[4].result);
     assert.strictEqual(second.cached, true, 'warm read must hit cache');
     assert.strictEqual(second.source, 'troth-cache');
     assert.strictEqual(second.content, 'original content\n');
@@ -334,7 +391,7 @@ console.log('\nPlugin hooks (behavior):');
       encoding: 'utf8',
       timeout: 5000,
     });
-    const third = JSON.parse(JSON.parse(out2.trim()).result.content[0].text);
+    const third = jsonBlock(JSON.parse(out2.trim()).result);
     assert.strictEqual(third.cached, false, 'post-edit read must miss (file hash changed)');
     assert.strictEqual(third.content, 'edited content\n');
 
@@ -1255,6 +1312,51 @@ console.log('\nAST validate (behavior):');
     assert.strictEqual(bad.ok, false);
   });
 
+  // The validator was blind above 32,768 bytes: tree-sitter's binding refuses
+  // a string argument longer than that and throws, and a throw is treated as a
+  // skip — which reads exactly like a pass. The four largest files in this
+  // tree were therefore written without ever being parsed, and a stray brace
+  // in one of them reached disk while the validator reported nothing.
+  const BIG = (function () {
+    let s = ''; while (s.length < 120000) s += 'const someValue = 1;\n'; return s;
+  })();
+
+  test('validate() parses a file far larger than the binding\'s string limit', () => {
+    assert.strictEqual(BIG.length > 32768, true, 'the fixture is past the old boundary');
+    const r = astValidate.validate('/tmp/big.js', BIG);
+    assert.strictEqual(r.ok, true, 'a clean 120 KB file is clean, not skipped: ' + JSON.stringify(r));
+    assert.strictEqual(r.skipped, undefined, 'and it is not quietly skipped');
+  });
+
+  test('validate() catches a broken construct past that limit, with a line number', () => {
+    const r = astValidate.validate('/tmp/big.js', BIG + 'function broken( {\n');
+    assert.strictEqual(r.ok, false, 'the error is found: ' + JSON.stringify(r));
+    assert.ok(r.errors[0].line > 1000, 'and it is located, not merely reported: ' + r.errors[0].line);
+  });
+
+  test('validate() still answers identically on either side of the old boundary', () => {
+    // 32,723 bytes parsed and 32,779 threw. Both must now behave the same way.
+    const mk = (n) => { let s = ''; while (s.length < n) s += 'const a = 1;\n'; return s + 'function b( {\n'; };
+    const under = astValidate.validate('/tmp/u.js', mk(32000));
+    const over  = astValidate.validate('/tmp/o.js', mk(32800));
+    assert.strictEqual(under.ok, false, 'below the boundary, caught');
+    assert.strictEqual(over.ok, false, 'above it, caught too: ' + JSON.stringify(over));
+    assert.strictEqual(over.language, under.language, 'same language, same answer shape');
+  });
+
+  test('validate() reads the largest real file in this tree rather than skipping it', () => {
+    // The one that a silent skip actually cost something on.
+    const big = pAV.join(REPO, 'proxy', 'server.js');
+    const src = fAV.readFileSync(big, 'utf8');
+    assert.ok(src.length > 200000, 'still the large one: ' + src.length);
+    const r = astValidate.validate(big, src);
+    assert.strictEqual(r.ok, true, 'the shipped file parses: ' + JSON.stringify(r).slice(0, 120));
+    const nl = src.indexOf('\n', Math.floor(src.length * 0.6));
+    const broken = src.slice(0, nl + 1) + '}\n' + src.slice(nl + 1);
+    const rb = astValidate.validate(big, broken);
+    assert.strictEqual(rb.ok, false, 'and one stray brace in it is caught');
+  });
+
   test('validate() catches broken JSON', () => {
     assert.strictEqual(astValidate.validate('/tmp/a.json', '{"a": 1}').ok, true);
     const bad = astValidate.validate('/tmp/a.json', '{"a": 1,,}');
@@ -1656,7 +1758,9 @@ console.log('\nHashline edit format (behavior):');
     // Give it 60s — plenty for the suite to reach the await. waitFor(3)
     // is called inside.then (post-await), so its 3s default is fine.
     return waitFor(2, 60000).then(() => {
-      const decorated = replies[1].result.content[0].text;
+      // payload is the LAST block — the session's first result may lead with
+      // the one-shot [troth] greeting
+      const decorated = replies[1].result.content[replies[1].result.content.length - 1].text;
       const tag3 = decorated.split('\n')[2].match(/^3#([A-Z]{2})\|/)[1]; // line 3 = "}"
       // Replace line 3 ("}") with something else that breaks the function.
       send({ jsonrpc: '2.0', id: 3, method: 'tools/call',
@@ -1670,7 +1774,7 @@ console.log('\nHashline edit format (behavior):');
       child.kill();
       // AST gate should have blocked this.
       assert.ok(r.isError, 'syntactically invalid edit must be rejected');
-      const payload = JSON.parse(r.content[0].text);
+      const payload = JSON.parse(r.content[r.content.length - 1].text);
       assert.strictEqual(payload.error, 'ast_parse_failed',
         'reason must be AST parse failure, got: ' + payload.error);
       // File must be UNCHANGED (commit only on AST pass).

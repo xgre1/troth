@@ -221,7 +221,12 @@ function makeLlamaCppTransport(opts) {
         // reached the answer). 2048 covers typical reasoning + answer
         // for trivial-to-moderate prompts; caller still overrides for
         // long-form tasks via options.n_predict.
-        n_predict: (req.options && req.options.n_predict) || 2048,
+        // Same knob as the hosted lanes (TROTH_ENTITY_MAX_TOKENS), but the
+        // local fallback stays hardware-sized at 4096: a looping local model
+        // pays its cap in wall-clock on the operator's own machine, and the
+        // loop rescue below is the net, not the budget.
+        n_predict: (req.options && req.options.n_predict) ||
+          parseInt(process.env.TROTH_ENTITY_MAX_TOKENS || '4096', 10),
         // Slot pinning: when the substrate wants the model's KV cache to
         // persist across calls (e.g., a back-and-forth with the same
         // agent), pinning to a specific slot id keeps the cache hot

@@ -110,6 +110,10 @@ function buildArgs(input) {
   if (input['-i']) args.push('-i');
   if (input.type)  args.push('--type', String(input.type));
   if (input.glob)  args.push('--glob', String(input.glob));
+  // Substrate home stays out of every traversal — pushed AFTER the user
+  // glob so it wins (rg: last matching glob decides). Explicit targets
+  // inside ~/.troth are refused earlier, at the permission wrapper.
+  args.push('--glob', '!.troth/**');
   if (input.multiline) { args.push('-U', '--multiline-dotall'); }
 
   // Hard-disable colour (rg auto-detects TTY) so our parse is stable.
@@ -154,7 +158,7 @@ function runPlainGrep(input, mode) {
     if (ctx != null) args.push('-C', String(ctx));
   }
   if (input.glob) args.push('--include=' + input.glob);
-  args.push('--exclude-dir=node_modules', '--exclude-dir=.git');
+  args.push('--exclude-dir=node_modules', '--exclude-dir=.git', '--exclude-dir=.troth');
   args.push('--', input.pattern, input.path || '.');
   return new Promise((resolve) => {
     let child;

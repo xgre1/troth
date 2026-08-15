@@ -433,6 +433,10 @@ function makeOrchestrator(opts) {
 
     const trace = [];
     let finalText = '';
+    // Narration from a turn that ALSO fired tools — kept as a salvage
+    // fallback for the edge where the loop's LAST turn speaks and acts at
+    // once (the answer would otherwise vanish into the trace).
+    let lastNarration = '';
     let toolCallsMade = false;
     let forcedAnswer = false;
     let aborted = false;
@@ -444,6 +448,7 @@ function makeOrchestrator(opts) {
     // but have no text, say so instead of going silent.
     const finalize = () => {
       if (finalText && finalText.trim()) return finalText;
+      if (lastNarration && lastNarration.trim()) return lastNarration;
       if (toolCallsMade) return 'Done.';
       return finalText;
     };
@@ -716,12 +721,15 @@ function makeOrchestrator(opts) {
             }
             if (chunk && chunk.delta) {
               turnText += String(chunk.delta);
-              if (onTextDelta) {
-                // Live-stream side of the secret wall: per-chunk redaction (a
-                // secret split exactly across two chunks can transit the live
-                // stream; the FINAL text below is always fully redacted).
-                try { onTextDelta(require('./secret-redactor.js').redact(String(chunk.delta))); } catch (_) {}
-              }
+              // NOT streamed live in the agentic loop. Every round's text
+              // used to paint the reply surface as it arrived, so the
+              // per-round plan preambles (codex models re-emit their
+              // manifest EVERY round) reached the operator no matter what
+              // the final assembly kept — the finalText routing alone fixed
+              // the stored reply while the screen showed all eight manifests
+              // (field-verified on two builds). The round buffers here and
+              // FLUSHES below only when it proves tool-free — the one round
+              // that speaks to the operator.
             }
             if (chunk && chunk.usage) {
               _usage.seen = true;
@@ -784,7 +792,23 @@ function makeOrchestrator(opts) {
         }
       }
 
-      if (turnText) finalText += turnText;
+      // A turn that also fired tools is narration in motion — plans,
+      // manifests, "let me search…" — and belongs to the activity trace,
+      // not the reply. The codex-served models re-emit their plan preamble
+      // EVERY round, and concatenating rounds shipped EIGHT manifests above
+      // one answer (field-verified 2026-08-15). Only a tool-free
+      // turn speaks to the operator; finalize() salvages a last turn that
+      // spoke and acted at once.
+      if (turnText && !(pendingToolCalls && pendingToolCalls.length)) {
+        finalText += turnText;
+        // The tool-free round is the one that speaks — flush its buffered
+        // text to the live surface now, redacted WHOLE (stronger than the
+        // old per-chunk redaction: a secret can no longer straddle chunks).
+        if (onTextDelta) {
+          try { onTextDelta(require('./secret-redactor.js').redact(String(turnText))); } catch (_) {}
+        }
+      }
+      else if (turnText) lastNarration = turnText;
       trace.push({ iter, text: turnText, tool_calls: pendingToolCalls && pendingToolCalls.length, finish_reason: finishReason });
       // Remember THIS turn's finish reason for the truncation note. A turn that
       // is cut at 'length' but still emits tool_calls continues the loop, so a

@@ -39,7 +39,10 @@ async function runAndRecord(opts) {
         const msg = 'FIDELITY (working-style) WARNING from the previous turn: ' +
           result.violations.map(function (v) { return '[' + v.rule_id + '] ' + v.evidence; }).join('; ') +
           '. Follow these operator HOW-rules in the next response.';
-        state().recordLesson(opts.sessionId || null, opts.cwd || process.cwd(), 'fidelity_warn', fp, msg);
+        // Coaching for the NEXT turn, not a fact about the world: queue-only,
+        // or every turn's warning outlives every turn (886 of these sat in the
+        // permanent store as model-visible memories before durable:false).
+        state().recordLesson(opts.sessionId || null, opts.cwd || process.cwd(), 'fidelity_warn', fp, msg, { durable: false });
       } catch (_) {}
     }
     return result;

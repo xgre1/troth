@@ -39,6 +39,14 @@ const HOST = '127.0.0.1';
 // Mode-1 daemon uses 18222 so they never collide.)
 const DEFAULT_PORT = parseInt(process.env.TROTH_BROWSER_CDP_PORT || '18222', 10);
 
+// The agent's own browser directory. Exported because it is the one thing
+// that tells the agent's browser apart from the operator's: the idle reaper
+// has to know which of the two it is looking at before it may collect one, and
+// a second copy of this path in the reaper is a second place to get it wrong.
+function defaultProfileDir() {
+  return path.join(process.env.HOME || os.homedir(), '.troth', 'agent-browser-profile');
+}
+
 // Chromium-family browsers, in preference order. CDP is identical across them.
 const CANDIDATES = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -128,8 +136,7 @@ async function ensure(opts) {
     // everything. Sessions reach it one of two deliberate ways: the operator
     // seals a credential in the vault and the agent signs itself in, or the
     // operator points it at port 9222, their real browser, on purpose.
-    const profile = opts.user_data_dir ||
-      path.join(process.env.HOME || os.homedir(), '.troth', 'agent-browser-profile');
+    const profile = opts.user_data_dir || defaultProfileDir();
     try { fs.mkdirSync(profile, { recursive: true, mode: 0o700 }); } catch (_) {}
 
     const headless = opts.headless != null ? !!opts.headless : (process.env.TROTH_BROWSER_HEADLESS === '1');
@@ -172,4 +179,4 @@ async function ensure(opts) {
   return _spawning;
 }
 
-module.exports = { ensure, alive, aliveHost, findBrowser, DEFAULT_PORT };
+module.exports = { ensure, alive, aliveHost, findBrowser, DEFAULT_PORT, defaultProfileDir };

@@ -195,6 +195,28 @@ function recordEngram(opts) {
     if (Array.isArray(opts.lines) && opts.lines.length === 2) {
       provenance.lines = [Number(opts.lines[0]) | 0, Number(opts.lines[1]) | 0];
     }
+    // WHOSE words these are.
+    //
+    // 'operator' — something the operator wrote or handed over.
+    // 'external' — text fetched from the open web, or any source nobody here
+    //              vouches for.
+    //
+    // Deliberately NOT the `audience` field: audienceOk() in recall.js is an
+    // exact match against what the caller asked for, so tagging a fetched page
+    // 'synthesis_of_external' does not lower its trust, it removes it from
+    // recall entirely. Knowledge that never answers is not knowledge. This is
+    // a mark that travels WITH the passage instead: it comes back, and it says
+    // where it came from.
+    //
+    // Callers passing a whole provenance object were silently ignored before
+    // this — the builder above only ever read file_path / codelens_entity_id /
+    // source_module, so chameleon's ingest set a tier that never reached disk.
+    if (opts.provenance && typeof opts.provenance === 'object') {
+      if (opts.provenance.tier) provenance.tier = String(opts.provenance.tier);
+      if (opts.provenance.ref)  provenance.ref  = String(opts.provenance.ref).slice(0, 300);
+    }
+    if (opts.provenance_tier) provenance.tier = String(opts.provenance_tier);
+    if (opts.provenance_ref)  provenance.ref  = String(opts.provenance_ref).slice(0, 300);
     // Truth/tier defaults: when auto_verify ran, honor its output;
     // otherwise allow the caller to pass explicit truth_score/tier;
     // otherwise fall back to safe defaults (working tier, full trust).

@@ -375,6 +375,112 @@ const REGISTRY = {
     }
   },
 
+  // The operator's standing rules. Same road as the MCP surface calls — one
+  // implementation in shared-core/lesson.js — so the two registries cannot
+  // drift into disagreeing about what a rule is or when to ask first.
+  rule_record: {
+    schema: {
+      type: 'function',
+      function: {
+        name: 'rule_record',
+        description: 'Record a standing WORKING RULE the operator stated about how they want work done ("verify the cause before fixing", "never force push without asking"). NOT for facts about the world — those are engrams (engram_record). Be selective: a rule is something worth following again next month, not a one-off instruction. If the wording is ambiguous, ask the operator instead of guessing. On similar_rules_exist, read what came back and either leave the existing rule alone or re-send with confirm=true.',
+        parameters: {
+          type: 'object',
+          properties: {
+            text:    { type: 'string', description: 'The rule, imperative and self-contained' },
+            why:     { type: 'string', description: 'What made this a rule — a rule with a reason survives being questioned' },
+            scope:   { type: 'string', enum: ['global', 'project'], description: 'global (default) or project-only' },
+            confirm: { type: 'boolean', description: 'Add it even though the substrate flagged a close existing rule' }
+          },
+          required: ['text']
+        }
+      }
+    },
+    run: async (args, ctx) => {
+      const lessonMod = require('./lesson.js');
+      return await lessonMod.recordRule({
+        text:    args.text,
+        why:     args.why || null,
+        scope:   args.scope === 'project' ? 'project' : 'global',
+        cwd:     ctx.cwd || null,
+        agent_id: ctx.agent_id,
+        confirm: !!args.confirm,
+        embedding_host: ctx.embedding_host || null
+      });
+    }
+  },
+
+  // The code graph, askable. Same shared implementation the MCP surface uses
+  // (shared-core/code-graph.js) so the two registries cannot drift into
+  // disagreeing about what "nothing calls this" means.
+  // The code graph, askable from here too. Same shared implementation the MCP
+  // surface uses (shared-core/code-graph.js) so the two registries cannot
+  // drift into disagreeing about what "nothing calls this" means.
+  //
+  // Every name here is also read into the daemon's system prompt, which
+  // truncates past its cap. Measured 2026-08-11: these two cost 31 characters
+  // in text mode (4,287 -> 4,318) and the cap was raised to keep the voice
+  // variant — 172 chars longer for the brevity block — clear of the tail.
+  code_who_calls: {
+    schema: {
+      type: 'function',
+      function: {
+        name: 'code_who_calls',
+        description: 'Who calls this function or class, from the real code index — and whether anything in PRODUCTION reaches it or only the test suite. Use instead of grepping for callers, and before changing or deleting anything.',
+        parameters: {
+          type: 'object',
+          properties: {
+            name:  { type: 'string', description: 'Function / class / method name' },
+            exact: { type: 'boolean', description: 'Exact name matches only' }
+          },
+          required: ['name']
+        }
+      }
+    },
+    run: async (args, ctx) => {
+      return require('./code-graph.js').whoCalls(args.name, { cwd: ctx.cwd || undefined, exact: !!args.exact });
+    }
+  },
+
+  code_file_map: {
+    schema: {
+      type: 'function',
+      function: {
+        name: 'code_file_map',
+        description: 'Everything defined in one file with how many things reach each, and which are reached by nothing. Answers "is any of this still alive" for a whole file.',
+        parameters: {
+          type: 'object',
+          properties: { file: { type: 'string', description: 'Path, absolute or project-relative' } },
+          required: ['file']
+        }
+      }
+    },
+    run: async (args, ctx) => {
+      return require('./code-graph.js').fileMap(args.file, { cwd: ctx.cwd || undefined });
+    }
+  },
+
+  rule_list: {
+    schema: {
+      type: 'function',
+      function: {
+        name: 'rule_list',
+        description: 'The standing working rules the operator has given, newest first. Read-only and non-consuming. Use before recording a new rule, and when asked what rules you work under.',
+        parameters: {
+          type: 'object',
+          properties: {
+            limit: { type: 'number', description: 'Max rules (default 20)', minimum: 1, maximum: 100 }
+          }
+        }
+      }
+    },
+    run: async (args, ctx) => {
+      const lessonMod = require('./lesson.js');
+      const items = lessonMod.listRules({ limit: args.limit || 20, cwd: ctx.cwd || null });
+      return { count: items.length, items };
+    }
+  },
+
   chameleon_list_scopes: {
     schema: {
       type: 'function',

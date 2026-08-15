@@ -40,7 +40,15 @@ const DEFAULT_PATH     = '/codex/responses';
 // max_output_tokens/max_completion_tokens param — verified live
 // (gpt-5.2-codex → 400 "not supported with a ChatGPT account"; gpt-5.5 + token
 // param → 400 "Unsupported parameter"; gpt-5.5 with neither → 200).
-const DEFAULT_MODEL    = 'gpt-5.6-sol'; // bumped: 'gpt-5.6-sol' verified 200+text on the ChatGPT plan ('gpt-5.6' returned empty). Override via TROTH_CODEX_MODEL.
+// The Codex endpoint's accepted list ROTATES without notice (undocumented
+// interface). 'gpt-5.6-sol' died upstream on 2026-08-15 (400 "model is not
+// supported when using Codex with a ChatGPT account") after a fresh sign-in
+// — indistinguishable from auth/quota failures until the response body was
+// surfaced, because the transport reported a bare http_error; 'gpt-5.5'
+// bare http_error; 'gpt-5.5' verified streaming the same minute. Override
+// via TROTH_CODEX_MODEL; when this 400 reappears, probe the shortlist in
+// order before touching anything else.
+const DEFAULT_MODEL    = 'gpt-5.5';
 const DEFAULT_MAX_OUT  = 4096;
 // The `originator` header names the application to the vendor. It has a
 // default (see codex-auth.js) and stays overridable; an operator who

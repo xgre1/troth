@@ -60,7 +60,10 @@ function callRun(args, extraEnv) {
     proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'run', arguments: args } }) + '\n');
   });
 }
-const textOf = (msg) => (msg.result && msg.result.content && msg.result.content[0] && msg.result.content[0].text) || '';
+// All content blocks joined: the session's first result may lead with the
+// one-shot [troth] greeting block, and every assertion here matches on
+// substrings rather than positions.
+const textOf = (msg) => ((msg.result && msg.result.content) || []).map((c) => c.text || '').join('\n');
 
 test('TBS-1: a secret in command OUTPUT never reaches the model', async () => {
   // The command carries only the prefix (which TPW-21 pins as allowed —

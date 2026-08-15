@@ -1366,6 +1366,16 @@ function callKimiSub(bodyStr, opts) {
       changed = true;
     }
     if ("think" in pb) { delete pb.think; changed = true; }
+    // The Kimi Code endpoint runs thinking on ITS side and rejects forced
+    // tool use outright ("tool_choice 'specified' is incompatible with
+    // thinking enabled" — live 400, surfaced by recallforce's first field
+    // test). A lane that cannot carry a forced choice drops it WHOLE and
+    // lets the model choose — same discipline as the OpenAI-compat
+    // conversion — because a dropped force degrades to advice while a 400
+    // kills the turn.
+    if (pb.tool_choice && (pb.tool_choice.type === "tool" || pb.tool_choice.type === "any")) {
+      delete pb.tool_choice; changed = true;
+    }
     // Fallback-chain contract: this fn must resolve ONE complete JSON Anthropic
     // message so the proxy can re-synthesize the SSE stream for Claude Code
     // itself (server.js streaming wrapper). If we forward stream:true, the Kimi

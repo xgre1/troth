@@ -225,6 +225,54 @@ function detectBashBulkInvalidation(cmd) {
 //
 // If cwd is provided, relative paths are resolved against it. Returns a
 // plain array of absolute path strings (may be empty).
+
+// The knowledge predicate lives in shared-core/knowledge-predicate.js: it is
+// also called from a PostToolUse hook that runs on every Read, and reaching it
+// through this module dragged better-sqlite3 into that hook (123ms -> 244ms).
+// One implementation, no dependencies.
+const { isKnowledgeFile, MIN_KNOWLEDGE_BYTES } = require('../../shared-core/knowledge-predicate.js');
+
+// The question in flight when the document was opened.
+//
+// A grep pattern is not a reason: the substrate already holds 14,995 search
+// records carrying things like "^  [a-z_]+: \\{", and knowing that tells
+// nobody why the file was opened. The reason lives in what the operator last
+// asked, and at this point in the request the whole conversation is right
+// here — so it costs one backwards walk and nothing else.
+//
+// tool_result blocks are skipped on purpose: they are the machine talking to
+// itself, not the person asking for something.
+function lastOperatorText(messages) {
+  if (!Array.isArray(messages)) return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (!m || m.role !== 'user') continue;
+    if (typeof m.content === 'string' && m.content.trim()) return m.content.trim();
+    if (Array.isArray(m.content)) {
+      const text = m.content
+        .filter((b) => b && b.type === 'text' && typeof b.text === 'string' && b.text.trim())
+        .map((b) => b.text.trim())
+        .join(' ');
+      if (text) return text;
+    }
+  }
+  return null;
+}
+
+function spoolIfKnowledge(absPath, sha, why) {
+  if (!isKnowledgeFile(absPath)) return false;
+  let bytes = 0;
+  try {
+    const st = fs.statSync(absPath);
+    if (!st.isFile() || st.size < MIN_KNOWLEDGE_BYTES) return false;
+    bytes = st.size;
+  } catch (_) { return false; }
+  const state = require('../../shared-core/state.js');
+  if (typeof state.spoolKnowledge !== 'function') return false;
+  if (typeof state.knowledgeAlreadyIngested === 'function' && state.knowledgeAlreadyIngested(sha)) return false;
+  return state.spoolKnowledge({ kind: 'file', ref: absPath, sha, bytes, why: why || null }) !== null;
+}
+
 function referencedFiles(tool_name, args, cwd) {
   if (!args || typeof args !== 'object') return [];
   const out = [];
@@ -628,6 +676,9 @@ function createCache(opts) {
     // Build a map from tool_use id → { name, input, asstIdx, blockIdx }.
     const pending = new Map();
     const msgs = body.messages;
+    // Once per body, not once per tool_result: the question does not change
+    // between two reads in the same turn.
+    const askedFor = lastOperatorText(msgs);
     for (let i = 0; i < msgs.length; i++) {
       const m = msgs[i];
       if (!m || !Array.isArray(m.content)) continue;
@@ -663,6 +714,23 @@ function createCache(opts) {
           });
           const ok = store({ key, tool_name: use.name, cwd, value: b.content, ttl_s: ttlFor(use.name) });
           if (ok) outcome.stored++; else outcome.skipped++;
+
+          // KNOWLEDGE SPOOL. This loop already knows the three things the
+          // reservoir needs and nothing else in the system knows together:
+          // which tool ran, which file it named, and that file's content hash.
+          // Computing them again anywhere else would be duplicated work; doing
+          // it in a sixth PostToolUse hook would add ~100ms of process startup
+          // to every read (five hooks already cost 488ms per Read, measured).
+          //
+          // Only a POINTER is queued. The file is on disk, so re-reading it in
+          // the idle worker is free, while chunking and embedding cost 51ms per
+          // 800 characters and must never land on the operator's turn.
+          //
+          // Documents only: code is already indexed by codelens, and a source
+          // file re-read 352 times is work, not knowledge.
+          if (use.name === 'Read' && paths.length === 1 && hashes[0]) {
+            try { spoolIfKnowledge(paths[0], hashes[0], askedFor); } catch (_) { /* never break a request over this */ }
+          }
         }
       }
     }
@@ -707,6 +775,9 @@ function getDefault() {
 }
 
 module.exports = {
+  isKnowledgeFile,
+  spoolIfKnowledge,
+  lastOperatorText,
   createCache,
   getDefault,
   computeKey,

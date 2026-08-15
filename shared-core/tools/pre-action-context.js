@@ -94,6 +94,39 @@ function _priorMemoryMentioning(cwd, token, limit) {
   } catch (_) { return []; }
 }
 
+// The compact tier of a templated decision record: name + WHEN + skeleton,
+// never the tail sections. Stored at write time by decision-record.js; the
+// derivation fallback covers records written before the compact field (or
+// through a path that dropped it). Null for anything not templated.
+function _compactDecision(e) {
+  if (!e || !e.statement || String(e.statement).indexOf('DECISION — ') !== 0) return null;
+  if (e.compact && typeof e.compact === 'string') return e.compact;
+  return String(e.statement).split('\n').filter(l =>
+    l.indexOf('DECISION') === 0 || l.indexOf('WHEN:') === 0 ||
+    l === 'STEPS:' || /^  \d+\. /.test(l)).join('\n');
+}
+
+// FTS road to a strategy whose WHEN line matches the current situation —
+// substring matching misses it because a situation description rarely
+// contains a filename. decision:* scopes derive memory_class='procedural'
+// (engram.js), so the existing filter isolates the strategy shelf.
+function _precedentByFts(token, fallbackToken) {
+  for (const t of [token, fallbackToken]) {
+    if (!t || String(t).length < 3) continue;
+    try {
+      const rows = state.searchActionsFull(String(t), { limit: 6, type: 'commitment', memory_class: 'procedural' }) || [];
+      for (const r of rows) {
+        let out;
+        try { out = typeof r.output === 'string' ? JSON.parse(r.output) : (r.output || {}); }
+        catch (_) { continue; }
+        const compact = _compactDecision({ statement: out.statement, compact: out.compact });
+        if (compact) return { id: r.id, compact };
+      }
+    } catch (_) { /* fail-open — precedent is a gift, never a gate */ }
+  }
+  return null;
+}
+
 // Pull recent dialogue.turn rows where user OR assistant mentioned the
 // token. Uses state.searchDialogueTurns if available, else falls back
 // to queryActions + JS filter.
@@ -208,8 +241,30 @@ function gatherPriorContext(args) {
     if (decisions.length) {
       lines.push('prior decisions mentioning ' + tokenBasename + ':');
       for (const d of decisions) {
-        lines.push('  - ' + _tag(d) + ' ' + String(d.statement).slice(0, 140));
+        // A templated decision record (composed by decision-record.js)
+        // surfaces in its COMPACT tier — name, WHEN, skeleton — because the
+        // skeleton IS the payload; a 140-char clip beheads it. Anything
+        // else keeps the one-line rendering.
+        const compactTier = _compactDecision(d);
+        if (compactTier) {
+          lines.push('  - ' + _tag(d));
+          for (const cl of compactTier.split('\n')) lines.push('    ' + cl);
+        } else {
+          lines.push('  - ' + _tag(d) + ' ' + String(d.statement).slice(0, 140));
+        }
         refs.push(d.id);
+      }
+    } else {
+      // The substring road missed: the WHEN line of a strategy describes a
+      // SITUATION, which rarely contains a filename. FTS over the statement
+      // (decision:* → procedural, already indexed) catches it. One hit only:
+      // measured budget-matched baselines are blunt — every retained token
+      // must pay, and one strong precedent beats three weak ones.
+      const p = _precedentByFts(tokenBasename, tokenStem);
+      if (p) {
+        lines.push('a recorded strategy matches this situation:');
+        for (const cl of p.compact.split('\n')) lines.push('    ' + cl);
+        refs.push(p.id);
       }
     }
     if (identity.length) {

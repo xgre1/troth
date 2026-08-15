@@ -52,6 +52,20 @@ function _isRecentDuplicate(agent_id, user_id, user_text, assistant_text) {
       const prevUser = (rec.input.args && rec.input.args.user_text) || '';
       const prevAsst = (rec.output && rec.output.assistant_text)    || '';
       if (prevUser === user_text && prevAsst === assistant_text) return true;
+      // Mirror-echo halves. A per-role mirror (the desktop record-turn
+      // endpoint fires once per role) lands the SAME exchange as half
+      // rows around the daemon's paired row: (U,'') and ('',A) beside
+      // (U,A). Whole-tuple equality never catches them, so the same
+      // assistant text was written twice and RE-MOUNTED into the prompt
+      // window on every following turn — measured ~4.1K tokens of pure
+      // duplication in one 14h window. A HALF whose non-empty side
+      // matches the corresponding side of any recent turn is an echo of
+      // an exchange the substrate already holds.
+      const _incomingHalf = (!user_text && assistant_text) || (user_text && !assistant_text);
+      if (_incomingHalf) {
+        if (assistant_text && prevAsst && prevAsst === assistant_text) return true;
+        if (user_text && prevUser && prevUser === user_text) return true;
+      }
     }
   } catch (_) { /* best-effort — if the dedup probe fails, fall through and write */ }
   return false;

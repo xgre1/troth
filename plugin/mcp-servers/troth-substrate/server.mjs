@@ -19,6 +19,24 @@ import process from 'node:process';
 
 const require = createRequire(import.meta.url);
 const serverDir = fileURLToPath(new URL('.', import.meta.url));
+
+// The MODEL-facing edge of every statement this server returns.
+//
+// The data layer carries statements whole — a 600-char cap there amputated
+// memories for every surface at once and was removed for it. But this edge
+// spends the model's context, and it budgets like every other edge: measured
+// over 52,833 recallable statements, p50 is 72 chars, p99 is 1,202, and one
+// outlier reaches 10,555 — a limit-50 recall on a bad day would have dumped
+// ~33k tokens of tail into the window. 2,000 clears the p99 with two-thirds
+// headroom; the rare giant arrives clipped and SAYS SO, its id one
+// troth_fetch_action away — the sin of the old cap was that it was silent,
+// at the wrong layer, and left no road to the rest.
+const STATEMENT_EDGE_CHARS = 2000;
+function edgeStatement(s) {
+  const t = String(s == null ? '' : s);
+  if (t.length <= STATEMENT_EDGE_CHARS) return { statement: t };
+  return { statement: t.slice(0, STATEMENT_EDGE_CHARS), truncated: true };
+}
 const engram         = require(serverDir + '../../../shared-core/engram.js');
 const chameleon      = require(serverDir + '../../../shared-core/chameleon.js');
 const chameleonRT    = require(serverDir + '../../../shared-core/chameleon-runtime.js');
@@ -41,6 +59,7 @@ const slashParser    = require(serverDir + '../../../shared-core/slash/parser.js
 const slashLoader    = require(serverDir + '../../../shared-core/slash/loader.js');
 const slashExecutor  = require(serverDir + '../../../shared-core/slash/executor.js');
 const recallMod      = require(serverDir + '../../../shared-core/recall.js');
+const lessonMod      = require(serverDir + '../../../shared-core/lesson.js');
 const substrateTools = require(serverDir + '../../../shared-core/substrate-tools.js');
 const mcpClient      = require(serverDir + '../../../shared-core/tools/mcp-client.js');
 const worldlyTools   = require(serverDir + '../../../shared-core/tools/index.js');
@@ -178,6 +197,160 @@ const TOOLS = {
     }
   },
 
+  // A decision's reasoning SHAPE, recorded so a future session — possibly a
+  // weaker model — can re-run the strategy instead of re-deriving it. Same
+  // logic as rules-vs-engrams: asked differently, written differently. The
+  // composer in shared-core/decision-record.js is the ONLY author of the
+  // template so every record renders identically on every recall surface.
+  troth_decision_record: {
+    description: 'Record the reasoning shape of a significant decision: named strategy, when it applies, the step skeleton, the contrastive wrong turn (mistake→why→correct), one grounding example, and provenance. Use after real decisions whose reasoning would help a future session on a similar problem — not for routine choices. The statement is composed from a fixed template; do not pre-format.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        strategy:  { type: 'string', description: 'Short name of the strategy (≤60 chars)' },
+        trigger:   { type: 'string', description: 'The situation shape where this applies — this line is the retrieval key' },
+        steps:     { type: 'array', items: { type: 'string' }, description: '2-7 moves of the skeleton; structure transfers, detail does not' },
+        contrast:  { type: 'object', properties: { mistake: { type: 'string' }, why: { type: 'string' }, correct: { type: 'string' } }, description: 'The wrong turn: what tempts, why it fails, the correct move. Optional but the highest-value field.' },
+        example:   { type: 'string', description: 'One concrete grounding instance (≤240 chars)' },
+        provenance: { type: 'object', properties: { model: { type: 'string' }, verdict: { type: 'string', description: 'operator_confirmed | test_passed | critic_confirmed | unverified' } }, description: 'Who reasoned this and how it was verified — required; weak-source records poison stronger consumers' },
+        salience:  { type: 'number' }, agent_id: { type: 'string' }, user_id: { type: 'string' }, cwd: { type: 'string' }
+      },
+      required: ['strategy', 'trigger', 'steps', 'provenance']
+    },
+    run: async (args) => {
+      const ctx = ctxFromArgs(args);
+      const composer = require(serverDir + '../../../shared-core/decision-record.js');
+      const composed = composer.compose(args);
+      if (!composed.ok) return composed;
+      let embedding = null;
+      try { embedding = await engram.embedRequest(transportCfg.embeddingHost(), composed.statement); }
+      catch (_) { embedding = null; }
+      const autoVerify = process.env.TROTH_ENGRAM_AUTO_VERIFY !== '0';
+      const id = engram.recordEngram({
+        ...ctx,
+        statement: composed.statement,
+        source:    'mcp:decision_record',
+        salience:  typeof args.salience === 'number' ? args.salience : 1.2,
+        embedding,
+        scope:     composed.scope,
+        auto_verify: autoVerify,
+        extra_output: { compact: composed.compact, provenance: args.provenance }
+      });
+      return { ok: !!id, id, scope: composed.scope, embedded: !!embedding };
+    }
+  },
+
+  // A rule the OPERATOR gave about how to work, as opposed to a fact about
+  // the world. Both are memory; they are asked for differently, so they are
+  // written differently. Until this existed the substrate held 5,143 lessons
+  // and not one of them came from a person.
+  troth_rule_record: {
+    description: 'Record a standing WORKING RULE the operator stated — how they want work done ("verify the cause before fixing", "never force push without asking"). NOT for facts about the world: those are engrams, use troth_engram_record. Be selective: a rule is something the operator would want followed again next month, not a one-off instruction for the current task. If the operator\'s wording is ambiguous or you are unsure whether they meant it as a standing rule, ASK THEM before recording it. Returns similar existing rules; if it returns similar_rules_exist, read them and either leave the existing one alone or re-send with confirm=true.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text:    { type: 'string', description: 'The rule, imperative and self-contained, in the operator\'s meaning' },
+        why:     { type: 'string', description: 'Optional: what happened that made this a rule — a rule with a reason survives being questioned' },
+        scope:   { type: 'string', enum: ['global', 'project'], description: 'global (default) applies everywhere; project applies only in this working directory' },
+        confirm: { type: 'boolean', description: 'Set true to add a rule the substrate flagged as close to one it already holds' },
+        agent_id: { type: 'string' }, cwd: { type: 'string' }
+      },
+      required: ['text']
+    },
+    run: async (args) => {
+      const ctx = ctxFromArgs(args);
+      return await lessonMod.recordRule({
+        text:    args.text,
+        why:     args.why || null,
+        scope:   args.scope === 'project' ? 'project' : 'global',
+        cwd:     ctx.cwd || null,
+        agent_id: ctx.agent_id,
+        confirm: !!args.confirm,
+        embedding_host: transportCfg.embeddingHost()
+      });
+    }
+  },
+
+  troth_rule_list: {
+    description: 'The standing working rules the operator has given, newest first. Read-only — unlike the transient lesson pull, this never consumes what it returns. Use before recording a new rule, and when the operator asks what rules you are working under.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Max rules (default 20)' },
+        cwd:   { type: 'string', description: 'When given, project-scoped rules from other projects are left out' }
+      }
+    },
+    run: async (args) => {
+      const ctx = ctxFromArgs(args);
+      const items = lessonMod.listRules({ limit: args.limit || 20, cwd: args.cwd || ctx.cwd || null });
+      return { count: items.length, items };
+    }
+  },
+
+  // The code graph the partner already keeps, finally askable.
+  //
+  // codelens indexes 8,303 entities and 31,248 CALLS edges for this repo and
+  // reached the model one way only: the proxy injecting related code chunks.
+  // Structural questions — who calls this, is it reachable, what breaks if I
+  // change it — were answered with grep, badly: a grep that excluded tests/
+  // reported "nothing calls action-outcome.js" when the truth was "only the
+  // test suite does", which is the more useful answer and the one the graph
+  // gives immediately.
+  troth_code_who_calls: {
+    description: 'Ask the code index who calls a function, class or method — and whether anything in PRODUCTION reaches it, or only the test suite. Use this INSTEAD of grepping for callers: it reads a real call graph, distinguishes test-only callers from live ones, and answers in one call. Also use it before changing or deleting something, to see what depends on it.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name:  { type: 'string', description: 'Function / class / method name' },
+        exact: { type: 'boolean', description: 'Only entities whose name matches exactly (default false)' },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+        cwd:   { type: 'string', description: 'Project root; defaults to the session cwd' }
+      },
+      required: ['name']
+    },
+    run: async (args) => {
+      const ctx = ctxFromArgs(args);
+      return require(serverDir + '../../../shared-core/code-graph.js')
+        .whoCalls(args.name, { cwd: args.cwd || ctx.cwd || undefined, exact: !!args.exact, limit: args.limit });
+    }
+  },
+
+  troth_code_calls: {
+    description: 'Ask the code index what a function reaches — its outgoing calls — from the same real call graph as troth_code_who_calls. Use this INSTEAD of reading the body to trace dependencies: it answers in one call, and it is the blast radius you want BEFORE changing or deleting something. The mirror of troth_code_who_calls, which answers who reaches IN.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name:  { type: 'string', description: 'Function / class / method name' },
+        exact: { type: 'boolean', description: 'Only entities whose name matches exactly (default false)' },
+        limit: { type: 'integer', minimum: 1, maximum: 100, description: 'Max callees to return (default 25)' },
+        cwd:   { type: 'string', description: 'Project root; defaults to the session cwd' }
+      },
+      required: ['name']
+    },
+    run: async (args) => {
+      const ctx = ctxFromArgs(args);
+      return require(serverDir + '../../../shared-core/code-graph.js')
+        .whatItCalls(args.name, { cwd: args.cwd || ctx.cwd || undefined, exact: !!args.exact, limit: args.limit });
+    }
+  },
+
+  troth_code_file_map: {
+    description: 'Everything defined in one file, with how many things reach each — and which are reached by nothing at all. Answers "is any of this still alive" for a whole file at once.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'Path, absolute or relative to the project root' },
+        cwd:  { type: 'string' }
+      },
+      required: ['file']
+    },
+    run: async (args) => {
+      const ctx = ctxFromArgs(args);
+      return require(serverDir + '../../../shared-core/code-graph.js')
+        .fileMap(args.file, { cwd: args.cwd || ctx.cwd || undefined });
+    }
+  },
+
   troth_recall: {
     description: 'Unified class-routed substrate recall. Pre-filters by audience (default model_visible — substrate-internal items never reach this surface), then routes per memory_class: identity (anchors / user-facts), semantic (research lessons), episodic (recent commitments), procedural (compiled procedures). Pass class="all" to merge with priority order; pass class explicitly to scope a single store. Replaces troth_engram_search for general use — that tool was structurally blind to lesson and dialogue pools.',
     inputSchema: {
@@ -205,7 +378,11 @@ const TOOLS = {
         // the reranker model isn't present (recall.js:857). Default on; opt out.
         rerank: args.rerank !== false
       });
-      return { items, class_filter: args.class || 'all', audience_filter: args.audience || 'model_visible' };
+      return {
+        items: items.map((i) => Object.assign({}, i, edgeStatement(i.statement))),
+        class_filter: args.class || 'all',
+        audience_filter: args.audience || 'model_visible'
+      };
     }
   },
 
@@ -242,7 +419,7 @@ const TOOLS = {
         embedding_host: transportCfg.embeddingHost()
       });
       const results = items.map(i => ({
-        statement: i.statement,
+        ...edgeStatement(i.statement),
         score:     Number(i.score && i.score.toFixed ? i.score.toFixed(3) : i.score),
         scope:     i.scope,
         ts:        i.ts
@@ -432,9 +609,9 @@ const TOOLS = {
     inputSchema: {
       type: 'object',
       properties: {
-        scope: { type: 'string' },
-        query: { type: 'string' },
-        k:     { type: 'integer' },
+        scope: { type: 'string', description: 'Exact corpus name, e.g. "docs:seen:reports" or "docs:chats". These cannot be guessed — call troth_chameleon_list_scopes first, or use troth_recall when you do not know which corpus holds the answer.' },
+        query: { type: 'string', description: 'Natural-language query, searched within that one corpus' },
+        k:     { type: 'integer', description: 'How many passages to return (default 5)' },
         agent_id: { type: 'string' }, user_id: { type: 'string' }, cwd: { type: 'string' }
       },
       required: ['scope', 'query']
@@ -451,7 +628,7 @@ const TOOLS = {
       return {
         scope: r.scope,
         chunks: r.items.map(i => ({
-          statement: i.statement,
+          ...edgeStatement(i.statement),
           score:     Number(i.score && i.score.toFixed ? i.score.toFixed(3) : i.score),
           source:    i.source
         }))
@@ -1103,7 +1280,7 @@ const TOOLS = {
       const intents = pool.filter(e => typeof e.scope === 'string' && e.scope.indexOf('intent:') === 0).slice(0, limit);
       return {
         intents: intents.map(i => ({
-          id: i.id, ts: i.ts, scope: i.scope, statement: i.statement,
+          id: i.id, ts: i.ts, scope: i.scope, ...edgeStatement(i.statement),
           irreversibility_class: i.irreversibility_class,
           intent_state: stateM.getIntentState ? stateM.getIntentState(i.id) : null
         }))
@@ -1350,7 +1527,21 @@ const _ALIASES = {
   recall:           'troth_recall'
 };
 for (const [aliasName, realName] of Object.entries(_ALIASES)) {
-  if (TOOLS[realName] && !TOOLS[aliasName]) TOOLS[aliasName] = TOOLS[realName];
+  if (TOOLS[realName] && !TOOLS[aliasName]) {
+    // CLONED, not shared, so the alias can carry its own first sentence.
+    //
+    // Sharing the object meant tools/list showed seven pairs of tools with
+    // byte-identical descriptions and no way to tell which was canonical — an
+    // agent reading that surface has to guess, and a guess it gets right by
+    // luck is a guess it gets wrong later. Now the alias says what it is and
+    // points at the name to prefer; the skills that call the short name keep
+    // working untouched.
+    TOOLS[aliasName] = Object.assign({}, TOOLS[realName], {
+      description: 'ALIAS of `' + realName + '` — identical behaviour, kept because the bundled slash '
+        + 'skills call the unprefixed name. Prefer `' + realName + '` in new code. '
+        + String(TOOLS[realName].description || '')
+    });
+  }
 }
 
 // ── MCP JSON-RPC plumbing ───────────────────────────────────────────────────

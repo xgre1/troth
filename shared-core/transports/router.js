@@ -125,7 +125,10 @@ function makeRouterTransport(opts) {
       }
       const body = {
         model: (req.options && req.options.model) || 'any',
-        max_tokens: (req.options && req.options.max_tokens) || 2000,
+        // Same knob as every other lane (lane audit 2026-08-15): the old
+        // hardcoded 2000 truncated real turns on the default faculty.
+        max_tokens: (req.options && req.options.max_tokens) ||
+          parseInt(process.env.TROTH_ENTITY_MAX_TOKENS || '8192', 10),
         stream: false,
         think: false,
         messages: turns

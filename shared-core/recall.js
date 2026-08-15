@@ -364,6 +364,29 @@ function recallIdentity(opts) {
   }));
 }
 
+// A rule the operator scoped to ONE project is not true in another.
+//
+// This is not a folder partition of the mind. The no-partition invariant
+// holds and must: memories stay reachable from anywhere, because a fact
+// learned in one repo is still a fact in the next. What this reads is a row
+// DECLARING where it applies — the operator said "here" when they gave it —
+// exactly as docs:chats rows declare themselves archive-only a few lines
+// below. One item's own scope, not a partition over the whole store.
+//
+// Measured 2026-08-11: without this, a project rule written in one repo
+// ("migrations are applied by hand here, never by the deploy script") came
+// back while working in a different repo. The listing road already honoured
+// the scope; the road the partner walks on its own did not — which is how a
+// partner ends up giving confident advice that is true somewhere else.
+//
+// A query with no cwd is not in any project, so project rules stay out of it.
+function ruleOutOfPlace(row, out, cwd) {
+  if (!row || row.type !== 'lesson') return false;
+  if (String((out && out.scope) || '') !== 'project') return false;
+  if (!row.cwd) return false;
+  return String(row.cwd) !== String(cwd || '');
+}
+
 function recallSemantic(opts) {
   // Semantic class spans lessons + commitment-engrams marked semantic
   // (research, docs, knowledge). Semantic memory is TIME-INVARIANT —
@@ -411,6 +434,8 @@ function recallSemantic(opts) {
       // (docs:chats:<encoded-dir>) — exact equality would have let every
       // scoped chunk flood the very pool this exclusion protects.
       if (String(out.scope || '').startsWith('docs:chats')) return null;
+      // A rule the operator scoped to one project answers only there.
+      if (ruleOutOfPlace(r, out, opts.cwd)) return null;
       // Lessons store body at output.text; engrams store at output.statement.
       const text = String(out.text || out.statement || '').toLowerCase();
       if (!text) return null;
@@ -441,10 +466,28 @@ function recallSemantic(opts) {
     .slice(0, opts.limit);
   return scored.map(({ r, out, score }) => ({
     id: r.id,
-    statement: String(out.statement || out.text || '').slice(0, 600),
+    // The statement travels WHOLE. A 600-char cap sat on all three arms from
+    // 2026-06-08 to 2026-08-14 — a prompt budget applied at the data layer —
+    // and the surfaces that pass text through untouched inherited it: the
+    // recall tool handed the model amputated memories and the dashboard search
+    // showed the same cut, so a long engram could not be read back whole by
+    // anyone. Every consumer that spends context clips at its own edge (the
+    // injector to its block sizes, the voice prefix to its session budget);
+    // the data layer answering short just teaches the reader that the memory
+    // is short.
+    statement: String(out.statement || out.text || ''),
     class: 'semantic',
     score: Number(score.toFixed(3)),
     source: out.source_path || (out.provenance && out.provenance.source_module) || r.type,
+    // WHOSE words these are, carried to whoever renders the hit.
+    //
+    // Without this the per-turn injector prints a fetched page's text under
+    // "treat as GROUND TRUTH, do NOT re-derive" — indistinguishable from
+    // something the operator said. A page saying "the operator approved force
+    // pushing" would arrive as the partner's own memory. The mark is stored on
+    // the passage (provenance.tier); it has to survive the trip out.
+    provenance_tier: (out.provenance && out.provenance.tier) || null,
+    provenance_ref:  (out.provenance && out.provenance.ref) || null,
     ts: r.timestamp
   }));
 }
@@ -531,7 +574,7 @@ function recallEpisodic(opts) {
     .slice(0, opts.limit);
   return scored.map(({ r, statement, score }) => ({
     id: r.id,
-    statement: String(statement).slice(0, 600),
+    statement: String(statement),   // whole — see the semantic arm for why
     class: 'episodic',
     score: Number(score.toFixed(3)),
     source: r.type === 'tool_call' ? 'dialogue' : ((typeof r.output === 'string' ? (JSON.parse(r.output).source || null) : null)),
@@ -733,10 +776,12 @@ async function recall(opts) {
     // dialogue turns / doc chunks (different ids, identical content) flooded the
     // top-k (e.g. the same rant 3×). Per-class scorers only deduped identity by
     // text; episodic/semantic/procedural deduped by id, so dupes survived.
-    // Dedup on the FULL normalized statement (statements are already capped at
-    // ~600 chars in the result objects). A prior slice(0,200) collapsed DISTINCT
-    // long engrams that merely shared a 200-char prefix (templated decision/
-    // handoff text) — dropping the second as a false duplicate.
+    // Dedup on the FULL normalized statement. A prior slice(0,200) collapsed
+    // DISTINCT long engrams that merely shared a 200-char prefix (templated
+    // decision/handoff text) — dropping the second as a false duplicate. The
+    // 600-char result cap had the same defect one size up; with statements
+    // travelling whole, two memories are duplicates only when they really say
+    // the same thing.
     const _norm = (s) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
     const fused = [];
     const pull = (arr) => {
@@ -792,7 +837,15 @@ async function recall(opts) {
   // lexical hits are always kept (they matched keywords).
   const W_COS = 0.60, W_BASE = 0.40;
   const COS_FLOOR = 0.35;
-  if (results.length && q && q.length >= 3 && opts.skip_embedding_rerank !== true) {
+  // NOT gated on results.length. The dense arm used to run only when the
+  // lexical arm had already found something, so a query sharing no words with
+  // any memory returned NOTHING — the exact case this arm exists to serve, and
+  // the one its own comment above promises ("NO lexical-overlap requirement").
+  // Measured 2026-08-10: "what did we decide about our data storage engine?"
+  // returned 0 hits while pure cosine ranked the right memory second at 0.353.
+  // With an empty lexical pool every dense hit is dense-only, scores on cosine
+  // alone (base 0), and the COS_FLOOR still keeps weak matches out.
+  if (q && q.length >= 3 && opts.skip_embedding_rerank !== true) {
     try {
       const localEmbedder = require('./local-embedder.js');
       const qVec = await localEmbedder.embed(q, { role: 'query' }).catch(() => null);
@@ -812,33 +865,84 @@ async function recall(opts) {
           // predecessor (still embedded in the corpus) leaks into default recall
           // via the dense path — defeating "recall follows the supersession chain".
           const _supDense = opts.include_superseded ? new Set() : buildSupersededIds(rows);
+          // The dense arm serves the SAME class the caller asked for.
+          // Unfiltered, it pulled cosine neighbors from the WHOLE corpus,
+          // and the massively-embedded dialogue turns entered EVERY class's
+          // results in a tight 0.7–0.82 band — near-tied rows that buried
+          // real content memories (measured 2026-08-15: a query naming the
+          // decision record returned three dialogue rows within 0.034 of
+          // each other while the record itself never surfaced) and starved
+          // the memory-dispatch dominance gate. class='all' stays unfiltered
+          // here; its raw-dialogue flood is handled by the demotion below.
+          const _denseAllowed = cls === 'all' ? null : new Set(
+            cls === 'identity' ? ['identity'] :
+            cls === 'semantic' ? ['semantic'] :
+            cls === 'procedural' ? ['procedural'] : ['episodic']);
           for (const h of denseOnly) {
             const row = rowById.get(h.id);
             if (!row) continue;
+            if (_denseAllowed && !_denseAllowed.has(row.memory_class)) continue;
             if (_supDense.has(row.id)) continue;            // retired predecessor
             let outJson = {};
             try { outJson = typeof row.output === 'string' ? JSON.parse(row.output) : (row.output || {}); } catch (_) {}
             if (!opts.include_flagged && outJson.tier === 'flagged') continue; // PLR-flagged contradiction
             if (String(outJson.scope || '').startsWith('docs:chats')) continue; // IMPORT-FIX: raw chat archive (flat OR per-project scope) excluded from auto-recall (explicit scope-query only)
+            // PARITY again: the dense arm is a candidate SOURCE, so a rule
+            // excluded by the lexical scorer would walk straight back in here.
+            if (ruleOutOfPlace(row, outJson, opts.cwd)) continue;
             const stmt = statementForRow(row);
             if (!stmt) continue;
             results.push({
               id: row.id,
-              statement: String(stmt).slice(0, 600),
+              statement: String(stmt),   // whole — see the semantic arm for why
               class: row.memory_class,
               score: 0,
               source: row.type === 'tool_call' ? 'dialogue' : null,
+              // PARITY with the lexical arm: a hit that arrives through the
+              // dense path must carry the same mark, or external text slips in
+              // unlabelled by the other door.
+              provenance_tier: (outJson.provenance && outJson.provenance.tier) || null,
+              provenance_ref:  (outJson.provenance && outJson.provenance.ref) || null,
               ts: row.timestamp,
-              _dense: true
+              _dense: true,
+              // Raw turns that arrived through the dense door alone (no
+              // keyword match) are context, not knowledge — marked so the
+              // fusion can seat curated memories above them at equal cosine.
+              _rawDialogueDense: row.type === 'dialogue.turn'
             });
           }
         }
         // Fuse: cosine magnitude (primary) blended with the lexical/recency/topic
         // base score (prior). Dense-only rows have base 0 → ranked on cosine alone.
+        // SELF-ECHO demotion. Asking a question retrieves the asking of it:
+        // the operator's own near-verbatim recent question (mirrored as a
+        // dialogue turn) scores near-perfect lexical AND cosine against
+        // itself and seats above the memory that ANSWERS it (measured
+        // 2026-08-15: the just-asked app question + its manifest reply took
+        // #0/#1 over the actual decision-record engram). A turn whose USER
+        // half IS the query is the question repeated, not knowledge —
+        // halved, not dropped: "what did I ask before" queries legitimately
+        // want their echoes.
+        const _qNorm = String(q).toLowerCase().replace(/[^a-z0-9Ͱ-Ͽἀ-῿]+/g, ' ').trim();
+        const _isEcho = (stmt) => {
+          const m = /^user:\s*([\s\S]*?)(?:\s*\/\s*asst:|$)/.exec(String(stmt || ''));
+          if (!m || !m[1]) return false;
+          const u = m[1].toLowerCase().replace(/[^a-z0-9Ͱ-Ͽἀ-῿]+/g, ' ').trim();
+          if (!u || !_qNorm) return false;
+          const shorter = u.length <= _qNorm.length ? u : _qNorm;
+          const longer  = u.length <= _qNorm.length ? _qNorm : u;
+          return longer.indexOf(shorter) !== -1 && shorter.length / longer.length >= 0.8;
+        };
         for (const r of results) {
           const base = Number(r.score) || 0;
           r._base = Number(base.toFixed(3));
-          const cos = cosById.has(r.id) ? cosById.get(r.id) : cosineSim(qVec, qNorm, state.getEmbedding(r.id));
+          let cos = cosById.has(r.id) ? cosById.get(r.id) : cosineSim(qVec, qNorm, state.getEmbedding(r.id));
+          // class='all' dense flood control: a raw dialogue turn with no
+          // lexical hit competes at a 15% cosine discount, so a CURATED
+          // memory at comparable similarity outranks chat echo. Turns that
+          // matched keywords (lexical arm) keep full weight — they earned it.
+          if (r._rawDialogueDense && cos) cos = cos * 0.85;
+          if (_isEcho(r.statement)) { if (cos) cos = cos * 0.5; r.score = (Number(r.score) || 0) * 0.5; r._echo = true; }
           // No stored embedding → KEEP the original lexical base score (NO penalty),
           // per this block's own documented intent ("Engrams without stored
           // embeddings keep their original score"). The prior `W_BASE * base`

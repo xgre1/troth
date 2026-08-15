@@ -80,6 +80,16 @@ function tombstone(rec, reason) {
     };
     const v = actionRec.validate(t);
     if (v.ok) state.recordAction(t, actionRec.toSearchText(t));
+    // The vector dies with the memory.
+    //
+    // Nothing in the codebase had ever deleted from engram_embeddings, so a
+    // tombstoned engram kept its vector forever — and the dense recall arm
+    // streams EVERY vector on EVERY call. Measured 2026-08-11: 706 such
+    // vectors (1.1% of the index), worth ~13ms of the 164ms full scan. Small,
+    // but it is pure waste and it accumulates, since this function runs
+    // constantly: 99.8% of the engrams it kills die within an hour of being
+    // written.
+    try { if (typeof state.deleteEmbedding === 'function') state.deleteEmbedding(rec.id); } catch (_) { /* the tombstone stands either way */ }
     return id;
   } catch (_) { return null; }
 }

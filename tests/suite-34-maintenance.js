@@ -85,19 +85,33 @@ test('MAINT-3: import_sync flows only consented sources; env kills win; dry mode
   }
 });
 
-test('MAINT-4: the proxy hosts the UPKEEP tasks (drain, import, backup, wal) with the lease on (source pin)', () => {
+test('MAINT-4: the proxy hosts EVERY upkeep task — including the two that had no runner here (source pin)', () => {
   // The topology promise itself: a dashboard-only install (`troth start`)
   // drains, syncs AND backs up because THIS block exists — before it, a
   // proxy-only machine never took a backup in its life. Pin the wiring
   // the journey exercises; the thinking tasks stay the entity's alone.
+  //
+  // knowledge_drain and outcome_fold were the same bug one layer in. Both
+  // were written, tested and registered — in DEFAULT_TASKS, which only the
+  // entity daemon runs. On a Claude Code + proxy machine nothing referenced
+  // them, so the document queue had no reader and 183 documents sat unread
+  // while the card reported a healthy drain (2026-08-12). The suite passed
+  // throughout, because it asserted membership in DEFAULT_TASKS and never
+  // asked which list the RUNNING process uses. This asks.
   const fs = require('fs');
   const src = fs.readFileSync(path.join(ROOT, 'proxy', 'server.js'), 'utf8');
-  const at = src.indexOf('bw.tasks.embeddingBackfill, bw.tasks.importSync, bw.tasks.backup, bw.tasks.walReplicate');
-  assert.ok(at > 0, 'the proxy maintenance worker hosts drain + import-sync + backup + wal');
-  const block = src.slice(Math.max(0, at - 900), at + 1400);
+  const at = src.indexOf('bw.tasks.embeddingBackfill,');
+  assert.ok(at > 0, 'the proxy maintenance worker hosts the embedding drain');
+  const block = src.slice(Math.max(0, at - 1200), at + 1600);
+  for (const t of ['knowledgeDrain', 'outcomeFold', 'importSync', 'backup', 'walReplicate', 'ledgerPrune']) {
+    assert.ok(block.indexOf('bw.tasks.' + t) !== -1, 'the proxy hosts ' + t + ' — a task nothing here runs is a task that never runs');
+  }
   assert.ok(/cross_process_lease:\s*true/.test(block), 'with the cross-process lease on');
   assert.ok(/TROTH_MAINTENANCE/.test(block), 'and a kill-switch');
   assert.ok(/substrate_internal/.test(block), 'ledger rows stay out of every recall pool (substrate_internal)');
+  // And the map the proxy reads them from actually carries them.
+  assert.ok(bw.tasks.knowledgeDrain && bw.tasks.knowledgeDrain.name === 'knowledge_drain', 'exported by name');
+  assert.ok(bw.tasks.outcomeFold && bw.tasks.outcomeFold.name === 'outcome_fold', 'exported by name');
 });
 
 test('MAINT-5: only non-GET requests count as foreground — an open dashboard cannot freeze the drain (source pin)', () => {

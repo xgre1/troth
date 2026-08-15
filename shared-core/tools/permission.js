@@ -169,6 +169,58 @@ function wrapRunner(innerRunner, policyOpts) {
       }
     }
 
+    // Read-side wall for the DIRECT tools. The shell road was already
+    // gated (bash-safety extracts paths from the command and consults
+    // isReadablePath), but Read/Grep/Glob called AS TOOLS bypassed the
+    // read policy entirely — the exact hole behind the field report of an
+    // engine grepping the substrate DB raw. A raw read of the DB bypasses
+    // every audience filter the substrate enforces; the sanctioned road to
+    // memory is the substrate's own tools, and the wall says so.
+    if (name === 'Read' || name === 'Grep' || name === 'Glob') {
+      let rArgs = {};
+      const rRaw = toolCall && toolCall.function && toolCall.function.arguments;
+      if (typeof rRaw === 'string') { try { rArgs = JSON.parse(rRaw); } catch (_) {} }
+      else if (rRaw && typeof rRaw === 'object') { rArgs = rRaw; }
+      const rTarget = rArgs.file_path || rArgs.path || null;
+      if (typeof rTarget === 'string' && rTarget.length) {
+        try {
+          const policy = require('./path-policy.js');
+          const os1 = require('os');
+          const p1  = require('path');
+          const _abs = p1.resolve(String(rTarget).replace(/^~(?=$|\/)/, os1.homedir()));
+          const trothRoot = p1.join(os1.homedir(), '.troth');
+          // Exact-target check first (resolves symlinks inside the policy);
+          // then the ancestor case: pointing Grep/Glob AT ~/.troth (or any
+          // directory inside it) sweeps the DB and credential stores into
+          // the scan — refused as a unit, with the honest road named.
+          const verdict = policy.isReadablePath(_abs, ctx);
+          const insideTroth = _abs === trothRoot || _abs.indexOf(trothRoot + p1.sep) === 0;
+          const dirSweep = insideTroth && name !== 'Read' && verdict.allowed;
+          if (!verdict.allowed || dirSweep) {
+            return JSON.stringify({
+              error:   'path_policy_refusal',
+              tool:    name,
+              reason:  verdict.allowed ? 'blocked_secret_read' : verdict.reason,
+              pattern: verdict.pattern || (dirSweep ? 'substrate_home' : null),
+              path:    verdict.path || _abs,
+              detail:  verdict.detail || (dirSweep ? 'the directory holds the substrate database and credential stores' : null),
+              hint:    'The substrate\'s contents are served through its own tools (troth_recall, engram/dialogue surfaces) with audience filtering — raw file access bypasses every policy. Do not retry this path.'
+            });
+          }
+        } catch (e) {
+          // Same stance as the write gate: a gate that disappears when it
+          // errors is not a gate.
+          return JSON.stringify({
+            error:  'path_policy_unavailable',
+            tool:   name,
+            reason: 'policy_evaluation_failed',
+            detail: String(e && e.message || e),
+            hint:   'The read-path policy could not be evaluated, so the read was refused. Retry once; if it persists, tell the operator.'
+          });
+        }
+      }
+    }
+
     // subsystem — Bash safety gate. Two layers:
     // (1) refuse dangerous shell shapes (rm -rf /, curl|sh, dd of=/dev/sdX,
     //     etc.) deterministically, BEFORE the command reaches the shell;

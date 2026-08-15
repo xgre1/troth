@@ -102,10 +102,46 @@ async function ingestDocument(opts) {
   const user_id = opts.user_id || 'default';
   const cwd     = opts.cwd || null;
   const source  = opts.source || ('ingest:' + scope);
+  // WHERE this text came from, carried on every passage.
+  //
+  // Not the `audience` field, and that distinction is the whole design.
+  // audienceOk() in recall.js is an EXACT match against what the caller asked
+  // for (default 'model_visible'), so tagging fetched text
+  // 'synthesis_of_external' does not lower its trust — it makes it INVISIBLE.
+  // A page from the open web has to be readable and MARKED, because the two
+  // failure modes are "knowledge that never answers" and "a stranger's words
+  // carrying the same weight as the operator's own documents", and both are
+  // unacceptable. So provenance is its own field: recall still returns it, and
+  // whoever reads it can see it came from outside.
+  const provenanceTier = opts.provenance_tier === 'external' ? 'external' : 'operator';
+  const provenanceRef  = opts.provenance_ref ? String(opts.provenance_ref).slice(0, 300) : null;
   const title   = opts.title ? String(opts.title).trim() : null;
   const embeddingHost = opts.embedding_host || cfg.embeddingHost();
 
-  const chunks = chunkText(text, opts);
+  // SECRET GATE. Bulk text is the one road into the substrate where nobody
+  // read the document first: a folder of PDFs, a fetched page, a notes file
+  // with a key pasted into it. Measured on the operator's own material,
+  // 2026-08-11: 3 of 141 knowledge-shaped files they had opened contained a
+  // credential-shaped literal (2.1%) — markdown notes, not config files.
+  // Ingested raw, those get chunked, embedded, and then RETURNED BY RECALL
+  // to whatever model is answering.
+  //
+  // harvest() BEFORE redact(), and this order is the whole point: the
+  // redactor masks literals it has already collected, so redact() alone on a
+  // document it has never seen is a NO-OP. Verified by experiment before this
+  // line was written — the obvious one-liner would have passed a test that
+  // harvested first and shipped a gate that does nothing.
+  //
+  // The chat-import roads (claude-session-watcher, backfill-claude-sessions)
+  // already do this per turn. This closes the same hole on the document road.
+  let safeText = text;
+  try {
+    const redactor = require('./secret-redactor.js');
+    redactor.harvest(text);
+    safeText = redactor.redact(text);
+  } catch (_) { /* redactor unavailable: ingest the text as given */ }
+
+  const chunks = chunkText(safeText, opts);
   // Phase 1 — compute OUTSIDE the write path: chunk statements and their
   // best-effort embeddings (async, can take seconds on a long document).
   let embedded = 0;
@@ -116,6 +152,24 @@ async function ingestDocument(opts) {
     if (embeddingHost) {
       try { embedding = await engram.embedRequest(embeddingHost, stmt); }
       catch (_) { embedding = null; }
+    }
+    // FALL BACK TO THE EMBEDDER ON THIS MACHINE.
+    //
+    // The configured host is a remote one (a second Mac over the network on
+    // this install). When it is asleep, embedRequest returns null WITHOUT
+    // throwing, so every chunk was stored with no vector and nobody noticed:
+    // measured 2026-08-11 during the first backfill, 16,711 passages ingested
+    // and 819 embedded — 4.9%. The text was there, the meaning was not, and
+    // the corpus answered only to exact words.
+    //
+    // The local embedder was up the whole time and answers in 8ms. A remote
+    // preference must degrade to it, not to silence.
+    if (!embedding) {
+      try {
+        const local = require('./local-embedder.js');
+        const v = await local.embed(stmt);
+        if (v && v.length) embedding = Array.from(v);
+      } catch (_) { embedding = null; }
     }
     if (embedding) embedded++;
     prepared.push({ stmt: stmt, embedding: embedding });
@@ -140,6 +194,7 @@ async function ingestDocument(opts) {
           agent_id, user_id, cwd,
           statement: p.stmt,
           source,
+          provenance: { tier: provenanceTier, ref: provenanceRef },
           salience: typeof opts.salience === 'number' ? opts.salience : 1.0,
           embedding: p.embedding,
           scope,
@@ -186,21 +241,26 @@ async function queryScope(opts) {
 // for the UI dashboard ("which corpora are loaded?") and for the
 // substrate-tools surface (the language faculty can ask "what corpora
 // can I query?" before running a search).
+//
+// This counted scopes among the engrams listEngrams() would return — and
+// that reader caps its LIMIT at 2000 rows, so the answer silently meant
+// "among the 2000 most recent engrams". On a 43k-engram substrate it
+// reported 57 scopes against a true 2024, and a corpus ingested earlier
+// than the last 2000 writes did not exist as far as any caller could tell.
+// state.scopeInventory answers the same question with one GROUP BY over the
+// whole table, and carries the embedded count so a surface can show which
+// corpora are actually searchable.
 function listScopes(opts) {
   opts = opts || {};
-  const all = engram.listEngrams({
-    agent_id: opts.agent_id,
-    cwd:      opts.cwd,
-    limit:    opts.scan_limit || 2000
+  const state = require('./state.js');
+  return state.scopeInventory({
+    agent_id:         opts.agent_id,
+    cwd:              opts.cwd,
+    strict_isolation: opts.strict_isolation,
+    principal:        opts.principal,
+    prefix:           opts.prefix,
+    limit:            opts.limit
   });
-  const counts = new Map();
-  for (const e of all) {
-    if (!e.scope) continue;
-    counts.set(e.scope, (counts.get(e.scope) || 0) + 1);
-  }
-  return Array.from(counts.entries())
-    .map(([scope, count]) => ({ scope, count }))
-    .sort((a, b) => b.count - a.count);
 }
 
 // Distinct provenance `source` tags already ingested into a scope. Powers

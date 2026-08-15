@@ -60,6 +60,29 @@ function langFor(filePath) {
   }
 }
 
+// Parse a whole file, at any size.
+//
+// tree-sitter's Node binding refuses a string argument longer than 32,768
+// bytes and throws "Invalid argument". Every caller here treats a throw as a
+// skip, so the four largest files in this tree — the proxy at 307 KB, the
+// state layer at 159 KB, the background worker at 85 KB and the substrate MCP
+// server at 80 KB — were written without ever being parsed. A stray brace in
+// one of them reached disk on 2026-08-13 and the validator reported nothing,
+// which is the failure mode a silent skip always has: it reads exactly like a
+// pass.
+//
+// Measured on the boundary: 32,723 bytes parses, 32,779 throws. The binding's
+// documented form for large input is a callback that returns the next chunk,
+// and it has no such limit — 308 KB parses in 28 ms. Below the limit both
+// forms were compared over 52 cases across javascript, typescript, tsx and
+// python, clean and broken: identical results, identical timings to within
+// noise. So there is one path rather than a fast path and a boundary.
+const PARSE_CHUNK = 4096;
+function parseWhole(parser, source) {
+  return parser.parse((index) =>
+    index < source.length ? source.slice(index, index + PARSE_CHUNK) : null);
+}
+
 // Walk the tree looking for ERROR / MISSING nodes. Returns the first
 // few errors with row/column + a snippet of the offending source.
 function findSyntaxErrors(tree, source, max) {
@@ -120,7 +143,7 @@ function validate(filePath, content) {
   if (!parsers) return { skipped: true, reason: 'parser_unavailable' };
   let tree;
   try {
-    tree = parsers[lang].parse(content);
+    tree = parseWhole(parsers[lang], content);
   } catch (e) {
     // Parser itself threw — give up rather than pretending we know.
     return { skipped: true, reason: 'parser_failed: ' + e.message };

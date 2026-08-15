@@ -127,4 +127,61 @@ function detectCapabilities(opts) {
   return caps;
 }
 
-module.exports = { detectCapabilities };
+// ── What a local model may spend ─────────────────────────────────────────
+//
+// Three local servers had three different answers: the chat model offloaded
+// fully, while the embedder and the reranker — the two that run on every
+// message — were pinned to the CPU, and none of them bounded threads at all.
+// llama.cpp with no --threads takes every core it can see, so two servers on a
+// ten-core machine asked for thirty-two threads between them and spent the
+// difference on contention: the same rerank took 1982 ms at sixteen threads and
+// 1175 ms at four.
+//
+// One function answers it now, and every spawner asks.
+
+// Is there an accelerator backend on disk to offload TO?
+//
+// The question is not "is this a Mac". llama.cpp ships its backends as separate
+// libraries next to the binary, and a build without one cannot honour -ngl no
+// matter what the hardware is — the Linux release assets are CPU-only, so the
+// flag would be a request the runtime silently ignores at best.
+let _accelCache = null;
+function hasAcceleratorBackend(binPath) {
+  if (_accelCache !== null && !binPath) return _accelCache;
+  let found = false;
+  try {
+    const bin = binPath || process.env.TROTH_LLAMA_SERVER_BIN
+      || path.join(process.env.HOME || os.homedir(), '.troth', 'bin', 'llama-server');
+    const dir = path.dirname(bin);
+    found = fs.readdirSync(dir).some((f) => /ggml-(metal|cuda|hip|vulkan|sycl)/i.test(f));
+  } catch (_) { found = false; }
+  if (!binPath) _accelCache = found;
+  return found;
+}
+
+/**
+ * { ngl, threads } for a local llama-server.
+ *
+ * TROTH_NGL and TROTH_INFER_THREADS override, and the thread override is still
+ * clamped to the machine — an override may ask for less, never for more cores
+ * than exist, because that is the state this function was written to end.
+ */
+function inferenceFlags(opts) {
+  opts = opts || {};
+  const caps = detectCapabilities();
+  const logical = Math.max(1, (os.cpus() || []).length || caps.cores || 1);
+
+  let threads = Math.max(1, Math.min(caps.perfCores || 1, logical));
+  const envT = parseInt(process.env.TROTH_INFER_THREADS || '', 10);
+  if (Number.isFinite(envT) && envT > 0) threads = Math.min(envT, logical);
+
+  let ngl = hasAcceleratorBackend(opts.bin) ? 999 : 0;
+  const envN = parseInt(process.env.TROTH_NGL || '', 10);
+  if (Number.isFinite(envN) && envN >= 0) ngl = envN;
+  // A caller that already knows offload failed here asks for none.
+  if (opts.noOffload) ngl = 0;
+
+  return { ngl, threads };
+}
+
+module.exports = { detectCapabilities, inferenceFlags, hasAcceleratorBackend };

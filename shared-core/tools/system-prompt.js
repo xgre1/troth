@@ -60,7 +60,13 @@
 // configured hand named in the prompt the total clears 4050 and the tail
 // (AUDIO MODE + honesty guard) would silently truncate, the exact failure
 // this header warns about. Cap raised 4050 -> 4500.
-const DEFAULT_MAX_CHARS = 4500;
+// 2026-08-11: the code-graph tools (code_who_calls / code_file_map) joined the
+// unified surface. They cost 31 chars in text mode (4,287 -> 4,318, well
+// clear) but the VOICE variant carries a 172-char brevity block on top and sat
+// at 4,490 before them — 4,497 with, i.e. inside the cap and already slicing
+// the tail. Same failure this header has warned about four times; same answer.
+// 4500 -> 4800 restores a ~300-char margin against the dynamic hand-name list.
+const DEFAULT_MAX_CHARS = 4800;
 
 function listToolLine(toolNames) {
   if (!Array.isArray(toolNames) || !toolNames.length) return '';

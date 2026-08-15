@@ -14,10 +14,10 @@ if (command === "knowledge") {
   var subK = passthrough[0];
   if (subK !== 'import' && subK !== 'stats' && subK !== 'search' && subK !== 'reindex') {
     console.error("Usage:");
-    console.error("  troth knowledge import <path> [<path> ...] [--dry-run] [--max-chunk N]");
+    console.error("  troth knowledge import <path> [<path> ...] [--dry-run]");
     console.error("  troth knowledge stats");
     console.error("  troth knowledge search \"<query>\" [--limit N]");
-    console.error("  troth knowledge reindex   # rebuild FTS for curriculum lessons");
+    console.error("  troth knowledge reindex   # rebuild FTS for legacy curriculum lessons");
     process.exit(1);
   }
 
@@ -54,33 +54,34 @@ if (command === "knowledge") {
     process.exit(0);
   }
 
-  // ── stats ───────────────────────────────────────────────────────────
+  // ── stats ───────────────────────────────────────────────────────────────────
   if (subK === 'stats') {
-    // queryActions caps at 1000 rows by design; for full-corpus stats we
-    // aggregate at the SQL layer instead of pulling every row.
     var dStats = stateK.db();
-    var aggRows = dStats.prepare(
-      "SELECT json_extract(output, '$.source_path') AS src, " +
-      "       COUNT(*) AS n, " +
-      "       SUM(LENGTH(json_extract(output, '$.text'))) AS bytes " +
-      "FROM action_records " +
-      "WHERE type = 'lesson' " +
-      "  AND json_extract(input, '$.source') = 'curriculum_import' " +
-      "GROUP BY src " +
-      "ORDER BY n DESC"
-    ).all();
-    var totalChunks = aggRows.reduce(function(a, r){ return a + r.n; }, 0);
-    var totalBytes  = aggRows.reduce(function(a, r){ return a + (r.bytes || 0); }, 0);
-    console.log('Indexed curriculum chunks: ' + totalChunks);
-    console.log('Total content size:        ' + (totalBytes/1024).toFixed(1) + ' KB');
-    console.log('Distinct sources:          ' + aggRows.length);
-    console.log('');
-    console.log('Top sources:');
-    aggRows.slice(0, 15).forEach(function(r){
-      console.log('  ' + String(r.n).padStart(4) + '  ' + (r.src || '(unknown)'));
-    });
+    // The reservoir is where imports live now: what is owed, what was read.
+    var spool = { pending: 0, done: 0 };
+    try {
+      spool = dStats.prepare(
+        'SELECT SUM(CASE WHEN done_at IS NULL THEN 1 ELSE 0 END) AS pending, ' +
+        '       SUM(CASE WHEN done_at IS NOT NULL THEN 1 ELSE 0 END) AS done ' +
+        'FROM knowledge_spool'
+      ).get() || spool;
+    } catch (_) {}
+    console.log('Documents waiting to be read: ' + (spool.pending || 0));
+    console.log('Documents read and indexed:   ' + (spool.done || 0));
+    // Chunks written by the OLD import road (documents stored as lessons).
+    // Shown while any remain so an install that used the old command can
+    // still account for its data; new imports never add to this number.
+    var legacy = 0;
+    try {
+      legacy = dStats.prepare(
+        "SELECT COUNT(*) AS n FROM action_records " +
+        "WHERE type = 'lesson' AND json_extract(input, '$.source') = 'curriculum_import'"
+      ).get().n;
+    } catch (_) {}
+    if (legacy) console.log('Legacy curriculum chunks:     ' + legacy + '  (written by the old import; new imports flow through the reservoir)');
     process.exit(0);
   }
+
 
   // ── search ──────────────────────────────────────────────────────────
   if (subK === 'search') {
@@ -108,19 +109,20 @@ if (command === "knowledge") {
   }
 
   // ── import ──────────────────────────────────────────────────────────
-  // Parse paths + flags
+  // Parse paths + flags. --max-chunk is still swallowed for old scripts but
+  // means nothing now: the reader chunks documents itself, the same way for
+  // every road a document arrives by.
   var paths = [];
   var dryRun = false;
-  var maxChunk = 2000;
   for (var pi = 1; pi < passthrough.length; pi++) {
     var pa = passthrough[pi];
     if      (pa === '--dry-run')   { dryRun = true; }
-    else if (pa === '--max-chunk' && passthrough[pi+1]) { maxChunk = parseInt(passthrough[++pi], 10); }
+    else if (pa === '--max-chunk' && passthrough[pi+1]) { pi++; }
     else if (pa.startsWith('--')) { /* unknown flag, ignore */ }
     else { paths.push(pa); }
   }
   if (!paths.length) {
-    console.error("Usage: troth knowledge import <path> [<path> ...] [--dry-run] [--max-chunk N]");
+    console.error("Usage: troth knowledge import <path> [<path> ...] [--dry-run]");
     process.exit(1);
   }
 
@@ -227,97 +229,43 @@ if (command === "knowledge") {
     process.exit(0);
   }
 
-  // Chunk each file. Markdown by H2 headers (## ), else fixed-size by maxChunk bytes.
-  function chunkText(text, ext) {
-    if (ext === '.md' || ext === '.markdown' || ext === '.org') {
-      var parts = text.split(/(?=^##\s)/m).filter(function(p){ return p.trim().length > 0; });
-      // If the split produced very large parts, sub-split them
-      var out = [];
-      for (var i = 0; i < parts.length; i++) {
-        var p = parts[i];
-        if (Buffer.byteLength(p) <= maxChunk) { out.push(p); continue; }
-        for (var off = 0; off < p.length; off += maxChunk) out.push(p.slice(off, off + maxChunk));
-      }
-      return out;
-    }
-    if (ext === '.jsonl') {
-      // One ActionRecord per line — preserves event-stream shape (e.g. Claude Code session.jsonl)
-      return text.split(/\r?\n/).filter(function(l){ return l.trim().length > 0; });
-    }
-    // Plain text / .txt / .json / .org-without-headers — fixed-size chunks
-    var fixed = [];
-    for (var off2 = 0; off2 < text.length; off2 += maxChunk) fixed.push(text.slice(off2, off2 + maxChunk));
-    return fixed;
-  }
-
-  // Existing-fingerprint check so re-runs are idempotent (no duplicate chunks)
-  var existingRows = stateK.queryActions({ type: 'lesson', limit: 100000 }) || [];
-  var existingFP = new Set();
-  for (var er = 0; er < existingRows.length; er++) {
-    var rr = actionRecK.fromRow(existingRows[er]);
-    if (rr && rr.input && rr.input.fingerprint) existingFP.add(rr.input.fingerprint);
-  }
-
-  var written = 0, skipped = 0, errored = 0, totalChunks = 0;
+  // The reservoir road.
+  //
+  // This command used to chunk documents ITSELF and write every piece as a
+  // type='lesson' ActionRecord — semantic, model-visible. 3,785 of those
+  // "lessons" were whole research documents on the substrate this was
+  // measured on, and recall served them back as if they were memories the
+  // partner had formed. The proper road existed the whole time: spool a
+  // pointer, and the reader drains it — secret gate, redaction, chunking,
+  // embedding, scoping — the same machinery every other document passes
+  // through, on the reader's cadence rather than the CLI's.
+  //
+  // One spool row per FILE, keyed (kind, ref, sha): re-importing an unchanged
+  // file is a no-op at the INSERT, an edited file queues again by its new
+  // sha. The CLI's job ends at the doorstep.
+  var queued = 0, unchanged = 0, errored = 0;
   for (var fi = 0; fi < candidates.length; fi++) {
     var f = candidates[fi];
-    var ext2 = pathK.extname(f.path).toLowerCase();
     var content;
-    try { content = fsK.readFileSync(f.path, 'utf8'); }
+    try { content = fsK.readFileSync(f.path); }
     catch (e) { errored++; continue; }
-    var chunks = chunkText(content, ext2);
-    totalChunks += chunks.length;
-    for (var ck = 0; ck < chunks.length; ck++) {
-      var chunk = chunks[ck];
-      var fp = cryptoK.createHash('sha256')
-        .update(f.path + '#' + ck + '#' + chunk).digest('hex').slice(0, 32);
-      if (existingFP.has(fp)) { skipped++; continue; }
-      var rec = {
-        id: cryptoK.randomUUID(),
-        timestamp: Date.now(),
-        type: 'lesson',
-        agent_id: 'cli',
-        cwd: pathK.dirname(f.path),
-        //  curriculum_import is the path that wrote
-        // the ~3700 research lessons. These ARE knowledge for the model
-        // (semantic class); were previously invisible from primary recall
-        // because no audience/class taxonomy existed.
-        audience: 'model_visible',
-        memory_class: 'semantic',
-        input: {
-          source: 'curriculum_import',
-          fingerprint: fp
-        },
-        output: {
-          text: chunk,
-          source_path: f.path,
-          chunk_index: ck,
-          chunk_total: chunks.length
-        },
-        verification: {},
-        outcome: {}
-      };
-      var v = actionRecK.validate(rec);
-      if (!v.ok) { errored++; continue; }
-      var wid = stateK.recordAction(rec, actionRecK.toSearchText(rec));
-      if (wid) { written++; existingFP.add(fp); }
-      else errored++;
-    }
-    if ((fi + 1) % 10 === 0 || fi === candidates.length - 1) {
-      process.stdout.write("\r  ingested file " + (fi + 1) + "/" + candidates.length + " · chunks: " + written + " new, " + skipped + " skipped");
-    }
+    var sha = cryptoK.createHash('sha256').update(content).digest('hex');
+    var sid = stateK.spoolKnowledge({
+      kind: 'file',
+      ref: f.path,
+      sha: sha,
+      bytes: f.size,
+      why: 'operator import: troth knowledge import'
+    });
+    if (sid) queued++; else unchanged++;
   }
+  console.log("\x1b[32m✓\x1b[0m queued for reading");
+  console.log("  documents queued:  " + queued);
+  console.log("  already known:     " + unchanged);
+  if (errored) console.log("  unreadable:        " + errored);
   console.log("");
-  console.log("");
-  console.log("\x1b[32m✓\x1b[0m import complete");
-  console.log("  files processed: " + candidates.length);
-  console.log("  chunks total:    " + totalChunks);
-  console.log("  written:         " + written);
-  console.log("  skipped (dup):   " + skipped);
-  console.log("  errored:         " + errored);
-  console.log("");
-  console.log("Query: troth knowledge search \"<query>\"");
-  console.log("       troth_search_actions(\"<query>\")  via MCP from inside Claude Code");
+  console.log("The reader takes it from here in the background — gate, chunk, index.");
+  console.log("Watch:  dashboard → Memory → Taking in      troth knowledge stats");
   process.exit(0);
 }
 };

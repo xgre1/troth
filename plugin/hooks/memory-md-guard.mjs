@@ -50,8 +50,19 @@ const startsWith = (a, b) => (process.platform === 'win32')
   ? a.toLowerCase().startsWith(b.toLowerCase())
   : a.startsWith(b);
 
+// Any .md under ~/.claude/projects/, not only the ones inside a memory/
+// subfolder.
+//
+// The '/memory/' requirement left the continuity files uncovered: RESUME.md and
+// progress.md sit BESIDE the memory folder, at
+// ~/.claude/projects/<key>/RESUME.md, so a handoff written there sailed past a
+// guard whose entire purpose is to stop exactly that (caught live 2026-08-12 —
+// an agent wrote a full session handoff to RESUME.md while troth was active).
+// Nothing an agent legitimately authors belongs anywhere under that directory:
+// it is Claude Code's own per-project store, and continuity belongs in the
+// substrate.
 const isMemoryMd =
-  startsWith(abs, MEMORY_PREFIX) && abs.includes('/memory/') && abs.endsWith('.md');
+  startsWith(abs, MEMORY_PREFIX) && abs.endsWith('.md');
 const isGlobalClaudeMd = eq(abs, GLOBAL_CLAUDE_MD);
 
 if (!isMemoryMd && !isGlobalClaudeMd) { allow(); }

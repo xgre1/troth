@@ -31,8 +31,10 @@ import { readFileSync, existsSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { resolve as resolvePath, join as joinPath } from 'node:path';
 import { homedir } from 'node:os';
+import { createHash as createHashNode } from 'node:crypto';
 
 const require = createRequire(import.meta.url);
+const _greet = require(fileURLToPath(new URL('../../../shared-core/mcp-greeting.js', import.meta.url))).makeGreeter();
 const serverDir = fileURLToPath(new URL('.', import.meta.url));
 const gc = require(serverDir + '../../../proxy/modules/troth-cache.js');
 // Substrate write path. Loaded lazily-ish; if it's missing (e.g. tests),
@@ -45,6 +47,35 @@ function state() {
   return _state;
 }
 function sessionId() { return process.env.CLAUDE_SESSION_ID || null; }
+
+// The read LEDGER, not just the call telemetry. A file served by this cache
+// was read every bit as much as one served by the Read tool, but only the
+// Read hook recorded it — so every "what has been read" answer (the code
+// map's prior-reads context, and any future read-before-edit check) was blind
+// to cache-served reads and told an incomplete truth. Same record shape as
+// mark-read writes, with one improvement this road gets for free: the content
+// is in hand, so the hash is real instead of 'unverified'. Telemetry never
+// breaks serving.
+function recordReadLedger(abs, content) {
+  try {
+    const s = state();
+    if (!s || typeof s.recordAction !== 'function') return;
+    const actionRecord = require(serverDir + '../../../shared-core/action-record.js');
+    const rec = actionRecord.create({
+      type: 'read',
+      agent_id: 'claude-code',
+      session_id: sessionId(),
+      cwd: process.cwd(),
+      input: { file_path: abs },
+      output: {
+        hash: createHashNode('sha256').update(content).digest('hex'),
+        line_count: (String(content).match(/\n/g) || []).length + 1,
+        bytes: Buffer.byteLength(String(content))
+      }
+    });
+    if (actionRecord.validate(rec).ok) s.recordAction(rec, actionRecord.toSearchText(rec));
+  } catch (_) { /* the ledger is telemetry; the read must serve regardless */ }
+}
 function recordCall(tool, hit, bytes, latencyMs, errMsg) {
   const s = state();
   if (!s || typeof s.recordMcpToolCall !== 'function') return;
@@ -141,10 +172,12 @@ function doCachedRead(args) {
   const cacheInput = { tool_name: 'Read', args: { file_path: abs }, cwd, file_hashes };
   const r = cache.lookup(cacheInput);
   if (r.hit) {
+    const cachedContent = typeof r.value === 'string' ? r.value : r.value.content;
+    recordReadLedger(abs, cachedContent);   // a hit is still a read
     return wrapContent({
       cached: true,
       key_prefix: r.key.slice(0, 8),
-      content: typeof r.value === 'string' ? r.value : r.value.content,
+      content: cachedContent,
       source: 'troth-cache',
     });
   }
@@ -153,6 +186,7 @@ function doCachedRead(args) {
   const content = readFileSync(abs, 'utf8');
   const key = gc.computeKey(cacheInput);
   cache.store({ key, tool_name: 'Read', cwd, value: content });
+  recordReadLedger(abs, content);
   return wrapContent({
     cached: false,
     key_prefix: key.slice(0, 8),
@@ -293,7 +327,14 @@ async function handleMethod(method, params) {
     return {
       protocolVersion: '2024-11-05',
       capabilities:    { tools: {} },
-      serverInfo:      { name: SERVER_NAME, version: SERVER_VERSION }
+      serverInfo:      { name: SERVER_NAME, version: SERVER_VERSION },
+      // Protocol-level contract for clients that surface it. Short on purpose.
+      instructions:
+        'Prefer cached_read over Read and cached_grep over Grep when content ' +
+        'may be retrieved again this session or later: hits cost zero backend ' +
+        'tokens, misses fall through to a real read and populate the cache, ' +
+        'and every cached_read is recorded in the substrate\'s read ledger ' +
+        'exactly like a native Read.'
     };
   }
   if (method === 'ping') return {};
@@ -311,8 +352,8 @@ async function handleMethod(method, params) {
       recordCall(toolName, false, 0, 0, 'tool_disabled');
       return rpcError(-32601, 'tool disabled in troth config: ' + toolName);
     }
-    if (toolName === 'cached_read') return instrument(toolName, () => doCachedRead(args));
-    if (toolName === 'cached_grep') return instrument(toolName, () => doCachedGrep(args));
+    if (toolName === 'cached_read') return _greet(instrument(toolName, () => doCachedRead(args)));
+    if (toolName === 'cached_grep') return _greet(instrument(toolName, () => doCachedGrep(args)));
     recordCall(toolName, false, 0, 0, 'unknown_tool');
     return rpcError(-32601, 'unknown tool: ' + toolName);
   }

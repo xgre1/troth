@@ -942,14 +942,43 @@ body.op-on #op-row { color: var(--text-dim); }
     <!-- The pipeline's ONE truth (/api/memory/readiness): the same wording
          the app's Memory page and chat hint render, so no two surfaces can
          disagree about whether memory is done. -->
-    <div id="memory-readiness" style="margin-top:6px;font-size:11px;color:var(--text-muted)"></div>
-    <div id="memory-recent" style="margin-top:8px"></div>
+
   </div>
+
+  <!-- What is being taken in, on its own.
+       This lived INSIDE "Import your chat history", so a progress line about
+       ingested DOCUMENTS read as if the operator's Claude Code sessions were
+       being processed — they asked exactly that (2026-08-11) while the backlog
+       was 4,656 document passages and zero chat sessions. A status that
+       belongs to the whole memory cannot sit inside one of its sources.
+       "Recent memories" went with it: the Substrate page already lists every
+       record, so repeating eight of them here was noise wearing a heading. -->
+  <div class="settings-card full-width" id="intake-card" style="display:none">
+    <div class="card-title">Taking in</div>
+    <div class="card-hint">What your partner is reading and indexing right now. This runs only while you are idle and stops when it is done.</div>
+    <div id="memory-readiness" style="font-size:11px;color:var(--text-muted)"></div>
+    <div id="intake-stream" style="margin-top:10px;font-size:11px"></div>
+  </div>
+
+  <!-- What troth is running on this machine, and what it costs.
+       Exists because "why is the laptop hot" needed a shell to answer. The
+       inventory is the same one the idle reaper works from; the numbers are
+       the two that identify a burner (CPU time consumed, resident memory)
+       rather than the one that lies about it (instantaneous %CPU). A row
+       that will be collected says when, so a forgotten model server reads
+       as "closes in 12m", not as a mystery. -->
+  <div class="settings-card full-width" id="sysload-card" style="display:none">
+    <div class="card-title">Running now</div>
+    <div class="card-hint">Everything troth keeps alive on this machine. Idle model servers and the agent's browser close themselves; nothing here needs you.</div>
+    <div id="sysload-rows" style="font-size:11.5px"></div>
+  </div>
+
 
   <div class="settings-card full-width">
     <div class="card-title" style="display:flex;align-items:baseline;gap:12px;"><span>Rules and refusals</span>
       <a id="rules-door" href="/ui/substrate" onclick="window._recPreset={ctype:'refusal,anchor,fact',label:'binding rules'};navigate('substrate');return false;" style="font-size:10px;color:var(--text-muted);text-decoration:none;text-transform:none;letter-spacing:0;">all records →</a></div>
-    <div class="card-hint">The walls your partner keeps — what it refuses, the facts you signed, the anchors it will not drift from. These survive every model swap; ordinary memories do not.</div>
+    <div class="card-hint">The rules you gave and the walls your partner keeps — what it refuses, the facts you signed, the anchors it will not drift from. These survive every model swap; ordinary memories do not.</div>
+    <div id="operator-rules-rows" style="font-size:12px"></div>
     <div id="rules-rows" style="font-size:12px">loading…</div>
   </div>
 
@@ -958,7 +987,7 @@ body.op-on #op-row { color: var(--text-dim); }
       <a href="/ui/substrate" onclick="navigate('substrate');return false;" style="font-size:10px;color:var(--text-muted);text-decoration:none;text-transform:none;letter-spacing:0;">browse everything →</a></div>
     <div class="card-hint">Search what your partner remembers; forget what should go. Signed operator facts are protected and say so.</div>
     <div style="display:flex;gap:8px;margin:0 0 10px">
-      <input type="text" id="mem-q-mem" placeholder="Ask the memory — by meaning, not keywords…" style="flex:1" onkeydown="if(event.key==='Enter')searchMemories('mem')">
+      <input type="text" id="mem-q-mem" placeholder="What did we decide about…" style="flex:1" onkeydown="if(event.key==='Enter')searchMemories('mem')">
       <button class="btn" onclick="searchMemories('mem')">Search</button>
     </div>
     <div id="mem-results-mem" style="font-size:12px"></div>
@@ -1350,17 +1379,17 @@ body.op-on #op-row { color: var(--text-dim); }
   </div>
 
   <div class="settings-card full-width">
-    <div class="card-title">Records</div>
-    <div class="card-hint">Every action record the substrate holds · filter by class, search the text, page through the whole table. Search covers what was written, not what it means; for meaning use <b>Memory</b> in the sidebar.</div>
+    <div class="card-title" style="display:flex;align-items:baseline;gap:12px;"><span>Records</span><span style="font-size:10px;color:var(--text-muted);font-weight:400;text-transform:none;letter-spacing:0;">one row per thing that happened. Documents you loaded live above, read as documents.</span></div>
+    <div class="card-hint">Everything the substrate holds · pick a class, search, page through it. Records are one row per thing that happened and search covers their text. Pick <b>knowledge you gave it</b> for the documents you loaded in — those read in order, and searching inside one searches by meaning.</div>
     <div style="display:flex;gap:8px;margin:0 0 12px;flex-wrap:wrap">
-      <select id="rec-type" onchange="loadRecords(0)" style="min-width:170px"><option value="">every class</option></select>
+      <select id="rec-type" onchange="loadRecords(0)" style="min-width:170px"><option value="">every class</option><option value="__knowledge__">knowledge intelligence</option></select>
       <span id="rec-preset-chip" style="display:inline-flex;align-items:center"></span>
-      <input type="text" id="rec-q" placeholder="Filter raw record text…" style="flex:1;min-width:180px" onkeydown="if(event.key==='Enter')loadRecords(0)">
-      <button class="btn" onclick="loadRecords(0)">Search</button>
+      <input type="text" id="rec-q" placeholder="Search…" style="flex:1;min-width:180px" onkeydown="if(event.key==='Enter')recSearch()">
+      <button class="btn" onclick="recSearch()">Search</button>
     </div>
     <div id="rec-meta" style="font-size:11px;color:var(--text-muted);margin-bottom:6px">loading…</div>
     <div id="rec-rows" style="font-size:12px"></div>
-    <div style="display:flex;gap:8px;align-items:center;margin-top:10px">
+    <div id="rec-pager" style="display:flex;gap:8px;align-items:center;margin-top:10px">
       <button class="btn btn-ghost" id="rec-prev" onclick="recPage(-1)">← Newer</button>
       <button class="btn btn-ghost" id="rec-next" onclick="recPage(1)">Older →</button>
     </div>
@@ -2725,20 +2754,19 @@ var STATS = [
   { k: 'errors', l: 'Errors' }
 ];
 var MODS = [
-  { n: 'Injector',     k: 'injector',   d: 'Workflow routines, planning, file-type rules, failure context, Reflexion lessons' },
+  { n: 'Injector',     k: 'injector',   d: 'Workflow routines, planning, file-type rules, failure context' },
   { n: 'CodeLens',     k: 'codelens',   d: 'Persistent SQLite graph (Tree-sitter + PageRank + BM25 + HOT/WARM/COLD tiering)' },
   { n: 'Guardian',     k: 'guardian',   d: 'Dangerous Bash command blocking (rm -rf, dd, mkfs, etc.)' },
   { n: 'Loopguard',    k: 'loopguard',  d: 'AST-normalized + no-codebase-delta + no-progress loop detection (3 layers)' },
   { n: 'Pinning',      k: 'pinning',    d: 'File write restrictions via .troth.json glob whitelist' },
   { n: 'Cleaner',      k: 'cleaner',    d: 'Model output artifact cleanup (Gemma tokens, unbalanced fences)' },
   { n: 'Compressor',   k: 'compressor', d: 'Tool result dedup, empty Bash drop, old-turn truncation, SWE-Pruner skimmer' },
-  { n: 'Critic',       k: 'critic',     d: '3 parallel Flash reviews (logic/integration/security), CTRL escalation, cross-verify, security audit' },
-  { n: 'Reflexion',    k: 'reflexion',  d: 'Verbal lessons from past failures (SQLite episodic memory, persists across sessions)' },
-  { n: 'Trajectory',   k: 'trajectory', d: 'SWE-Replay: record successful tool sequences, inject hint on similar future tasks' },
+  { n: 'Chat reviewer', k: 'critic',     d: '3 parallel reviews of chat-lane tool payloads (logic/integration/security), CTRL escalation, cross-verify' },
   { n: 'Workflow',     k: 'workflow',   d: 'Persistent task state machine (Cursor-style) with Architect-extracted steps' },
   { n: 'CoChange',     k: 'cochange',   d: 'Mines git history for files changed together, suggests partners' },
   { n: 'Prefetch',     k: 'prefetch',   d: 'Async warms fs cache for likely-next files (co-change + import deps)' },
-  { n: 'Checkpoint',   k: 'checkpoint', d: 'Auto git stash before substantial Writes (atomic rollback)' }
+  { n: 'Checkpoint',   k: 'checkpoint', d: 'Auto git stash before substantial Writes (atomic rollback)' },
+  { n: 'Recall force', k: 'recallforce', d: 'Memory-shaped prompts get tool_choice forced to troth_recall (proxy-lane agents without hooks)' }
 ];
 function gd(o,p){var s=p.split('.');for(var i=0;i<s.length;i++)o=o&&o[s[i]];return o||0;}
 // A2 Operator mode. UI-level gate by design (AUTH v0.1):
@@ -2847,8 +2875,9 @@ function navigate(p, opts){
   if(p==='ai-setup') loadImageSources();
   if(p==='health') loadHealth();
   if(p==='ai-setup'){ loadConfig(); }
-  if(p==='memory'){ loadMemoryHero(); loadStackCard(); if (typeof loadImportCard === 'function') loadImportCard(); if (typeof loadMemoryReadiness === 'function') loadMemoryReadiness(); loadRules(); }
+  if(p==='memory'){ loadMemoryHero(); loadStackCard(); if (typeof loadImportCard === 'function') loadImportCard(); if (typeof loadMemoryReadiness === 'function') loadMemoryReadiness(); if (typeof loadSystemLoad === 'function') loadSystemLoad(); loadRules(); }
   if(p==='substrate' && typeof loadRecords === 'function'){ loadRecordTypes(); loadRecords(0); }
+  if(p==='substrate' && typeof loadCorpora === 'function') loadCorpora();
   if(p==='cli'){ loadCommands(); if(typeof setHelpTab==='function') setHelpTab(); }
   if(p==='analytics' && typeof loadAnalytics === 'function'){ loadAnalytics(); }
   if(p==='settings'){ if(typeof setSettingsTab === 'function') setSettingsTab(); if(typeof gcRefreshTelemetry === 'function') gcRefreshTelemetry(); }
@@ -3535,16 +3564,13 @@ function updateStats(data){
     }
   }
 
-  // ── Memory ──
+  // ── Memory ── (reflexion/trajectory counters retired with their modules —
+  // four months of zeros was the card teaching people the memory was broken)
   var dm=document.getElementById('dash-memory');
   if(dm){
-    var refl=data.reflexion||{totalStored:0,reflectionsInjected:0};
-    var traj=data.trajectory||{totalStored:0,retrieved:0};
     var coch=data.cochange||{trackedFiles:0};
     var chk=data.checkpoint||{checkpointed:0,rollbacks:0};
-    dm.innerHTML='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">'+
-      '<div><div style="font-size:18px;font-weight:600;color:var(--text);">'+(refl.totalStored||0)+'</div><div style="font-size:9px;color:var(--text-muted);">Lessons</div><div style="font-size:9px;color:var(--text-muted);">('+(refl.reflectionsInjected||0)+' applied)</div></div>'+
-      '<div><div style="font-size:18px;font-weight:600;color:var(--text);">'+(traj.totalStored||0)+'</div><div style="font-size:9px;color:var(--text-muted);">Patterns</div><div style="font-size:9px;color:var(--text-muted);">('+(traj.retrieved||0)+' reused)</div></div>'+
+    dm.innerHTML='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">'+
       '<div><div style="font-size:18px;font-weight:600;color:var(--text);">'+(coch.trackedFiles||0)+'</div><div style="font-size:9px;color:var(--text-muted);">Co-change files</div></div>'+
       '<div><div style="font-size:18px;font-weight:600;color:var(--text);">'+(chk.checkpointed||0)+'</div><div style="font-size:9px;color:var(--text-muted);">Git checkpoints</div><div style="font-size:9px;color:var(--text-muted);">('+(chk.rollbacks||0)+' rollbacks)</div></div>'+
       '</div>';
@@ -4489,37 +4515,295 @@ function _readyBar(done, total, label){
     '<div style="height:4px;border-radius:2px;background:var(--border);overflow:hidden;margin-top:2px">' +
       '<div style="height:100%;width:' + pct + '%;background:var(--accent,#7aa2f7)"></div></div></div>';
 }
-function loadMemoryReadiness(){
-  var el = document.getElementById('memory-readiness'); if (!el) return;
-  fetch('/api/memory/readiness').then(function(r){return r.json();}).then(function (m) {
-    if (!m || !m.stage) { el.textContent = ''; return; }
-    var head = (m.stage === 'ready' && !(m.reasons && m.reasons.length))
-      ? 'Memory ready · fully indexed'
-      : ((m.reasons || []).join(' · ') || '');
-    var ix = m.indexing || {};
-    var bars = '';
-    if (ix.recall_total > 0 && ix.recall_missing > 0) bars += _readyBar(ix.recall_embedded, ix.recall_total, 'Memory index');
-    if (ix.archive_chunks > 0 && ix.archive_chunks > ix.archive_embedded) bars += _readyBar(ix.archive_embedded, ix.archive_chunks, 'Imported archive');
-    var hb = '';
-    if (m.drain && m.drain.last_run_ts) {
-      var mins = Math.max(0, Math.round((Date.now() - m.drain.last_run_ts) / 60000));
-      hb = '<div style="margin-top:5px;font-size:10.5px;color:var(--text-muted)">Background drain: ' +
-           (m.drain.alive ? 'active' : 'idle') + ' · last run ' + (mins === 0 ? 'just now' : mins + ' min ago') + '</div>';
+// "Running now" — what troth keeps alive and what it costs. The card only
+// shows when something IS running; a machine with nothing up has nothing to
+// explain. CPU is the time actually consumed, not an instantaneous percent,
+// because a burner is identified by what it has spent.
+function _fmtCpuS(s){
+  if (s == null) return '';
+  if (s < 90) return s + 's';
+  if (s < 5400) return Math.round(s/60) + 'm';
+  return (s/3600).toFixed(1) + 'h';
+}
+function loadSystemLoad(){
+  var card = document.getElementById('sysload-card');
+  var el = document.getElementById('sysload-rows');
+  if (!el) return;
+  fetch('/api/system/load').then(function(r){return r.json();}).then(function (s) {
+    var procs = (s && s.processes) || [];
+    if (!procs.length) { if (card) card.style.display = 'none'; return; }
+    if (card) card.style.display = '';
+    var mcp = procs.filter(function(p){ return p.role.indexOf('mcp:') === 0; });
+    var main = procs.filter(function(p){ return p.role.indexOf('mcp:') !== 0; });
+    var rows = main.map(function (p) {
+      var right = p.rss_mb + ' MB · cpu ' + _fmtCpuS(p.cpu_seconds);
+      var note = '';
+      if (p.reap_in_min != null) note = p.reap_in_min <= 0 ? 'closing' : 'closes in ' + p.reap_in_min + 'm if unused';
+      return '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0;border-bottom:1px solid var(--border)">' +
+        '<span>' + p.role + (p.port ? ' <span style="color:var(--text-muted)">:' + p.port + '</span>' : '') +
+        (note ? ' <span style="color:var(--text-muted);font-size:10px">· ' + note + '</span>' : '') + '</span>' +
+        '<span style="color:var(--text-muted);white-space:nowrap">' + right + '</span></div>';
+    });
+    if (mcp.length) {
+      var mcpMb = mcp.reduce(function(a,p){ return a + (p.rss_mb||0); }, 0);
+      rows.push('<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0;border-bottom:1px solid var(--border)">' +
+        '<span>editor tool servers <span style="color:var(--text-muted);font-size:10px">· ' + mcp.length + ' · close with their session</span></span>' +
+        '<span style="color:var(--text-muted);white-space:nowrap">' + mcpMb + ' MB</span></div>');
     }
-    el.innerHTML = '<div>' + escapeHtml(head) + '</div>' + bars + hb;
-  }).catch(function () { el.textContent = ''; });
-  var rc = document.getElementById('memory-recent');
-  if (rc) fetch('/api/memory/recent?limit=8').then(function(r){return r.json();}).then(function (j) {
-    var ms = (j && j.memories) || [];
-    if (!ms.length) { rc.innerHTML = ''; return; }
-    rc.innerHTML = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:3px">Recent memories</div>' +
-      ms.map(function (mm) {
-        var when = ''; try { when = new Date(mm.timestamp).toLocaleDateString(); } catch (_) {}
-        return '<div style="padding:3px 0;border-top:1px solid var(--border);font-size:11px">' +
-               escapeHtml(String(mm.statement || '').slice(0, 160)) +
-               ' <span style="color:var(--text-muted)">· ' + when + (mm.scope ? ' · ' + escapeHtml(String(mm.scope)) : '') + '</span></div>';
+    rows.push('<div style="display:flex;justify-content:space-between;gap:12px;padding:4px 0 0;color:var(--text-muted);font-size:10.5px">' +
+      '<span>machine load ' + ((s.machine && s.machine.load1) != null ? s.machine.load1 : '?') + ' of ' + (s.machine ? s.machine.cores : '?') + ' cores</span>' +
+      '<span>total ' + (s.total_rss_mb||0).toLocaleString() + ' MB</span></div>');
+    el.innerHTML = rows.join('');
+  }).catch(function(){ if (card) card.style.display = 'none'; });
+}
+function loadMemoryReadiness(){
+  var card = document.getElementById('intake-card');
+  var el = document.getElementById('memory-readiness');
+  if (!el) return;
+  fetch('/api/memory/readiness').then(function(r){return r.json();}).then(function (m) {
+    if (!m || !m.stage) { if (card) card.style.display = 'none'; return; }
+    var ix = m.indexing || {};
+    var res = m.reservoir || {};
+    // Paused counts as "something to watch" even with an empty queue — a card
+    // that hides while paused takes the Resume button with it and leaves the
+    // operator stopped with no way to start.
+    var working = (ix.recall_missing > 0) || (res.queued > 0) || (m.stage === 'engine_downloading')
+      || !!(m.paused && m.paused.paused);
+
+    // The card exists only while there is something to watch. A permanent
+    // "100%, nothing to do" panel is furniture.
+    if (card) card.style.display = working ? '' : 'none';
+    var stream = document.getElementById('intake-stream');
+    if (!working) { el.innerHTML = ''; if (stream) stream.innerHTML = ''; return; }
+
+    // Numbers belong in the page's own stat boxes, not floating as text beside
+    // a bar. An earlier version printed "69,837 / 71,549 · 98%" tucked against
+    // the right edge of a label with two loose sentences under it — legible
+    // only to someone who already knew what it meant.
+    //
+    // ONE job, one percentage.
+    //
+    // Two versions of this card showed "indexed 100%" beside hours of pending
+    // work, because "indexed" counted only the passages already pulled OUT of
+    // documents while the documents themselves sat unread. Two halves of one
+    // job, and the reassuring half took the headline. A progress number that
+    // reads 100% while work remains is not optimistic, it is wrong.
+    //
+    // Progress is now (documents read + passages indexed) over the whole of
+    // both, so it cannot reach 100% while anything is left.
+    var idxDone = ix.recall_embedded || 0, idxAll = ix.recall_total || 0;
+    var docDone = res.done || 0, docAll = docDone + (res.queued || 0);
+    var pct = (idxAll + docAll) ? Math.floor((idxDone + docDone) * 100 / (idxAll + docAll)) : 100;
+    if (pct === 100 && ((ix.recall_missing || 0) > 0 || (res.queued || 0) > 0)) pct = 99;
+
+    // Rates are MEASURED, never assumed. The first version hardcoded the
+    // worker's budget and cadence into this file by hand, so any change there
+    // would have left the screen confidently wrong. These come from what
+    // actually completed in the last hour; when nothing has, the card says so
+    // instead of inventing a duration.
+    var docsPerHour = res.docs_per_hour || 0;
+    var passPerHour = ix.passages_per_hour || 0;
+    var readMin = (res.queued > 0 && docsPerHour > 0) ? Math.ceil((res.queued / docsPerHour) * 60) : 0;
+    var idxMin  = (ix.recall_missing > 0 && passPerHour > 0) ? Math.ceil((ix.recall_missing / passPerHour) * 60) : 0;
+    var totalMin = readMin + idxMin;
+    var unknown = ((res.queued > 0 && !docsPerHour) || (ix.recall_missing > 0 && !passPerHour));
+    var human = unknown ? 'measuring' : (totalMin >= 90 ? ('~' + Math.round(totalMin / 60) + ' h') : ('~' + Math.max(1, totalMin) + ' min'));
+
+    var stat = function (label, value, sub) {
+      return '<div class="stat">' +
+        '<div class="stat-label">' + escapeHtml(label) + '</div>' +
+        '<div class="stat-value">' + escapeHtml(value) + '</div>' +
+        (sub ? '<div style="margin-top:5px;font-size:10.5px;color:var(--text-muted);line-height:1.4">' + escapeHtml(sub) + '</div>' : '') +
+      '</div>';
+    };
+
+    // Paused is a STATE, not an absence. Everything below keeps its number
+    // — the queue does not shrink because nobody is reading it — but the
+    // sentences stop implying motion.
+    var paused = !!(m.paused && m.paused.paused);
+
+    var boxes = [];
+    boxes.push(stat('done', pct + '%', (docDone + idxDone).toLocaleString() + ' of ' + (docAll + idxAll).toLocaleString() + ' documents and passages'));
+    if (res.queued > 0)           boxes.push(stat('still to read', res.queued.toLocaleString(), docsPerHour ? (docsPerHour + ' read in the last hour') : 'documents queued, not opened yet'));
+    if (ix.pending_documents > 0) boxes.push(stat('from documents', ix.pending_documents.toLocaleString(), 'passages waiting for an index'));
+    if (ix.pending_memories > 0)  boxes.push(stat('from conversations', ix.pending_memories.toLocaleString(), 'memories waiting for an index'));
+    if (totalMin > 0 || unknown) {
+      // Two lanes, two heartbeats. The reader and the indexer are scheduled
+      // separately and one can be dead while the other runs — which is
+      // exactly what happened here: the indexer was alive, the document
+      // reader was never scheduled in this topology at all, and the card
+      // reported a working drain for weeks while 183 documents sat unread.
+      var readerDead = (res.queued > 0) && !res.reader_alive;
+      var indexDead  = (ix.recall_missing > 0) && !(m.drain && m.drain.alive);
+      boxes.push(stat('time left', paused ? 'paused' : human,
+        paused ? 'nothing runs until you resume'
+          : (readerDead && indexDead ? 'nothing is working on it right now'
+            : (readerDead ? 'indexing runs; nothing is reading the documents'
+              : (indexDead ? 'documents are being read; nothing is indexing'
+                : (unknown ? 'no throughput measured yet'
+                  : (readMin > idxMin ? 'mostly reading documents' : 'mostly indexing')))))));
+    }
+
+    var bar = '<div style="margin-top:12px;height:5px;border-radius:3px;background:var(--border);overflow:hidden">' +
+      '<div style="height:100%;width:' + pct + '%;background:' + (paused ? 'var(--text-muted)' : 'var(--accent,#7aa2f7)') + ';transition:width .4s"></div></div>';
+
+    // The controls. Both answer questions the operator asked out loud: how do
+    // I stop this, and how do I see what is left.
+    var controls =
+      '<div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">' +
+        '<button class="btn" style="font-size:10.5px;padding:3px 12px" onclick="setIntakePause(' + (paused ? 'false' : 'true') + ')">' +
+          (paused ? 'Resume' : 'Pause') + '</button>' +
+        (res.queued > 0
+          ? '<button class="btn btn-ghost" style="font-size:10.5px;padding:3px 12px" onclick="openIntakeQueue()">See what’s left (' + res.queued.toLocaleString() + ')</button>'
+          : '') +
+        // Only offered when there is a queue AND it is allowed to run. A
+        // button that contradicts the stop button beside it makes both
+        // untrustworthy.
+        ((res.queued > 0 && !paused)
+          ? '<button class="btn btn-ghost" id="intake-now" style="font-size:10.5px;padding:3px 12px" onclick="drainIntakeNow(this)">Read a batch now</button>'
+          : '') +
+        '<span style="font-size:10.5px;color:var(--text-muted)">' +
+          escapeHtml(paused
+            ? 'Paused. Anything you read meanwhile is kept and waits here.'
+            : 'The embedding model runs on this machine, so the fans work while it drains. It already stops whenever you are busy.') +
+        '</span>' +
+      '</div>';
+
+    el.innerHTML =
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">' + boxes.join('') + '</div>' +
+      bar + controls;
+
+    // What actually went through. A percentage says something is moving; only
+    // this says what. Full width, two columns, name never colliding with result.
+    //
+    // And it disappears when the work stops. A list headed "just taken in"
+    // showing files from twenty minutes ago is a lie told by a stale cache:
+    // the operator reads it as activity and there is none. It returns when
+    // the drain does.
+    if (stream) {
+      var rec = res.recent || [];
+      var FRESH_MS = 5 * 60 * 1000;
+      // Gated on the DOCUMENT reader's heartbeat, not the indexer's. This list
+      // is documents; asking the wrong lane whether it is live would hide a
+      // reader that is working, or vouch for one that is not.
+      var live = res.reader_alive && !paused && rec.some(function (r2) {
+        return r2.at && (Date.now() - r2.at) < FRESH_MS;
+      });
+      stream.innerHTML = live
+        ? '<div style="font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:0.14em;color:var(--text-muted);margin-bottom:6px">just taken in</div>' +
+          rec.filter(function (r2) { return r2.at && (Date.now() - r2.at) < FRESH_MS; }).map(function (r2) {
+            return '<div style="display:flex;gap:12px;align-items:baseline;padding:5px 0;border-top:1px solid var(--border)">' +
+              '<span style="font-family:var(--mono);font-size:9.5px;color:var(--text-muted);min-width:26px">' + escapeHtml(r2.kind === 'web' ? 'web' : 'doc') + '</span>' +
+              '<span style="flex:1;overflow-wrap:anywhere;font-size:11.5px">' + escapeHtml(String(r2.name || '')) + '</span>' +
+              '<span style="font-size:10.5px;color:var(--text-muted);white-space:nowrap">' + escapeHtml(String(r2.result || '')) + '</span>' +
+            '</div>';
+          }).join('')
+        : '';
+    }
+  }).catch(function () { if (card) card.style.display = 'none'; });
+}
+
+// Stop / start the upkeep. Optimistic only in the sense that it re-reads the
+// truth straight afterwards — the button never claims a state the server has
+// not confirmed.
+function setIntakePause(on){
+  post('/api/memory/pause', { paused: !!on })
+    .then(function(){ toast(on ? 'Paused — nothing will be read or indexed until you resume.' : 'Resumed — it will pick up while you are idle.'); })
+    .catch(function(){ toast('Could not change it — the proxy did not answer.'); })
+    .then(function(){ loadMemoryReadiness(); });
+}
+
+// Read a batch now rather than at the next idle window. The scheduled drain is
+// deliberately gentle — 8 documents every 15 minutes — which is right as a
+// default and no answer at all to someone sitting there asking why it has not
+// finished. Bounded: one batch per press, so this can never become the bulk
+// run that cooked the machine.
+function drainIntakeNow(btn){
+  if (btn) { btn.disabled = true; btn.textContent = 'Reading…'; }
+  post('/api/memory/drain-now', {})
+    .then(function (r) {
+      if (r && r.paused) { toast('It is paused — resume first.'); return; }
+      // Says what it DID, not that it ran. "Done" over an empty batch is how a
+      // surface teaches you to stop believing it.
+      toast(r && r.ingested
+        ? ('Read ' + r.ingested + ' document' + (r.ingested === 1 ? '' : 's') + ' — ' + (r.chunks || 0) + ' passages kept.')
+        : ('Nothing new came through' + (r && r.skipped ? ' — ' + r.skipped + ' could not be read' : '') + '.'));
+    })
+    .catch(function(){ toast('Could not read them — the proxy did not answer.'); })
+    .then(function(){ loadMemoryReadiness(); });
+}
+
+// What is still owed, by name, searchable.
+//
+// A queue you can only count is a queue you have to trust. This is the answer
+// to "why has it not finished" that a number cannot give: which documents,
+// what question was in flight when each was opened, and how big it is — plus
+// a way to throw one out.
+var _queueQ = '';
+function openIntakeQueue(){
+  var overlay = elem('div', { cls: 'modal-overlay' });
+  var box = elem('div', { cls: 'modal-box' });
+  box.style.maxWidth = '760px';
+  box.style.width = '92%';
+  box.innerHTML =
+    '<div class="modal-title">Still to read</div>' +
+    '<div class="modal-msg" style="margin-bottom:12px">Documents your partner has seen but not yet turned into memory. They are read while you are idle, oldest question first.</div>' +
+    '<input type="text" id="queue-q" placeholder="Search by file name, folder, or what you were asking…" style="width:100%;margin-bottom:10px">' +
+    '<div id="queue-rows" style="max-height:46vh;overflow:auto;font-size:11.5px">loading…</div>' +
+    '<div class="modal-actions" style="margin-top:16px"><button class="btn btn-ghost" id="queue-close">Close</button></div>';
+  overlay.appendChild(box);
+  overlay.onclick = function(e){ if (e.target === overlay) document.body.removeChild(overlay); };
+  document.body.appendChild(overlay);
+  box.querySelector('#queue-close').onclick = function(){ document.body.removeChild(overlay); };
+  var input = box.querySelector('#queue-q');
+  input.value = _queueQ;
+  var t = null;
+  input.oninput = function(){ _queueQ = input.value; clearTimeout(t); t = setTimeout(renderIntakeQueue, 180); };
+  input.focus();
+  renderIntakeQueue();
+}
+function renderIntakeQueue(){
+  var host = document.getElementById('queue-rows');
+  if (!host) return;
+  fetch('/api/memory/queue?limit=100&q=' + encodeURIComponent(_queueQ || ''))
+    .then(function(r){ return r.json(); })
+    .then(function (j) {
+      var rows = (j && j.rows) || [];
+      if (!rows.length) {
+        // Two different empties, two different sentences. "Nothing matches" and
+        // "the queue is empty" are not the same news.
+        host.innerHTML = '<div style="color:var(--text-muted);padding:10px 0">' +
+          escapeHtml(_queueQ ? 'Nothing in the queue matches that.' : 'The queue is empty — everything seen has been read.') + '</div>';
+        return;
+      }
+      var head = '<div style="color:var(--text-muted);font-size:10.5px;margin-bottom:8px">' +
+        escapeHtml(rows.length.toLocaleString() + ' of ' + (j.total || rows.length).toLocaleString() + (_queueQ ? ' matching' : ' waiting')) + '</div>';
+      host.innerHTML = head + rows.map(function (r) {
+        var name = r.kind === 'web' ? String(r.ref) : String(r.ref).split('/').slice(-1)[0];
+        var where = r.kind === 'web' ? '' : String(r.ref).split('/').slice(0, -1).join('/');
+        var kb = r.bytes ? (r.bytes >= 1048576 ? (r.bytes/1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(r.bytes/1024)) + ' KB') : '';
+        return '<div style="display:flex;gap:12px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border)">' +
+          '<span style="font-family:var(--mono);font-size:9.5px;color:var(--text-muted);min-width:26px;padding-top:2px">' + escapeHtml(r.kind === 'web' ? 'web' : 'doc') + '</span>' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="overflow-wrap:anywhere">' + escapeHtml(name) + '</div>' +
+            (where ? '<div style="font-size:10px;color:var(--text-muted);overflow-wrap:anywhere;margin-top:2px">' + escapeHtml(where) + '</div>' : '') +
+            (r.why ? '<div style="font-size:10px;color:var(--text-muted);margin-top:3px;font-style:italic;overflow-wrap:anywhere">' + escapeHtml('asked: ' + r.why) + '</div>' : '') +
+          '</div>' +
+          '<span style="font-size:10px;color:var(--text-muted);white-space:nowrap;padding-top:2px">' + escapeHtml(kb) + '</span>' +
+          '<button class="btn btn-ghost" style="font-size:9.5px;padding:1px 8px" onclick="dropFromIntakeQueue(' + r.id + ')">Drop</button>' +
+        '</div>';
       }).join('');
-  }).catch(function(){ rc.innerHTML = ''; });
+    })
+    .catch(function () {
+      // A code fault must never wear a data-shaped sentence. This says the
+      // request failed, not that the queue is empty.
+      host.innerHTML = '<div style="color:var(--text-muted);padding:10px 0">Could not reach the queue.</div>';
+    });
+}
+function dropFromIntakeQueue(id){
+  post('/api/memory/queue/drop', { id: id })
+    .then(function(){ renderIntakeQueue(); loadMemoryReadiness(); })
+    .catch(function(){ toast('Could not drop it.'); });
 }
 function loadImportCard(){
   var card = document.getElementById('import-card'); if (!card) return;
@@ -4732,7 +5016,36 @@ function loadMemoryHero(){
 // ── Rules and refusals (Memory) ────────────────────────────────────────────
 // The classes here are the ones the substrate treats as binding: a refusal is a
 // wall, an anchor holds identity, a signed fact outranks anything inferred.
+// The rules the OPERATOR stated, above the walls the substrate derived.
+// They are type='lesson' rows, which the records feed below cannot return
+// (it asks for commitment sub-kinds), so a rule could be written and never
+// appear on the one card named after it. Rendered first because an
+// instruction from the person outranks anything inferred.
+function loadOperatorRules(){
+  var box = document.getElementById('operator-rules-rows');
+  if (!box) return;
+  fetch('/api/substrate/rules?limit=12').then(function(r){
+    if (r.status === 404) return null;
+    return r.json();
+  }).then(function(j){
+    if (j === null) { box.innerHTML = ''; return; }
+    var items = (j && j.items) || [];
+    if (!items.length) {
+      box.innerHTML = '<div style="color:var(--text-muted);padding:6px 0;">No standing rules yet. Tell your partner how you want it to work and ask it to remember that as a rule.</div>';
+      return;
+    }
+    box.innerHTML = items.map(function(it){
+      var when = it.timestamp ? new Date(it.timestamp).toLocaleDateString() : '';
+      var scope = it.scope === 'project' ? 'this project' : 'always';
+      return '<div style="display:flex;gap:10px;align-items:baseline;padding:6px 0;border-top:1px solid var(--border)">' +
+        '<span style="font-family:var(--mono);font-size:10px;color:var(--bond,var(--signal));min-width:82px">' + scope + '</span>' +
+        '<span style="flex:1">' + cEsc(String(it.text || '')) + '</span>' +
+        '<span style="font-size:10px;color:var(--text-muted)">' + when + '</span></div>';
+    }).join('');
+  }).catch(function(){ box.innerHTML = ''; });
+}
 function loadRules(){
+  loadOperatorRules();
   var box = document.getElementById('rules-rows');
   if (!box) return;
   fetch('/api/substrate/records?ctype=refusal,anchor,fact&limit=100')
@@ -4793,6 +5106,18 @@ function loadRecords(offset){
   if (!meta || !rows) return;
   _recBusy = true;
   meta.textContent = 'loading…';
+  // The knowledge class is the same list with a different shape: one row per
+  // document instead of one row per event, because a document is read in
+  // order and an event is not.
+  var pager = document.getElementById('rec-pager');
+  if (typeEl && typeEl.value === '__knowledge__') {
+    _recBusy = false;
+    if (pager) pager.style.display = 'none';
+    loadCorpora();
+    return;
+  }
+  if (pager) pager.style.display = 'flex';
+  var kr = document.getElementById('corpus-reader'); if (kr) kr.style.display = 'none';
   var preset = window._recPreset || null;
   var chipHost = document.getElementById('rec-preset-chip');
   if (chipHost) chipHost.innerHTML = preset
@@ -4826,7 +5151,21 @@ function loadRecords(offset){
         if (!(m[1] in map)) { map[m[1]] = v; order.push(m[1]); }
       }
       if (!order.length) return st;
-      var pick = map.text || map.summary || map.focus || map.statement || map.path || map.file || map.cmd || map.command;
+      // mind_snapshot BEFORE the generic picks. Its stored summary is built
+      // from current_focus + active_projects, both of which stay constant for
+      // weeks, so 5,464 snapshots rendered as the same line and the page read
+      // as broken. The field that actually changes each turn is the request
+      // itself (current_intent.what) — showing it turns a wall of duplicates
+      // into a timeline. Derived at render time so the whole history reads
+      // correctly, not just rows written from now on.
+      if (it.type === 'mind_snapshot') {
+        var mWhat = map.what || '';
+        if (mWhat) return mWhat;
+      }
+      // avoided_path stores avoidance_text / suggest_instead, which no generic
+      // pick knew about, so its rows fell through to raw field dumping.
+      var pick = map.text || map.summary || map.focus || map.statement || map.avoidance_text ||
+                 map.suggest_instead || map.path || map.file || map.cmd || map.command;
       if (pick) return pick;
       if (it.type === 'edit' && map.hash_after) return 'verified edit \u00b7 hash \u2026' + map.hash_after.slice(-8);
       if (it.type === 'compact' && map.kept_count != null) return map.kept_count + ' kept \u00b7 ' + (map.removed_count || 0) + ' removed from working context';
@@ -4855,7 +5194,14 @@ function loadRecordTypes(){
     var by = (c && c.by_type) || {};
     var names = Object.keys(by).filter(function(k){ return by[k] > 0; })
                       .sort(function(a,b){ return by[b] - by[a]; });
+    // Documents the operator loaded in are a CLASS of thing they look for,
+    // so they belong in the same dropdown as every other class. They were a
+    // separate card and that was wrong: a person does not know that a
+    // document is stored differently from an action record, and should not
+    // have to.
     sel.innerHTML = '<option value="">every class (' + ((c && c.total) || 0).toLocaleString() + ')</option>' +
+      '<option value="__knowledge__">knowledge intelligence' +
+        (c && c.knowledge ? ' (' + c.knowledge.toLocaleString() + ')' : '') + '</option>' +
       names.map(function(n){ return '<option value="' + n + '">' + n + ' (' + by[n].toLocaleString() + ')</option>'; }).join('');
     sel.dataset.filled = '1';
   }).catch(function(){});
@@ -4912,7 +5258,23 @@ function recDetailHtml(d){
     if (kept != null || rem != null) rows.push(['window', (kept != null ? kept + ' kept' : '') + (rem != null ? ' · ' + rem + ' removed' : '')]);
     if (inp.trigger) rows.push(['trigger', esc(inp.trigger)]);
   }
-  if (d.type === 'tool_call' && (inp.tool || inp.name)) rows.push(['tool', esc(inp.tool || inp.name)]);
+  // Tool calls: the record stores the name under `tool_name`, so reading
+  // `tool`/`name` matched nothing and every one of these rows fell through to
+  // the generic key dump below — which skips objects, so `args` (the part that
+  // says WHICH file, WHICH command) was never shown at all.
+  if (d.type === 'tool_call' && (inp.tool_name || inp.tool || inp.name)) {
+    rows.push(['tool', esc(inp.tool_name || inp.tool || inp.name)]);
+    var targs = inp.args || {};
+    var shown = 0;
+    ['file_path','command','pattern','path','query','url','statement','user_text','old_string','new_string'].forEach(function (k) {
+      if (shown >= 4) return;
+      var v = targs[k];
+      if (v == null || typeof v === 'object' || String(v) === '') return;
+      rows.push([k.replace(/_/g, ' '), esc(String(v).slice(0, 400))]);
+      shown++;
+    });
+    if (!shown && Object.keys(targs).length) rows.push(['args', esc(JSON.stringify(targs).slice(0, 400))]);
+  }
   if (d.type === 'commitment') {
     var stmt = out.statement || inp.statement || out.text || inp.text;
     if (stmt) rows.push(['statement', esc(String(stmt).slice(0, 320))]);
@@ -4970,19 +5332,29 @@ function searchMemories(sfx){
     if (!items.length) { box.innerHTML = '<span style="color:var(--text-muted)">Nothing matches.</span>'; return; }
     box.innerHTML = items.map(function (it) {
       var when = it.ts ? new Date(it.ts).toLocaleDateString() : '';
+      // Forget only where it can actually work: dialogue turns, imported
+      // chunks and signed operator facts are not retirable, and a button that
+      // fails teaches distrust. The server decides; the UI just obeys.
+      var action = (it.forgettable === false)
+        ? '<span style="font-size:10px;color:var(--text-muted)">kept</span>'
+        : '<button class="btn" style="font-size:10px;padding:2px 8px" onclick="forgetMemory(this)" data-mid="' +
+          String(it.id || '').replace(/"/g, '') + '">Forget</button>';
       return '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;padding:6px 0;border-top:1px solid var(--border)">' +
              '<span style="flex:1">' + String(it.statement || '').replace(/</g, '&lt;') +
-             ' <span style="color:var(--text-muted)">' + when + '</span></span>' +
-             '<button class="btn" style="font-size:10px;padding:2px 8px" onclick="forgetMemory(this)">Forget</button></div>';
+             ' <span style="color:var(--text-muted)">' + when + '</span></span>' + action + '</div>';
     }).join('');
-    var rows = box.querySelectorAll('button');
-    items.forEach(function (it, i) { if (rows[i]) rows[i].dataset.stmt = it.statement || ''; });
+    // Carry the row id, not just its text: /forget used to re-find its own
+    // target from the statement and could land on a different memory.
+    var rows = box.querySelectorAll('button[data-mid]');
+    var withBtn = items.filter(function (it) { return it.forgettable !== false; });
+    withBtn.forEach(function (it, i) { if (rows[i]) { rows[i].dataset.stmt = it.statement || ''; rows[i].dataset.mid = it.id || ''; } });
   }).catch(function () { box.innerHTML = '<span style="color:var(--text-muted)">Search failed — is the proxy up?</span>'; });
 }
 function forgetMemory(btn){ /* shared across both memory surfaces */
   var stmt = btn.dataset.stmt || '';
+  var mid  = btn.dataset.mid || '';
   btn.disabled = true; btn.textContent = '…';
-  post('/api/memory/forget', { statement: stmt }).then(function (r) {
+  post('/api/memory/forget', { id: mid, statement: stmt }).then(function (r) {
     if (r && r.ok) { btn.closest('div').style.opacity = '0.35'; btn.textContent = 'Forgotten'; toast('Forgotten'); }
     else {
       btn.disabled = false; btn.textContent = 'Forget';
@@ -4990,6 +5362,150 @@ function forgetMemory(btn){ /* shared across both memory surfaces */
     }
   }).catch(function () { btn.disabled = false; btn.textContent = 'Forget'; toast('Could not forget'); });
 }
+
+// Knowledge the operator gave the partner: documents, manuals, contracts,
+// research. Rendered INTO the records list, under its own class in the same
+// dropdown, using the same search box.
+//
+// It was a separate card first, and that was wrong. A person does not know
+// that a document is stored differently from an action record and should not
+// have to learn it to find their own files. The shape of a row differs — a
+// document is read in order, an event is not — but the surface is one.
+//
+// The word "corpus" never reaches the screen for the same reason.
+function cEsc(t){ return String(t == null ? '' : t).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+var CORPUS_ROWS = [];
+var CORPUS_OPEN = null;
+var CORPUS_PAGE = 0;
+var CORPUS_PAGE_SIZE = 25;
+// One box, two meanings, decided by what is on screen: filtering a list of
+// documents by name, or searching by meaning inside the one that is open.
+function recSearch(){
+  if (knowledgeActive()) { if (CORPUS_OPEN) { searchCorpus(); return; } loadCorpora(); return; }
+  loadRecords(0);
+}
+function knowledgeActive(){
+  var t = document.getElementById('rec-type');
+  return !!(t && t.value === '__knowledge__');
+}
+function loadCorpora(){
+  var rows = document.getElementById('rec-rows');
+  var meta = document.getElementById('rec-meta');
+  if (!rows) return;
+  CORPUS_OPEN = null;
+  if (meta) meta.textContent = 'loading…';
+  fetch('/api/substrate/scopes?prefix=docs:').then(function(r){
+    if (r.status === 404) return null;
+    return r.json();
+  }).then(function(j){
+    if (j === null) {
+      rows.innerHTML = '<span style="color:var(--text-muted)">The running proxy predates this view — restart it: troth restart</span>';
+      return;
+    }
+    // docs:chats is the imported chat archive, not something the operator
+    // handed over as a document; recall keeps it out of the default pool too.
+    CORPUS_ROWS = ((j && j.scopes) || []).filter(function(s){ return String(s.scope).indexOf('docs:chats') !== 0; });
+    renderCorpora();
+  }).catch(function(){ rows.innerHTML = '<span style="color:var(--text-muted)">Could not read what you gave it.</span>'; });
+}
+// Kept apart from the fetch so typing in the search box re-renders without
+// re-reading the substrate. The count describes what is SHOWN, so a filtered
+// view never claims the size of the whole shelf.
+function renderCorpora(){
+  var rows = document.getElementById('rec-rows');
+  var meta = document.getElementById('rec-meta');
+  if (!rows) return;
+  var qEl = document.getElementById('rec-q');
+  var f = qEl ? String(qEl.value || '').trim().toLowerCase() : '';
+  var list = f ? CORPUS_ROWS.filter(function(s){ return String(s.scope).toLowerCase().indexOf(f) !== -1; }) : CORPUS_ROWS;
+  var passages = list.reduce(function(a,s){ return a + s.count; }, 0);
+  var embedded = list.reduce(function(a,s){ return a + (s.embedded||0); }, 0);
+  if (meta) meta.textContent = list.length
+    ? (list.length + ' document' + (list.length === 1 ? '' : 's') + ' · ' + passages.toLocaleString() + ' passages · ' +
+       (passages ? Math.round(embedded / passages * 100) : 0) + '% searchable by meaning')
+    : (CORPUS_ROWS.length ? 'Nothing here matches that name.' : 'Nothing loaded yet.');
+  if (!CORPUS_ROWS.length) {
+    rows.innerHTML = '<span style="color:var(--text-muted)">You have not given it any documents yet. Point it at a file or a folder and it lands here, readable and searchable by meaning.</span>';
+    return;
+  }
+  if (!list.length) { rows.innerHTML = '<span style="color:var(--text-muted)">No document matches that name.</span>'; return; }
+  rows.innerHTML = list.map(function(s){
+    var name = String(s.scope).replace(/^docs:/, '');
+    var pct = s.count ? Math.round((s.embedded||0) / s.count * 100) : 0;
+    var when = s.last_ts ? new Date(s.last_ts).toLocaleDateString() : '';
+    return '<div style="display:flex;align-items:baseline;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);">' +
+      '<a href="#" onclick="openCorpus(\'' + String(s.scope).replace(/'/g,'') + '\',0);return false;" ' +
+        'style="color:var(--signal);text-decoration:none;flex:1;overflow-wrap:anywhere;">' + cEsc(name) + '</a>' +
+      '<span style="font-family:var(--mono);font-size:10px;color:var(--text-muted);">' + s.count.toLocaleString() + ' passages</span>' +
+      '<span style="font-family:var(--mono);font-size:10px;color:' + (pct === 100 ? 'var(--text-muted)' : 'var(--amber,#c89b3c)') + ';">' + pct + '% searchable</span>' +
+      '<span style="font-family:var(--mono);font-size:10px;color:var(--text-muted);">' + when + '</span>' +
+    '</div>';
+  }).join('');
+}
+function closeCorpus(){ CORPUS_OPEN = null; loadCorpora(); }
+function chunkRowsHtml(items, note){
+  if (!items.length) return '<span style="color:var(--text-muted)">' + (note || 'Nothing here.') + '</span>';
+  return items.map(function(it){
+    var t = String(it.statement || '');
+    // Ingest writes each passage as "[section] @/path/to/source" or the raw
+    // passage text; show the label apart from the body so a document reads
+    // like a document instead of a wall.
+    var m = t.match(/^\[([^\]]{1,80})\]\s*([\s\S]*)$/);
+    var label = m ? m[1] : '';
+    var body  = m ? m[2] : t;
+    return '<div style="padding:7px 0;border-bottom:1px solid var(--border);">' +
+      (label ? '<div style="font-family:var(--mono);font-size:9.5px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:3px;">' + cEsc(label) + (it.embedded === false ? ' · not searchable yet' : '') + '</div>' : '') +
+      '<div style="color:var(--text);line-height:1.6;overflow-wrap:anywhere;">' + cEsc(body.slice(0, 600)) + (body.length > 600 ? '…' : '') + '</div>' +
+    '</div>';
+  }).join('');
+}
+function openCorpus(scope, page){
+  if (!scope) return;
+  CORPUS_OPEN = scope; CORPUS_PAGE = page || 0;
+  var rows = document.getElementById('rec-rows');
+  var meta = document.getElementById('rec-meta');
+  if (!rows) return;
+  rows.innerHTML = '<span style="color:var(--text-muted)">Reading…</span>';
+  fetch('/api/substrate/scope?name=' + encodeURIComponent(scope) +
+        '&limit=' + CORPUS_PAGE_SIZE + '&offset=' + (CORPUS_PAGE * CORPUS_PAGE_SIZE))
+    .then(function(r){ return r.json(); }).then(function(j){
+      var items = (j && j.items) || [];
+      var total = (j && j.total) || 0;
+      var from = CORPUS_PAGE * CORPUS_PAGE_SIZE + 1;
+      var to = Math.min(total, from + CORPUS_PAGE_SIZE - 1);
+      var name = String(scope).replace(/^docs:/, '');
+      if (meta) meta.textContent = total ? (from + '–' + to + ' of ' + total.toLocaleString() + ' passages in ' + name) : name;
+      var nav = '<div style="display:flex;gap:10px;align-items:baseline;padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:6px;">' +
+        '<a href="#" onclick="closeCorpus();return false;" style="color:var(--text-muted);text-decoration:none;font-size:11px;">← everything you gave it</a>' +
+        '<span style="flex:1"></span>' +
+        (CORPUS_PAGE > 0 ? '<a href="#" onclick="openCorpus(CORPUS_OPEN,' + (CORPUS_PAGE-1) + ');return false;" style="color:var(--signal);text-decoration:none;font-size:11px;">← back</a>' : '') +
+        (to < total ? ' <a href="#" onclick="openCorpus(CORPUS_OPEN,' + (CORPUS_PAGE+1) + ');return false;" style="color:var(--signal);text-decoration:none;font-size:11px;">next →</a>' : '') +
+      '</div>';
+      rows.innerHTML = nav + chunkRowsHtml(items, 'This one is empty.');
+    }).catch(function(){ rows.innerHTML = '<span style="color:var(--text-muted)">Could not read it.</span>'; });
+}
+// Searching while a document is open searches INSIDE it, by meaning. The
+// general recall ranks a document against everything else the mind holds, so
+// a vague question loses to conversation about the same topic; scoped, it
+// competes only with itself.
+function searchCorpus(){
+  if (!CORPUS_OPEN) { renderCorpora(); return; }
+  var qEl = document.getElementById('rec-q');
+  var q = qEl ? String(qEl.value || '').trim() : '';
+  if (!q) { openCorpus(CORPUS_OPEN, 0); return; }
+  var rows = document.getElementById('rec-rows');
+  var meta = document.getElementById('rec-meta');
+  if (rows) rows.innerHTML = '<span style="color:var(--text-muted)">Searching…</span>';
+  fetch('/api/substrate/query?scope=' + encodeURIComponent(CORPUS_OPEN) + '&q=' + encodeURIComponent(q) + '&k=12')
+    .then(function(r){ return r.json(); }).then(function(j){
+      var items = ((j && j.items) || []).map(function(it){ return { statement: it.statement || it.text || '' }; });
+      if (meta) meta.textContent = items.length + ' passages in ' + String(CORPUS_OPEN).replace(/^docs:/, '') + ' match that by meaning';
+      var nav = '<div style="padding-bottom:8px;border-bottom:1px solid var(--border);margin-bottom:6px;">' +
+        '<a href="#" onclick="openCorpus(CORPUS_OPEN,0);return false;" style="color:var(--text-muted);text-decoration:none;font-size:11px;">← read it in order</a></div>';
+      if (rows) rows.innerHTML = nav + chunkRowsHtml(items, 'Nothing in this one matches.');
+    }).catch(function(){ if (rows) rows.innerHTML = '<span style="color:var(--text-muted)">The search did not run.</span>'; });
+}
+
 function loadAnthropicStatus(){
   fetch('/api/anthropic-status').then(function(r){return r.json()}).then(function(s){
     var el=document.getElementById('anthropic-status');if(!el)return;
@@ -5008,51 +5524,8 @@ function loadAnthropicStatus(){
   }).catch(function(){});
 }
 
-function loadMemoryBrowser(type){
-  var el=document.getElementById('memory-browser');
-  el.innerHTML='<div style="color:var(--text-muted)">Loading...</div>';
-  fetch('/api/memory/'+type).then(r=>r.json()).then(function(data){
-    var items=data[type==='reflexions'?'reflections':'trajectories']||[];
-    if(!items.length){el.innerHTML='<div style="color:var(--text-muted)">No '+type+' recorded yet.</div>';return;}
-    var html='<table style="width:100%;border-collapse:collapse;font-size:11px;">';
-    html+='<tr style="border-bottom:1px solid var(--border);">';
-    if(type==='reflexions'){
-      html+='<th>Tool</th><th>File</th><th>Lesson</th><th class="num">Used</th>';
-      html+='<th style="text-align:right;padding:4px;color:var(--text-muted);">When</th>';
-      html+='<th style="padding:4px;"></th>';
-    }else{
-      html+='<th style="text-align:left;padding:4px;color:var(--text-muted);">Task</th>';
-      html+='<th style="text-align:center;padding:4px;color:var(--text-muted);">Success</th>';
-      html+='<th style="text-align:right;padding:4px;color:var(--text-muted);">Used</th>';
-      html+='<th style="text-align:right;padding:4px;color:var(--text-muted);">When</th>';
-    }
-    html+='</tr>';
-    items.slice(0,50).forEach(function(item){
-      var ago=formatAgo(item.ts);
-      html+='<tr style="border-bottom:1px solid var(--border);">';
-      if(type==='reflexions'){
-        html+='<td style="padding:4px;color:var(--yellow);">'+(item.tool||'-')+'</td>';
-        html+='<td style="padding:4px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(item.file_path||'-')+'</td>';
-        html+='<td style="padding:4px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);" title="'+escHtml(item.reflection||'')+'">'+(item.reflection||item.error_summary||'-')+'</td>';
-        html+='<td style="padding:4px;text-align:right;">'+(item.used_count||0)+'</td>';
-        html+='<td style="padding:4px;text-align:right;color:var(--text-muted);">'+ago+'</td>';
-        html+='<td style="padding:4px;"><button onclick="deleteReflexion('+item.id+')" style="font-size:9px;padding:1px 5px;background:var(--bg-code);border:1px solid var(--border);color:var(--red);border-radius:3px;cursor:pointer;">×</button></td>';
-      }else{
-        html+='<td style="padding:4px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);" title="'+escHtml(item.prompt_text||'')+'">'+(item.prompt_text||'-').slice(0,100)+'</td>';
-        html+='<td style="padding:4px;text-align:center;">'+(item.success?'<span style="color:var(--green)">✓</span>':'<span style="color:var(--red)">✗</span>')+'</td>';
-        html+='<td style="padding:4px;text-align:right;">'+(item.used_count||0)+'</td>';
-        html+='<td style="padding:4px;text-align:right;color:var(--text-muted);">'+ago+'</td>';
-      }
-      html+='</tr>';
-    });
-    html+='</table>';
-    if(items.length>50)html+='<div style="margin-top:6px;color:var(--text-muted);">Showing 50 of '+items.length+'</div>';
-    el.innerHTML=html;
-  }).catch(function(e){el.innerHTML='<div style="color:var(--red)">Error: '+e.message+'</div>';});
-}
 function formatAgo(ts){if(!ts)return'-';var d=Date.now()-(typeof ts==='number'?ts:new Date(ts).getTime());if(d<60000)return 'now';if(d<3600000)return Math.floor(d/60000)+'m ago';if(d<86400000)return Math.floor(d/3600000)+'h ago';return Math.floor(d/86400000)+'d ago';}
 function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-function deleteReflexion(id){fetch('/api/memory/reflexions/'+id,{method:'DELETE'}).then(function(){loadMemoryBrowser('reflexions');});}
 
 // ── Providers: add / remove semantics ──
 // UX: enabled cards always visible, with a "Remove" button. Click
@@ -5718,7 +6191,6 @@ function copyMcpCmd(id) {
 }
 
 initStats();initModules();loadConfig();loadMindsetPreview();fetchStats();fetchLogs();fetchConnectionState();
-if (typeof loadMemoryBrowser === 'function') loadMemoryBrowser('reflexions');
 // Mode A plain hero: memory growth from the substrate (weekly commitments).
 function refreshPlainMemories(){
   var el=document.getElementById('ph-memories');
@@ -5729,6 +6201,7 @@ function refreshPlainMemories(){
   }).catch(function(){});
 }
 refreshPlainMemories();setInterval(refreshPlainMemories,60000);
+loadSystemLoad();setInterval(loadSystemLoad,20000);
 if (typeof loadMcpStatus === 'function') loadMcpStatus();
 if (typeof loadBrowserStatus === 'function') loadBrowserStatus();
 if (typeof setSettingsTab === 'function') setSettingsTab('backend');

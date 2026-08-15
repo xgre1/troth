@@ -14,11 +14,49 @@
   <a href="package.json"><img src="https://img.shields.io/badge/node-%E2%89%A522-339933.svg" alt="Node >= 22"></a>
 </p>
 
-**The core is AGPL open source, free forever. The macOS app is a one-time purchase.**
+**Everything in this repository is AGPL open source and free forever.**
 
-Runs on your Mac. Uses the Claude, ChatGPT or Kimi subscription you already pay for, any provider with your own key, or a fully local model. Your data never leaves your machine.
+This repository runs on macOS and Linux. It uses the Claude, ChatGPT or Kimi subscription you already pay for, any provider with your own key, or a fully local model. Your data never leaves your machine. (The desktop app is macOS only; everything below works without it.)
 
 troth is a persistent AI partner. Its identity, memory, goals and refusal walls live in a local SQLite substrate (`~/.troth/state.db`) that you own. Nothing about the partner is stored in any vendor's account, and swapping engines never resets it.
+
+**This is not a memory plugin.** A memory plugin remembers text for one vendor's model. troth keeps the whole relationship — memory, identity, goals, refusal walls, and a signed record of what it learned and what it forgot — in a file you own, and rents whichever model happens to be available to do the talking. Memory is one organ of that, not the product.
+
+### The move, in thirty seconds
+
+Monday, on your Claude plan:
+
+```console
+$ troth
+  ◈  troth
+      claude-opus-5 · memory ready
+
+  ❯ We killed the Postgres migration. SQLite stays, and Ana owns the schema now.
+
+  Noted. SQLite stays, Ana owns the schema. I will hold the migration as
+  abandoned unless you reopen it.
+```
+
+Thursday. Claude quota gone, new terminal, different vendor's model, no project files open:
+
+```console
+$ troth
+  ◈  troth
+      kimi-k3 · memory ready
+
+  ❯ remind me where we landed on the database question, and who has the last word on it now?
+
+  You dropped the Postgres migration on Monday and stayed on SQLite. Ana has
+  the schema.
+```
+
+Nothing was pasted back in. No project file was open. Different vendor, different model, three days later, and the answer came out of `~/.troth/state.db` on your own disk. That is the whole product in one exchange.
+
+**It is for you if** you already pay for an AI plan, you are tired of re-explaining your own project every time you open a session or change model, and you would rather the memory sat on your disk than in someone's account. It runs in a terminal and a local dashboard. Day one it knows nothing about you; it starts learning from the first conversation, and `troth memory import` gives it a past by reading the Claude Code and Codex history already on your machine.
+
+**About using the plan you already pay for:** troth drives each vendor's own CLI, signed in the normal way, on your machine — it does not proxy or resell a subscription. The classic mode that fronts Claude Code strips the inbound claude.ai token instead of forwarding it upstream, because passing a consumer subscription through a third-party harness is exactly what a provider's terms forbid.
+
+**The macOS app is a one-time purchase: €229, free for the first 7 days.** Everything below runs without it.
 
 <p align="center">
   <img src="docs/assets/app-home.png" alt="troth on macOS" width="720">
@@ -79,14 +117,20 @@ troth setup                          # guided: engine, memory, routing — opens
 troth                                # talk to your partner
 ```
 
-On Debian/Ubuntu run this FIRST — stock `apt` Node is 18 and troth needs 22+
-(the install refuses old Node and prints these same lines):
+About two minutes to the first reply if you have Node 22 and a subscription already. The memory models (roughly 1 GB, embedding and reranking) download in the background on first use; recall works on word-matching until they land and tells you so rather than pretending to be sharper than it is.
+
+<details>
+<summary>Debian/Ubuntu: install Node 22 first (stock <code>apt</code> ships Node 18)</summary>
 
 ```bash
 sudo apt-get install -y curl
 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt-get install -y nodejs
 ```
+
+The install refuses an old Node and prints these same lines.
+
+</details>
 
 Working from a clone instead:
 
@@ -121,26 +165,51 @@ Full walk-through: [`docs/SETUP_GUIDE.md`](docs/SETUP_GUIDE.md). Claude Code / M
 
 ## Talking to your partner
 
-Chat runs inline in the terminal. A few slash commands steer it without leaving the conversation:
+Chat runs inline in the terminal. Three things happen there that do not happen in a chat window:
 
-- `/model`: pick the backbone for this conversation (`claude`, `kimi`, `chatgpt`, `local`, `auto`, or any configured BYOK router provider). A pinned engine that runs out fails fast with a named reason instead of silently stalling.
-- `/help`: list the available commands and current engine.
-- `/mcp`: connect and govern external MCP servers as tools ("hands"). Paste a server config, approve it, and it becomes a capability-scoped tool the partner can call, gated by STVC (state-transition-validated cognition: every action is checked against substrate state before the model is asked, not after). Secrets are masked in the listing and never spawn until approved.
+**It holds what you settled.** Say it once. It is there next session, on any engine, without you re-pasting the context you already gave it.
+
+**It refuses before it acts.** Ask for something that crosses a wall and the refusal comes from a state check, before the model is consulted at all:
+
+```console
+  ❯ clear out the old build dir with rm -rf ./dist
+
+  [troth-bash] REFUSED rm_rf (high). Command matched destructive pattern:
+  \brm\s+-[rf]{1,2}[a-zA-Z]*\s+. If this is intentional, re-call with
+  acknowledge_danger=true in the arguments.
+```
+
+Governance that arrives after the model has already decided is just an apology. The same wall covers reads of secret stores and writes outside authorized roots.
+
+**It forgets when told, and admits it.** `troth forget "<what>"` suppresses a memory and records the suppression in the signed chain. Nothing is quietly rewritten behind you, including by us.
+
+Slash commands steer it without leaving the conversation:
+
+| Command | What it does |
+|---|---|
+| `/model` | pick the backbone for this conversation (`claude`, `kimi`, `chatgpt`, `local`, `auto`, or any configured BYOK router provider). A pinned engine that runs out fails fast with a named reason instead of silently stalling. |
+| `/mcp` | connect and govern external MCP servers as tools ("hands"). Paste a server config, approve it, and it becomes a capability-scoped tool, gated by STVC (state-transition-validated cognition: checked against substrate state before the model is asked). Secrets are masked in the listing and nothing spawns until approved. |
+| `/help` | the available commands and the current engine. |
 
 ---
 
-## Architecture
+## What is actually in the file
 
 <img src="docs/assets/architecture.svg" width="100%" alt="Left: the usual agent, where the mind lives in the LLM and memory is a bolt-on, so swapping the model resets the partner. Right: troth, where the substrate (engrams, goals, walls, audit trail) is the mind and models are rented, swappable faculties. Every turn writes back engrams, not weights.">
 
-The substrate is the cognitive subject: engrams (memory), goals, walls (refusals and capability scopes) and the audit trail are rows in your local `state.db`, not context inside a vendor's model. Each turn rents language work from whichever faculty is available and writes what matters back as engrams. That is why the mind survives a model swap.
+`~/.troth/state.db` is not a chat log. It holds the parts a partner needs in order to stay itself:
 
+| In the substrate | What that means when you use it |
+|---|---|
+| **Engrams** | "Ana owns the schema, the Postgres migration is abandoned" — found by meaning, so you can ask in words you never used before |
+| **Identity** | what it has worked out about you and how you work, carried into every session without being re-explained |
+| **Goals** | what you are driving at, so it can notice when a request cuts against it |
+| **Walls** | refusals and capability scopes, checked against substrate state *before* the model is asked, not apologised for afterwards |
+| **Audit trail** | a signed chain of what was recorded and what was forgotten, so even the forgetting is accountable |
 
-## Why this exists
+Each turn rents language work from whichever engine is available and writes what mattered back here. Swap the engine and every row above is still yours.
 
-Mainstream AI tools keep the relationship inside someone else's walls. The memory lives in a vendor account, dies when you switch models, or is a retrieval bolt-on with no identity, goals or refusals of its own. troth inverts the architecture: the substrate is the subject, the LLM is rented language faculty. Switch providers, run local, go back: same partner, same memory, same walls.
-
-And the walls are load-bearing: the destination is a partner that can act on its own behalf, safely, on a machine you own. Every module in this tree is an organ for that destination — the full arc, organ by organ, is in [VISION.md](VISION.md).
+That is the difference from a memory plugin: a bolt-on remembers text for one vendor's model. This owns the relationship and rents the mouth. The destination is a partner that can act on its own behalf, safely, on a machine you own; every module in this tree is an organ for that, and the full arc is in [VISION.md](VISION.md).
 
 ---
 
@@ -151,7 +220,7 @@ And the walls are load-bearing: the destination is a partner that can act on its
 - **Contained filesystem access.** File operations are capability-scoped to operator-authorized roots with realpath containment, so an in-root symlink cannot smuggle a write outside the boundary.
 - **Governed execution.** The shell tool runs commands directly in interactive use (no container by default); Docker isolation applies to the autonomous step engine only. Every write and tool call passes the STVC gate + path/bash guards (a documented `TROTH_STVC_BYPASS` escape hatch exists for local debugging; `troth doctor` reports it when set); process spawning is signer-gated.
 - **Tamper-evident audit.** High-irreversibility actions append to a signed audit chain. Verify it end-to-end anytime: `troth audit verify`.
-- **No telemetry by default, and nothing to opt into.** No usage reporting, no crash upload, no analytics; the dashboard is a local page served by your own proxy with no third-party request in it. To be exact rather than absolute: `shared-core/telemetry.js` counts operations, never content, and the dashboard has a switch for it that is off. Switched on, it appends those counts to `~/.troth/telemetry.log` on your disk and sends them nowhere, because there is no endpoint to send them to: one exists only if you write `telemetry_endpoint` into `~/.troth/config.json` yourself, and we ship no default and no address of our own. Read `shared-core/telemetry.js`; it is short, and it is the whole of it. Your substrate is a file on your disk and is never uploaded. What does leave the machine is what you ask to leave, to the provider whose key you supplied.
+- **No telemetry.** No usage reporting, no crash upload, no analytics, and no endpoint to send any of it to. `shared-core/telemetry.js` can count operations (never content) into a local log if you switch it on; it is short, and reading it is the whole audit. Your substrate is never uploaded. What leaves the machine is what you send to the provider whose key you supplied.
 
 ---
 
@@ -187,13 +256,20 @@ Two rows above say **not yet shipped**, and they mean it. The app you can buy to
 
 | Property | Evidence | Status |
 |---|---|---|
-| **Conversational recall** | [`benchmarks/results/longmemeval-smoke-2026-07-31T01-58-24.md`](benchmarks/results/longmemeval-smoke-2026-07-31T01-58-24.md) | pipeline verified end to end; the file names its accuracy figure, its sample size, and the confidence interval that makes it a smoke number rather than a benchmark score |
+| **Conversational recall** | [`benchmarks/results/longmemeval-smoke-2026-07-31T01-58-24.md`](benchmarks/results/longmemeval-smoke-2026-07-31T01-58-24.md) | 85% (17 of 20) on a LongMemEval-S slice, graded by our own judge. Read that as a smoke signal that the pipeline works end to end, not as a benchmark score: at 20 questions the confidence interval is roughly ±20 points, and the published Mem0/Zep numbers use a different judge |
 | **Document ingest recall** | [`benchmarks/results/ingest-smoke-2026-07-31.md`](benchmarks/results/ingest-smoke-2026-07-31.md) | same: a slice, graded, with the confidence interval written out |
 | **Prompt-poisoning resilience** | [`benchmarks/poisoning/`](benchmarks/poisoning/) | harness ships, run it yourself; we publish no score |
 | **Pre-LLM governance walls** | [`tests/standards/s4_stvc_pre_llm.js`](tests/standards/s4_stvc_pre_llm.js) | standard-enforced on every test run |
 | **Honest limits** | [`docs/HONEST-LIMITS.md`](docs/HONEST-LIMITS.md) | unsolved properties named publicly |
 
-1,453 checks in one `npm test` run, and a further 364 reported as skipped: coverage of the closed overlay, plus a handful whose fixture cannot be built twice in one process and which run when their suite runs alone. 33 standalone checks that own their own setup (`npm run test:standalone`); one of them needs a running Docker daemon and reports as skipped without it, so a machine without Docker sees 32 pass and 1 skip. 11 integration smoke checks (`npm run smoke`), all of which run without any provider configured. 5 enforced standards (`npm run test:standards`). These are the numbers this repository produces: the machine that builds it also has the closed overlay on disk, which adds smoke files and a sixth standard, so `scripts/release-gate.sh repo` re-derives all of them from a tree of tracked files only and refuses to pass if any has drifted.
+Every claim on this page has a check that catches it if it stops being true, and the release gate refuses to ship when a number here has drifted from what the tree actually prints. Run `npm test` yourself; the accounting is below if you want it.
+
+<details>
+<summary>The full count</summary>
+
+1,629 checks in one `npm test` run, and a further 364 reported as skipped: coverage of the closed overlay, plus a handful whose fixture cannot be built twice in one process and which run when their suite runs alone. 33 standalone checks that own their own setup (`npm run test:standalone`); one of them needs a running Docker daemon and reports as skipped without it, so a machine without Docker sees 32 pass and 1 skip. 11 integration smoke checks (`npm run smoke`), all of which run without any provider configured. 5 enforced standards (`npm run test:standards`). These are the numbers this repository produces: the machine that builds it also has the closed overlay on disk, which adds smoke files and a sixth standard, so `scripts/release-gate.sh repo` re-derives all of them from a tree of tracked files only and refuses to pass if any has drifted.
+
+</details>
 
 ---
 

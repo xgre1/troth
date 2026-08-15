@@ -154,7 +154,11 @@ function client(serverPath) {
   const call = async (name, args) => {
     const m = await rpc('tools/call', { name, arguments: args });
     const c = m.result && m.result.content;
-    return (Array.isArray(c) && c[0] && c[0].text) || JSON.stringify(m.error || m.result);
+    if (!Array.isArray(c)) return JSON.stringify(m.error || m.result);
+    // The session's FIRST tool result may lead with the one-shot [troth]
+    // greeting block; the payload is the block that is NOT the greeting.
+    const payload = c.find((b) => b && b.text && !/^\[troth\] Substrate active/.test(b.text));
+    return (payload && payload.text) || JSON.stringify(m.error || m.result);
   };
   const init = () => rpc('initialize', {
     protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 't', version: '0' } });
@@ -594,5 +598,43 @@ test('TPW-22: setting the STVC bypass from the shell is refused, not ack-able', 
   for (const cmd of ['grep -rn TROTH_STVC_BYPASS shared-core/', 'echo TROTH_STVC_BYPASS unset']) {
     assert.strictEqual(safety.isCommandSafe(cmd, {}).allowed, true, 'over-refused: ' + cmd);
   }
+});
+
+test('TPW-23: the DIRECT Read tool cannot open the substrate database — the shell wall\'s twin', async () => {
+  // The shell road was gated (bash-safety → isReadablePath) but Read called
+  // AS A TOOL bypassed the read policy entirely — the exact hole behind the
+  // field report of an engine grepping the DB raw. The wrapper now asks the
+  // same question for the same target, whatever road it arrives by.
+  const permission = require(path.join(__dirname, '..', 'shared-core', 'tools', 'permission.js'));
+  let innerCalled = false;
+  const gated = permission.wrapRunner(async () => { innerCalled = true; return 'file contents'; });
+  for (const target of [
+    path.join(os.homedir(), '.troth', 'state.db'),
+    '~/.troth/state.db'
+  ]) {
+    innerCalled = false;
+    const out = JSON.parse(await gated({ function: { name: 'Read', arguments: { file_path: target } } }, { cwd: os.homedir() }));
+    assert.strictEqual(out.error, 'path_policy_refusal', 'raw DB read must refuse: ' + target);
+    assert.strictEqual(innerCalled, false, 'and the tool body never runs');
+    assert.ok(/troth_recall/.test(out.hint), 'the refusal names the sanctioned road');
+  }
+});
+
+test('TPW-24: pointing Grep at the substrate home is a sweep, refused as a unit — ordinary paths pass', async () => {
+  const permission = require(path.join(__dirname, '..', 'shared-core', 'tools', 'permission.js'));
+  let innerCalled = false;
+  const gated = permission.wrapRunner(async () => { innerCalled = true; return 'ok'; });
+  const swept = JSON.parse(await gated({ function: { name: 'Grep', arguments: { pattern: 'x', path: path.join(os.homedir(), '.troth') } } }, { cwd: os.homedir() }));
+  assert.strictEqual(swept.error, 'path_policy_refusal', 'a directory holding the DB and credential stores is not a grep target');
+  assert.strictEqual(innerCalled, false);
+  innerCalled = false;
+  const fine = await gated({ function: { name: 'Grep', arguments: { pattern: 'x', path: os.tmpdir() } } }, { cwd: os.homedir() });
+  assert.strictEqual(innerCalled, true, 'an ordinary path flows through untouched: ' + JSON.stringify(fine).slice(0, 80));
+});
+
+test('TPW-25: traversal from OUTSIDE never descends into .troth (source pins, both engines)', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'shared-core', 'tools', 'grep.js'), 'utf8');
+  assert.ok(src.indexOf("'--glob', '!.troth/**'") !== -1, 'the ripgrep road excludes it — after the user glob, so it wins');
+  assert.ok(/--exclude-dir=\.troth/.test(src), 'the plain-grep road excludes it too');
 });
 };

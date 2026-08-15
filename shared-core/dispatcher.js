@@ -75,12 +75,26 @@ function _findAdapter(intentScope) {
   return null;
 }
 
+// P7.4 — the irreversibility FLOOR. An intent's self-declared class can
+// only RAISE the stakes, never lower them: the adapter knows what its
+// effects can reach (shell is high whatever the intent claims), so the
+// effective class is the max of both. Without this, an under-declared
+// 'low' intent aimed at a high adapter sailed past irreversibility_sealed
+// (silent pass for low) AND skipped the effect ledger — the seal wall
+// existed but could be walked around by mislabeling the intent.
+const _IRREV_ORDER = { low: 0, medium: 1, high: 2, sealed_only: 3 };
+function _effectiveIrrev(intentClass, adapterClass) {
+  const i = _IRREV_ORDER[intentClass] !== undefined ? intentClass : 'low';
+  const a = _IRREV_ORDER[adapterClass] !== undefined ? adapterClass : 'low';
+  return _IRREV_ORDER[i] >= _IRREV_ORDER[a] ? i : a;
+}
+
 // Run the four intent STVC predicates inline (same set writeIntent
 // runs at write time). Re-validation at dispatch time catches state
 // changes that happened between write and dispatch.
 //
 // Returns { ok, refusal_reason? }.
-function _revalidateIntent(intentRow) {
+function _revalidateIntent(intentRow, effectiveIrrev) {
   try {
     const sm = require('./state-machine.js');
     const PREDICATE_KINDS = sm.PREDICATE_KINDS || {};
@@ -93,7 +107,7 @@ function _revalidateIntent(intentRow) {
         scope:                 intentRow.scope,
         grounded_in:           intentRow.grounded_in,
         capability_ref:        intentRow.capability_ref,
-        irreversibility_class: intentRow.irreversibility_class,
+        irreversibility_class: effectiveIrrev || intentRow.irreversibility_class,
         seals:                 intentRow.seals,
         idempotency_key:       intentRow.idempotency_key
       }
@@ -169,8 +183,18 @@ async function dispatchOne(intent_engram_id, opts) {
     capability = pool.find(e => e.id === intentRow.capability_ref) || null;
   }
 
-  // Two-phase STVC: dispatch-time re-validate.
-  const recheck = _revalidateIntent(intentRow);
+  // The adapter is resolved BEFORE revalidation because the effective
+  // irreversibility class needs its declared reach — the floor rule: an
+  // intent's claim can raise the class, never lower it below the adapter's.
+  const adapter = _findAdapter(intentRow.scope);
+  if (!adapter) {
+    state.markIntentFailed(intent_engram_id, 'no_adapter_for_scope: ' + intentRow.scope);
+    return { ok: false, refusal_reason: 'no_adapter_for_scope: ' + intentRow.scope };
+  }
+  const effectiveIrrev = _effectiveIrrev(intentRow.irreversibility_class, adapter.irreversibility_class);
+
+  // Two-phase STVC: dispatch-time re-validate — on the EFFECTIVE class.
+  const recheck = _revalidateIntent(intentRow, effectiveIrrev);
   if (!recheck.ok) {
     state.markIntentFailed(intent_engram_id, 'dispatch_revalidate_failed: ' + recheck.refusal_reason);
     return { ok: false, refusal_reason: recheck.refusal_reason };
@@ -212,12 +236,7 @@ async function dispatchOne(intent_engram_id, opts) {
     }
   } catch (_) { /* circuit breaker is best-effort; never block dispatch on its own failure */ }
 
-  // Find an adapter for this scope.
-  const adapter = _findAdapter(intentRow.scope);
-  if (!adapter) {
-    state.markIntentFailed(intent_engram_id, 'no_adapter_for_scope: ' + intentRow.scope);
-    return { ok: false, refusal_reason: 'no_adapter_for_scope: ' + intentRow.scope };
-  }
+  // (adapter already resolved above, before revalidation)
 
   // Atomic claim. If status is not 'validated' (already dispatched,
   // already observed, refused, etc.) → no-op.
@@ -231,7 +250,7 @@ async function dispatchOne(intent_engram_id, opts) {
   // the adapter and reference the prior outcome — a crash-resume must NEVER
   // re-create an account / re-submit a form. 'low' (reversible) ops skip the
   // ledger entirely (cheap + safe to repeat; no dedup overhead).
-  const _irrev = intentRow.irreversibility_class || 'low';
+  const _irrev = effectiveIrrev;
   const _effectKey = (_irrev !== 'low')
     ? intentMod.computeEffectKey(intentRow.scope, intentRow.payload, _irrev)
     : null;
@@ -347,5 +366,6 @@ module.exports = {
   OBSERVATION_SCOPE,
   // Test surface
   _revalidateIntent,
+  _effectiveIrrev,
   _findAdapter
 };

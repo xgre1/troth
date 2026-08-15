@@ -104,10 +104,12 @@ const DETERMINISTIC_HOW_RULES = [
   {
     id: 'verify-before-edit',
     scope: 'global',
-    severity: 'warn',
+    severity: 'block',
     // Operator rule: verify/read before changing code (no blind assumptions).
     // Trace-check: an Edit whose target file was NOT Read earlier in the same
-    // turn. Conservative (Edit only, not Write-to-new) + WARN-first.
+    // turn. Conservative (Edit only, not Write-to-new). Ran WARN-first for six
+    // weeks: four firings, each one a genuinely blind edit — promoted to block
+    // on that record.
     check(_text, opts) {
       const seq = (opts && Array.isArray(opts.toolSequence)) ? opts.toolSequence : [];
       if (!seq.length) return null;
@@ -125,13 +127,14 @@ const DETERMINISTIC_HOW_RULES = [
   {
     id: 'verify-evidence',
     scope: 'global',
-    severity: 'warn',
+    severity: 'block',
     // Operator rule (stated 100+ times): never claim a fix/success without
     // showing the check. Deterministic PROXY for the semantic Layer-3 rule: a
     // completion/success claim in the prose while the turn ran ZERO tool calls
-    // (no build/test/read to back it). The zero-tool guard keeps precision high
-    // (if ANY tool ran, evidence was plausibly gathered -> skip). WARN-first;
-    // the Stop hook promotes it to BLOCK only when the FP-clean window holds
+    // (no build/test/read to back it). The zero-tool guard keeps precision
+    // high (if ANY tool ran, evidence was plausibly gathered -> skip). Ran
+    // WARN-first for six weeks: six firings, every one a success claim with
+    // nothing behind it — the FP-clean window held, promoted to block
     // (feature verify_evidence_block + low measured flag-rate).
     check(text, opts) {
       const calls = (opts && typeof opts.toolCallsInTurn === 'number') ? opts.toolCallsInTurn : 0;
@@ -178,7 +181,9 @@ function review(text, opts) {
 
   // Layer 2: deterministic HOW-rule enforcement (opt-in via opts.how_rules).
   // block-severity -> reasons (force regenerate); warn-severity -> warnings
-  // (surfaced next turn, not blocked) so false-positives are measured first.
+  // (surfaced next turn, not blocked). New rules START as warn so false
+  // positives get measured before a rule may interrupt anyone; the two
+  // verify rules graduated to block after a clean six-week window.
   const warnings = [];
   if (opts.how_rules) {
     for (const v of checkDeterministicHowRules(text, opts)) {

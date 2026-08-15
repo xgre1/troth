@@ -136,6 +136,15 @@ class CodeStore {
     return this.db.prepare('SELECT * FROM entities WHERE id = ?').get(id);
   }
 
+  // Every definition carrying this exact name. FTS search() is BM25-ranked and
+  // incomplete — asking it for `recordAction` returned 15 of the 24 definitions
+  // in this index, and missed the one holding all 254 inbound edges. For a
+  // structural question the answer has to be the whole set, not the best-
+  // scoring slice.
+  getEntitiesByName(name) {
+    return this.db.prepare('SELECT * FROM entities WHERE name = ?').all(String(name || ''));
+  }
+
   getFileEntities(filePath) {
     return this.db.prepare('SELECT * FROM entities WHERE file_path = ?').all(filePath);
   }
@@ -150,18 +159,26 @@ class CodeStore {
     return this.db.prepare('SELECT * FROM entities WHERE id = ?').get(entityId);
   }
 
-  // Get callers of an entity (incoming edges)
+  // Get callers of an entity (incoming edges).
+  //
+  // Both of these asked for `e.relation = 'CALLS'`. The column is
+  // `relation_type` and the values are lower-case ('calls', 'imports',
+  // 'extends'), so every call threw "no such column: e.relation". Nothing
+  // ever called them, which is why nobody found out: the index has held a
+  // complete call graph — 31,248 edges — and the two methods that read it
+  // were broken from the day they were written (found 2026-08-11, while
+  // wrapping them in a tool).
   getCallers(entityId) {
     return this.db.prepare(
-      'SELECT e.*, ent.name as source_name, ent.file_path as source_file, ent.signature as source_sig FROM edges e JOIN entities ent ON ent.id = e.source_id WHERE e.target_id = ? AND e.relation = ?'
-    ).all(entityId, 'CALLS');
+      'SELECT e.*, ent.name as source_name, ent.file_path as source_file, ent.signature as source_sig, ent.line_number as source_line FROM edges e JOIN entities ent ON ent.id = e.source_id WHERE e.target_id = ? AND e.relation_type = ?'
+    ).all(entityId, 'calls');
   }
 
-  // Get callees (outgoing CALLS)
+  // Get callees (outgoing calls)
   getCallees(entityId) {
     return this.db.prepare(
-      'SELECT e.*, ent.name as target_name, ent.file_path as target_file, ent.signature as target_sig FROM edges e JOIN entities ent ON ent.id = e.target_id WHERE e.source_id = ? AND e.relation = ?'
-    ).all(entityId, 'CALLS');
+      'SELECT e.*, ent.name as target_name, ent.file_path as target_file, ent.signature as target_sig, ent.line_number as target_line FROM edges e JOIN entities ent ON ent.id = e.target_id WHERE e.source_id = ? AND e.relation_type = ?'
+    ).all(entityId, 'calls');
   }
 
   // ── Incremental update methods ──

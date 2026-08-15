@@ -7076,4 +7076,32 @@ console.log('\nL4 active_project draft + confirm pipeline:');
 // ─────────────────────────────────────────────────────────────────────────
 // L4 — sandbox regime step two-regime FS (sandbox-workspace + graduation)
 // ─────────────────────────────────────────────────────────────────────────
+
+test('IRM-MEM-1: every memory-shaped question mounts full recall — the two classifiers may never disagree', () => {
+  // Measured 2026-08-15: six of ten memory-shaped phrasings — the most
+  // natural Greek forms among them ("τι είχαμε πει", "πού είχαμε μείνει") —
+  // fell to default/dmn_slot: the turn reached the model with NO query-
+  // driven memory mounted, and the model had to PULL via tools or answer
+  // blind. On owned lanes memory is PUSHED; the same classifier that
+  // forces recall on the proxy lane decides the mount here. If this test
+  // fails, the automatic road and the enforcement road have drifted apart
+  // again — fix the shared classifier, not the router.
+  const ir = require('../shared-core/intent-router');
+  const shaped = require('../shared-core/memory-shaped.js');
+  const memoryShapes = [
+    'τι είχαμε πει για το schema;',
+    'πού είχαμε μείνει;',
+    'ti eixame pei gia to decision record schema?',
+    'do you remember what we decided about the schema?',
+    'what did we decide about the auth flow?',
+    'what were we working on?'
+  ];
+  for (const q of memoryShapes) {
+    assert.strictEqual(shaped.isMemoryShaped(q), true, 'fixture must be memory-shaped: ' + q);
+    const r = ir.route(q);
+    assert.strictEqual(r.mount_policy, 'full_recall', 'memory question idles in ' + r.mount_policy + ': ' + q);
+  }
+  // And the upgrade is narrow: an ack keeps its silence.
+  assert.strictEqual(ir.route('thanks, looks good').mount_policy, 'null_mount', 'chitchat stays quiet');
+});
 };

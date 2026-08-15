@@ -33,12 +33,19 @@ var CATALOG = {
   },
   openai_sub: {
     label: 'ChatGPT (subscription)',
-    dflt: 'gpt-5.6-sol',
+    dflt: 'gpt-5.5',
     models: [
-      { id: 'gpt-5.6-sol',  label: 'GPT-5.6',      note: 'Default · recommended for coding + knowledge work' },
-      { id: 'gpt-5.5',      label: 'GPT-5.5',      note: 'Previous generation' },
-      { id: 'gpt-5.4',      label: 'GPT-5.4',      note: 'Solid all-rounder' },
-      { id: 'gpt-5.4-mini', label: 'GPT-5.4 mini', note: 'Faster, lower-cost for lighter tasks' }
+      // 'gpt-5.6-sol' rejected upstream since 2026-08-15 ("model is not
+      // supported when using Codex with a ChatGPT account") — dropped from
+      // the picker so nobody can select a dead engine; gpt-5.5 verified
+      // streaming the same day.
+      { id: 'gpt-5.5',      label: 'GPT-5.5',      note: 'Default · recommended for coding + knowledge work' },
+      // The 2026-08 upstream rotation rejects the whole pre-5.5 generation
+      // on ChatGPT accounts ('gpt-5.4' probed dead the same day as
+      // 'gpt-5.6-sol') — a picker row that 400s on selection is a trap, so
+      // the old generation is gone from the list. A config that still
+      // carries a dead id keeps failing until re-picked; the migration is
+      // the operator choosing a live one here.
     ]
   },
   anthropic: {

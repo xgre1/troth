@@ -227,8 +227,28 @@ try {
     if (out) dirty = out.split('\n').slice(0, 20);
   } catch (_) { /* not a repo / git missing — skip */ }
 
+  // WHERE the work sits: branch name and the last few commits.
+  //
+  // The dirty list says what has changed and never said what it changed
+  // FROM. A post-compact agent that knows the files but not the branch has
+  // to ask, and asking is the thing this record exists to prevent. Two more
+  // cheap non-mutating reads, same guard as above.
+  let branch = '', recentCommits = [];
+  try {
+    branch = execSync('git rev-parse --abbrev-ref HEAD', {
+      cwd, encoding: 'utf8', timeout: 1500, stdio: ['ignore', 'pipe', 'ignore']
+    }).trim();
+  } catch (_) { /* not a repo / detached / git missing */ }
+  try {
+    const out = execSync('git log --oneline -5', {
+      cwd, encoding: 'utf8', timeout: 1500, stdio: ['ignore', 'pipe', 'ignore']
+    }).trim();
+    if (out) recentCommits = out.split('\n').slice(0, 5);
+  } catch (_) { /* no history yet */ }
+
   if (lastUser)      lines.push('Last user: ' + lastUser);
   if (lastAssistant) lines.push('Last assistant: ' + lastAssistant);
+  if (branch)        lines.push('Branch: ' + branch + (recentCommits.length ? ' @ ' + recentCommits[0] : ''));
   if (dirty.length)  lines.push('Uncommitted (' + dirty.length + '): ' + dirty.slice(0, 6).join(' | '));
   // Phase I — in-flight reasoning: surface open questions / hypotheses
   // detected in the last ~12 turns. Capped at 4 items, each ≤140 chars,
@@ -261,6 +281,8 @@ try {
       last_user: lastUser,
       last_assistant: lastAssistant,
       uncommitted: dirty,
+      branch,
+      recent_commits: recentCommits,
       manifest_excerpt: (manifestOut && manifestOut.text)
         ? String(manifestOut.text).slice(0, 1200)
         : ''

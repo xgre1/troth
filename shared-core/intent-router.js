@@ -269,7 +269,21 @@ function mountPolicyForIntent(intent) {
 // retrieval for this class". mount_policy is the architectural decision:
 // what KIND of memory section should attach to this turn (see comment above).
 function route(text) {
-  const intent = classifyIntent(text);
+  let intent = classifyIntent(text);
+  // The memory-question classifier outranks the default bucket. Measured
+  // 2026-08-15: six of ten memory-shaped phrasings — including the most
+  // natural Greek forms ("τι είχαμε πει", "πού είχαμε μείνει") — fell to
+  // default/dmn_slot, so the turn went to the model with NO query-driven
+  // memory mounted and the model had to PULL via tools (or answer blind).
+  // On owned lanes memory is PUSHED; the same classifier that forces
+  // recall on the proxy lane and dispatches pre-LLM decides the mount
+  // here — one source of truth, or the surfaces drift apart again.
+  if (intent === 'default') {
+    try {
+      const shaped = require('./memory-shaped.js');
+      if (shaped.isMemoryShaped(text)) intent = 'episodic';
+    } catch (_) { /* classifier unavailable — keep the base class */ }
+  }
   return {
     intent,
     weights: weightsForIntent(intent),
