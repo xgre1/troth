@@ -186,7 +186,7 @@ PYKEY
   #     before they ever shipped; this keeps the count at zero. A file that
   #     legitimately needs working-language text joins the list below in the
   #     same commit that adds the text, as a conscious act.
-  local greek_ok=" plugin/hooks/voice-shape.mjs plugin/hooks/session-start.mjs shared-core/decision-patterns.js scripts/backfill-mind-from-transcripts.js bin/troth-entity.js shared-core/engram.js shared-core/intent-decisions.js shared-core/intent-extract.js shared-core/intent-router.js shared-core/lang/base.js shared-core/lang/el.js shared-core/lang/index.js shared-core/memory-shaped.js tests/suite-06-voice-triage.js tests/suite-07-intent-routed-mounting-policy.js tests/suite-60-recallforce.js tests/suite-63-memory-dispatch.js "
+  local greek_ok=" plugin/hooks/voice-shape.mjs plugin/hooks/session-start.mjs shared-core/decision-patterns.js scripts/backfill-mind-from-transcripts.js bin/troth-entity.js shared-core/engram.js shared-core/intent-decisions.js shared-core/intent-extract.js shared-core/intent-router.js shared-core/lang/base.js shared-core/lang/el.js shared-core/lang/index.js shared-core/memory-shaped.js shared-core/constraint-ledger.js plugin/hooks/constraint-capture.mjs tests/suite-06-voice-triage.js tests/suite-07-intent-routed-mounting-policy.js tests/suite-60-recallforce.js tests/suite-63-memory-dispatch.js tests/suite-66-constraint-ledger.js "
   local greek_hits="" gf
   for gf in $(git grep -lIP '[\x{03B1}-\x{03C9}\x{03AC}-\x{03CE}]' -- '*.js' '*.mjs' '*.py' '*.sh' '*.md' '*.html' 2>/dev/null); do
     case "$greek_ok" in *" $gf "*) ;; *) greek_hits="$greek_hits $gf";; esac
@@ -203,7 +203,7 @@ PYKEY
   #     Files whose JOB is to strip those artifacts from transcripts must name
   #     them to remove them — they are declared below, the same conscious act
   #     as the working-language list. Everything else fails on any hit.
-  local voice_ok=" bin/troth-import-chats.js proxy/modules/router.js scripts/backfill-mind-from-transcripts.js tools/backfill-claude-sessions.js tests/suite-02-ratelimit-behavior.js "
+  local voice_ok=" bin/troth-import-chats.js plugin/hooks/constraint-capture.mjs proxy/modules/router.js scripts/backfill-mind-from-transcripts.js tools/backfill-claude-sessions.js tests/suite-02-ratelimit-behavior.js "
   local voice_hits="" vf
   for vf in $(git grep -lIiE '<thinking|as an ai language model|the previous agent|system-reminder|antml' -- ':!scripts/release-gate.sh' 2>/dev/null); do
     case "$voice_ok" in *" $vf "*) ;; *) voice_hits="$voice_hits $vf";; esac
@@ -687,11 +687,63 @@ check_open_parity() {
   fi
 }
 
+# ── ship reality ──────────────────────────────────────────────────────────────
+# The release as STRANGERS receive it. Nothing here reads a local build
+# product: the appcast is fetched live, the artifact is downloaded from the
+# CDN and hashed, the public CI verdict is read off the open repo's HEAD.
+# Born of 2026-08-15, when every inside-facing check was green while the
+# outside was wrong twice over (open repo a version behind; package.json a
+# version behind the site).
+check_ship() {
+  echo "SHIP REALITY"
+  local appcast site_ver repo_ver dmg_url site_sha
+  appcast="$(curl -sSf --max-time 30 https://troth.one/api/appcast 2>/dev/null || true)"
+  if [ -z "$appcast" ]; then
+    fail "the appcast does not answer — the release cannot be verified from outside"
+    return
+  fi
+  site_ver=$(printf '%s' "$appcast" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).version))" 2>/dev/null)
+  repo_ver=$(node -p "require('$ROOT/package.json').version" 2>/dev/null)
+  if [ "$site_ver" = "$repo_ver" ]; then
+    pass "the site serves the version this tree carries ($site_ver)"
+  else
+    fail "version drift: the site serves $site_ver, the tree says $repo_ver"
+  fi
+  dmg_url=$(printf '%s' "$appcast" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).dmg_url))" 2>/dev/null)
+  site_sha=$(printf '%s' "$appcast" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).sha256))" 2>/dev/null)
+  local tmp got
+  tmp="$(mktemp)"
+  if curl -sSfL --max-time 300 -o "$tmp" "$dmg_url" 2>/dev/null; then
+    got=$(shasum -a 256 "$tmp" | awk '{print $1}')
+    if [ "$got" = "$site_sha" ]; then
+      pass "the CDN returns byte-for-byte the artifact the appcast promises"
+    else
+      fail "the CDN bytes do not match the published sha256"
+    fi
+  else
+    fail "the download link does not deliver"
+  fi
+  rm -f "$tmp"
+  if command -v gh >/dev/null 2>&1; then
+    local open_sha ci
+    open_sha=$(git ls-remote "${TROTH_OPEN_REPO_URL:-https://github.com/xgre1/troth.git}" main 2>/dev/null | awk '{print $1}')
+    ci=$(gh run list -R xgre1/troth --limit 8 --json conclusion,headSha --jq "[.[] | select(.headSha==\"$open_sha\") | .conclusion] | unique | join(\",\")" 2>/dev/null || true)
+    case "$ci" in
+      success) pass "public CI is green on the open repo's HEAD" ;;
+      "")      fail "no public CI runs found for the open repo's HEAD — the platforms have not spoken" ;;
+      *)       fail "public CI on the open repo's HEAD: $ci" ;;
+    esac
+  else
+    fail "gh is not available — public CI cannot be verified"
+  fi
+}
+
 MODE="${1:-all}"
 case "$MODE" in
   repo) check_repo ;;
   dmg)  check_dmg "${2:?usage: release-gate.sh dmg <path-to-dmg>}" ;;
-  release) check_repo; check_open_parity; [ -n "${2:-}" ] && check_dmg "$2" ;;
+  ship) check_ship ;;
+  release) check_repo; check_open_parity; check_ship; [ -n "${2:-}" ] && check_dmg "$2" ;;
   --refresh-probes)
         # The stored list is what gates an export, which carries no overlay to
         # derive from. This rewrites it from the disk that does.
@@ -704,7 +756,7 @@ case "$MODE" in
         echo "wrote $(grep -vc '^#' "$HOME/.troth/gate-closed-probes") probe paths to ~/.troth/gate-closed-probes"
         exit 0 ;;
   all)  check_repo; [ -n "${2:-}" ] && check_dmg "$2" ;;
-  *)    echo "usage: release-gate.sh [repo|dmg <path>|all <path>|release [dmg]]"; exit 2 ;;
+  *)    echo "usage: release-gate.sh [repo|dmg <path>|all <path>|ship|release [dmg]]"; exit 2 ;;
 esac
 
 echo

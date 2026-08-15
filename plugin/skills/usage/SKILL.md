@@ -11,11 +11,12 @@ Action:
 
 1. Use the `Bash` tool to call: `curl -s http://localhost:8000/api/stats` (if your policy denies Bash, run the curl yourself and paste the output)
 2. If the proxy is offline (curl fails), say so plainly — do not invent numbers.
-3. If the proxy returned data, surface (in ≤120 words):
-   - Total requests this session
-   - Tokens in / out (sum across providers)
-   - Cost estimate $
-   - Top provider by token volume
+3. If the proxy returned data, surface (in ≤120 words), leading with the WINDOW:
+   - **The 5-hour window first** (`persistent_provider_usage.recent_5h.by_model`): per lane — requests and tokens in/out. Subscriptions meter on a rolling ~5h window, so this is the number the operator can act on; 24h and all-time are history.
+   - Group by lane, human names: models marked `(plan)` → "Claude plan"; `gpt-*` → "ChatGPT"; `k3`/`kimi*` → "Kimi"; anything else by its model name.
+   - Cost estimate $ where rates exist (flat-plan lanes legitimately show $0 — say "plan" instead of a fake price).
+   - One line of 24h totals for contrast, dim.
+   - Never invent remaining-quota percentages: providers do not expose plan limits; counts are what we honestly know.
 4. End with one line on whether usage is on track for the user's stated budget if you can recall it via `engram_search({ query: "monthly budget cost target" })`.
 
 This is a pure read-side surface. No engram writes.

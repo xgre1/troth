@@ -1427,6 +1427,14 @@ function callKimiSub(bodyStr, opts) {
             // story is cache behaviour — the product was blind on its
             // flagship subscription lane.
             try { require('./cacheratio').record(_sentModel, u); } catch (_) {}
+            // The persistent ledger, same as every other lane — this one
+            // wrote only in-memory stats, so the subscription's usage
+            // vanished on every proxy restart and the usage surfaces showed
+            // three lanes out of four.
+            try {
+              require('./cost').recordUsage(_sentModel, u.input_tokens || 0, u.output_tokens || 0,
+                (u.cache_read_input_tokens || 0));
+            } catch (_) {}
           } catch (_) {}
           console.log("[router] Kimi Code OK (" + _sentModel + ")");
           resolve({ success: true, response: body });

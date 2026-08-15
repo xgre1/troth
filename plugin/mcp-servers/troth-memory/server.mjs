@@ -728,16 +728,28 @@ const HANDLERS = {
   // stable. See the substrate design notes for rationale.
   'troth/archive_search': (params) => {
     if (!params || !params.query) return rpcError(-32602, 'missing query');
-    const rows = state.searchArchive(params.query, {
+    // FTS5 owns bare punctuation ('0.1.15' → syntax error near ".") — found
+    // by the second blind trial searching a version string. Anything beyond
+    // plain words is passed as a quoted phrase, which FTS reads as literal
+    // text instead of syntax.
+    let _q = String(params.query);
+    if (/[^\w\s]/.test(_q)) _q = '"' + _q.replace(/"/g, '""') + '"';
+    const rows = state.searchArchive(_q, {
       session_id: params.session_id,
       limit:      params.limit
     }) || [];
     return { hits: rows };
   },
   'troth/archive_excerpt': (params) => {
-    if (!params || typeof params.archive_id !== 'number') return rpcError(-32602, 'missing archive_id');
-    const excerpt = state.getArchiveExcerpt(params.archive_id, params.start_line, params.end_line);
-    if (!excerpt) return rpcError(-32100, 'archive not found', { archive_id: params.archive_id });
+    // Coerced, not typeof-checked: every caller that follows the archiver's
+    // own retrieval hint arrives with a STRING id, and the strict check sent
+    // them all away with 'missing archive_id' — found by the first blind
+    // agent trial (2026-08-16) after burning four manual attempts the day
+    // before. An id is an id in either spelling.
+    const _aid = params ? Number(params.archive_id) : NaN;
+    if (!Number.isFinite(_aid)) return rpcError(-32602, 'missing archive_id');
+    const excerpt = state.getArchiveExcerpt(_aid, params.start_line, params.end_line);
+    if (!excerpt) return rpcError(-32100, 'archive not found', { archive_id: _aid });
     return excerpt;
   },
   'troth/archive_list': (params) => {

@@ -70,6 +70,8 @@ require('./suite-62-decision-record.js')({ test, skip });
 require('./suite-63-memory-dispatch.js')({ test, skip });
 require('./suite-64-irreversibility-floor.js')({ test, skip });
 require('./suite-65-dialogue-dedup.js')({ test, skip });
+require('./suite-66-constraint-ledger.js')({ test, skip });
+require('./suite-67-verifiable-claims.js')({ test, skip });
 
 // --- SUMMARY ---
 flushAsyncTests().then(() => {

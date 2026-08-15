@@ -2096,6 +2096,44 @@ const server = http.createServer((req, res) => {
         ulQuery + "FROM usage_ledger WHERE ts >= ? " +
         "GROUP BY model ORDER BY calls DESC"
       ).all(since3));
+      // The 5-hour window mirrors how subscription lanes actually meter:
+      // plans rate-limit on a rolling ~5h window, so "what have I burned in
+      // the CURRENT window" is the number an operator can act on — 24h and
+      // all-time tell history, this one tells headroom.
+      var since5 = Date.now() - 5 * 60 * 60 * 1000;
+      var recent5Rows = _withCost(dbH3.prepare(
+        ulQuery + "FROM usage_ledger WHERE ts >= ? " +
+        "GROUP BY model ORDER BY calls DESC"
+      ).all(since5));
+      // peak_5h — the heaviest 5h window each model has EVER run, computed
+      // over 30-minute buckets with a rolling 10-bucket sum. Providers do
+      // not expose plan quotas, so "percent of limit" cannot exist honestly;
+      // "percent of your own heaviest window" can — it is self-calibrating
+      // and the ratio means something to the operator who lived that peak.
+      try {
+        var binRows = dbH3.prepare(
+          "SELECT model, CAST(ts / 1800000 AS INTEGER) AS bin, " +
+          "       SUM(tokens_in + tokens_out) AS tot " +
+          "FROM usage_ledger GROUP BY model, bin ORDER BY model, bin"
+        ).all();
+        var peaks = {};
+        var cur = null, buf = [];
+        for (var bi = 0; bi <= binRows.length; bi++) {
+          var br = binRows[bi];
+          if (!br || br.model !== cur) {
+            cur = br ? br.model : null; buf = [];
+            if (!br) break;
+          }
+          buf.push({ bin: br.bin, tot: br.tot });
+          while (buf.length && buf[0].bin < br.bin - 9) buf.shift();
+          var sum = 0;
+          for (var bj = 0; bj < buf.length; bj++) sum += buf[bj].tot;
+          if (!peaks[br.model] || sum > peaks[br.model]) peaks[br.model] = sum;
+        }
+        for (var ri5 = 0; ri5 < recent5Rows.length; ri5++) {
+          recent5Rows[ri5].peak_5h = peaks[recent5Rows[ri5].actual_model] || 0;
+        }
+      } catch (_) { /* the window still serves without its peak */ }
       var allRows = _withCost(dbH3.prepare(
         ulQuery + "FROM usage_ledger " +
         "GROUP BY model ORDER BY calls DESC"
@@ -2110,6 +2148,7 @@ const server = http.createServer((req, res) => {
         if (lsRow) lastServed = { model: lsRow.model, ts: lsRow.ts };
       } catch (_) {}
       persistentProviderUsage = {
+        recent_5h:  { window_hours: 5,  by_model: recent5Rows },
         recent_24h: { window_hours: 24, by_model: recentRows },
         all_time:   { by_model: allRows, total_rows: (meta && meta.total_rows) || 0,
                       latest_ts: (meta && meta.latest_ts) || null },

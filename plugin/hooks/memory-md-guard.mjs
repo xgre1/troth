@@ -65,27 +65,44 @@ const isMemoryMd =
   startsWith(abs, MEMORY_PREFIX) && abs.endsWith('.md');
 const isGlobalClaudeMd = eq(abs, GLOBAL_CLAUDE_MD);
 
-if (!isMemoryMd && !isGlobalClaudeMd) { allow(); }
+// Read side (added 2026-08-15): a FRESH session was watched pulling
+// ~/.claude memory files via Read ("Recalling 2 memories…" → Read
+// user_profile.md) instead of troth_recall — the harness's file memory wins
+// by default in EVERY session, not just careless ones. Two memory systems
+// means two truths, and only one of them is searchable. Reads of the memory
+// surface are steered to recall. Transcripts (.jsonl) stay readable: they
+// are session history, not a second memory.
+const isReadTool = /^(?:Read|Grep|Glob)$/.test(tool) || /cached_(?:read|grep)$/.test(tool);
+const isMemoryDirProbe = isReadTool &&
+  startsWith(abs, MEMORY_PREFIX) && /\/memory\/?$/.test(abs);
 
-const reason =
-  'This path is claude user-memory; troth routes project rules to the substrate instead.\n' +
-  'Path: ' + abs + '\n' +
-  'Persist it as a substrate engram instead:\n' +
-  '  - If a troth_engram_record tool is in your tool list, call it directly:\n' +
-  '      troth_engram_record({statement: "<one-sentence rule>"})\n' +
-  '  - Otherwise (router-gateway installs expose only troth-router/bash/cache/hashline),\n' +
-  '    route through the gateway:\n' +
-  '      mcp_call({server: "troth-substrate", tool: "troth_engram_record", args: {statement: "<one-sentence rule>"}})\n' +
-  'Engrams persist across sessions and are auto-mounted via session-start; .md memory files are not.';
+if (!isMemoryMd && !isGlobalClaudeMd && !isMemoryDirProbe) { allow(); }
+
+const reason = isReadTool
+  ? ('This path is claude user-memory; troth serves memory through recall, not file reads.\n' +
+     'Path: ' + abs + '\n' +
+     'Ask the substrate instead — it holds more than these files do:\n' +
+     '  - troth_recall({query: "<what you want to know>"}) if it is in your tool list\n' +
+     '  - otherwise: mcp_call({server: "troth-substrate", tool: "troth_recall", args: {query: "..."}})\n' +
+     'Blocks marked [troth/...] already in your context are substrate ground truth.')
+  : ('This path is claude user-memory; troth routes project rules to the substrate instead.\n' +
+     'Path: ' + abs + '\n' +
+     'Persist it as a substrate engram instead:\n' +
+     '  - If a troth_engram_record tool is in your tool list, call it directly:\n' +
+     '      troth_engram_record({statement: "<one-sentence rule>"})\n' +
+     '  - Otherwise (router-gateway installs expose only troth-router/bash/cache/hashline),\n' +
+     '    route through the gateway:\n' +
+     '      mcp_call({server: "troth-substrate", tool: "troth_engram_record", args: {statement: "<one-sentence rule>"}})\n' +
+     'Engrams persist across sessions and are auto-mounted via session-start; .md memory files are not.');
 
 log('PreToolUse.memory_md_guard', {
-  session_id: session, tool, decision: 'block', reason: 'memory_md_write',
+  session_id: session, tool, decision: 'block', reason: isReadTool ? 'memory_md_read' : 'memory_md_write',
   metadata: { path: abs, kind: isGlobalClaudeMd ? 'global_claude_md' : 'memory_md' }
 });
 recordAction({
   type: 'decision',
   session_id: session, cwd: payload.cwd,
   input: { kind: 'memory_md_guard', tool, path: abs },
-  output: { decision: 'block', reason: 'memory_md_write' }
+  output: { decision: 'block', reason: isReadTool ? 'memory_md_read' : 'memory_md_write' }
 });
 block(reason);

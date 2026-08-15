@@ -965,4 +965,22 @@ recordAction({
   }
 });
 
+// Active operator constraints ride LAST. End-of-context placement is the
+// measured winner for standing instructions (both-ends beats either alone,
+// GPT-4.1 prompting guide; omission constraints decay hardest,
+// arXiv:2604.20911) — the freeze must be the freshest thing the model
+// reads, every turn, until the operator lifts it. Enforcement is the bash
+// gate; this line is the reminder that keeps the model from even trying.
+try {
+  const _ledger = require(pluginRoot + '/../shared-core/constraint-ledger.js');
+  const _act = _ledger.activeConstraints({});
+  if (_act.length) {
+    pieces.push('[troth/ACTIVE-CONSTRAINTS] Standing operator orders IN FORCE:\n' +
+      _act.map((c) => '  · "' + ((c.input && c.input.quote) || 'wait') + '" (scope: ' +
+        ((c.input && c.input.scope) || 'outward') + ')').join('\n') +
+      '\nOutward actions in these scopes are BLOCKED at dispatch. Only fresh explicit ' +
+      'operator words lift them — never inference from earlier instructions.');
+  }
+} catch (_) { /* the gate enforces regardless; injection is the reminder */ }
+
 addContext(pieces.join('\n\n'));

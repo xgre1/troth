@@ -54,11 +54,13 @@ process.on('unhandledRejection', (e) => {
 let state = null;
 let danger = null;
 let safety = null;
+let constraintLedger = null;
 let redactor = null;
 try {
   const serverDir = fileURLToPath(new URL('.', import.meta.url));
   // plugin/mcp-servers/troth-bash/ → repo/shared-core/state.js
   state = require(serverDir + '../../../shared-core/state.js');
+  constraintLedger = require(serverDir + '../../../shared-core/constraint-ledger.js');
   danger = require(serverDir + '../../../shared-core/danger.js');
   safety = require(serverDir + '../../../shared-core/tools/bash-safety.js');
   // The same harvest+redact store the outbound reply path uses. Raw stdout
@@ -439,6 +441,29 @@ async function handleTool(name, args) {
           isError: true
         };
       }
+    }
+
+    // Operator-freeze gate. An active "don't" in the ledger blocks outward
+    // commands (push / upload / notarize) HERE, at the one chokepoint both
+    // lanes pass through (native Bash arrives via bash-steer). The freeze is
+    // state written by constraint-capture, not a sentence in a window — born
+    // 2026-08-15, when a git push sailed through an explicit operator freeze
+    // because the wall only existed as text. Fail-open on a missing ledger
+    // (bare clone), fail-CLOSED on an active freeze: no acknowledge flag
+    // overrides the operator's standing word.
+    if (constraintLedger) {
+      try {
+        const cg = constraintLedger.gate(args.command || '');
+        if (cg.blocked) {
+          return {
+            content: [{
+              type: 'text',
+              text: '[troth-bash] FROZEN — ' + cg.message
+            }],
+            isError: true
+          };
+        }
+      } catch (_) { /* a broken gate never blocks local work */ }
     }
 
     // Pre-flight danger check — if the command matches a known

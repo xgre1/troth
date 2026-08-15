@@ -123,7 +123,8 @@ if (MEMORY_SURFACE.test(_targetPath) || /CLAUDE\.md|MEMORY\.md/.test(_pattern)) 
         emit('ask', 'permissionDecisionReason',
           '[troth/memory-surface] The substrate already remembers — before walking this file, here is what it holds ' +
           'about the current work:\n' + taste.join('\n') + '\n' +
-          'troth_recall returns the full, ranked answer. Reading the file is still allowed — proceed if you need the file itself.');
+          'troth_recall returns the full, ranked answer. Native file reads on the memory surface are ' +
+          'refused by the guard — ask the substrate; it holds more than the file does.');
       }
     } catch (_) { /* any failure falls open to the steer */ }
   }

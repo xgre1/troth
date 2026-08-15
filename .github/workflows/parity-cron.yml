@@ -1,0 +1,51 @@
+# The anti-Signal cron.
+#
+# Signal's server source sat unpublished for a full year while production
+# moved on; users found out by noticing the staleness. The same shape nearly
+# happened here on 2026-08-15: DMG, CDN and site all shipped a version the
+# open repository had never seen. Release-time checks catch that at release
+# time — this cron catches it every day BETWEEN releases, from the outside,
+# with no human in the loop (the SQLite mirror discipline).
+#
+# One question, asked daily: does the version the world DOWNLOADS match the
+# version this repository SAYS it is? The appcast is the site's machine
+# surface (version + dmg sha256); package.json is this tree's. Drift in
+# either direction — site ahead of the mirror, mirror ahead of the site —
+# turns the badge red within 24h, and the download link is probed while
+# we're here.
+name: Parity
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    name: Published vs repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: The version the world downloads is the version this tree carries
+        run: |
+          set -eu
+          APPCAST=$(curl -sSf --max-time 30 https://troth.one/api/appcast)
+          SITE_VERSION=$(printf '%s' "$APPCAST" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).version))")
+          REPO_VERSION=$(node -p "require('./package.json').version")
+          echo "site serves: $SITE_VERSION | repository: $REPO_VERSION"
+          if [ "$SITE_VERSION" != "$REPO_VERSION" ]; then
+            echo "::error::version drift — the site serves $SITE_VERSION but the open repository is $REPO_VERSION. One of them is behind."
+            exit 1
+          fi
+
+      - name: The download link answers
+        run: |
+          set -eu
+          URL=$(curl -sSf --max-time 30 https://troth.one/api/appcast | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).dmg_url))")
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 60 -r 0-1023 "$URL")
+          echo "download probe: $CODE ($URL)"
+          [ "$CODE" = "200" ] || [ "$CODE" = "206" ] || { echo "::error::the download link is dead: $CODE"; exit 1; }

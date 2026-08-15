@@ -125,6 +125,37 @@ let statusEngine = '';
 // Session-total REAL tokens (provider-reported usage per turn). Shown on
 // the status line — stats never sit under a reply.
 let sessTokIn = 0, sessTokOut = 0;
+// The 5-hour window — how subscription lanes actually meter. Pulled from the
+// proxy's usage surface (usage_ledger aggregation), cached and refreshed
+// quietly after replies: the status row answers "how much of the current
+// window have I burned" the way the operator's editor statusline does for
+// Claude — counts, honestly, since plans expose no remaining-quota number.
+let win5 = null;      // { tin, tout } or null while unknown
+let win5At = 0;
+function refresh5h() {
+  if (Date.now() - win5At < 60 * 1000) return;
+  win5At = Date.now();
+  try {
+    const base = require('../shared-core/dashboard-url.js').proxyBaseUrl();
+    const u = new URL('/api/stats', base);
+    const mod = u.protocol === 'https:' ? require('https') : require('http');
+    const req = mod.get(u, { timeout: 4000 }, (res) => {
+      let b = '';
+      res.on('data', (c) => { b += c; if (b.length > 2 * 1024 * 1024) req.destroy(); });
+      res.on('end', () => {
+        try {
+          const rows = ((JSON.parse(b).persistent_provider_usage || {}).recent_5h || {}).by_model || [];
+          let tin = 0, tout = 0;
+          for (const r of rows) { tin += r.input_tokens || 0; tout += r.output_tokens || 0; }
+          win5 = { tin, tout };
+          drawStatus();
+        } catch (_) { /* stale value keeps showing; never break the REPL */ }
+      });
+    });
+    req.on('error', () => {});
+    req.on('timeout', () => req.destroy());
+  } catch (_) { /* no proxy, no window — the row simply omits it */ }
+}
 function termRows() { return process.stdout.rows || 24; }
 function termCols() { return process.stdout.columns || 80; }
 function applyRegion() {
@@ -137,6 +168,7 @@ function applyRegion() {
   process.stdout.write('\x1b[' + (H - 1) + ';1H\x1b[K');
   process.stdout.write('\x1b[' + (H - 2) + ';1H\x1b[K');
   drawStatus();
+  refresh5h();
 }
 function enableFixedUI() {
   // The pinned composer (DECSTBM scroll region) is opt-in until it holds up.
@@ -181,10 +213,15 @@ function drawStatus() {
   // the wordmark already brands the surface, nothing repeats it here.
   const eng = /^(router|routing|any)$/i.test(statusEngine || '') ? '' : statusEngine;
   const tot = (sessTokIn || sessTokOut)
-    ? color(DIM, '\u2191' + fmtTok(sessTokIn) + ' \u2193' + fmtTok(sessTokOut) + ' tokens')
+    ? color(DIM, '↑' + fmtTok(sessTokIn) + ' ↓' + fmtTok(sessTokOut) + ' tokens')
     : '';
-  const line = (eng || tot)
-    ? '  ' + [eng ? silverDim(eng) : null, tot || null].filter(Boolean).join(color(DIM, '  \u00b7  '))
+  // The rolling window subscriptions meter on — session totals say what THIS
+  // conversation cost, the 5h figure says how warm the plan's window is.
+  const w5 = (win5 && (win5.tin || win5.tout))
+    ? color(DIM, '5h ↑' + fmtTok(win5.tin) + ' ↓' + fmtTok(win5.tout))
+    : '';
+  const line = (eng || tot || w5)
+    ? '  ' + [eng ? silverDim(eng) : null, tot || null, w5 || null].filter(Boolean).join(color(DIM, '  ·  '))
     : '';
   process.stdout.write('\x1b7\x1b[' + termRows() + ';1H\x1b[K' + line + '\x1b8');
 }
@@ -990,6 +1027,7 @@ function start() {
             sessTokOut += msg.usage.output_tokens || 0;
           }
           drawStatus();
+          refresh5h();
           spinner.stop();
           // Honest empty-reply handling: a turn that aborted (providers
           // exhausted, transport offline) used to render as a BLANK reply —

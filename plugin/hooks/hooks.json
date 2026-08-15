@@ -53,7 +53,7 @@
         ]
       },
       {
-        "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob",
+        "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Grep|Glob|Bash|mcp__plugin_troth_troth-bash__run",
         "hooks": [
           {
             "type": "command",
@@ -63,7 +63,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|MultiEdit|hashline_edit",
+        "matcher": "Write|Edit|MultiEdit|hashline_edit|Read|Grep|Glob|mcp__plugin_troth_troth-cache__cached_read|mcp__plugin_troth_troth-cache__cached_grep",
         "hooks": [
           {
             "type": "command",
@@ -177,6 +177,11 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/intent-capture.mjs\"",
+            "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/constraint-capture.mjs\"",
             "timeout": 5
           },
           {

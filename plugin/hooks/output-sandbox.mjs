@@ -51,6 +51,14 @@ function isMcpTool(toolName) {
 const payload = await readStdinJson();
 const tool = payload.tool_name || '';
 const session = payload.session_id || null;
+
+// Never archive an archive RETRIEVAL. The second blind trial (2026-08-16)
+// hit the recursion live: archive_excerpt returned a >4KB single-line JSON,
+// this hook archived the excerpt, and the agent chased archive ids in a
+// circle until it gave up on the archive entirely. An excerpt the agent
+// explicitly asked for is wanted WHOLE, whatever it weighs.
+const _argsStr = JSON.stringify(payload.tool_input || {});
+if (/archive_(?:excerpt|search)/.test(tool) || /archive_(?:excerpt|search)/.test(_argsStr)) { allow(); }
 const raw = extractResponseText(payload);
 const bytes = Buffer.byteLength(raw || '', 'utf8');
 // The ledger records estimated TOKENS (bytes/4), matching every other
@@ -126,7 +134,7 @@ if (isMcpTool(tool)) {
   process.stdout.write(JSON.stringify({
     hookSpecificOutput: {
       hookEventName: 'PostToolUse',
-      updatedMCPToolOutput: summary + '\n\n[troth: full output archived as archive_id=' + archiveId + '. Retrieve it with mcp_call({server:"troth-memory", tool:"archive_excerpt", args:{archive_id:"' + archiveId + '", start_line:1, end_line:200}}), or archive_search to find it by keyword.]'
+      updatedMCPToolOutput: summary + '\n\n[troth: full output archived as archive_id=' + archiveId + '. Retrieve it with mcp_call({server:"troth-memory", tool:"archive_excerpt", args:{archive_id:' + archiveId + ', start_line:1, end_line:200}}), or archive_search to find it by keyword.]'
     }
   }));
   process.exit(0);

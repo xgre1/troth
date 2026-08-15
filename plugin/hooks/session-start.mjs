@@ -359,6 +359,27 @@ if (orientation)  parts.push(orientation);
 if (driftBlock)   parts.push(driftBlock);
 if (autoResume)   parts.push(autoResume);
 if (voiceGreeting) parts.push(voiceGreeting);
+
+// Verifiable claims: surface standing DISPUTES sync (a disputed memory is
+// one the model must not lean on — saying so at session start is the
+// fail-closed half), then kick the probe sweep DETACHED so expired claims
+// get re-checked against the world without the hook paying the network
+// wait. Findings land in the store; the next session-start reads them.
+try {
+  const claims = require(pluginRoot + '/../shared-core/claims.js');
+  const disputed = claims.disputedClaims();
+  if (disputed.length) {
+    parts.push('[troth/DISPUTED-CLAIMS] The substrate and the world DISAGREE on ' + disputed.length + ' fact(s):\n' +
+      disputed.map(d => '  · ' + d.subject + ' · ' + d.predicate + ': memory says "' + d.value + '" — the probe observed otherwise').join('\n') +
+      '\nDo NOT rely on either side or bridge the gap with a story. Investigate, then resolve with claims.resolveDispute (confirm or supersede).');
+  }
+  const { spawn } = await import('node:child_process');
+  const sweep = spawn(process.execPath, ['-e',
+    'require(' + JSON.stringify(pluginRoot + '/../shared-core/claims.js') + ').verifyDue(function(){process.exit(0)})'
+  ], { detached: true, stdio: 'ignore' });
+  sweep.unref();
+} catch (_) { /* claims are additive — a bare clone has none */ }
+
 parts.push(tip);
 
 emit({

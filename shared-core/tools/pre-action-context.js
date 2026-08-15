@@ -37,15 +37,47 @@ const MAX_DIALOGUE_HITS  = 2;
 const MAX_SUMMARY_CHARS  = 600;
 
 // Tools that get pre-action context. Excludes:
-//   Bash (too noisy; tons of trivial shell calls)
 //   substrate tools (engram_search/dialogue_search/update_identity/etc.
 //     they ARE recall, no point recalling for them)
 //   mcp_* (third-party, unpredictable)
+// Bash is NOT excluded wholesale anymore — it was ('too noisy'), and the
+// noise argument held right up until 2026-08-15, when a public commit
+// message was authored and a push fired with the relevant decisions sitting
+// unserved in the substrate: the costliest actions of the day were exactly
+// the ones with zero pre-action cueing. The fix keeps the noise wall but
+// moves it INSIDE: _bashSignal() answers null for the trivial shell calls
+// (ls, builds, tests — the overwhelming majority), so only the rare
+// consequential verbs (commit, push, publish, notarize, remote mutation)
+// pay a lookup. P7.2 finally covers the operator lane's hands, not just
+// its eyes.
 const FILE_TOOLS   = new Set(['Read', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const SEARCH_TOOLS = new Set(['Grep', 'Glob']);
+const BASH_TOOLS   = new Set(['Bash', 'mcp__plugin_troth_troth-bash__run']);
+
+// The consequential verbs, mapped to the search signal that finds their
+// precedent. First match wins; null means the command is routine and no
+// substrate read happens at all.
+const BASH_SIGNALS = [
+  [/\bgit\s+([a-z-]+\s+)*push\b/,            'push'],
+  [/\bgit\s+commit\b/,                        'commit'],
+  [/\bgh\s+(?:api|release|pr|repo)\b/,        'release'],
+  [/\b(?:npm|pnpm|yarn)\s+publish\b/,         'publish'],
+  [/\bwrangler\s+(?:publish|deploy|r2)\b/,    'deploy'],
+  [/\bnotarytool\b|\bstapler\b/,             'release'],
+  [/\bhdiutil\b.*\.dmg\b|\btauri\s+build\b/, 'release']
+];
+
+function _bashSignal(command) {
+  const c = String(command || '');
+  if (!c.trim()) return null;
+  for (const [re, signal] of BASH_SIGNALS) {
+    if (re.test(c)) return signal;
+  }
+  return null;
+}
 
 function isInteresting(tool_name) {
-  return FILE_TOOLS.has(tool_name) || SEARCH_TOOLS.has(tool_name);
+  return FILE_TOOLS.has(tool_name) || SEARCH_TOOLS.has(tool_name) || BASH_TOOLS.has(tool_name);
 }
 
 // Pull recent prior edits to the same file. Reuses the post-action-recall
@@ -114,7 +146,12 @@ function _precedentByFts(token, fallbackToken) {
   for (const t of [token, fallbackToken]) {
     if (!t || String(t).length < 3) continue;
     try {
-      const rows = state.searchActionsFull(String(t), { limit: 6, type: 'commitment', memory_class: 'procedural' }) || [];
+      // limit 24, not 6: FTS ranks by raw term frequency, so on broad tokens
+      // ('release') a pile of ordinary commitments can outrank the one
+      // TEMPLATED decision — and _compactDecision, which only accepts the
+      // template, then starved on the top-6 (probe-caught 2026-08-15). The
+      // template IS the quality filter; the scan just has to reach it.
+      const rows = state.searchActionsFull(String(t), { limit: 24, type: 'commitment', memory_class: 'procedural' }) || [];
       for (const r of rows) {
         let out;
         try { out = typeof r.output === 'string' ? JSON.parse(r.output) : (r.output || {}); }
@@ -170,6 +207,10 @@ function gatherPriorContext(args) {
     isFile = true;
   } else if (SEARCH_TOOLS.has(tool_name)) {
     token = toolArgs.pattern || toolArgs.query || toolArgs.path || null;
+  } else if (BASH_TOOLS.has(tool_name)) {
+    // Consequential commands only — the signal doubles as the FTS query
+    // that finds their precedent (decisions about pushing, voice, releases).
+    token = _bashSignal(toolArgs.command);
   }
   if (!token) return null;
 
@@ -233,46 +274,49 @@ function gatherPriorContext(args) {
     return '[' + tier + ', ' + _fmtAge(e.ts) + ', conf ' + conf + ']';
   }
 
-  if (decisionHits.length) {
-    const decisions = decisionHits.filter(e =>
-      e.scope && typeof e.scope === 'string' && e.scope.indexOf('decision:') === 0
-    );
-    const identity = decisionHits.filter(e => e.scope === 'identity');
-    if (decisions.length) {
-      lines.push('prior decisions mentioning ' + tokenBasename + ':');
-      for (const d of decisions) {
-        // A templated decision record (composed by decision-record.js)
-        // surfaces in its COMPACT tier — name, WHEN, skeleton — because the
-        // skeleton IS the payload; a 140-char clip beheads it. Anything
-        // else keeps the one-line rendering.
-        const compactTier = _compactDecision(d);
-        if (compactTier) {
-          lines.push('  - ' + _tag(d));
-          for (const cl of compactTier.split('\n')) lines.push('    ' + cl);
-        } else {
-          lines.push('  - ' + _tag(d) + ' ' + String(d.statement).slice(0, 140));
-        }
-        refs.push(d.id);
-      }
-    } else {
-      // The substring road missed: the WHEN line of a strategy describes a
-      // SITUATION, which rarely contains a filename. FTS over the statement
-      // (decision:* → procedural, already indexed) catches it. One hit only:
-      // measured budget-matched baselines are blunt — every retained token
-      // must pay, and one strong precedent beats three weak ones.
-      const p = _precedentByFts(tokenBasename, tokenStem);
-      if (p) {
-        lines.push('a recorded strategy matches this situation:');
-        for (const cl of p.compact.split('\n')) lines.push('    ' + cl);
-        refs.push(p.id);
-      }
-    }
-    if (identity.length) {
-      lines.push('identity facts touching ' + tokenBasename + ':');
-      for (const d of identity) {
+  // NOT gated on decisionHits.length: the FTS fallback existed for exactly
+  // the case where the substring road returns nothing, yet it was nested
+  // INSIDE that road's success branch — an empty store (or a situation-
+  // shaped WHEN with no filename overlap) skipped the fallback entirely.
+  // Probe-caught 2026-08-15 while wiring the bash arm hermetically.
+  const decisions = decisionHits.filter(e =>
+    e.scope && typeof e.scope === 'string' && e.scope.indexOf('decision:') === 0
+  );
+  const identity = decisionHits.filter(e => e.scope === 'identity');
+  if (decisions.length) {
+    lines.push('prior decisions mentioning ' + tokenBasename + ':');
+    for (const d of decisions) {
+      // A templated decision record (composed by decision-record.js)
+      // surfaces in its COMPACT tier — name, WHEN, skeleton — because the
+      // skeleton IS the payload; a 140-char clip beheads it. Anything
+      // else keeps the one-line rendering.
+      const compactTier = _compactDecision(d);
+      if (compactTier) {
+        lines.push('  - ' + _tag(d));
+        for (const cl of compactTier.split('\n')) lines.push('    ' + cl);
+      } else {
         lines.push('  - ' + _tag(d) + ' ' + String(d.statement).slice(0, 140));
-        refs.push(d.id);
       }
+      refs.push(d.id);
+    }
+  } else {
+    // The substring road missed: the WHEN line of a strategy describes a
+    // SITUATION, which rarely contains a filename. FTS over the statement
+    // (decision:* → procedural, already indexed) catches it. One hit only:
+    // measured budget-matched baselines are blunt — every retained token
+    // must pay, and one strong precedent beats three weak ones.
+    const p = _precedentByFts(tokenBasename, tokenStem);
+    if (p) {
+      lines.push('a recorded strategy matches this situation:');
+      for (const cl of p.compact.split('\n')) lines.push('    ' + cl);
+      refs.push(p.id);
+    }
+  }
+  if (identity.length) {
+    lines.push('identity facts touching ' + tokenBasename + ':');
+    for (const d of identity) {
+      lines.push('  - ' + _tag(d) + ' ' + String(d.statement).slice(0, 140));
+      refs.push(d.id);
     }
   }
 

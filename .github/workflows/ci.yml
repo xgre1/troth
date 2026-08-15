@@ -19,12 +19,19 @@ concurrency:
 
 jobs:
   test:
-    name: Test (Node ${{ matrix.node }})
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os == 'macos-latest' && 'macOS' || 'Linux' }}, Node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
+        # Both shipped platforms on every push. Hosted macOS runners are
+        # free on public repositories, so the 10x-minutes argument that
+        # once kept this Linux-only no longer applies — and the first run
+        # of a suite on a platform must never be the run the public sees
+        # fail (2026-08-15: three checks green on every Mac went red on
+        # the open repo's first-ever Linux pass, post-publish).
+        os: [ubuntu-latest, macos-latest]
         node: [22, 24]
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

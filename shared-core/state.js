@@ -240,6 +240,46 @@ function migrate(d) {
       plugin_version TEXT
     );
 
+    -- Verifiable claims — facts the substrate can CHECK, not just recall.
+    -- Born 2026-08-15: memory said a repo was public, the world said
+    -- private, and the agent bridged the contradiction with a story instead
+    -- of stopping (the STALE benchmark calls it premise resistance and
+    -- measures frontier models at 55%). The partial unique index makes two
+    -- live values for one (subject, predicate) slot structurally impossible
+    -- — supersession is an explicit transaction, never a silent overwrite
+    -- (Doyle's justification bookkeeping reduced to one table). probe_kind/
+    -- probe_arg carry a TYPED, allowlisted check (http_status / file_exists
+    -- / gh_json) — never arbitrary shell from the database. A probe
+    -- mismatch flips status to 'disputed': disputed rows are excluded from
+    -- every serving path (fail-closed) until an explicit resolution.
+    CREATE TABLE IF NOT EXISTS claims (
+      id            TEXT PRIMARY KEY,
+      subject       TEXT NOT NULL,
+      predicate     TEXT NOT NULL,
+      value         TEXT NOT NULL,
+      valid_from    INTEGER NOT NULL,
+      invalid_at    INTEGER,
+      superseded_by TEXT,
+      status        TEXT NOT NULL DEFAULT 'live',
+      volatility    TEXT NOT NULL DEFAULT 'slow',
+      verified_at   INTEGER,
+      probe_kind    TEXT,
+      probe_arg     TEXT,
+      source_rank   INTEGER NOT NULL DEFAULT 2,
+      source        TEXT,
+      created_at    INTEGER NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS claims_live_slot
+      ON claims(subject, predicate) WHERE invalid_at IS NULL;
+    CREATE TABLE IF NOT EXISTS claim_events (
+      id       TEXT PRIMARY KEY,
+      claim_id TEXT NOT NULL,
+      ts       INTEGER NOT NULL,
+      kind     TEXT NOT NULL,
+      detail   TEXT
+    );
+    CREATE INDEX IF NOT EXISTS claim_events_claim ON claim_events(claim_id, ts);
+
     -- Session lessons — the glue between critic blocks and the next
     -- UserPromptSubmit's additionalContext. When critic rejects a turn,
     -- we write *why* here; when injector fires on the next prompt, it
