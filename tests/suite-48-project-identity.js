@@ -34,6 +34,16 @@ const os = require('os');
 const ROOT = path.join(__dirname, '..');
 const pid = require(path.join(ROOT, 'shared-core', 'project-id.js'));
 
+// A build runner exports CI=true for the whole process, and the resolver
+// answers CI before the repository ON PURPOSE. Every check below asserts the
+// NON-CI answers, so the ambient flag is stashed for the module and restored
+// at the end — PROJ-28 still pins the CI answer by setting the flag itself.
+// Found on these suites' first-ever Linux run: green on every Mac, red on
+// the open repo's CI, because the environment was part of the test without
+// being part of the test's contract.
+const _ambientCI = process.env.CI;
+delete process.env.CI;
+pid._clearCache();
 console.log('\nProject identity (PROJ):');
 
 test('PROJ-1: one project keeps one store key when its folder moves', () => {
@@ -511,4 +521,7 @@ test('PROJ-28: a build machine is nobody\'s project, whatever it checked out', (
     pid._clearCache();
   }
 });
+
+if (_ambientCI === undefined) delete process.env.CI; else process.env.CI = _ambientCI;
+pid._clearCache();
 };

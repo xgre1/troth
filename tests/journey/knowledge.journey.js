@@ -114,7 +114,11 @@ module.exports.run = async (ctx, check) => {
       /harbour-manual/.test(String(shelfText)) && !/Could not read/i.test(String(shelfText)),
       JSON.stringify(String(shelfText).slice(0, 160)));
 
-    const summary = await page.eval("(document.getElementById('rec-meta')||{}).textContent || ''");
+    // Settled, not sampled: the rows and the count land in separate ticks,
+    // and on a slow runner an instant read still sees "loading…" after the
+    // rows have arrived. Wait for ANY final wording — the check itself then
+    // judges whether that wording is the human one.
+    const summary = await settle("(document.getElementById('rec-meta')||{}).textContent || ''", /document|corpora|Could not/i);
     check('the count describes what is shown, in words a person uses',
       /1 document/.test(String(summary)) && /4 passages/.test(String(summary)) && !/corpora/i.test(String(summary)),
       JSON.stringify(summary));

@@ -661,10 +661,37 @@ check_dmg() {
   hdiutil detach "$mnt" >/dev/null 2>&1
 }
 
+# ── open-repo parity ─────────────────────────────────────────────────────────
+# The inverse of the incident this gate was born from. The original failure
+# was a bundle carrying files the open repo does not contain; on 2026-08-15
+# a release closed with the OPPOSITE hole — DMG, CDN and site all shipped
+# while the open repo still showed the previous version, because the publish
+# step lived in nobody's file and one context window's memory. A release is
+# not closed until the code the world reads IS the code that shipped, and
+# that sentence is now a check, not a recollection.
+check_open_parity() {
+  echo "OPEN-REPO PARITY"
+  local url="${TROTH_OPEN_REPO_URL:-https://github.com/xgre1/troth.git}"
+  if ! git fetch -q "$url" main 2>/dev/null; then
+    fail "cannot reach the open repo ($url) — a release cannot close unverified"
+    return
+  fi
+  local ours theirs
+  ours="$(git ls-tree -r HEAD | sort)"
+  theirs="$(git ls-tree -r FETCH_HEAD | sort)"
+  if [ "$ours" = "$theirs" ]; then
+    pass "open repo main matches HEAD file-for-file ($(git rev-parse --short FETCH_HEAD))"
+  else
+    fail "open repo main does not match HEAD — the world reads different code than we shipped"
+    note "$(diff <(printf '%s' "$ours") <(printf '%s' "$theirs") | grep -c '^[<>]') differing tree entries; publish the open repo, then re-run"
+  fi
+}
+
 MODE="${1:-all}"
 case "$MODE" in
   repo) check_repo ;;
   dmg)  check_dmg "${2:?usage: release-gate.sh dmg <path-to-dmg>}" ;;
+  release) check_repo; check_open_parity; [ -n "${2:-}" ] && check_dmg "$2" ;;
   --refresh-probes)
         # The stored list is what gates an export, which carries no overlay to
         # derive from. This rewrites it from the disk that does.
@@ -677,7 +704,7 @@ case "$MODE" in
         echo "wrote $(grep -vc '^#' "$HOME/.troth/gate-closed-probes") probe paths to ~/.troth/gate-closed-probes"
         exit 0 ;;
   all)  check_repo; [ -n "${2:-}" ] && check_dmg "$2" ;;
-  *)    echo "usage: release-gate.sh [repo|dmg <path>|all <path>]"; exit 2 ;;
+  *)    echo "usage: release-gate.sh [repo|dmg <path>|all <path>|release [dmg]]"; exit 2 ;;
 esac
 
 echo
