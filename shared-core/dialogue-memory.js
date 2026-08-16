@@ -90,27 +90,11 @@ function recordTurn(opts) {
   const conversation_id = opts.conversation_id || null;
   if (!agent_id) return false;
 
-  // Satellite mode: the turn ships to the mind machine as a journal event;
-  // the hub runs the SAME dedup window on arrival, so the guard below
-  // stays hub-side truth instead of firing against an empty local store.
-  if (!opts._local) {
-    let rc = null;
-    try { rc = require('./sync/remote-client.js'); } catch (_) { rc = null; }
-    if (rc && rc.active()) {
-      try {
-        rc.queueWrite('dialogue_turn', {
-          user_text, assistant_text, faculty,
-          conversation_id,
-          elapsed_ms: opts.elapsed_ms || null
-        }, { agent_id, user_id, cwd });
-        return true;
-      } catch (_) { return false; }
-    }
-  }
   if (_isRecentDuplicate(agent_id, user_id, user_text, assistant_text)) return false;
   try {
     const rec = {
-      id: actionRec.uuidv7(),
+      // A replicated turn carries its author's id — one record fleet-wide.
+      id: (typeof opts.id === 'string' && /^[0-9a-f][0-9a-f-]{15,}$/i.test(opts.id)) ? opts.id : actionRec.uuidv7(),
       timestamp: Date.now(),
       type: 'tool_call',
       agent_id,
@@ -136,7 +120,22 @@ function recordTurn(opts) {
     };
     const v = actionRec.validate(rec);
     if (!v.ok) return false;
-    state.recordAction(rec, actionRec.toSearchText(rec));
+    const _wrote = state.recordAction(rec, actionRec.toSearchText(rec));
+    // One mind, many devices: the recorded turn rides the outbox with its
+    // id. _local marks an apply of a foreign event — never re-queued.
+    if (_wrote && !opts._local) {
+      try {
+        const rc = require('./sync/remote-client.js');
+        if (rc.active()) {
+          rc.queueWrite('dialogue_turn', {
+            id: rec.id,
+            user_text, assistant_text, faculty,
+            conversation_id,
+            elapsed_ms: opts.elapsed_ms || null
+          }, { agent_id, user_id, cwd });
+        }
+      } catch (_) { /* local record stands; the flusher retries */ }
+    }
     // Fire-and-forget: substrate-side classical classifier scans the
     // operator turn for directive shape (audit gap 1+3 wiring). On
     // detection, a draft active_project lands at llm_inferred tier;

@@ -146,26 +146,6 @@ function recordEngram(opts) {
   const source    = String(opts.source || 'unspecified');
   if (!agent_id || !statement) return null;
 
-  // Satellite mode: when this install's mind lives on another machine the
-  // write becomes a journal event in the local outbox instead of touching
-  // the local store; the flusher ships it in order. _local marks the hub's
-  // own apply path (and tests) — never re-forwarded. A queue failure is a
-  // visible null, not a silent local fork of the mind.
-  if (!opts._local) {
-    let rc = null;
-    try { rc = require('./sync/remote-client.js'); } catch (_) { rc = null; }
-    if (rc && rc.active()) {
-      try {
-        const q = rc.queueWrite('engram_record', {
-          statement,
-          salience: typeof opts.salience === 'number' ? opts.salience : undefined,
-          scope:    typeof opts.scope === 'string' ? opts.scope : undefined,
-          audience: typeof opts.audience === 'string' ? opts.audience : undefined
-        }, { agent_id, user_id, cwd });
-        return q.event_id; // stands in for the id the hub will mint
-      } catch (_) { return null; }
-    }
-  }
   try {
     // implementation step — write-time quality control via engram-verify.
     //  default flipped to ON. Schnider 2003
@@ -204,7 +184,9 @@ function recordEngram(opts) {
     // emphasis just adds on top. Capped at 2.0.
     const _effectiveSalience = Math.min(2.0, _baseSalience + _emphasisBoost);
 
-    const id = actionRec.uuidv7();
+    // A replicated write carries its author's id so every copy of the mind
+    // holds ONE record, not one per machine.
+    const id = (typeof opts.id === 'string' && /^[0-9a-f][0-9a-f-]{15,}$/i.test(opts.id)) ? opts.id : actionRec.uuidv7();
     // provenance fields wire engrams to their on-disk anchor
     // (file_path, codelens entity, source module). Substrate gains the
     // ability to answer "which file/symbol does this commitment live near?"
@@ -648,6 +630,24 @@ function recordEngram(opts) {
     if (Array.isArray(opts.embedding) && opts.embedding.length) {
       try { state.setEmbedding(id, opts.embedding, { model: opts.embedding_model || null }); }
       catch (_) { /* dense-index mirror is best-effort */ }
+    }
+    // One mind, many devices: a successful local write also becomes a
+    // journal event carrying THIS id, so every replica lands the same
+    // record. _local marks an apply of someone else's event — never
+    // re-queued, or the fleet would echo forever.
+    if (!opts._local) {
+      try {
+        const rc = require('./sync/remote-client.js');
+        if (rc.active()) {
+          rc.queueWrite('engram_record', {
+            id,
+            statement,
+            salience: typeof opts.salience === 'number' ? opts.salience : undefined,
+            scope:    typeof opts.scope === 'string' ? opts.scope : undefined,
+            audience: typeof opts.audience === 'string' ? opts.audience : undefined
+          }, { agent_id, user_id, cwd });
+        }
+      } catch (_) { /* the local write stands; the flusher retries the ride */ }
     }
     return id;
   } catch (_) { return null; }

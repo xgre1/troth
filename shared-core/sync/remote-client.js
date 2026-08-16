@@ -284,7 +284,14 @@ function _request(s, method, pathName, body) {
 
 function __setTransportForTests(fn) { _postImpl = fn || _request; }
 
+// Raw transport for the replica's pull loop — same config, same stub hook.
+function request(method, pathName, body) {
+  const s = _cfg();
+  if (!s) return Promise.resolve({ transport_error: true, detail: 'sync_not_configured' });
+  return _postImpl(s, method, pathName, body);
+}
+
 module.exports = {
-  active, queueWrite, writeThrough, flush, readRemote, hello, status, connect, connectWithCode,
+  active, queueWrite, writeThrough, flush, readRemote, hello, status, connect, connectWithCode, request,
   __setTransportForTests
 };

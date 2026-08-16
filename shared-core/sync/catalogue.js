@@ -36,6 +36,7 @@ const OPS = {
       }
       const id = engram.recordEngram({
         _local: true,
+        id: typeof args.id === 'string' ? args.id : undefined,
         agent_id: ctx.agent_id,
         user_id:  ctx.user_id,
         cwd:      ctx.cwd,
@@ -73,6 +74,7 @@ const OPS = {
       const dm = require('../dialogue-memory.js');
       const ok = dm.recordTurn({
         _local: true,
+        id: typeof args.id === 'string' ? args.id : undefined,
         agent_id: ctx.agent_id,
         user_id:  ctx.user_id,
         cwd:      ctx.cwd,

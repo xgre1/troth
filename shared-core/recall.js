@@ -725,18 +725,6 @@ async function recall(opts) {
   if (VALID_AUDIENCES.indexOf(audience) < 0) return [];
   if (!q && cls !== 'identity') return []; // identity allowed on empty query (always-on read)
 
-  // Satellite mode: recall asks the mind machine — no local replica exists
-  // in thin mode, so a local answer would be empty-stale, worse than
-  // honest. An unreachable hub answers as an EMPTY recall: callers render
-  // nothing rather than a lie. _local marks the hub's own serving path.
-  if (!opts._local) {
-    let rc = null;
-    try { rc = require('./sync/remote-client.js'); } catch (_) { rc = null; }
-    if (rc && rc.active()) {
-      const out = await rc.readRemote('recall', opts, { agent_id: opts.agent_id, cwd: opts.cwd });
-      return Array.isArray(out) ? out : [];
-    }
-  }
 
   // A8 — build topic-coherence vector once per recall invocation, share
   // across class sub-functions. cwd basename minus generic tokens is the

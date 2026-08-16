@@ -93,23 +93,6 @@ async function recordRule(opts) {
   if (!text) return { ok: false, error: 'empty_rule' };
   if (text.length < 8) return { ok: false, error: 'too_short', detail: 'a rule needs to say what to do' };
 
-  // Satellite mode: rules are interactive writes — the caller needs the
-  // hub's real answer (similar_rules_exist above all), so this one rides
-  // write-through: queue, flush, return what the mind machine said. When
-  // the hub is unreachable it answers "queued" honestly instead of
-  // pretending the rule landed.
-  if (!opts._local) {
-    let rc = null;
-    try { rc = require('./sync/remote-client.js'); } catch (_) { rc = null; }
-    if (rc && rc.active()) {
-      return await rc.writeThrough('rule_record', {
-        text,
-        why:     opts.why || null,
-        scope:   opts.scope === 'project' ? 'project' : 'global',
-        confirm: !!opts.confirm
-      }, { agent_id: opts.agent_id, cwd: opts.cwd });
-    }
-  }
 
   const emb = await embedText(text, opts.embedding_host);
   let similar = [];
@@ -140,6 +123,22 @@ async function recordRule(opts) {
   if (emb) {
     try { embedded = !!state.setEmbedding(wrote.id, emb.vector, { model: emb.model }); }
     catch (_) { embedded = false; }
+  }
+  // One mind, many devices: a rule that landed locally rides the outbox.
+  // confirm is forced on the wire copy — the similarity conversation
+  // happened HERE, with this operator; replicas apply, they do not argue.
+  if (!opts._local) {
+    try {
+      const rc = require('./sync/remote-client.js');
+      if (rc.active()) {
+        rc.queueWrite('rule_record', {
+          text,
+          why:     opts.why || null,
+          scope:   opts.scope === 'project' ? 'project' : 'global',
+          confirm: true
+        }, { agent_id: opts.agent_id, cwd: opts.cwd });
+      }
+    } catch (_) { /* the local rule stands; the flusher retries */ }
   }
   return {
     ok: true, id: wrote.id, duplicate: false, embedded,

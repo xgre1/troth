@@ -226,4 +226,48 @@ function revokeDevice(device_id) {
   return r.changes > 0;
 }
 
-module.exports = { applyEvent, runQuery, hello, addDevice, authDevice, listDevices, revokeDevice, PROTOCOL_V };
+
+// ── The feed: events flow DOWN to every replica ──────────────────────────
+
+// The journal after a given position, in the only order that exists. A
+// replica pulls from its last applied gseq; its own events come back too
+// and it skips them by device_id (they were applied locally at write
+// time). The journal is never pruned, so any position is resumable.
+function listEventsSince(sinceGseq, limit) {
+  const lim = Math.max(1, Math.min(500, limit | 0 || 200));
+  const rows = state.db().prepare(
+    'SELECT gseq, event_id, device_id, dev_seq, op, op_v, args, ctx, hlc_ts FROM sync_events WHERE gseq > ? AND outcome IS NOT NULL ORDER BY gseq ASC LIMIT ?'
+  ).all(Math.max(0, sinceGseq | 0), lim);
+  return rows.map((r) => ({
+    gseq: r.gseq,
+    event_id: r.event_id,
+    device_id: r.device_id,
+    op: r.op,
+    op_v: r.op_v,
+    args: JSON.parse(r.args || '{}'),
+    ctx: r.ctx ? JSON.parse(r.ctx) : {},
+    hlc_ts: r.hlc_ts
+  }));
+}
+
+// A fresh replica's first breath: the whole mind as atlas NDJSON (the same
+// id-keyed road the move file rides, additive and re-runnable) stamped
+// with the journal position it was cut at. The device imports the atlas,
+// sets its applied position to the stamp, and pulls events from there —
+// baseline plus deltas, nothing counted twice by id, nothing missed.
+function baseline() {
+  const atlas = require('../atlas.js');
+  const zlib = require('zlib');
+  const latest = (state.db().prepare('SELECT MAX(gseq) AS g FROM sync_events').get() || {}).g || 0;
+  const ex = atlas.exportAtlas(state, {});
+  return {
+    ok: true,
+    latest_gseq: latest,
+    atlas_count: ex.count,
+    atlas_encoding: 'gzip+base64',
+    atlas_ndjson: zlib.gzipSync(Buffer.from(ex.content, 'utf8')).toString('base64')
+  };
+}
+
+module.exports = { applyEvent, runQuery, hello, addDevice, authDevice, listDevices, revokeDevice, listEventsSince, baseline, PROTOCOL_V };
+

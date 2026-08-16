@@ -19,10 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Across networks, a one-string pairing code carries every address,
   identity and key. Writes from a following device journal through a
   local outbox and land in arrival order behind per-device revocable
-  tokens, never a shared secret and never IP trust; offline they queue,
-  and recall answers from the mind machine. The wire envelope IS the
-  journal record, so device-local replicas can follow without a protocol
-  break.
+  tokens, never a shared secret and never IP trust. Every device carries
+  the full mind: a fresh one bootstraps from a baseline cut of the whole
+  substrate, then rides the journal feed in the hub's order, on the same
+  record ids fleet-wide. Offline, everything keeps working from the local
+  copy, and what was said apart reconciles by itself when the machines
+  meet again.
 - The mind travels as one file. Export cuts a carryable bundle. A
   .trothmove brought from another machine appears in the Import chooser
   by itself (Downloads and Desktop) and its memories join the live mind

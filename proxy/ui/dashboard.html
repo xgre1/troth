@@ -2515,7 +2515,7 @@ setInterval(function(){
         <b style="color:var(--text)">The mind machine:</b> the computer that keeps your memory, usually the one that is always on. It announces itself on your network with a name and a door, never a secret.<br>
         <b style="color:var(--text)">Any other device:</b> runs Set up, sees that machine by name, asks to follow. Nothing happens until you approve on the mind machine.<br>
         <b style="color:var(--text)">Different networks?</b> Set up hands you a pairing code that carries every address the mind machine answers on, over Tailscale or any private mesh.<br>
-        <b style="color:var(--text)">Offline:</b> the device keeps working; what it writes queues and lands when the mind machine is back. Recall needs the connection live.<br>
+        <b style="color:var(--text)">Offline:</b> every device carries the full mind, so everything keeps working. What you say while apart queues and reconciles by itself when the machines meet again.<br>
         <b style="color:var(--text)">Lost a device?</b> Revoke it below. One click, only that device dies.<br>
         <b style="color:var(--text)">Public Wi-Fi:</b> being on it is fine; pairing over it is not. On an untrusted network the connection between your machines is not encrypted, so pair and sync at home or over a private mesh like Tailscale, which encrypts everything wherever you sit.
       </div></div>
@@ -3867,7 +3867,14 @@ function renderSyncCard() {
       roleName.textContent = 'Following the mind at ' + (s.host || '?');
       var ok = s.hub && s.hub.reachable;
       roleDot.className = ok ? 'pulse' : 'pulse off';
-      roleDesc.textContent = (ok ? 'Mind reachable.' : 'Mind unreachable. Writes are queuing safely.') + (s.pending ? ' ' + s.pending + ' queued.' : '');
+      var rep = s.replica || {};
+      if (!ok) {
+        roleDesc.textContent = 'Offline. Everything keeps working from the copy on this machine; what you say here syncs by itself when the mind returns.' + (s.pending ? ' ' + s.pending + ' queued.' : '');
+      } else if (!rep.bootstrapped || (rep.behind | 0) > 3) {
+        roleDesc.textContent = 'Syncing the mind down to this machine' + (rep.behind ? ' (' + rep.behind + ' to go).' : '.');
+      } else {
+        roleDesc.textContent = 'The same mind lives here too. Works offline; changes flow both ways.' + (s.pending ? ' ' + s.pending + ' queued up.' : '');
+      }
       roleAct.style.display = 'inline-block';
       if (cta) cta.style.display = 'none';
     } else {
@@ -4256,7 +4263,7 @@ function wizDone(kind, detail) {
   } else {
     wizMount(3, 'Connected', '',
       '<div class="wiz-check">✓ This device follows ' + detail + '.</div>' +
-      '<div class="wiz-sub">Everything said here is remembered there. Offline, writes queue and land when it is back.</div>',
+      '<div class="wiz-sub">The mind is syncing down to this machine and stays in step from here on. Offline it keeps working; everything reconciles by itself.</div>',
       '<button class="btn" onclick="wizClose()">Done</button>', true);
   }
   renderSyncCard();

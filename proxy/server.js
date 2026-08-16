@@ -2462,11 +2462,16 @@ const server = http.createServer((req, res) => {
         const rc = require('../shared-core/sync/remote-client.js');
         const st = rc.status();
         let hubState = null;
+        let replica = null;
         if (st.active) {
           const h = await rc.hello();
           hubState = (h && h.ok) ? { reachable: true, latest_gseq: h.latest_gseq } : { reachable: false };
+          try {
+            replica = require('../shared-core/sync/replica.js').status();
+            if (hubState.reachable) replica.behind = Math.max(0, (hubState.latest_gseq | 0) - (replica.applied_gseq | 0));
+          } catch (_) {}
         }
-        jsonResponse(res, 200, Object.assign(st, { hub: hubState }));
+        jsonResponse(res, 200, Object.assign(st, { hub: hubState, replica }));
       } catch (e) {
         jsonResponse(res, 500, { error: String(e && e.message || e).slice(0, 200) });
       }
@@ -2531,6 +2536,7 @@ const server = http.createServer((req, res) => {
       const code = body && typeof body.code === 'string' ? body.code.trim() : null;
       if (!code) { jsonResponse(res, 400, { ok: false, error: 'code_required' }); return; }
       require('../shared-core/sync/remote-client.js').connectWithCode(code).then((out) => {
+        if (out.ok) { try { require('../shared-core/sync/replica.js').pull().catch(() => {}); } catch (_) {} }
         jsonResponse(res, out.ok ? 200 : 400, out);
       }).catch((e) => {
         jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) });
@@ -2623,6 +2629,7 @@ const server = http.createServer((req, res) => {
               clearInterval(t);
               _syncFollow.state = 'connecting';
               require('../shared-core/sync/remote-client.js').connectWithCode(s.code).then((c) => {
+                if (c && c.ok) { try { require('../shared-core/sync/replica.js').pull().catch(() => {}); } catch (_) {} }
                 _syncFollow = c && c.ok
                   ? { state: 'connected', mind: _syncFollow.mind, host: c.host, error: null }
                   : { state: 'failed', mind: _syncFollow.mind, error: (c && c.error) || 'connect_failed' };
@@ -2697,6 +2704,7 @@ const server = http.createServer((req, res) => {
         _syncHttpJson(u.hostname, parseInt(u.port || '80', 10), 'POST', '/api/sync/redeem-invite', { invite_id: inv.invite_id, device_name: deviceName }, (r) => {
           if (!r || !r.ok || !r.code) { tryNext(); return; }
           require('../shared-core/sync/remote-client.js').connectWithCode(r.code).then((c) => {
+            if (c && c.ok) { try { require('../shared-core/sync/replica.js').pull().catch(() => {}); } catch (_) {} }
             jsonResponse(res, c && c.ok ? 200 : 502, c);
           }).catch((e) => jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) }));
         });
@@ -2739,7 +2747,7 @@ const server = http.createServer((req, res) => {
     } catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) }); }
     return;
   }
-  if (url === '/api/sync/hello' || url === '/api/sync/event' || url === '/api/sync/query') {
+  if (url === '/api/sync/hello' || url === '/api/sync/event' || url === '/api/sync/query' || url.startsWith('/api/sync/events') || url === '/api/sync/baseline') {
     const hub = require('../shared-core/sync/hub.js');
     const _am = /^Bearer\s+(.+)$/i.exec(String(req.headers['authorization'] || ''));
     const device = _am ? hub.authDevice(_am[1]) : null;
@@ -2749,6 +2757,21 @@ const server = http.createServer((req, res) => {
     }
     if (req.method === 'GET' && url === '/api/sync/hello') {
       jsonResponse(res, 200, hub.hello());
+      return;
+    }
+    // The feed — the journal after a position, for a replica catching up.
+    if (req.method === 'GET' && url.startsWith('/api/sync/events')) {
+      try {
+        const q = new URL(req.url, 'http://x').searchParams;
+        jsonResponse(res, 200, { ok: true, events: hub.listEventsSince(parseInt(q.get('since') || '0', 10) || 0, parseInt(q.get('limit') || '200', 10) || 200) });
+      } catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) }); }
+      return;
+    }
+    // The first breath — the whole mind as id-keyed atlas, stamped with the
+    // journal position it was cut at. Big on purpose; it rides the LAN once.
+    if (req.method === 'GET' && url === '/api/sync/baseline') {
+      try { jsonResponse(res, 200, hub.baseline()); }
+      catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) }); }
       return;
     }
     if (req.method === 'POST' && url === '/api/sync/event') {
@@ -6239,9 +6262,13 @@ server.listen(listenPort, BIND_HOST, () => {
   try {
     const _rcFlush = require('../shared-core/sync/remote-client.js');
     if (_rcFlush.active()) {
-      const tF = setInterval(() => { _rcFlush.flush().catch(() => {}); }, 15000);
+      const _repl = require('../shared-core/sync/replica.js');
+      const tF = setInterval(() => {
+        _rcFlush.flush().then(() => _repl.pull()).catch(() => {});
+      }, 15000);
       if (tF.unref) tF.unref();
-      log('[sync] satellite mode: mind at ' + (_rcFlush.status().host || '?') + ', outbox flusher on');
+      setTimeout(() => { _repl.pull().catch(() => {}); }, 2500);
+      log('[sync] following mode: mind at ' + (_rcFlush.status().host || '?') + ', outbox + replica feed on');
     }
   } catch (_) { /* sync module absent — nothing to flush */ }
   // Mind discovery — announce when this machine keeps a mind AND has a

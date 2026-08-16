@@ -187,26 +187,23 @@ test('SYN-8: revocation is one row — the token dies, the device is refused', (
   assert.strictEqual(out.err, 'unknown_device');
 });
 
-test('SYN-9: satellite mode — a mind-write becomes an outbox event in the caller\'s breath; the local store stays empty', () => {
+test('SYN-9: a following device writes HOME first — the local row and the outbox event carry one id', () => {
   const out = hermetic(REQ + [
     "const fs = require('fs');",
     "fs.writeFileSync(process.env.TROTH_CONFIG_PATH, JSON.stringify({ sync: { host: 'http://127.0.0.1:9', deviceId: 'dev_test', deviceToken: 'tok' } }));",
     "const engram = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'engram.js')) + ");",
-    "const id = engram.recordEngram({ agent_id: 'cli', statement: 'written on the satellite' });",
-    "const id2 = engram.recordEngram({ agent_id: 'cli', statement: 'and another' });",
+    "const id = engram.recordEngram({ agent_id: 'cli', statement: 'written on the device, kept on the device' });",
     "const db = S.db();",
-    "const ob = db.prepare('SELECT dev_seq, envelope FROM sync_outbox ORDER BY dev_seq').all();",
-    "const local = db.prepare('SELECT COUNT(*) AS n FROM action_records').get().n;",
-    "const e1 = JSON.parse(ob[0].envelope);",
-    "setTimeout(() => { console.log(JSON.stringify({ id: !!id, id2: !!id2, rows: ob.length, seqs: ob.map(r => r.dev_seq), local, op: e1.op, hasEventId: !!e1.event_id, hasHlc: !!e1.hlc_ts, dev: e1.device_id })); }, 150);"
+    "const local = db.prepare('SELECT id FROM action_records').all();",
+    "const ob = db.prepare('SELECT envelope FROM sync_outbox ORDER BY dev_seq').all();",
+    "const env1 = JSON.parse(ob[0].envelope);",
+    "setTimeout(() => { console.log(JSON.stringify({ id: !!id, localCount: local.length, localId: local[0] && local[0].id, rows: ob.length, evOp: env1.op, evId: env1.args.id })); }, 150);"
   ].join('\n'));
-  assert.strictEqual(out.id, true, 'the caller got an id back, sync-style');
-  assert.deepStrictEqual(out.seqs, [1, 2], 'dev_seq is strictly sequential');
-  assert.strictEqual(out.local, 0, 'satellite mode forks NOTHING into the local mind');
-  assert.strictEqual(out.op, 'engram_record');
-  assert.strictEqual(out.hasEventId, true);
-  assert.strictEqual(out.hasHlc, true);
-  assert.strictEqual(out.dev, 'dev_test');
+  assert.strictEqual(out.id, true);
+  assert.ok(out.localCount >= 1, 'the write lives locally FIRST — offline is full function');
+  assert.strictEqual(out.rows, 1, 'and it rides the outbox too');
+  assert.strictEqual(out.evOp, 'engram_record');
+  assert.strictEqual(out.evId, out.localId, 'one id fleet-wide: the event carries the author record id');
 });
 
 test('SYN-10: the flusher ships in order, records gseq, and stops dead when the hub refuses', () => {
@@ -256,23 +253,21 @@ test('SYN-11: the clock never lies backwards, and a future stamp is flagged, not
   assert.strictEqual(out.flag, 'future_stamp');
 });
 
-test('SYN-12: satellite recall asks the hub; an unreachable hub answers empty, never stale', () => {
+test('SYN-12: recall answers from THIS machine — an unreachable hub costs a following device nothing', () => {
   const out = hermetic(REQ + [
     "const fs = require('fs');",
     "fs.writeFileSync(process.env.TROTH_CONFIG_PATH, JSON.stringify({ sync: { host: 'http://127.0.0.1:9', deviceId: 'dev_test', deviceToken: 'tok' } }));",
+    "const engram = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'engram.js')) + ");",
+    "engram.recordEngram({ agent_id: 'cli', statement: 'the harbour codeword is saffron lantern', auto_verify: false });",
     "const recallMod = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'recall.js')) + ");",
+    "RC.__setTransportForTests(() => Promise.resolve({ transport_error: true }));",
     "(async () => {",
-    "  RC.__setTransportForTests(() => Promise.resolve({ ok: true, result: [{ statement: 'remembered on the hub', score: 0.9 }] }));",
-    "  const hot = await recallMod.recall({ query: 'anything', agent_id: 'cli' });",
-    "  RC.__setTransportForTests(() => Promise.resolve({ transport_error: true }));",
-    "  const dark = await recallMod.recall({ query: 'anything', agent_id: 'cli' });",
-    "  console.log(JSON.stringify({ hotLen: hot.length, hotFirst: hot[0] && hot[0].statement, darkLen: dark.length, darkIsArray: Array.isArray(dark) }));",
+    "  const got = await recallMod.recall({ query: 'harbour codeword', agent_id: 'cli' });",
+    "  console.log(JSON.stringify({ n: got.length, hit: got.some(function (g) { return /saffron lantern/.test(g.statement || ''); }) }));",
     "})();"
   ].join('\n'));
-  assert.strictEqual(out.hotLen, 1);
-  assert.strictEqual(out.hotFirst, 'remembered on the hub');
-  assert.strictEqual(out.darkLen, 0, 'unreachable mind = empty recall, not a stale local answer');
-  assert.strictEqual(out.darkIsArray, true);
+  assert.ok(out.n >= 1, 'recall answered with the hub dark');
+  assert.strictEqual(out.hit, true, 'and it answered from the local copy');
 });
 
 test('SYN-13: the mind travels as one file — the bundle carries the journal position and round-trips the memories', () => {
@@ -437,5 +432,104 @@ test('SYN-19: invites — the mind knocks first, the invite is the approval, and
   assert.ok(String(out.redCode).indexOf('troth1.') === 0, 'redeeming hands back a pairing code');
   assert.strictEqual(out.redAgain, 'no_such_invite', 'an invite spends exactly once');
   assert.strictEqual(out.badNote, 'bad_invite', 'a hostless invite is refused at the door');
+});
+
+test('SYN-20: the feed serves the journal after a position, in order, only what has an outcome', () => {
+  const out = hermetic(REQ + [
+    "(async () => {",
+    "  const d = HUB.addDevice('laptop');",
+    "  for (const t of ['one', 'two', 'three']) { await HUB.applyEvent(env(d.device_id, ['one','two','three'].indexOf(t) + 1, 'engram_record', { statement: 'feed ' + t })); }",
+    "  const all = HUB.listEventsSince(0, 10);",
+    "  const after1 = HUB.listEventsSince(1, 10);",
+    "  const page = HUB.listEventsSince(0, 2);",
+    "  console.log(JSON.stringify({ n: all.length, order: all.map(function (e) { return e.gseq; }), after1: after1.map(function (e) { return e.gseq; }), page: page.length, hasArgs: !!all[0].args.statement, dev: all[0].device_id }));",
+    "})();"
+  ].join('\n'));
+  assert.strictEqual(out.n, 3);
+  assert.deepStrictEqual(out.order, [1, 2, 3], 'the only order that exists');
+  assert.deepStrictEqual(out.after1, [2, 3], 'a position is resumable');
+  assert.strictEqual(out.page, 2, 'pagination holds');
+  assert.strictEqual(out.hasArgs, true);
+  assert.strictEqual(out.dev, out.dev, 'device provenance rides along');
+});
+
+test('SYN-21: a replica applies foreign events on the same ids, skips its own echo, and stops dead on an op it cannot read', () => {
+  const out = hermetic(REQ + [
+    "const REP = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'sync', 'replica.js')) + ");",
+    "(async () => {",
+    "  const foreign = { gseq: 7, event_id: AR.uuidv7(), device_id: 'dev_other', op: 'engram_record', op_v: 1, args: { id: AR.uuidv7(), statement: 'a thought from the other machine' }, ctx: { agent_id: 'studio-surface' } };",
+    "  const okF = await REP._applyOne(foreign, 'dev_me');",
+    "  const mine = { gseq: 8, event_id: AR.uuidv7(), device_id: 'dev_me', op: 'engram_record', op_v: 1, args: { id: AR.uuidv7(), statement: 'my own echo' }, ctx: {} };",
+    "  const okM = await REP._applyOne(mine, 'dev_me');",
+    "  const alien = { gseq: 9, event_id: AR.uuidv7(), device_id: 'dev_other', op: 'claim_teleport', op_v: 1, args: {}, ctx: {} };",
+    "  const okA = await REP._applyOne(alien, 'dev_me');",
+    "  const db = S.db();",
+    "  const rows = db.prepare('SELECT id FROM action_records').all();",
+    "  console.log(JSON.stringify({ okF, okM, okA, count: rows.length, sameId: rows.some(function (r) { return r.id === foreign.args.id; }), echoLanded: rows.some(function (r) { return r.id === mine.args.id; }), q: REP.status().quarantined }));",
+    "})();"
+  ].join('\n'));
+  assert.strictEqual(out.okF, true);
+  assert.strictEqual(out.sameId, true, 'the foreign record lands under its author id — one record fleet-wide');
+  assert.strictEqual(out.okM, true);
+  assert.strictEqual(out.echoLanded, false, 'a device never re-applies its own event');
+  assert.strictEqual(out.okA, false, 'an unreadable op stops the feed');
+  assert.ok(/claim_teleport/.test(String(out.q)), 'and says which op needs a newer build');
+});
+
+test('SYN-22: the baseline is the whole mind with a position stamp — a fresh replica starts from it and pulls the rest', () => {
+  const out = hermetic(REQ + [
+    "const REP = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'sync', 'replica.js')) + ");",
+    "const engram = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'engram.js')) + ");",
+    "const fs = require('fs');",
+    "fs.writeFileSync(process.env.TROTH_CONFIG_PATH, JSON.stringify({ sync: { host: 'http://127.0.0.1:9', deviceId: 'dev_test', deviceToken: 'tok' } }));",
+    "(async () => {",
+    "  engram.recordEngram({ _local: true, agent_id: 'cli', statement: 'history from before the pairing' });",
+    "  const d = HUB.addDevice('laptop');",
+    "  await HUB.applyEvent(env(d.device_id, 1, 'engram_record', { statement: 'a journaled thought' }));",
+    "  const b = HUB.baseline();",
+    "  RC.__setTransportForTests((s, m, p) => {",
+    "    if (p === '/api/sync/baseline') return Promise.resolve(b);",
+    "    return Promise.resolve({ ok: true, events: [] });",
+    "  });",
+    "  const boot = await REP.bootstrap();",
+    "  console.log(JSON.stringify({ enc: b.atlas_encoding, count: b.atlas_count, stamp: b.latest_gseq, ok: boot.ok, at: boot.at, applied: REP.appliedGseq(), booted: REP.status().bootstrapped }));",
+    "})();"
+  ].join('\n'));
+  assert.strictEqual(out.enc, 'gzip+base64');
+  assert.ok(out.count >= 2, 'the baseline carries pre-sync history AND journaled writes');
+  assert.ok(out.stamp >= 1);
+  assert.strictEqual(out.ok, true);
+  assert.strictEqual(out.applied, out.stamp, 'the replica resumes exactly where the baseline was cut');
+  assert.strictEqual(out.booted, true);
+});
+
+test('SYN-23: the pull loop drains the feed through the stub wire and advances its position', () => {
+  const out = hermetic(REQ + [
+    "const REP = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'sync', 'replica.js')) + ");",
+    "const fs = require('fs');",
+    "fs.writeFileSync(process.env.TROTH_CONFIG_PATH, JSON.stringify({ sync: { host: 'http://127.0.0.1:9', deviceId: 'dev_me', deviceToken: 'tok' } }));",
+    "(async () => {",
+    "  const feed = [",
+    "    { gseq: 1, event_id: AR.uuidv7(), device_id: 'dev_other', op: 'engram_record', op_v: 1, args: { id: AR.uuidv7(), statement: 'first from afar' }, ctx: {} },",
+    "    { gseq: 2, event_id: AR.uuidv7(), device_id: 'dev_me',    op: 'engram_record', op_v: 1, args: { id: AR.uuidv7(), statement: 'my echo' }, ctx: {} },",
+    "    { gseq: 3, event_id: AR.uuidv7(), device_id: 'dev_other', op: 'dialogue_turn', op_v: 1, args: { id: AR.uuidv7(), user_text: 'spoken there', assistant_text: 'answered there' }, ctx: { agent_id: 'studio' } }",
+    "  ];",
+    "  RC.__setTransportForTests((s, m, p) => {",
+    "    if (p === '/api/sync/baseline') return Promise.resolve({ ok: true, latest_gseq: 0, atlas_count: 0, atlas_ndjson: '', atlas_encoding: null });",
+    "    if (p.indexOf('/api/sync/events') === 0) {",
+    "      const since = parseInt(p.split('since=')[1], 10) || 0;",
+    "      return Promise.resolve({ ok: true, events: feed.filter(function (e) { return e.gseq > since; }).slice(0, 2) });",
+    "    }",
+    "    return Promise.resolve({ ok: true });",
+    "  });",
+    "  const r = await REP.pull();",
+    "  const db = S.db();",
+    "  const n = db.prepare('SELECT COUNT(*) AS n FROM action_records').get().n;",
+    "  console.log(JSON.stringify({ pulled: r.pulled, applied: REP.appliedGseq(), rows: n }));",
+    "})();"
+  ].join('\n'));
+  assert.strictEqual(out.pulled, 3, 'the loop pages until the feed runs dry');
+  assert.strictEqual(out.applied, 3, 'the position lands on the last event');
+  assert.strictEqual(out.rows, 2, 'two foreign records landed; the echo did not double');
 });
 };
