@@ -19,7 +19,7 @@ module.exports.run = async (ctx, check) => {
   // HTTP write surface for engrams, by design).
   const KEEP = 'the journey harbour ledger is reconciled every Tuesday by the finance desk';
   const DROP = 'the journey harbour ledger reconciliation moved to Thursday for the finance desk';
-  const seed = spawnSync(process.execPath, ['-e',
+  const seed = spawnSync(ctx.NODE, ['-e',
     'const e=require(process.argv[1]);' +
     'const a=e.recordEngram({agent_id:"local-agent",user_id:"default",cwd:null,statement:process.argv[2],source:"journey",source_authority:"llm_inferred",auto_verify:false});' +
     'const b=e.recordEngram({agent_id:"local-agent",user_id:"default",cwd:null,statement:process.argv[3],source:"journey",source_authority:"llm_inferred",auto_verify:false});' +

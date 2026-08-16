@@ -22,7 +22,7 @@ module.exports.run = async (ctx, check) => {
   const browserLib = require('./lib/browser.js');
 
   // A corpus, written the way ingest writes one: chunks under a docs: scope.
-  const seed = spawnSync(process.execPath, ['-e',
+  const seed = spawnSync(ctx.NODE, ['-e',
     'const s=require(process.argv[1]);const ar=require(process.argv[2]);' +
     'const L=require(process.argv[3]);' +
     'for (let i=0;i<4;i++){const id=ar.uuidv7();s.recordAction({id,timestamp:Date.now()+i,type:"commitment",' +

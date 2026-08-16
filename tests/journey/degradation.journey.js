@@ -59,7 +59,7 @@ module.exports.run = async (ctx, check) => {
   const { execFileSync } = require('child_process');
   let out = '';
   try {
-    out = execFileSync(process.execPath, ['-e', probe], {
+    out = execFileSync(ctx.NODE, ['-e', probe], {
       encoding: 'utf8', timeout: 120000,
       env: Object.assign({}, process.env, {
         HOME: ctx.home,

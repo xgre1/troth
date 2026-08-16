@@ -41,6 +41,11 @@ function make({ root, target }) {
 
   const ctx = {
     root, target, home,
+    // The runtime under test. Scenario fixtures that require the target's
+    // shared-core directly MUST spawn with this, never process.execPath:
+    // the runner's node and the bundle's node need not share a native ABI,
+    // and the mismatch reads exactly like broken product behavior.
+    NODE,
 
     /** Write ~/.troth/config.json for this scenario's HOME. */
     writeConfig(obj) {

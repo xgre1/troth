@@ -59,7 +59,7 @@ module.exports.run = async (ctx, check) => {
   fs.writeFileSync(docPath,
     '# Berth allocation\n\n' +
     'The night shift allocates berths against the bonded schedule, not the manifest. '.repeat(10) + '\n');
-  const seeded = execFileSync(process.execPath, ['-e',
+  const seeded = execFileSync(ctx.NODE, ['-e',
     'const s=require(process.argv[1]);' +
     'console.log(s.spoolKnowledge({kind:"file",ref:process.argv[2],sha:"journey-sha-1",bytes:900,' +
     'why:"how are berths allocated at night"}) ? "SEEDED" : "NO");',
@@ -98,7 +98,7 @@ module.exports.run = async (ctx, check) => {
   // Seed a second one so there is something left to remove by hand.
   const dropPath = path.join(docDir, 'vendor-price-list.md');
   fs.writeFileSync(dropPath, 'prices\n'.repeat(40));
-  execFileSync(process.execPath, ['-e',
+  execFileSync(ctx.NODE, ['-e',
     'const s=require(process.argv[1]);' +
     's.spoolKnowledge({kind:"file",ref:process.argv[2],sha:"journey-sha-2",bytes:280,why:"price list"});',
     path.join(ctx.root, 'shared-core', 'state.js'), dropPath

@@ -16,7 +16,7 @@ module.exports.run = async (ctx, check) => {
   const { spawnSync } = require('child_process');
 
   const MARKER = '/journey/records/ledger-of-the-harbour.md';
-  const seed = spawnSync(process.execPath, ['-e',
+  const seed = spawnSync(ctx.NODE, ['-e',
     'const s=require(process.argv[1]);const ar=require(process.argv[2]);' +
     'const mk=(tool,args)=>{const id=ar.uuidv7();s.recordAction({id,timestamp:Date.now(),type:"tool_call",' +
     'agent_id:"journey",user_id:"default",cwd:null,memory_class:"episodic",audience:"model_visible",' +
