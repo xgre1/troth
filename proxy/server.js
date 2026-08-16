@@ -2634,10 +2634,23 @@ const server = http.createServer((req, res) => {
     jsonResponse(res, 200, Object.assign({ ok: true }, _syncFollow || { state: 'idle' }));
     return;
   }
-  if (req.method === 'GET' && url === '/api/mind/bundles') {
+  if (req.method === 'GET' && url.startsWith('/api/mind/bundles')) {
     if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
-    try { jsonResponse(res, 200, { ok: true, bundles: require('../shared-core/substrate-backup.js').listBundles() }); }
-    catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) }); }
+    try {
+      const scope = String((new URL(req.url, 'http://x')).searchParams.get('scope') || 'backups');
+      const backupLib = require('../shared-core/substrate-backup.js');
+      let bundles;
+      if (scope === 'transfers') {
+        // Where a mind ARRIVES on a Mac: the AirDrop landing zone and the
+        // desk. The backups home is deliberately not in this list — those
+        // are this machine's own restore points, a different shelf.
+        const home = process.env.HOME || require('os').homedir();
+        bundles = backupLib.listBundles({ dirs: [path.join(home, 'Downloads'), path.join(home, 'Desktop')] });
+      } else {
+        bundles = backupLib.listBundles();
+      }
+      jsonResponse(res, 200, { ok: true, scope, bundles });
+    } catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) }); }
     return;
   }
   if (url === '/api/sync/hello' || url === '/api/sync/event' || url === '/api/sync/query') {

@@ -327,34 +327,37 @@ function verifyRestore(opts) {
 }
 
 // The bundles a dashboard can OFFER instead of asking a person to type a
-// path: every directory in the backups home whose manifest parses, newest
-// first, with the facts a chooser needs (when it was cut, how many
-// memories, the journal position). opts.dir overrides for tests.
+// path: every directory whose manifest parses, newest first, with the
+// facts a chooser needs (when it was cut, how many memories, the journal
+// position). opts.dirs scans several places (Downloads and Desktop —
+// where an AirDropped mind lands); opts.dir keeps the single-dir form.
 function listBundles(opts) {
   opts = opts || {};
-  let dir = opts.dir;
-  if (!dir) {
-    try { dir = path.join(require('./troth-home.js').trothDir(), 'backups'); }
-    catch (_) { dir = path.join(process.env.HOME || require('os').homedir(), '.troth', 'backups'); }
+  let dirs = Array.isArray(opts.dirs) ? opts.dirs : (opts.dir ? [opts.dir] : null);
+  if (!dirs) {
+    try { dirs = [path.join(require('./troth-home.js').trothDir(), 'backups')]; }
+    catch (_) { dirs = [path.join(process.env.HOME || require('os').homedir(), '.troth', 'backups')]; }
   }
-  let names = [];
-  try { names = fs.readdirSync(dir); } catch (_) { return []; }
   const out = [];
-  for (const n of names) {
-    const p = path.join(dir, n);
-    try {
-      const manifest = JSON.parse(fs.readFileSync(path.join(p, 'manifest.json'), 'utf8'));
-      let size = 0;
-      try { size = fs.statSync(path.join(p, 'state.db')).size; } catch (_) {}
-      out.push({
-        path: p,
-        name: n,
-        generated_at: manifest.generated_at || null,
-        engram_count: manifest.engram_count == null ? null : manifest.engram_count,
-        sync_latest_gseq: manifest.sync_latest_gseq == null ? null : manifest.sync_latest_gseq,
-        db_size_bytes: size
-      });
-    } catch (_) { /* not a bundle — skip */ }
+  for (const dir of dirs) {
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch (_) { continue; }
+    for (const n of names) {
+      const p = path.join(dir, n);
+      try {
+        const manifest = JSON.parse(fs.readFileSync(path.join(p, 'manifest.json'), 'utf8'));
+        let size = 0;
+        try { size = fs.statSync(path.join(p, 'state.db')).size; } catch (_) {}
+        out.push({
+          path: p,
+          name: n,
+          generated_at: manifest.generated_at || null,
+          engram_count: manifest.engram_count == null ? null : manifest.engram_count,
+          sync_latest_gseq: manifest.sync_latest_gseq == null ? null : manifest.sync_latest_gseq,
+          db_size_bytes: size
+        });
+      } catch (_) { /* not a bundle — skip */ }
+    }
   }
   out.sort((a, b) => String(b.generated_at || '').localeCompare(String(a.generated_at || '')));
   return out;

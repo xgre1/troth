@@ -2505,7 +2505,7 @@ setInterval(function(){
       </div>
       <div id="pair-result" style="display:none;font-size:11px;font-family:var(--mono);line-height:1.9;margin-top:12px;padding:12px;border:1px solid var(--glass-border);border-radius:6px;"></div>
       <a href="#" onclick="document.getElementById('sync-code').classList.toggle('open');return false;" style="display:inline-block;margin-top:12px;color:var(--signal);text-decoration:none;font-size:11px;">pair with a code instead</a>
-      <div class="breath" id="sync-code">
+      <div class="breath" id="sync-code"><div>
         <div class="form-row" style="margin-top:8px;">
           <div class="field"><label>Pairing code from another machine</label><input type="text" id="cfg-paircode" placeholder="troth1.&hellip;"></div>
           <div class="field"><label>Or make a code for a device</label><input type="text" id="cfg-pairname" placeholder="name it — e.g. laptop"></div>
@@ -2516,7 +2516,7 @@ setInterval(function(){
           <span class="test-result" id="sync-status"></span>
         </div>
         <a href="#" onclick="document.getElementById('sync-advanced').classList.toggle('open');return false;" style="display:inline-block;margin-top:8px;color:var(--signal);text-decoration:none;font-size:11px;">advanced: enter by hand</a>
-        <div class="breath" id="sync-advanced">
+        <div class="breath" id="sync-advanced"><div>
           <div class="form-row">
             <div class="field"><label>Hub address</label><input type="text" id="cfg-synchost" placeholder="http://100.x.y.z:8000"></div>
             <div class="field"><label>Device ID</label><input type="text" id="cfg-syncdevice" placeholder="dev_xxxxxxxx"></div>
@@ -2525,27 +2525,36 @@ setInterval(function(){
           <div class="card-footer">
             <button class="btn btn-ghost" onclick="saveSyncHub()">Save</button>
           </div>
-        </div>
-      </div>
+        </div></div>
+      </div></div>
     </div>
     <div class="settings-card op-gated" data-settings-tab="network">
       <div class="card-title">My data</div>
-      <div class="card-hint">Your whole mind as one file. Export it to carry or keep &mdash; AirDrop it to a new Mac, stash it as a backup. Import one and this machine wakes up as that mind.</div>
-      <div class="card-footer" style="margin-bottom:4px;">
+      <div class="card-hint">Your whole mind as one file. <b>Export</b> makes a bundle to AirDrop or keep. <b>Import</b> wakes this machine up as a mind you brought over. <b>My backups</b> are the bundles this machine keeps for itself.</div>
+      <div class="card-footer" style="margin-bottom:16px;">
         <button class="btn btn-ghost" onclick="exportMindFile(this)">Export</button>
+        <button class="btn btn-ghost" onclick="toggleMyDataShelf('mydata-import')">Import</button>
+        <button class="btn btn-ghost" onclick="toggleMyDataShelf('mydata-backups')">My backups</button>
         <span class="test-result" id="mydata-result"></span>
       </div>
-      <div id="mydata-bundles"></div>
-      <div id="mydata-path" style="display:none;font-size:11px;font-family:var(--mono);line-height:1.9;margin-top:8px;padding:10px;border:1px solid var(--glass-border);border-radius:6px;"></div>
-      <a href="#" onclick="document.getElementById('mydata-adv').classList.toggle('open');return false;" style="display:inline-block;margin-top:8px;color:var(--signal);text-decoration:none;font-size:11px;">import from a path</a>
-      <div class="breath" id="mydata-adv">
-        <div class="form-row" style="margin-top:8px;">
-          <div class="field"><label>Bundle folder</label><input type="text" id="cfg-mindbundle" placeholder="/Users/you/&hellip;/substrate-2026-08-16"></div>
-        </div>
-        <div class="card-footer">
-          <button class="btn btn-ghost" onclick="importMindFile(this)">Import</button>
-        </div>
-      </div>
+      <div class="breath" id="mydata-import"><div>
+        <div class="card-title">Brought to this machine</div>
+        <div id="mydata-import-rows"></div>
+        <a href="#" onclick="document.getElementById('mydata-adv').classList.toggle('open');return false;" style="display:inline-block;margin-top:8px;color:var(--signal);text-decoration:none;font-size:11px;">import from a path</a>
+        <div class="breath" id="mydata-adv"><div>
+          <div class="form-row" style="margin-top:8px;">
+            <div class="field"><label>Bundle folder</label><input type="text" id="cfg-mindbundle" placeholder="/Users/you/&hellip;/substrate-2026-08-16"></div>
+          </div>
+          <div class="card-footer">
+            <button class="btn btn-ghost" onclick="importMindFile(this)">Import</button>
+          </div>
+        </div></div>
+      </div></div>
+      <div class="breath" id="mydata-backups"><div>
+        <div class="card-title">Kept on this machine</div>
+        <div id="mydata-backup-rows"></div>
+      </div></div>
+      <div id="mydata-path" style="display:none;font-size:11px;font-family:var(--mono);line-height:1.9;margin-top:10px;padding:10px;border:1px solid var(--glass-border);border-radius:6px;"></div>
     </div>
     <div class="settings-card op-gated" data-settings-tab="telemetry">
       <div class="card-title">Telemetry</div>
@@ -3676,7 +3685,7 @@ function loadConfig() {
       // deviceToken comes back [REDACTED] and is stripped on save; the
       // placeholder tells the story, the field stays empty.
       renderSyncCard();
-      loadBundles();
+
       if (!window.__syncPulse) {
         window.__syncPulse = setInterval(function () {
           var page = document.getElementById('page-settings');
@@ -3872,7 +3881,7 @@ function renderNearby() {
   fetch('/api/sync/nearby').then(function (r) { return r.json(); }).then(function (j) {
     var minds = (j.minds || []);
     if (!minds.length) {
-      rows.innerHTML = '<div class="tr-desc" style="padding:10px 0;">No minds announced on this network yet. On the mind machine, give the proxy a network door (Bind Host above) and it will appear here by itself. On a different network, use a pairing code below.</div>';
+      rows.innerHTML = '<div class="tr-desc" style="padding:8px 0;">None announced on this network yet — the mind machine needs a network Bind Host; across networks, pair with a code below.</div>';
       return;
     }
     rows.innerHTML = minds.map(function (m) {
@@ -4045,18 +4054,37 @@ function revokePairedDevice(id) {
     renderDevices();
   }).catch(function () { toast('Revoke failed'); });
 }
-function loadBundles() {
-  var rows = document.getElementById('mydata-bundles');
+// My data shelves: Import lists bundles BROUGHT here (Downloads, Desktop —
+// where an AirDrop lands); My backups lists what this machine keeps for
+// itself. One open at a time; rows in the house voice.
+function toggleMyDataShelf(which) {
+  var other = which === 'mydata-import' ? 'mydata-backups' : 'mydata-import';
+  document.getElementById(other).classList.remove('open');
+  var el = document.getElementById(which);
+  el.classList.toggle('open');
+  if (!el.classList.contains('open')) return;
+  if (which === 'mydata-import') loadTransferBundles(); else loadBackupShelf();
+}
+function _bundleRows(targetId, scope, action, emptyText) {
+  var rows = document.getElementById(targetId);
   if (!rows) return;
-  fetch('/api/mind/bundles').then(function (r) { return r.json(); }).then(function (j) {
+  fetch('/api/mind/bundles?scope=' + scope).then(function (r) { return r.json(); }).then(function (j) {
     var bundles = (j.bundles || []);
-    if (!bundles.length) { rows.innerHTML = '<div class="tr-desc" style="padding:6px 0 2px;">No bundles here yet — Export makes one, and bundles AirDropped into ~/.troth/backups appear by themselves.</div>'; return; }
+    if (!bundles.length) { rows.innerHTML = '<div class="tr-desc" style="padding:8px 0;">' + emptyText + '</div>'; return; }
     rows.innerHTML = bundles.map(function (b) {
       var when = b.generated_at ? new Date(b.generated_at).toLocaleString() : '';
       var meta = [when, (b.engram_count != null ? b.engram_count + ' memories' : null), (b.db_size_bytes ? Math.round(b.db_size_bytes / 1048576 * 10) / 10 + ' MB' : null)].filter(Boolean).join(' · ');
-      return _syncRow(b.name, meta, '<button class="btn-mini" onclick="importBundle(\'' + b.path.replace(/'/g, "\\'") + '\')">Import</button>');
+      return _syncRow(b.name, meta, '<button class="btn-mini" onclick="importBundle(\'' + b.path.replace(/'/g, "\\'") + '\')">' + action + '</button>');
     }).join('');
   }).catch(function () {});
+}
+function loadTransferBundles() {
+  _bundleRows('mydata-import-rows', 'transfers', 'Import',
+    'Nothing in Downloads or Desktop yet — AirDrop or copy a bundle there and it appears here, or use a path below.');
+}
+function loadBackupShelf() {
+  _bundleRows('mydata-backup-rows', 'backups', 'Restore',
+    'No backups yet — Export makes one, and a weekly one is kept automatically.');
 }
 function importBundle(p) {
   document.getElementById('cfg-mindbundle').value = p;
@@ -4073,7 +4101,7 @@ function exportMindFile(btn) {
     box.innerHTML = 'Your mind, as one file:<br>' +
       '<span style="user-select:all;">' + j.path + '</span><br>' +
       '<span style="opacity:.55;">AirDrop it, copy it, keep it. Import it on any machine from this same card.</span>';
-    loadBundles();
+    loadBackupShelf();
   }).catch(function () {
     if (btn) { btn.disabled = false; btn.textContent = 'Export'; }
     toast('Export failed');
