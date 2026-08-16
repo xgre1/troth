@@ -213,6 +213,16 @@ That is the difference from a memory plugin: a bolt-on remembers text for one ve
 
 ---
 
+## One mind, many devices
+
+Pair another Mac and the whole substrate travels: each device keeps a full replica, works offline, and reconciles on its own the next time your machines meet. Writes land locally first — a train ride costs you nothing — and flow both ways through a hub you own, never through us.
+
+Setup is a wizard, not a config file: dashboard → Network → Set up. One machine holds the mind; the other pastes a one-time pairing code, or gets discovered on the local network and invited. From the terminal, `troth device add` mints the code, `troth sync connect <code>` is the whole client side, and `troth sync status` says where you stand. The mind also moves as a single file — export from the dashboard, carry it, import on the new machine, nothing resets.
+
+Use it on networks you trust (home, office, a tailnet). The wire format is the same journal the substrate keeps locally, and [`tests/suite-68-substrate-sync.js`](tests/suite-68-substrate-sync.js) is the contract: ordering, replay, revocation, offline reconciliation.
+
+---
+
 ## Security defaults
 
 - **Loopback by default.** The proxy binds `127.0.0.1`. Remote access is explicit opt-in (`GF_BIND_HOST=0.0.0.0`, legacy prefix kept for compatibility), and every non-loopback request must present a bearer token (auto-generated, stored `0600`). No IP-range allowlists, no silent bypasses.
