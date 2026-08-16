@@ -1,18 +1,8 @@
-# The anti-Signal cron.
-#
-# Signal's server source sat unpublished for a full year while production
-# moved on; users found out by noticing the staleness. The same shape nearly
-# happened here on 2026-08-15: DMG, CDN and site all shipped a version the
-# open repository had never seen. Release-time checks catch that at release
-# time — this cron catches it every day BETWEEN releases, from the outside,
-# with no human in the loop (the SQLite mirror discipline).
-#
-# One question, asked daily: does the version the world DOWNLOADS match the
-# version this repository SAYS it is? The appcast is the site's machine
-# surface (version + dmg sha256); package.json is this tree's. Drift in
-# either direction — site ahead of the mirror, mirror ahead of the site —
-# turns the badge red within 24h, and the download link is probed while
-# we're here.
+# Daily distribution check: the version the world downloads must match the
+# version this repository carries. The appcast is the site's machine surface
+# (version + artifact sha), package.json is this tree's; drift in either
+# direction turns this badge red within a day, and the download link is
+# probed while we are here. Scheduled workflows do not run on forks.
 name: Parity
 on:
   schedule:
