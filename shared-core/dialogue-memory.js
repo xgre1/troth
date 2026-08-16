@@ -125,15 +125,16 @@ function recordTurn(opts) {
     // id. _local marks an apply of a foreign event — never re-queued.
     if (_wrote && !opts._local) {
       try {
+        const _evArgs = {
+          id: rec.id,
+          user_text, assistant_text, faculty,
+          conversation_id,
+          elapsed_ms: opts.elapsed_ms || null
+        };
+        const _evCtx = { agent_id, user_id, cwd };
         const rc = require('./sync/remote-client.js');
-        if (rc.active()) {
-          rc.queueWrite('dialogue_turn', {
-            id: rec.id,
-            user_text, assistant_text, faculty,
-            conversation_id,
-            elapsed_ms: opts.elapsed_ms || null
-          }, { agent_id, user_id, cwd });
-        }
+        if (rc.active()) rc.queueWrite('dialogue_turn', _evArgs, _evCtx);
+        else require('./sync/hub-journal.js').maybeJournal('dialogue_turn', _evArgs, _evCtx);
       } catch (_) { /* local record stands; the flusher retries */ }
     }
     // Fire-and-forget: substrate-side classical classifier scans the

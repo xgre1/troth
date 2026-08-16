@@ -3868,7 +3868,9 @@ function renderSyncCard() {
       var ok = s.hub && s.hub.reachable;
       roleDot.className = ok ? 'pulse' : 'pulse off';
       var rep = s.replica || {};
-      if (!ok) {
+      if (!ok && s.hub && s.hub.revoked) {
+        roleDesc.textContent = 'This device was revoked at the mind machine. Its local copy keeps working; press Back to a local mind, or pair again from Set up.';
+      } else if (!ok) {
         roleDesc.textContent = 'Offline. Everything keeps working from the copy on this machine; what you say here syncs by itself when the mind returns.' + (s.pending ? ' ' + s.pending + ' queued.' : '');
       } else if (!rep.bootstrapped || (rep.behind | 0) > 3) {
         roleDesc.textContent = 'Syncing the mind down to this machine' + (rep.behind ? ' (' + rep.behind + ' to go).' : '.');

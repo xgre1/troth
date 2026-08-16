@@ -637,16 +637,17 @@ function recordEngram(opts) {
     // re-queued, or the fleet would echo forever.
     if (!opts._local) {
       try {
+        const _evArgs = {
+          id,
+          statement,
+          salience: typeof opts.salience === 'number' ? opts.salience : undefined,
+          scope:    typeof opts.scope === 'string' ? opts.scope : undefined,
+          audience: typeof opts.audience === 'string' ? opts.audience : undefined
+        };
+        const _evCtx = { agent_id, user_id, cwd };
         const rc = require('./sync/remote-client.js');
-        if (rc.active()) {
-          rc.queueWrite('engram_record', {
-            id,
-            statement,
-            salience: typeof opts.salience === 'number' ? opts.salience : undefined,
-            scope:    typeof opts.scope === 'string' ? opts.scope : undefined,
-            audience: typeof opts.audience === 'string' ? opts.audience : undefined
-          }, { agent_id, user_id, cwd });
-        }
+        if (rc.active()) rc.queueWrite('engram_record', _evArgs, _evCtx);
+        else require('./sync/hub-journal.js').maybeJournal('engram_record', _evArgs, _evCtx);
       } catch (_) { /* the local write stands; the flusher retries the ride */ }
     }
     return id;

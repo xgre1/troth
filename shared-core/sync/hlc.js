@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Hybrid Logical Clock, collatable-string form:
 //
-//   2026-08-16T12:00:00.000Z-0042-<node>
+//   2030-01-01T00:00:00.000Z-0042-<node>
 //
 // Plain string comparison IS the ordering: ISO instant, then a zero-padded
 // counter for same-millisecond events, then the node id as a tiebreak. The

@@ -532,4 +532,66 @@ test('SYN-23: the pull loop drains the feed through the stub wire and advances i
   assert.strictEqual(out.applied, 3, 'the position lands on the last event');
   assert.strictEqual(out.rows, 2, 'two foreign records landed; the echo did not double');
 });
+
+test('SYN-24: the hub\'s own words reach the journal — but only when someone follows', () => {
+  const out = hermetic(REQ + [
+    "const engram = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'engram.js')) + ");",
+    "const HJ = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'sync', 'hub-journal.js')) + ");",
+    "const idBefore = engram.recordEngram({ agent_id: 'cli', statement: 'said before anyone followed' });",
+    "const before = S.db().prepare('SELECT COUNT(*) AS n FROM sync_events').get().n;",
+    "HUB.addDevice('laptop');",
+    "HJ._resetForTests();",
+    "const idAfter = engram.recordEngram({ agent_id: 'cli', statement: 'said while a device follows' });",
+    "const rows = S.db().prepare(\"SELECT device_id, dev_seq, op, args, outcome FROM sync_events WHERE device_id = 'hub'\").all();",
+    "const feed = HUB.listEventsSince(0, 10);",
+    "const a = rows[0] ? JSON.parse(rows[0].args) : {};",
+    "console.log(JSON.stringify({ before, hubRows: rows.length, op: rows[0] && rows[0].op, seq: rows[0] && rows[0].dev_seq, idMatches: a.id === idAfter, served: feed.some(function (e) { return e.device_id === 'hub'; }), outcomeLocal: rows[0] && JSON.parse(rows[0].outcome).local === true }));"
+  ].join('\n'));
+  assert.strictEqual(out.before, 0, 'no followers, no journal — a lone mind owes the wire nothing');
+  assert.strictEqual(out.hubRows, 1, 'with a follower, the hub write becomes an event');
+  assert.strictEqual(out.op, 'engram_record');
+  assert.strictEqual(out.seq, 1);
+  assert.strictEqual(out.idMatches, true, 'carrying the same record id the hub wrote locally');
+  assert.strictEqual(out.served, true, 'and the feed serves it to the fleet');
+  assert.strictEqual(out.outcomeLocal, true, 'stamped as history, not a request');
+});
+
+test('SYN-25: the outbox lets acked history go, keeping a short tail', () => {
+  const out = hermetic(REQ + [
+    "const fs = require('fs');",
+    "fs.writeFileSync(process.env.TROTH_CONFIG_PATH, JSON.stringify({ sync: { host: 'http://127.0.0.1:9', deviceId: 'dev_me', deviceToken: 'tok' } }));",
+    "(async () => {",
+    "  let g = 0;",
+    "  RC.__setTransportForTests(() => Promise.resolve({ ok: true, gseq: ++g }));",
+    "  for (let i = 0; i < 230; i++) RC.queueWrite('engram_record', { id: AR.uuidv7(), statement: 'bulk ' + i }, { agent_id: 'cli' });",
+    "  await RC.flush();",
+    "  const db = S.db();",
+    "  const total = db.prepare('SELECT COUNT(*) AS n FROM sync_outbox').get().n;",
+    "  const unsent = db.prepare('SELECT COUNT(*) AS n FROM sync_outbox WHERE sent_at IS NULL').get().n;",
+    "  console.log(JSON.stringify({ total, unsent }));",
+    "})();"
+  ].join('\n'));
+  assert.strictEqual(out.unsent, 0, 'everything shipped');
+  assert.ok(out.total <= 201 && out.total >= 195, 'acked rows beyond the tail are gone (kept ' + out.total + ')');
+});
+
+test('SYN-26: the wire respects per-call appetites — a mind-sized answer passes where an ordinary call is capped', () => {
+  const out = hermetic(REQ + [
+    "const http = require('http');",
+    "const fs = require('fs');",
+    "const big = JSON.stringify({ ok: true, payload: 'x'.repeat(6 * 1024 * 1024) });",
+    "const srv = http.createServer((q, r) => { r.setHeader('content-type', 'application/json'); r.end(big); });",
+    "srv.listen(0, '127.0.0.1', async () => {",
+    "  const port = srv.address().port;",
+    "  fs.writeFileSync(process.env.TROTH_CONFIG_PATH, JSON.stringify({ sync: { host: 'http://127.0.0.1:' + port, deviceId: 'dev_me', deviceToken: 'tok' } }));",
+    "  const capped = await RC.request('GET', '/anything', null);",
+    "  const roomy = await RC.request('GET', '/anything', null, { maxBytes: 20e6 });",
+    "  srv.close();",
+    "  console.log(JSON.stringify({ cappedDied: !!capped.transport_error, roomyOk: roomy.ok === true, size: (roomy.payload || '').length }));",
+    "});"
+  ].join('\n'));
+  assert.strictEqual(out.cappedDied, true, 'the 4MB default still guards ordinary calls');
+  assert.strictEqual(out.roomyOk, true, 'a declared appetite lets the baseline-sized answer through');
+  assert.ok(out.size > 5e6);
+});
 };

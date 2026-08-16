@@ -129,15 +129,16 @@ async function recordRule(opts) {
   // happened HERE, with this operator; replicas apply, they do not argue.
   if (!opts._local) {
     try {
+      const _evArgs = {
+        text,
+        why:     opts.why || null,
+        scope:   opts.scope === 'project' ? 'project' : 'global',
+        confirm: true
+      };
+      const _evCtx = { agent_id: opts.agent_id, cwd: opts.cwd };
       const rc = require('./sync/remote-client.js');
-      if (rc.active()) {
-        rc.queueWrite('rule_record', {
-          text,
-          why:     opts.why || null,
-          scope:   opts.scope === 'project' ? 'project' : 'global',
-          confirm: true
-        }, { agent_id: opts.agent_id, cwd: opts.cwd });
-      }
+      if (rc.active()) rc.queueWrite('rule_record', _evArgs, _evCtx);
+      else require('./sync/hub-journal.js').maybeJournal('rule_record', _evArgs, _evCtx);
     } catch (_) { /* the local rule stands; the flusher retries */ }
   }
   return {

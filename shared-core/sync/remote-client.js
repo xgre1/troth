@@ -146,6 +146,14 @@ async function _flushLoop() {
     })();
     n++;
   }
+  // Hygiene: acked rows have done their work; keep a short tail for the
+  // record and let the rest go, or the outbox grows for the lifetime of
+  // the pairing.
+  if (n > 0) {
+    try {
+      db.prepare('DELETE FROM sync_outbox WHERE sent_at IS NOT NULL AND dev_seq <= (SELECT COALESCE(MAX(dev_seq), 0) FROM sync_outbox WHERE sent_at IS NOT NULL) - 200').run();
+    } catch (_) {}
+  }
   return { flushed: n };
 }
 
@@ -250,7 +258,11 @@ async function connectWithCode(code) {
 
 // ── transport ────────────────────────────────────────────────────────────
 
-function _request(s, method, pathName, body) {
+function _request(s, method, pathName, body, opts) {
+  // Ordinary calls stay tightly bounded; the baseline (a whole mind in one
+  // answer) and the feed (pages of fat dialogue) declare bigger appetites.
+  const timeoutMs = (opts && opts.timeoutMs) || 10000;
+  const maxBytes = (opts && opts.maxBytes) || 4e6;
   return new Promise((resolve) => {
     let u;
     try { u = new URL(pathName, s.host); } catch (_) { return resolve({ transport_error: true, detail: 'bad_host' }); }
@@ -264,11 +276,11 @@ function _request(s, method, pathName, body) {
     const req = mod.request({
       method, hostname: u.hostname,
       port: u.port || (u.protocol === 'https:' ? 443 : 80),
-      path: u.pathname, headers, timeout: 10000
+      path: u.pathname + u.search, headers, timeout: timeoutMs
     }, (res) => {
       let b = '';
       res.setEncoding('utf8');
-      res.on('data', (c) => { b += c; if (b.length > 4e6) req.destroy(); });
+      res.on('data', (c) => { b += c; if (b.length > maxBytes) req.destroy(); });
       res.on('end', () => {
         try { resolve(JSON.parse(b)); }
         catch (_) { resolve({ transport_error: true, status: res.statusCode }); }
@@ -285,10 +297,10 @@ function _request(s, method, pathName, body) {
 function __setTransportForTests(fn) { _postImpl = fn || _request; }
 
 // Raw transport for the replica's pull loop — same config, same stub hook.
-function request(method, pathName, body) {
+function request(method, pathName, body, opts) {
   const s = _cfg();
   if (!s) return Promise.resolve({ transport_error: true, detail: 'sync_not_configured' });
-  return _postImpl(s, method, pathName, body);
+  return _postImpl(s, method, pathName, body, opts);
 }
 
 module.exports = {

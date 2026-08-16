@@ -91,7 +91,7 @@ async function _pullLoop() {
   }
   let n = 0;
   for (;;) {
-    const res = await rc.request('GET', '/api/sync/events?since=' + appliedGseq() + '&limit=200', null);
+    const res = await rc.request('GET', '/api/sync/events?since=' + appliedGseq() + '&limit=200', null, { timeoutMs: 60000, maxBytes: 64e6 });
     if (!res || res.transport_error || !res.ok) return { pulled: n, blocked: (res && res.error) || 'unreachable' };
     const events = res.events || [];
     if (!events.length) break;
@@ -108,7 +108,7 @@ async function _pullLoop() {
 // The first breath: baseline atlas + position stamp.
 async function bootstrap() {
   const rc = require('./remote-client.js');
-  const res = await rc.request('GET', '/api/sync/baseline', null);
+  const res = await rc.request('GET', '/api/sync/baseline', null, { timeoutMs: 600000, maxBytes: 1500e6 });
   if (!res || res.transport_error || !res.ok) return { ok: false, error: (res && res.error) || 'unreachable' };
   try {
     let ndjson = String(res.atlas_ndjson || '');

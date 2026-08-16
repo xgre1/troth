@@ -2465,7 +2465,9 @@ const server = http.createServer((req, res) => {
         let replica = null;
         if (st.active) {
           const h = await rc.hello();
-          hubState = (h && h.ok) ? { reachable: true, latest_gseq: h.latest_gseq } : { reachable: false };
+          hubState = (h && h.ok)
+            ? { reachable: true, latest_gseq: h.latest_gseq }
+            : { reachable: false, revoked: !!(h && h.error === 'unknown_device') };
           try {
             replica = require('../shared-core/sync/replica.js').status();
             if (hubState.reachable) replica.behind = Math.max(0, (hubState.latest_gseq | 0) - (replica.applied_gseq | 0));
@@ -2544,7 +2546,7 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
-  // ── Discovery + knock-to-pair — the AirPods road on one network ───────
+  // ── Discovery + knock-to-pair on one network ──────────────────────────
   // Minds announce themselves (UDP beacon, name + port, never a secret);
   // a device ASKS to follow; the operator APPROVES on the mind machine;
   // the pairing code rides back to the asking address exactly once. The

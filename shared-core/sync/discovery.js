@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Mind discovery on the local network — the AirPods moment.
+// Mind discovery on the local network.
 //
 // A machine that keeps its own mind announces itself with a tiny UDP
 // broadcast every few seconds; every troth install listens. The Network
