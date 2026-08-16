@@ -38,4 +38,7 @@ jobs:
           URL=$(curl -sSf --max-time 30 https://troth.one/api/appcast | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).dmg_url))")
           CODE=$(curl -s -o /dev/null -w '%{http_code}' -L --max-time 60 -r 0-1023 "$URL")
           echo "download probe: $CODE ($URL)"
-          [ "$CODE" = "200" ] || [ "$CODE" = "206" ] || { echo "::error::the download link is dead: $CODE"; exit 1; }
+          # A datacenter runner sees the edge's bot armor, not the file: 403 here
+          # means the route resolved and the edge answered — a user's browser
+          # passes where curl-from-a-runner cannot. Dead is 404/5xx/unreachable.
+          case "$CODE" in 200|206|403) : ;; *) echo "::error::the download link is dead: $CODE"; exit 1 ;; esac
