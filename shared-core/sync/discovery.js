@@ -31,15 +31,20 @@ function _localIps() {
   return set;
 }
 
-function encodeBeacon(name, port) {
-  return Buffer.from(JSON.stringify({ t: 'troth-mind', v: 1, name: String(name).slice(0, 40), port: port | 0 }), 'utf8');
+function encodeBeacon(name, port, role) {
+  return Buffer.from(JSON.stringify({
+    t: 'troth-mind', v: 1,
+    name: String(name).slice(0, 40),
+    port: port | 0,
+    role: role === 'device' ? 'device' : 'mind'
+  }), 'utf8');
 }
 
 function parseBeacon(buf) {
   try {
     const m = JSON.parse(buf.toString('utf8'));
     if (!m || m.t !== 'troth-mind' || m.v !== 1 || !m.port) return null;
-    return { name: String(m.name || 'troth'), port: m.port | 0 };
+    return { name: String(m.name || 'troth'), port: m.port | 0, role: m.role === 'device' ? 'device' : 'mind' };
   } catch (_) { return null; }
 }
 
@@ -47,7 +52,7 @@ function noteBeacon(msg, fromHost, selfIps) {
   const b = parseBeacon(msg);
   if (!b) return false;
   if ((selfIps || _localIps()).has(fromHost)) return false; // our own echo
-  _peers.set(fromHost, { name: b.name, host: fromHost, port: b.port, seen: Date.now() });
+  _peers.set(fromHost, { name: b.name, host: fromHost, port: b.port, role: b.role, seen: Date.now() });
   return true;
 }
 
@@ -56,20 +61,23 @@ function nearby() {
   const out = [];
   for (const [host, p] of _peers) {
     if (now - p.seen > PEER_TTL_MS) { _peers.delete(host); continue; }
-    out.push({ name: p.name, host: p.host, port: p.port, seen_ms_ago: now - p.seen });
+    out.push({ name: p.name, host: p.host, port: p.port, role: p.role || 'mind', seen_ms_ago: now - p.seen });
   }
   out.sort((a, b) => a.seen_ms_ago - b.seen_ms_ago);
   return out;
 }
 
-// start({ name, port, shouldBeacon }) — always listens; beacons only while
-// shouldBeacon() answers true (a satellite has no mind to announce, and a
-// loopback-bound proxy has no reachable door to announce).
+// start({ name, port, shouldBeacon, role }) — always listens; beacons only
+// while shouldBeacon() answers true (a loopback-bound proxy has no reachable
+// door to announce). role() says what this install IS right now: a machine
+// that keeps a mind, or a device following one — both announce, so a mind
+// can also SEE devices and invite them.
 function start(opts) {
   if (_sock) return { ok: true, already: true };
   const name = (opts && opts.name) || os.hostname().replace(/\.local$/, '');
   const port = (opts && opts.port) || 8000;
   const shouldBeacon = (opts && opts.shouldBeacon) || (() => false);
+  const roleFn = (opts && opts.role) || (() => 'mind');
   try {
     const sock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
     sock.on('error', () => { try { sock.close(); } catch (_) {} if (_sock === sock) _sock = null; });
@@ -83,7 +91,9 @@ function start(opts) {
       let on = false;
       try { on = !!shouldBeacon(); } catch (_) { on = false; }
       if (!on) return;
-      const b = encodeBeacon(name, port);
+      let role = 'mind';
+      try { role = roleFn(); } catch (_) {}
+      const b = encodeBeacon(name, port, role);
       try { _sock.send(b, 0, b.length, DISCOVERY_PORT, '255.255.255.255'); } catch (_) {}
     }, BEACON_MS);
     if (_beaconTimer.unref) _beaconTimer.unref();

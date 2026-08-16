@@ -83,4 +83,62 @@ function statusFor(id, from_ip) {
 
 function _resetForTests() { _requests.clear(); }
 
-module.exports = { create, listPending, approve, deny, statusFor, _resetForTests };
+
+// ── Invites — the mind knocks first ──────────────────────────────────────
+//
+// The mirror of a knock: the operator at the MIND machine sees a device
+// nearby and invites it. The invite id is the approval itself (the human
+// clicked Invite), so redeeming it mints the device credential in one
+// step; it is one-time and it expires like a knock. The device side keeps
+// the invites it has received so ITS operator gets the same human click
+// (Join) before anything connects.
+
+const _invites = new Map();         // mind side: id -> { ts, status }
+const _receivedInvites = new Map(); // device side: id -> { mind_name, hosts, ts }
+
+function createInvite() {
+  for (const [id, inv] of _invites) if (Date.now() - inv.ts > REQUEST_TTL_MS) _invites.delete(id);
+  if (_invites.size >= MAX_PENDING) return { error: 'too_many_pending' };
+  const id = require('../action-record.js').uuidv7();
+  _invites.set(id, { ts: Date.now(), status: 'open' });
+  return { id };
+}
+
+// The device redeems: the invite IS the approval, so mint now — exactly once.
+function redeemInvite(id, mint) {
+  const inv = _invites.get(id);
+  if (!inv || inv.status !== 'open' || Date.now() - inv.ts > REQUEST_TTL_MS) return { error: 'no_such_invite' };
+  inv.status = 'redeemed';
+  const minted = mint();
+  return { ok: true, code: minted.code, device_id: minted.device_id };
+}
+
+function noteInvite(payload, from_ip) {
+  for (const [id, inv] of _receivedInvites) if (Date.now() - inv.ts > REQUEST_TTL_MS) _receivedInvites.delete(id);
+  if (_receivedInvites.size >= MAX_PENDING) return { error: 'too_many_pending' };
+  const id = String(payload && payload.invite_id || '');
+  const hosts = Array.isArray(payload && payload.hosts) ? payload.hosts.map(String).slice(0, 8) : [];
+  if (!id || id.length < 8 || !hosts.length) return { error: 'bad_invite' };
+  _receivedInvites.set(id, {
+    invite_id: id,
+    mind_name: String(payload.mind_name || 'a mind').replace(/[^\w .-]/g, '').slice(0, 40),
+    hosts,
+    from_ip: String(from_ip || ''),
+    ts: Date.now()
+  });
+  return { ok: true };
+}
+
+function listInvites() {
+  for (const [id, inv] of _receivedInvites) if (Date.now() - inv.ts > REQUEST_TTL_MS) _receivedInvites.delete(id);
+  return [..._receivedInvites.values()];
+}
+
+function takeInvite(id) {
+  const inv = _receivedInvites.get(id);
+  if (inv) _receivedInvites.delete(id);
+  return inv || null;
+}
+
+module.exports = { create, listPending, approve, deny, statusFor, createInvite, redeemInvite, noteInvite, listInvites, takeInvite, _resetForTests };
+

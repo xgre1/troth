@@ -414,4 +414,28 @@ test('SYN-18: a .trothmove on the shelf — detected where an AirDrop lands, mem
   assert.ok(out.skipped >= 1, 'same ids count as skipped — additive and safe to re-run');
   assert.strictEqual(out.failed, 0);
 });
+
+test('SYN-19: invites — the mind knocks first, the invite is the approval, and it spends exactly once', () => {
+  const out = hermetic(REQ + [
+    "const PR = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'sync', 'pair-requests.js')) + ");",
+    "const inv = PR.createInvite();",
+    "const noted = PR.noteInvite({ invite_id: inv.id, mind_name: 'stu<dio>', hosts: ['http://10.0.0.5:8000'] }, '10.0.0.5');",
+    "const listed = PR.listInvites();",
+    "const taken = PR.takeInvite(inv.id);",
+    "const takenAgain = PR.takeInvite(inv.id);",
+    "const red = PR.redeemInvite(inv.id, function () { return { device_id: 'dev_i', code: 'troth1.invitecode' }; });",
+    "const redAgain = PR.redeemInvite(inv.id, function () { return { device_id: 'dev_x', code: 'troth1.other' }; });",
+    "const badNote = PR.noteInvite({ invite_id: 'x', hosts: [] }, '10.0.0.5');",
+    "console.log(JSON.stringify({ created: !!inv.id, noted: noted.ok, listedName: listed[0] && listed[0].mind_name, takenOk: !!taken, takenAgain: takenAgain === null, redOk: red.ok, redCode: red.code, redAgain: redAgain.error, badNote: badNote.error }));"
+  ].join('\n'));
+  assert.strictEqual(out.created, true);
+  assert.strictEqual(out.noted, true);
+  assert.ok(out.listedName.indexOf('<') === -1, 'a mind name is sanitized before an operator reads it');
+  assert.strictEqual(out.takenOk, true);
+  assert.strictEqual(out.takenAgain, true, 'a taken invite leaves the device shelf');
+  assert.strictEqual(out.redOk, true);
+  assert.ok(String(out.redCode).indexOf('troth1.') === 0, 'redeeming hands back a pairing code');
+  assert.strictEqual(out.redAgain, 'no_such_invite', 'an invite spends exactly once');
+  assert.strictEqual(out.badNote, 'bad_invite', 'a hostless invite is refused at the door');
+});
 };

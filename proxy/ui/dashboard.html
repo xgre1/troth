@@ -2476,13 +2476,13 @@ setInterval(function(){
         <button class="btn btn-ghost" onclick="saveBindHost()">Save</button>
       </div>
       <div class="card-title" style="margin-top:18px;">One mind, many devices</div>
-      <div class="card-hint">Your memory lives on one machine and follows you on every other. Minds on your network appear below by themselves &mdash; press <b>Follow</b> here, approve on the mind machine, done. <a href="#" onclick="document.getElementById('sync-breath').classList.toggle('open');return false;" style="color:var(--signal);text-decoration:none;">how it works</a></div>
+      <div class="card-hint">Your memory lives on one machine and follows you on every other. Minds on your network appear below by themselves. Press <b>Follow</b> here, approve on the mind machine, done. <a href="#" onclick="document.getElementById('sync-breath').classList.toggle('open');return false;" style="color:var(--signal);text-decoration:none;">how it works</a></div>
       <div class="breath" id="sync-breath"><div style="font-size:11px;line-height:1.8;color:var(--text-dim);">
-        <b style="color:var(--text)">The mind machine:</b> the computer that keeps your memory &mdash; usually the one that is always on. It announces itself on your network (a name and a door, never a secret).<br>
-        <b style="color:var(--text)">Any other device:</b> sees it under “Minds near you”, presses Follow, and waits. Nothing happens until you approve on the mind machine.<br>
-        <b style="color:var(--text)">Different networks?</b> Use a pairing code instead (below) &mdash; it carries every address the mind machine answers on, over Tailscale or any private mesh.<br>
+        <b style="color:var(--text)">The mind machine:</b> the computer that keeps your memory, usually the one that is always on. It announces itself on your network with a name and a door, never a secret.<br>
+        <b style="color:var(--text)">Any other device:</b> sees it under Minds near you, presses Follow, and waits. Nothing happens until you approve on the mind machine.<br>
+        <b style="color:var(--text)">Different networks?</b> Use a pairing code instead (below). It carries every address the mind machine answers on, over Tailscale or any private mesh.<br>
         <b style="color:var(--text)">Offline:</b> the device keeps working; what it writes queues and lands when the mind machine is back. Recall needs the connection live.<br>
-        <b style="color:var(--text)">Lost a device?</b> Revoke it here &mdash; one click, only that device dies.
+        <b style="color:var(--text)">Lost a device?</b> Revoke it here. One click, only that device dies.
       </div></div>
       <div class="toggle-row" id="sync-role-row">
         <div class="tr-info">
@@ -2494,6 +2494,14 @@ setInterval(function(){
       <div id="sync-nearby-wrap">
         <div class="card-title" style="margin-top:16px;">Minds near you</div>
         <div id="sync-nearby-rows"></div>
+      </div>
+      <div id="sync-devices-near-wrap" style="display:none;">
+        <div class="card-title" style="margin-top:16px;">Devices near you</div>
+        <div id="sync-devices-near-rows"></div>
+      </div>
+      <div id="sync-invites-wrap" style="display:none;">
+        <div class="card-title" style="margin-top:16px;">Invitations</div>
+        <div id="sync-invites-rows"></div>
       </div>
       <div id="sync-requests-wrap" style="display:none;">
         <div class="card-title" style="margin-top:16px;">Devices asking to follow this mind</div>
@@ -2508,7 +2516,7 @@ setInterval(function(){
       <div class="breath" id="sync-code"><div>
         <div class="form-row" style="margin-top:8px;">
           <div class="field"><label>Pairing code from another machine</label><input type="text" id="cfg-paircode" placeholder="troth1.&hellip;"></div>
-          <div class="field"><label>Or make a code for a device</label><input type="text" id="cfg-pairname" placeholder="name it — e.g. laptop"></div>
+          <div class="field"><label>Or make a code for a device</label><input type="text" id="cfg-pairname" placeholder="name it, e.g. laptop"></div>
         </div>
         <div class="card-footer">
           <button class="btn btn-ghost" onclick="connectWithPairCode()">Connect with code</button>
@@ -2538,17 +2546,17 @@ setInterval(function(){
         <span class="test-result" id="mydata-result"></span>
       </div>
       <div class="breath" id="mydata-import"><div>
-        <div class="card-title">Brought to this machine</div>
-        <div id="mydata-import-rows"></div>
-        <a href="#" onclick="document.getElementById('mydata-adv').classList.toggle('open');return false;" style="display:inline-block;margin-top:8px;color:var(--signal);text-decoration:none;font-size:11px;">import from a path</a>
-        <div class="breath" id="mydata-adv"><div>
-          <div class="form-row" style="margin-top:8px;">
-            <div class="field"><label>Bundle folder</label><input type="text" id="cfg-mindbundle" placeholder="/Users/you/&hellip;/substrate-2026-08-16"></div>
+        <div class="form-row" style="margin-top:4px;">
+          <div class="field"><label>Bring a mind file in</label>
+            <select id="mydata-import-select" class="routing-select" onchange="importSelectChanged()"></select>
           </div>
-          <div class="card-footer">
-            <button class="btn btn-ghost" onclick="importMindFile(this)">Import</button>
-          </div>
-        </div></div>
+        </div>
+        <div class="form-row" id="mydata-path-row" style="display:none;">
+          <div class="field"><label>Bundle path</label><input type="text" id="cfg-mindbundle" placeholder="/Users/you/Downloads/troth-move.trothmove"></div>
+        </div>
+        <div class="card-footer">
+          <button class="btn btn-ghost" onclick="importSelected(this)">Import</button>
+        </div>
       </div></div>
       <div class="breath" id="mydata-backups"><div>
         <div class="card-title">Kept on this machine</div>
@@ -3858,6 +3866,7 @@ function renderSyncCard() {
       roleDesc.textContent = (ok ? 'Mind reachable.' : 'Mind unreachable — writes are queuing safely.') + (s.pending ? ' ' + s.pending + ' queued.' : '');
       roleAct.style.display = 'inline-block';
       document.getElementById('sync-nearby-wrap').style.display = 'none';
+      document.getElementById('sync-devices-near-wrap').style.display = 'none';
     } else {
       roleName.textContent = 'This machine keeps its own mind';
       roleDot.className = 'pulse';
@@ -3869,6 +3878,7 @@ function renderSyncCard() {
   }).catch(function () {});
   renderFollowState();
   renderRequests();
+  renderInvites();
   renderDevices();
 }
 function _syncRow(name, desc, buttonsHtml) {
@@ -3877,21 +3887,83 @@ function _syncRow(name, desc, buttonsHtml) {
 }
 function renderNearby() {
   var rows = document.getElementById('sync-nearby-rows');
+  var devWrap = document.getElementById('sync-devices-near-wrap');
+  var devRows = document.getElementById('sync-devices-near-rows');
   if (!rows) return;
   fetch('/api/sync/nearby').then(function (r) { return r.json(); }).then(function (j) {
-    var minds = (j.minds || []);
+    var all = (j.minds || []);
+    var minds = all.filter(function (m) { return m.role !== 'device'; });
+    var devices = all.filter(function (m) { return m.role === 'device'; });
     if (!minds.length) {
-      rows.innerHTML = '<div class="tr-desc" style="padding:8px 0;">None announced on this network yet — the mind machine needs a network Bind Host; across networks, pair with a code below.</div>';
-      return;
+      rows.innerHTML = '<div class="tr-desc" style="padding:8px 0;">None announced on this network yet. The mind machine needs a network Bind Host. Across networks, pair with a code below.</div>';
+    } else {
+      rows.innerHTML = minds.map(function (m) {
+        return _syncRow(
+          '<span class="pulse" style="display:inline-block;margin-right:8px;"></span>' + m.name,
+          m.host + ':' + m.port,
+          '<button class="btn-mini" onclick="followMind(\'' + m.host + '\',' + m.port + ',\'' + String(m.name).replace(/[^\w .-]/g, '') + '\')">Follow</button>'
+        );
+      }).join('');
     }
-    rows.innerHTML = minds.map(function (m) {
+    if (devWrap && devRows) {
+      if (!devices.length) { devWrap.style.display = 'none'; }
+      else {
+        devWrap.style.display = 'block';
+        devRows.innerHTML = devices.map(function (m) {
+          return _syncRow(
+            '<span class="pulse" style="display:inline-block;margin-right:8px;"></span>' + m.name,
+            m.host + ':' + m.port,
+            '<button class="btn-mini" onclick="inviteDevice(\'' + m.host + '\',' + m.port + ',\'' + String(m.name).replace(/[^\w .-]/g, '') + '\')">Invite</button>'
+          );
+        }).join('');
+      }
+    }
+  }).catch(function () {});
+}
+function inviteDevice(host, port, name) {
+  if (!requireOperator()) return;
+  if (!confirm('Invite "' + name + '" to join this machine\u2019s mind?\n\nOn that device, its operator presses Join and it connects by itself.')) return;
+  fetch('/api/sync/invite-create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ host: host, port: port }),
+  }).then(function (r) { return r.json(); }).then(function (j) {
+    if (j.ok) { toast('Invitation sent. On ' + name + ': press Join.'); return; }
+    toast(j.error === 'device_unreachable' ? name + ' did not answer. Is its proxy bound beyond loopback?' : 'Invite failed: ' + (j.error || 'unknown'));
+  }).catch(function () { toast('Invite failed'); });
+}
+function renderInvites() {
+  var wrap = document.getElementById('sync-invites-wrap');
+  var rows = document.getElementById('sync-invites-rows');
+  if (!wrap || !rows) return;
+  window.__ignoredInvites = window.__ignoredInvites || {};
+  fetch('/api/sync/invites').then(function (r) { return r.json(); }).then(function (j) {
+    var invites = (j.invites || []).filter(function (i) { return !window.__ignoredInvites[i.invite_id]; });
+    if (!invites.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    rows.innerHTML = invites.map(function (i) {
       return _syncRow(
-        '<span class="pulse" style="display:inline-block;margin-right:8px;"></span>' + m.name,
-        m.host + ':' + m.port,
-        '<button class="btn-mini" onclick="followMind(\'' + m.host + '\',' + m.port + ',\'' + String(m.name).replace(/[^\w .-]/g, '') + '\')">Follow</button>'
+        i.mind_name + ' invites this device',
+        'join its mind and follow it from here',
+        '<button class="btn-mini" onclick="acceptInvite(\'' + i.invite_id + '\', this)">Join</button>' +
+        '<button class="btn-mini" onclick="window.__ignoredInvites[\'' + i.invite_id + '\']=1;renderInvites()">Ignore</button>'
       );
     }).join('');
   }).catch(function () {});
+}
+function acceptInvite(id, btn) {
+  if (!requireOperator()) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Joining'; }
+  fetch('/api/sync/invite-accept', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ invite_id: id }),
+  }).then(function (r) { return r.json(); }).then(function (j) {
+    if (j.ok) { toast('Connected. One mind, this device included.'); setTimeout(renderSyncCard, 400); return; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Join'; }
+    toast(j.error === 'mind_unreachable' ? 'The mind machine did not answer.' : 'Join failed: ' + (j.error || 'unknown'));
+    renderInvites();
+  }).catch(function () { if (btn) { btn.disabled = false; btn.textContent = 'Join'; } toast('Join failed'); });
 }
 function renderFollowState() {
   fetch('/api/sync/follow-state').then(function (r) { return r.json(); }).then(function (f) {
@@ -3899,13 +3971,13 @@ function renderFollowState() {
     if (!box || !f || f.state === 'idle' || !f.state) return;
     if (f.state === 'connected') {
       box.style.display = 'block';
-      box.innerHTML = 'Connected — this device now follows <b>' + (f.mind || f.host) + '</b>. One mind.';
+      box.innerHTML = 'Connected. This device now follows <b>' + (f.mind || f.host) + '</b>. One mind.';
       setTimeout(renderSyncCard, 600);
       return;
     }
     if (f.state === 'knocking' || f.state === 'waiting_approval' || f.state === 'connecting') {
       box.style.display = 'block';
-      box.innerHTML = 'Asked to follow <b>' + (f.mind || '') + '</b> — waiting for approval on that machine…';
+      box.innerHTML = 'Asked to follow <b>' + (f.mind || '') + '</b>. Waiting for approval on that machine.';
       return;
     }
     if (f.state === 'denied') { box.style.display = 'block'; box.innerHTML = 'The mind machine declined this device.'; return; }
@@ -3960,7 +4032,7 @@ function approveRequest(id) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ request_id: id }),
   }).then(function (r) { return r.json(); }).then(function (j) {
-    toast(j.ok ? 'Approved — the device connects by itself' : 'No such request');
+    toast(j.ok ? 'Approved. The device connects by itself.' : 'No such request');
     renderSyncCard();
   }).catch(function () { toast('Approve failed'); });
 }
@@ -4012,13 +4084,13 @@ function connectWithPairCode() {
   }).then(function (r) { return r.json(); }).then(function (j) {
     if (st) st.textContent = '';
     if (j.ok) {
-      toast('Connected — one mind, this device included');
+      toast('Connected. One mind, this device included.');
       document.getElementById('cfg-paircode').value = '';
       setTimeout(renderSyncCard, 300);
       return;
     }
-    if (j.error === 'self_pair') { toast('This code belongs on the OTHER device — this machine is the mind it points at'); return; }
-    if (j.error === 'no_host_answered') { toast('The mind machine did not answer — same network / VPN on, and its proxy reachable?'); return; }
+    if (j.error === 'self_pair') { toast('This code belongs on the OTHER device. This machine is the mind it points at.'); return; }
+    if (j.error === 'no_host_answered') { toast('The mind machine did not answer. Same network or VPN on, and its proxy reachable?'); return; }
     toast('Pairing failed: ' + (j.error || 'unknown'));
   }).catch(function (e) { if (st) st.textContent = ''; toast('Pairing failed: ' + (e && e.message || e)); });
 }
@@ -4034,7 +4106,7 @@ function pairDevice() {
     if (!j.ok) { toast('Pairing failed: ' + (j.error || 'unknown')); return; }
     var box = document.getElementById('pair-result');
     box.style.display = 'block';
-    box.innerHTML = '<b>' + name + '</b> is paired. Its pairing code — shown ONCE:<br><br>' +
+    box.innerHTML = '<b>' + name + '</b> is paired. Its pairing code, shown once:<br><br>' +
       '<b style="user-select:all;word-break:break-all;">' + (j.code || '') + '</b><br><br>' +
       'Paste it on the device: Settings → Network → pair with a code' +
       '<br><span style="opacity:.55;">(or on a terminal there: troth sync connect &lt;code&gt;)</span>';
@@ -4063,7 +4135,47 @@ function toggleMyDataShelf(which) {
   var el = document.getElementById(which);
   el.classList.toggle('open');
   if (!el.classList.contains('open')) return;
-  if (which === 'mydata-import') loadTransferBundles(); else loadBackupShelf();
+  if (which === 'mydata-import') loadImportSelect(); else loadBackupShelf();
+}
+function loadImportSelect() {
+  var sel = document.getElementById('mydata-import-select');
+  if (!sel) return;
+  fetch('/api/mind/bundles?scope=transfers').then(function (r) { return r.json(); }).then(function (j) {
+    var bundles = (j.bundles || []);
+    sel.innerHTML = '';
+    if (!bundles.length) {
+      var none = document.createElement('option');
+      none.value = ''; none.disabled = true; none.selected = true;
+      none.textContent = 'Nothing found in Downloads or Desktop';
+      sel.appendChild(none);
+    }
+    bundles.forEach(function (b) {
+      var o = document.createElement('option');
+      o.value = b.path;
+      var when = b.generated_at ? new Date(b.generated_at).toLocaleDateString() : '';
+      o.textContent = b.name + (b.source_machine ? ' (from ' + b.source_machine + ')' : '') + (when ? ', ' + when : '');
+      sel.appendChild(o);
+    });
+    var other = document.createElement('option');
+    other.value = '__other';
+    other.textContent = 'Other location...';
+    sel.appendChild(other);
+    importSelectChanged();
+  }).catch(function () {});
+}
+function importSelectChanged() {
+  var sel = document.getElementById('mydata-import-select');
+  var row = document.getElementById('mydata-path-row');
+  if (sel && row) row.style.display = sel.value === '__other' ? '' : 'none';
+}
+function importSelected(btn) {
+  var sel = document.getElementById('mydata-import-select');
+  if (!sel) return;
+  var p = sel.value === '__other' ? document.getElementById('cfg-mindbundle').value.trim() : sel.value;
+  if (!p) { toast('Pick a mind file first, or give a path'); return; }
+  if (/\.trothmove$/i.test(p)) { importMoveNow(p, btn); return; }
+  document.getElementById('cfg-mindbundle').value = p;
+  importMindFile(btn);
 }
 function _bundleRows(targetId, scope, action, emptyText) {
   var rows = document.getElementById(targetId);
@@ -4085,13 +4197,9 @@ function _bundleRows(targetId, scope, action, emptyText) {
     }).join('');
   }).catch(function () {});
 }
-function loadTransferBundles() {
-  _bundleRows('mydata-import-rows', 'transfers', 'Import',
-    'Nothing in Downloads or Desktop yet — AirDrop or copy a bundle there and it appears here, or use a path below.');
-}
 function loadBackupShelf() {
   _bundleRows('mydata-backup-rows', 'backups', 'Restore',
-    'No backups yet — Export makes one, and a weekly one is kept automatically.');
+    'No backups yet. Export makes one, and a weekly one is kept automatically.');
 }
 function importBundle(p) {
   document.getElementById('cfg-mindbundle').value = p;

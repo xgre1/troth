@@ -2641,6 +2641,85 @@ const server = http.createServer((req, res) => {
     jsonResponse(res, 200, Object.assign({ ok: true }, _syncFollow || { state: 'idle' }));
     return;
   }
+  // ── Invites — the mind knocks first ───────────────────────────────
+  // The operator at the mind machine clicks Invite on a nearby device; the
+  // device's operator clicks Join. The invite id carries the mind-side
+  // approval, so redeeming it mints the credential in one step; it is
+  // one-time, capped and it expires. Same doctrine as the knock: hearing
+  // or holding an invite grants nothing without the second human click.
+  if (req.method === 'POST' && url === '/api/sync/invite-create') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then((body) => {
+      const dHost = body && typeof body.host === 'string' ? body.host : null;
+      const dPort = body && (body.port | 0);
+      if (!dHost || !dPort) { jsonResponse(res, 400, { ok: false, error: 'host_and_port_required' }); return; }
+      const pr = require('../shared-core/sync/pair-requests.js');
+      const inv = pr.createInvite();
+      if (inv.error) { jsonResponse(res, 429, { ok: false, error: inv.error }); return; }
+      const pairing = require('../shared-core/sync/pairing.js');
+      _syncHttpJson(dHost, dPort, 'POST', '/api/sync/invite', {
+        invite_id: inv.id,
+        mind_name: require('os').hostname().replace(/\.local$/, ''),
+        hosts: pairing.candidateHosts(PORT)
+      }, (r) => {
+        jsonResponse(res, r && r.ok ? 200 : 502, r && r.ok ? { ok: true, invited: true } : { ok: false, error: 'device_unreachable' });
+      });
+    });
+    return;
+  }
+  if (req.method === 'POST' && url === '/api/sync/invite') {
+    if (isBrowserDrivenFromElsewhere(req)) { jsonResponse(res, 403, { ok: false, error: 'forbidden' }); return; }
+    readJsonBody(req).then((body) => {
+      const ip = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+      const r = require('../shared-core/sync/pair-requests.js').noteInvite(body, ip);
+      jsonResponse(res, r.ok ? 200 : 400, r);
+    });
+    return;
+  }
+  if (req.method === 'GET' && url === '/api/sync/invites') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    jsonResponse(res, 200, { ok: true, invites: require('../shared-core/sync/pair-requests.js').listInvites() });
+    return;
+  }
+  if (req.method === 'POST' && url === '/api/sync/invite-accept') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then((body) => {
+      const pr = require('../shared-core/sync/pair-requests.js');
+      const inv = pr.takeInvite(String(body && body.invite_id || ''));
+      if (!inv) { jsonResponse(res, 404, { ok: false, error: 'no_such_invite' }); return; }
+      const deviceName = require('os').hostname().replace(/\.local$/, '');
+      const hosts = inv.hosts.slice();
+      const tryNext = () => {
+        const h = hosts.shift();
+        if (!h) { jsonResponse(res, 502, { ok: false, error: 'mind_unreachable' }); return; }
+        let u;
+        try { u = new URL(h); } catch (_) { tryNext(); return; }
+        _syncHttpJson(u.hostname, parseInt(u.port || '80', 10), 'POST', '/api/sync/redeem-invite', { invite_id: inv.invite_id, device_name: deviceName }, (r) => {
+          if (!r || !r.ok || !r.code) { tryNext(); return; }
+          require('../shared-core/sync/remote-client.js').connectWithCode(r.code).then((c) => {
+            jsonResponse(res, c && c.ok ? 200 : 502, c);
+          }).catch((e) => jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) }));
+        });
+      };
+      tryNext();
+    });
+    return;
+  }
+  if (req.method === 'POST' && url === '/api/sync/redeem-invite') {
+    if (isBrowserDrivenFromElsewhere(req)) { jsonResponse(res, 403, { ok: false, error: 'forbidden' }); return; }
+    readJsonBody(req).then((body) => {
+      const pr = require('../shared-core/sync/pair-requests.js');
+      const out = pr.redeemInvite(String(body && body.invite_id || ''), () => {
+        const hub = require('../shared-core/sync/hub.js');
+        const pairing = require('../shared-core/sync/pairing.js');
+        const name = String(body && body.device_name || 'device').replace(/[^\w .-]/g, '').slice(0, 40) || 'device';
+        const d = hub.addDevice(name);
+        return { device_id: d.device_id, code: pairing.encode({ hosts: pairing.candidateHosts(PORT), device_id: d.device_id, token: d.token }) };
+      });
+      jsonResponse(res, out.error ? 404 : 200, out);
+    });
+    return;
+  }
   if (req.method === 'GET' && url.startsWith('/api/mind/bundles')) {
     if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
     try {
@@ -6174,7 +6253,11 @@ server.listen(listenPort, BIND_HOST, () => {
     disco.start({
       name: require('os').hostname().replace(/\.local$/, ''),
       port: listenPort,
-      shouldBeacon: () => BIND_HOST !== '127.0.0.1' && !rcD.active()
+      // Every reachable install announces — minds so devices can Follow,
+      // devices so minds can Invite. Loopback-bound installs stay silent:
+      // they have no door anyone could reach.
+      shouldBeacon: () => BIND_HOST !== '127.0.0.1',
+      role: () => (rcD.active() ? 'device' : 'mind')
     });
   } catch (_) { /* discovery is best-effort */ }
   log('Listening on ' + BIND_HOST + ':' + listenPort + (listenPort === PORT ? '' : ' (auto-bumped from ' + PORT + ')'));
