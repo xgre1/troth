@@ -187,6 +187,37 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-i
 .breath.open { grid-template-rows: 1fr; opacity: 1; margin-top: 10px; }
 .breath > div { overflow: hidden; min-height: 0; }
 @media (prefers-reduced-motion: reduce) { .breath { transition: none; } }
+/* ── Sync setup wizard — one ritual for joining minds ──────────────────
+   Steps slide in gently, waiting states breathe, tiles are the same
+   glass as every card. Reduced motion stills everything. */
+.wiz { border: 1px solid var(--glass-border); border-radius: var(--r-sm); padding: 18px 20px 16px; margin-top: 14px; background: rgba(255,255,255,0.015); }
+.wiz-head { font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 14px; display: flex; align-items: center; gap: 10px; }
+.wiz-dots { display: flex; gap: 5px; }
+.wiz-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,0.15); transition: background 0.2s; }
+.wiz-dot.on { background: var(--chrome); }
+.wiz-title { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.wiz-sub { font-size: 11px; color: var(--text-dim); line-height: 1.6; margin-bottom: 14px; }
+.wiz-step { animation: wizIn 0.28s var(--ease-hover); }
+@keyframes wizIn { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: none; } }
+.wiz-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 4px 0 6px; }
+.wiz-tile { border: 1px solid var(--glass-border); border-radius: var(--r-sm); padding: 14px 16px; cursor: pointer; transition: border-color 0.18s, transform 0.18s var(--ease-hover); }
+.wiz-tile:hover { border-color: var(--glass-border-hover); transform: translateY(-1px); }
+.wt-name { font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
+.wt-desc { font-size: 10px; color: var(--text-muted); line-height: 1.55; }
+.wiz-foot { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+.wiz-foot .spacer { flex: 1; }
+.wiz-wait { display: flex; align-items: center; gap: 10px; padding: 12px 0 2px; font-size: 11px; color: var(--text-dim); }
+.wiz-wait .pulse { animation: wizPulse 1.6s ease-in-out infinite; }
+@keyframes wizPulse { 0%,100% { opacity: 0.35; } 50% { opacity: 1; } }
+.wiz-check { font-size: 13px; color: var(--green); margin-bottom: 10px; }
+.wiz-link { display: inline-block; margin-top: 12px; color: var(--signal); text-decoration: none; font-size: 11px; cursor: pointer; }
+.wiz-instr { margin: 4px 0 2px; }
+.wi-row { display: flex; gap: 10px; padding: 7px 0; font-size: 11.5px; color: var(--text-dim); line-height: 1.55; }
+.wi-n { font-family: var(--mono); font-size: 10px; color: var(--text-muted); min-width: 16px; padding-top: 1px; }
+.wiz-rows { margin-top: 8px; }
+.wiz-code { font-family: var(--mono); font-size: 11px; word-break: break-all; user-select: all; border: 1px solid var(--glass-border); border-radius: 6px; padding: 12px; margin-top: 10px; line-height: 1.7; }
+@media (prefers-reduced-motion: reduce) { .wiz-step, .wiz-wait .pulse { animation: none; } .wiz-tile:hover { transform: none; } }
+@media (max-width: 640px) { .wiz-tiles { grid-template-columns: 1fr; } }
 /* Vault: the shelf and its form. Same glass, same quiet, labels in the
    dashboard's uppercase-mono whisper; the secret field is the only
    password-typed thing and empties itself after sealing. */
@@ -2476,13 +2507,14 @@ setInterval(function(){
         <button class="btn btn-ghost" onclick="saveBindHost()">Save</button>
       </div>
       <div class="card-title" style="margin-top:18px;">One mind, many devices</div>
-      <div class="card-hint">Your memory lives on one machine and follows you on every other. Minds on your network appear below by themselves. Press <b>Follow</b> here, approve on the mind machine, done. <a href="#" onclick="document.getElementById('sync-breath').classList.toggle('open');return false;" style="color:var(--signal);text-decoration:none;">how it works</a></div>
+      <div class="card-hint" style="margin-bottom:8px;">Your memory lives on one machine and follows you on every other. <a href="#" onclick="document.getElementById('sync-breath').classList.toggle('open');return false;" style="color:var(--signal);text-decoration:none;">how it works</a></div>
       <div class="breath" id="sync-breath"><div style="font-size:11px;line-height:1.8;color:var(--text-dim);">
         <b style="color:var(--text)">The mind machine:</b> the computer that keeps your memory, usually the one that is always on. It announces itself on your network with a name and a door, never a secret.<br>
-        <b style="color:var(--text)">Any other device:</b> sees it under Minds near you, presses Follow, and waits. Nothing happens until you approve on the mind machine.<br>
-        <b style="color:var(--text)">Different networks?</b> Use a pairing code instead (below). It carries every address the mind machine answers on, over Tailscale or any private mesh.<br>
+        <b style="color:var(--text)">Any other device:</b> runs Set up, sees that machine by name, asks to follow. Nothing happens until you approve on the mind machine.<br>
+        <b style="color:var(--text)">Different networks?</b> Set up hands you a pairing code that carries every address the mind machine answers on, over Tailscale or any private mesh.<br>
         <b style="color:var(--text)">Offline:</b> the device keeps working; what it writes queues and lands when the mind machine is back. Recall needs the connection live.<br>
-        <b style="color:var(--text)">Lost a device?</b> Revoke it here. One click, only that device dies.
+        <b style="color:var(--text)">Lost a device?</b> Revoke it below. One click, only that device dies.<br>
+        <b style="color:var(--text)">Public Wi-Fi:</b> being on it is fine; pairing over it is not. On an untrusted network the connection between your machines is not encrypted, so pair and sync at home or over a private mesh like Tailscale, which encrypts everything wherever you sit.
       </div></div>
       <div class="toggle-row" id="sync-role-row">
         <div class="tr-info">
@@ -2491,50 +2523,22 @@ setInterval(function(){
         </div>
         <button class="btn-mini" id="sync-role-action" style="display:none;" onclick="clearSyncHub()">Back to a local mind</button>
       </div>
-      <div id="sync-nearby-wrap">
-        <div class="card-title" style="margin-top:16px;">Minds near you</div>
-        <div id="sync-nearby-rows"></div>
+      <div class="card-footer" id="sync-setup-cta" style="margin-top:14px;border-top:none;padding-top:0;">
+        <button class="btn" id="sync-setup-btn" onclick="wizOpen()">Set up</button>
       </div>
-      <div id="sync-devices-near-wrap" style="display:none;">
-        <div class="card-title" style="margin-top:16px;">Devices near you</div>
-        <div id="sync-devices-near-rows"></div>
+      <div id="sync-wiz" style="display:none;"></div>
+      <div id="sync-requests-wrap" style="display:none;">
+        <div class="card-title" style="margin-top:16px;">Devices asking to follow this mind</div>
+        <div id="sync-requests-rows"></div>
       </div>
       <div id="sync-invites-wrap" style="display:none;">
         <div class="card-title" style="margin-top:16px;">Invitations</div>
         <div id="sync-invites-rows"></div>
       </div>
-      <div id="sync-requests-wrap" style="display:none;">
-        <div class="card-title" style="margin-top:16px;">Devices asking to follow this mind</div>
-        <div id="sync-requests-rows"></div>
-      </div>
       <div id="sync-devices-wrap" style="display:none;">
         <div class="card-title" style="margin-top:16px;">Paired devices</div>
         <div id="sync-devices-rows"></div>
       </div>
-      <div id="pair-result" style="display:none;font-size:11px;font-family:var(--mono);line-height:1.9;margin-top:12px;padding:12px;border:1px solid var(--glass-border);border-radius:6px;"></div>
-      <a href="#" onclick="document.getElementById('sync-code').classList.toggle('open');return false;" style="display:inline-block;margin-top:12px;color:var(--signal);text-decoration:none;font-size:11px;">pair with a code instead</a>
-      <div class="breath" id="sync-code"><div>
-        <div class="form-row" style="margin-top:8px;">
-          <div class="field"><label>Pairing code from another machine</label><input type="text" id="cfg-paircode" placeholder="troth1.&hellip;"></div>
-          <div class="field"><label>Or make a code for a device</label><input type="text" id="cfg-pairname" placeholder="name it, e.g. laptop"></div>
-        </div>
-        <div class="card-footer">
-          <button class="btn btn-ghost" onclick="connectWithPairCode()">Connect with code</button>
-          <button class="btn btn-ghost" onclick="pairDevice()">Make a code</button>
-          <span class="test-result" id="sync-status"></span>
-        </div>
-        <a href="#" onclick="document.getElementById('sync-advanced').classList.toggle('open');return false;" style="display:inline-block;margin-top:8px;color:var(--signal);text-decoration:none;font-size:11px;">advanced: enter by hand</a>
-        <div class="breath" id="sync-advanced"><div>
-          <div class="form-row">
-            <div class="field"><label>Hub address</label><input type="text" id="cfg-synchost" placeholder="http://100.x.y.z:8000"></div>
-            <div class="field"><label>Device ID</label><input type="text" id="cfg-syncdevice" placeholder="dev_xxxxxxxx"></div>
-            <div class="field"><label>Device token</label><input type="password" id="cfg-synctoken" placeholder="shown once at pairing"></div>
-          </div>
-          <div class="card-footer">
-            <button class="btn btn-ghost" onclick="saveSyncHub()">Save</button>
-          </div>
-        </div></div>
-      </div></div>
     </div>
     <div class="settings-card op-gated" data-settings-tab="network">
       <div class="card-title">My data</div>
@@ -3686,12 +3690,7 @@ function loadConfig() {
     document.getElementById('cfg-model').value = c.model || '';
     document.getElementById('cfg-apikey').value = c.apiKey || '';
     document.getElementById('cfg-bindhost').value = c.bindHost || '';
-    if (document.getElementById('cfg-synchost')) {
-      var sy = c.sync || {};
-      document.getElementById('cfg-synchost').value = sy.host || '';
-      document.getElementById('cfg-syncdevice').value = sy.deviceId || '';
-      // deviceToken comes back [REDACTED] and is stripped on save; the
-      // placeholder tells the story, the field stays empty.
+    if (document.getElementById('sync-role-name')) {
       renderSyncCard();
 
       if (!window.__syncPulse) {
@@ -3849,34 +3848,33 @@ function saveBindHost() {
   }).then(function (r) { if (!r.ok) throw new Error('http ' + r.status); toast('Saved — restart proxy to apply'); })
     .catch(function (e) { toast('Save failed: ' + (e && e.message || e)); });
 }
-// The sync card is a picture of four small truths (role, minds near you,
-// knocks waiting, paired devices) drawn from one render pass on a slow
-// pulse — rows in the house toggle-row voice, never raw fields.
+// ── One mind, many devices ──────────────────────────────────────────────
+// The card shows STATE (role, knocks, invitations, paired devices); every
+// action goes through ONE ritual, the Set up wizard below. First device or
+// fifth, same ritual; steps that are already satisfied step aside.
 function renderSyncCard() {
   var roleName = document.getElementById('sync-role-name');
   if (!roleName) return;
   var roleDot = document.getElementById('sync-role-dot');
   var roleDesc = document.getElementById('sync-role-desc');
   var roleAct = document.getElementById('sync-role-action');
+  var cta = document.getElementById('sync-setup-cta');
   fetch('/api/sync/status').then(function (r) { return r.json(); }).then(function (s) {
     if (s.active) {
       roleName.textContent = 'Following the mind at ' + (s.host || '?');
       var ok = s.hub && s.hub.reachable;
       roleDot.className = ok ? 'pulse' : 'pulse off';
-      roleDesc.textContent = (ok ? 'Mind reachable.' : 'Mind unreachable — writes are queuing safely.') + (s.pending ? ' ' + s.pending + ' queued.' : '');
+      roleDesc.textContent = (ok ? 'Mind reachable.' : 'Mind unreachable. Writes are queuing safely.') + (s.pending ? ' ' + s.pending + ' queued.' : '');
       roleAct.style.display = 'inline-block';
-      document.getElementById('sync-nearby-wrap').style.display = 'none';
-      document.getElementById('sync-devices-near-wrap').style.display = 'none';
+      if (cta) cta.style.display = 'none';
     } else {
       roleName.textContent = 'This machine keeps its own mind';
       roleDot.className = 'pulse';
       roleDesc.textContent = 'Every memory is stored and recalled here.';
       roleAct.style.display = 'none';
-      document.getElementById('sync-nearby-wrap').style.display = 'block';
-      renderNearby();
+      if (cta) cta.style.display = '';
     }
   }).catch(function () {});
-  renderFollowState();
   renderRequests();
   renderInvites();
   renderDevices();
@@ -3885,52 +3883,23 @@ function _syncRow(name, desc, buttonsHtml) {
   return '<div class="toggle-row"><div class="tr-info"><div class="tr-name">' + name + '</div>' +
          '<div class="tr-desc">' + desc + '</div></div><div style="display:flex;gap:8px;">' + (buttonsHtml || '') + '</div></div>';
 }
-function renderNearby() {
-  var rows = document.getElementById('sync-nearby-rows');
-  var devWrap = document.getElementById('sync-devices-near-wrap');
-  var devRows = document.getElementById('sync-devices-near-rows');
-  if (!rows) return;
-  fetch('/api/sync/nearby').then(function (r) { return r.json(); }).then(function (j) {
-    var all = (j.minds || []);
-    var minds = all.filter(function (m) { return m.role !== 'device'; });
-    var devices = all.filter(function (m) { return m.role === 'device'; });
-    if (!minds.length) {
-      rows.innerHTML = '<div class="tr-desc" style="padding:8px 0;">None announced on this network yet. The mind machine needs a network Bind Host. Across networks, pair with a code below.</div>';
-    } else {
-      rows.innerHTML = minds.map(function (m) {
-        return _syncRow(
-          '<span class="pulse" style="display:inline-block;margin-right:8px;"></span>' + m.name,
-          m.host + ':' + m.port,
-          '<button class="btn-mini" onclick="followMind(\'' + m.host + '\',' + m.port + ',\'' + String(m.name).replace(/[^\w .-]/g, '') + '\')">Follow</button>'
-        );
-      }).join('');
-    }
-    if (devWrap && devRows) {
-      if (!devices.length) { devWrap.style.display = 'none'; }
-      else {
-        devWrap.style.display = 'block';
-        devRows.innerHTML = devices.map(function (m) {
-          return _syncRow(
-            '<span class="pulse" style="display:inline-block;margin-right:8px;"></span>' + m.name,
-            m.host + ':' + m.port,
-            '<button class="btn-mini" onclick="inviteDevice(\'' + m.host + '\',' + m.port + ',\'' + String(m.name).replace(/[^\w .-]/g, '') + '\')">Invite</button>'
-          );
-        }).join('');
-      }
-    }
+function renderRequests() {
+  var wrap = document.getElementById('sync-requests-wrap');
+  var rows = document.getElementById('sync-requests-rows');
+  if (!wrap || !rows) return;
+  fetch('/api/sync/requests').then(function (r) { return r.json(); }).then(function (j) {
+    var reqs = (j.requests || []);
+    if (!reqs.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    rows.innerHTML = reqs.map(function (q) {
+      return _syncRow(
+        q.name,
+        'asking from ' + q.from_ip,
+        '<button class="btn-mini" onclick="approveRequest(\'' + q.id + '\')">Approve</button>' +
+        '<button class="btn-mini" onclick="denyRequest(\'' + q.id + '\')">Deny</button>'
+      );
+    }).join('');
   }).catch(function () {});
-}
-function inviteDevice(host, port, name) {
-  if (!requireOperator()) return;
-  if (!confirm('Invite "' + name + '" to join this machine\u2019s mind?\n\nOn that device, its operator presses Join and it connects by itself.')) return;
-  fetch('/api/sync/invite-create', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ host: host, port: port }),
-  }).then(function (r) { return r.json(); }).then(function (j) {
-    if (j.ok) { toast('Invitation sent. On ' + name + ': press Join.'); return; }
-    toast(j.error === 'device_unreachable' ? name + ' did not answer. Is its proxy bound beyond loopback?' : 'Invite failed: ' + (j.error || 'unknown'));
-  }).catch(function () { toast('Invite failed'); });
 }
 function renderInvites() {
   var wrap = document.getElementById('sync-invites-wrap');
@@ -3951,79 +3920,20 @@ function renderInvites() {
     }).join('');
   }).catch(function () {});
 }
-function acceptInvite(id, btn) {
-  if (!requireOperator()) return;
-  if (btn) { btn.disabled = true; btn.textContent = 'Joining'; }
-  fetch('/api/sync/invite-accept', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ invite_id: id }),
-  }).then(function (r) { return r.json(); }).then(function (j) {
-    if (j.ok) { toast('Connected. One mind, this device included.'); setTimeout(renderSyncCard, 400); return; }
-    if (btn) { btn.disabled = false; btn.textContent = 'Join'; }
-    toast(j.error === 'mind_unreachable' ? 'The mind machine did not answer.' : 'Join failed: ' + (j.error || 'unknown'));
-    renderInvites();
-  }).catch(function () { if (btn) { btn.disabled = false; btn.textContent = 'Join'; } toast('Join failed'); });
-}
-function renderFollowState() {
-  fetch('/api/sync/follow-state').then(function (r) { return r.json(); }).then(function (f) {
-    var box = document.getElementById('pair-result');
-    if (!box || !f || f.state === 'idle' || !f.state) return;
-    if (f.state === 'connected') {
-      box.style.display = 'block';
-      box.innerHTML = 'Connected. This device now follows <b>' + (f.mind || f.host) + '</b>. One mind.';
-      setTimeout(renderSyncCard, 600);
-      return;
-    }
-    if (f.state === 'knocking' || f.state === 'waiting_approval' || f.state === 'connecting') {
-      box.style.display = 'block';
-      box.innerHTML = 'Asked to follow <b>' + (f.mind || '') + '</b>. Waiting for approval on that machine.';
-      return;
-    }
-    if (f.state === 'denied') { box.style.display = 'block'; box.innerHTML = 'The mind machine declined this device.'; return; }
-    if (f.state === 'failed') { box.style.display = 'block'; box.innerHTML = 'Could not follow: ' + (f.error || 'no answer') + '.'; }
-  }).catch(function () {});
-}
-function renderRequests() {
-  var wrap = document.getElementById('sync-requests-wrap');
-  var rows = document.getElementById('sync-requests-rows');
-  if (!wrap || !rows) return;
-  fetch('/api/sync/requests').then(function (r) { return r.json(); }).then(function (j) {
-    var reqs = (j.requests || []);
-    if (!reqs.length) { wrap.style.display = 'none'; return; }
-    wrap.style.display = 'block';
-    rows.innerHTML = reqs.map(function (q) {
-      return _syncRow(
-        q.name,
-        'asking from ' + q.from_ip,
-        '<button class="btn-mini" onclick="approveRequest(\'' + q.id + '\')">Approve</button>' +
-        '<button class="btn-mini" onclick="denyRequest(\'' + q.id + '\')">Deny</button>'
-      );
-    }).join('');
-  }).catch(function () {});
-}
 function renderDevices() {
   var wrap = document.getElementById('sync-devices-wrap');
   var rows = document.getElementById('sync-devices-rows');
   if (!wrap || !rows) return;
   fetch('/api/sync/devices').then(function (r) { return r.json(); }).then(function (j) {
     var live = (j.devices || []).filter(function (d) { return !d.revoked_at; });
+    var btn = document.getElementById('sync-setup-btn');
+    if (btn) btn.textContent = live.length ? 'Connect another device' : 'Set up';
     if (!live.length) { wrap.style.display = 'none'; return; }
     wrap.style.display = 'block';
     rows.innerHTML = live.map(function (d) {
       return _syncRow(d.name, d.device_id, '<button class="btn-mini" onclick="revokePairedDevice(\'' + d.device_id + '\')">Revoke</button>');
     }).join('');
   }).catch(function () {});
-}
-function followMind(host, port, name) {
-  if (!requireOperator()) return;
-  if (!confirm('Follow the mind “' + name + '” at ' + host + '?\n\nApprove the request on that machine and this device joins its memory.')) return;
-  fetch('/api/sync/follow', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ host: host, port: port, name: name }),
-  }).then(function (r) { return r.json(); }).then(function () { renderFollowState(); })
-    .catch(function () { toast('Could not reach ' + name); });
 }
 function approveRequest(id) {
   if (!requireOperator()) return;
@@ -4044,75 +3954,19 @@ function denyRequest(id) {
     body: JSON.stringify({ request_id: id }),
   }).then(function () { renderSyncCard(); }).catch(function () {});
 }
-function saveSyncHub() {
+function acceptInvite(id, btn) {
   if (!requireOperator()) return;
-  var host = document.getElementById('cfg-synchost').value.trim();
-  var dev  = document.getElementById('cfg-syncdevice').value.trim();
-  var tok  = document.getElementById('cfg-synctoken').value.trim();
-  if (!host || !dev) { toast('Hub address and device ID are both needed'); return; }
-  if (!confirm('This machine will write its memory to ' + host + ' and recall from there.\n\nContinue?')) return;
-  var sync = { host: host, deviceId: dev };
-  if (tok) sync.deviceToken = tok; // empty = keep the stored one
-  fetch('/api/config', {
+  if (btn) { btn.disabled = true; btn.textContent = 'Joining'; }
+  fetch('/api/sync/invite-accept', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ sync: sync }),
-  }).then(function (r) { if (!r.ok) throw new Error('http ' + r.status); toast('Connected'); document.getElementById('cfg-synctoken').value = ''; setTimeout(renderSyncCard, 400); })
-    .catch(function (e) { toast('Save failed: ' + (e && e.message || e)); });
-}
-function clearSyncHub() {
-  if (!requireOperator()) return;
-  if (!confirm('Back to a local mind — this install stops syncing to the hub. Continue?')) return;
-  fetch('/api/sync/disconnect', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: '{}',
-  }).then(function (r) { if (!r.ok) throw new Error('http ' + r.status); toast('Local mind again'); setTimeout(renderSyncCard, 400); })
-    .catch(function (e) { toast('Save failed: ' + (e && e.message || e)); });
-}
-function connectWithPairCode() {
-  if (!requireOperator()) return;
-  var code = document.getElementById('cfg-paircode').value.trim();
-  if (!code) { toast('Paste the pairing code from your mind machine first'); return; }
-  if (!confirm('This machine will keep its memory on the mind machine and recall from there.\n\nContinue?')) return;
-  var st = document.getElementById('sync-status');
-  if (st) { st.textContent = 'connecting…'; st.style.color = 'var(--text-dim)'; }
-  fetch('/api/sync/connect', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code: code }),
+    body: JSON.stringify({ invite_id: id }),
   }).then(function (r) { return r.json(); }).then(function (j) {
-    if (st) st.textContent = '';
-    if (j.ok) {
-      toast('Connected. One mind, this device included.');
-      document.getElementById('cfg-paircode').value = '';
-      setTimeout(renderSyncCard, 300);
-      return;
-    }
-    if (j.error === 'self_pair') { toast('This code belongs on the OTHER device. This machine is the mind it points at.'); return; }
-    if (j.error === 'no_host_answered') { toast('The mind machine did not answer. Same network or VPN on, and its proxy reachable?'); return; }
-    toast('Pairing failed: ' + (j.error || 'unknown'));
-  }).catch(function (e) { if (st) st.textContent = ''; toast('Pairing failed: ' + (e && e.message || e)); });
-}
-function pairDevice() {
-  if (!requireOperator()) return;
-  var name = document.getElementById('cfg-pairname').value.trim();
-  if (!name) { toast('Name the device first (e.g. laptop)'); return; }
-  fetch('/api/sync/pair', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: name }),
-  }).then(function (r) { return r.json(); }).then(function (j) {
-    if (!j.ok) { toast('Pairing failed: ' + (j.error || 'unknown')); return; }
-    var box = document.getElementById('pair-result');
-    box.style.display = 'block';
-    box.innerHTML = '<b>' + name + '</b> is paired. Its pairing code, shown once:<br><br>' +
-      '<b style="user-select:all;word-break:break-all;">' + (j.code || '') + '</b><br><br>' +
-      'Paste it on the device: Settings → Network → pair with a code' +
-      '<br><span style="opacity:.55;">(or on a terminal there: troth sync connect &lt;code&gt;)</span>';
-    document.getElementById('cfg-pairname').value = '';
-    renderDevices();
-  }).catch(function (e) { toast('Pairing failed: ' + (e && e.message || e)); });
+    if (j.ok) { toast('Connected. One mind, this device included.'); wizClose(); setTimeout(renderSyncCard, 400); return; }
+    if (btn) { btn.disabled = false; btn.textContent = 'Join'; }
+    toast(j.error === 'mind_unreachable' ? 'The mind machine did not answer.' : 'Join failed: ' + (j.error || 'unknown'));
+    renderInvites();
+  }).catch(function () { if (btn) { btn.disabled = false; btn.textContent = 'Join'; } toast('Join failed'); });
 }
 function revokePairedDevice(id) {
   if (!requireOperator()) return;
@@ -4126,9 +3980,284 @@ function revokePairedDevice(id) {
     renderDevices();
   }).catch(function () { toast('Revoke failed'); });
 }
-// My data shelves: Import lists bundles BROUGHT here (Downloads, Desktop —
-// where an AirDrop lands); My backups lists what this machine keeps for
-// itself. One open at a time; rows in the house voice.
+function clearSyncHub() {
+  if (!requireOperator()) return;
+  if (!confirm('Back to a local mind. This install stops syncing to the hub. Continue?')) return;
+  fetch('/api/sync/disconnect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  }).then(function (r) { if (!r.ok) throw new Error('http ' + r.status); toast('Local mind again'); setTimeout(renderSyncCard, 400); })
+    .catch(function (e) { toast('Save failed: ' + (e && e.message || e)); });
+}
+
+// ── The Set up wizard ───────────────────────────────────────────────────
+// One ritual, three steps, both roles. Every network action it performs is
+// an endpoint the card also trusts; the wizard is the story told over them.
+var WIZ = { path: null, timers: [], baseline: 0, mindName: '' };
+function wizClearTimers() { WIZ.timers.forEach(clearInterval); WIZ.timers = []; }
+function wizPoll(fn, ms) { fn(); var t = setInterval(fn, ms); WIZ.timers.push(t); }
+function wizMount(stepNo, title, sub, bodyHtml, footHtml, hideCancel) {
+  var host = document.getElementById('sync-wiz');
+  if (!host) return;
+  host.style.display = 'block';
+  var dots = [1, 2, 3].map(function (n) { return '<span class="wiz-dot' + (n <= stepNo ? ' on' : '') + '"></span>'; }).join('');
+  host.innerHTML =
+    '<div class="wiz"><div class="wiz-step">' +
+    '<div class="wiz-head"><span>Step ' + stepNo + ' of 3</span><span class="wiz-dots">' + dots + '</span></div>' +
+    '<div class="wiz-title">' + title + '</div>' +
+    (sub ? '<div class="wiz-sub">' + sub + '</div>' : '') +
+    bodyHtml +
+    '<div class="wiz-foot">' + (footHtml || '') + '<span class="spacer"></span>' +
+    (hideCancel ? '' : '<button class="btn btn-ghost" onclick="wizClose()">Cancel</button>') +
+    '</div></div></div>';
+}
+function wizOpen() {
+  if (!requireOperator()) return;
+  wizClearTimers();
+  // A machine that already pairs devices IS the mind machine: skip the
+  // question and go straight to bringing the next device in.
+  fetch('/api/sync/devices').then(function (r) { return r.json(); }).then(function (j) {
+    var live = (j.devices || []).filter(function (d) { return !d.revoked_at; });
+    if (live.length) { WIZ.path = 'hub'; wizHubDoor(); return; }
+    wizChoice();
+  }).catch(function () { wizChoice(); });
+}
+function wizClose() {
+  wizClearTimers();
+  var host = document.getElementById('sync-wiz');
+  if (host) { host.style.display = 'none'; host.innerHTML = ''; }
+  renderSyncCard();
+}
+function wizChoice() {
+  wizClearTimers();
+  wizMount(1, 'What should this machine do?', 'Pick the role of the machine you are sitting at right now.',
+    '<div class="wiz-tiles">' +
+    '<div class="wiz-tile" onclick="WIZ.path=\'hub\';wizHubDoor()"><div class="wt-name">Keep the mind here</div><div class="wt-desc">Your memory lives on this machine. Your other devices connect to it and share one mind.</div></div>' +
+    '<div class="wiz-tile" onclick="WIZ.path=\'device\';wizDevFind()"><div class="wt-name">Follow another machine’s mind</div><div class="wt-desc">This device reads and writes the memory kept over there. Nothing stays behind here.</div></div>' +
+    '</div>', '');
+}
+// ── Hub path ──
+function wizHubDoor() {
+  wizClearTimers();
+  fetch('/api/config').then(function (r) { return r.json(); }).then(function (c) {
+    var bind = (c && c.bindHost) || '127.0.0.1';
+    if (bind !== '127.0.0.1' && bind !== 'localhost') { wizHubBring(); return; }
+    wizMount(2, 'Open the network door',
+      'Right now this machine only listens to itself. To be seen by your devices it needs to listen on your network. One click opens it; the proxy restarts by itself.',
+      '<div id="wiz-door-zone"></div>',
+      '<button class="btn" onclick="wizOpenDoor()">Open the door</button><a class="wiz-link" style="margin-top:0;" onclick="wizChoice()">Back</a>');
+  }).catch(function () { toast('Could not read the configuration'); });
+}
+function wizOpenDoor() {
+  var zone = document.getElementById('wiz-door-zone');
+  if (zone) zone.innerHTML = '<div class="wiz-wait"><span class="pulse"></span>Opening the door and restarting…</div>';
+  fetch('/api/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bindHost: '0.0.0.0' }),
+  }).then(function () {
+    return fetch('/api/repair/restart', { method: 'POST' });
+  }).then(function () {
+    var tries = 0;
+    var t = setInterval(function () {
+      tries++;
+      fetch('/health').then(function (r) { if (r.ok) { clearInterval(t); wizHubBring(); } }).catch(function () {});
+      if (tries > 90) { clearInterval(t); toast('The proxy did not come back. Reload this page.'); }
+    }, 1000);
+    WIZ.timers.push(t);
+  }).catch(function () { toast('Could not open the door'); });
+}
+function wizHubBring() {
+  wizClearTimers();
+  wizMount(2, 'Bring the device',
+    'This machine is now announcing itself. Do this on the device you want to connect:',
+    '<div class="wiz-instr">' +
+    '<div class="wi-row"><span class="wi-n">1</span><span>Open troth there and go to Settings, then Network.</span></div>' +
+    '<div class="wi-row"><span class="wi-n">2</span><span>Press <b>Set up</b> and choose <b>Follow another machine’s mind</b>.</span></div>' +
+    '<div class="wi-row"><span class="wi-n">3</span><span>This machine appears by name. Press <b>Follow</b> there, then approve it here.</span></div>' +
+    '</div>' +
+    '<div class="wiz-wait"><span class="pulse"></span><span>Listening for your device…</span></div>' +
+    '<div class="wiz-rows" id="wiz-knocks"></div>' +
+    '<div class="wiz-rows" id="wiz-neardev"></div>' +
+    '<a class="wiz-link" onclick="wizHubCode()">The device is on a different network? Make it a pairing code</a>',
+    '<a class="wiz-link" style="margin-top:0;" onclick="wizChoice()">Back</a>');
+  fetch('/api/sync/devices').then(function (r) { return r.json(); }).then(function (j) {
+    WIZ.baseline = (j.devices || []).filter(function (d) { return !d.revoked_at; }).length;
+  }).catch(function () { WIZ.baseline = 0; });
+  wizPoll(function () {
+    var knocks = document.getElementById('wiz-knocks');
+    if (knocks) {
+      fetch('/api/sync/requests').then(function (r) { return r.json(); }).then(function (j) {
+        knocks.innerHTML = (j.requests || []).map(function (q) {
+          return _syncRow(q.name, 'asking from ' + q.from_ip,
+            '<button class="btn-mini" onclick="approveRequest(\'' + q.id + '\')">Approve</button>' +
+            '<button class="btn-mini" onclick="denyRequest(\'' + q.id + '\')">Deny</button>');
+        }).join('');
+      }).catch(function () {});
+    }
+    var near = document.getElementById('wiz-neardev');
+    if (near) {
+      fetch('/api/sync/nearby').then(function (r) { return r.json(); }).then(function (j) {
+        var devices = (j.minds || []).filter(function (m) { return m.role === 'device'; });
+        near.innerHTML = devices.map(function (m) {
+          return _syncRow('<span class="pulse" style="display:inline-block;margin-right:8px;"></span>' + m.name, m.host + ':' + m.port,
+            '<button class="btn-mini" onclick="inviteDevice(\'' + m.host + '\',' + m.port + ',\'' + String(m.name).replace(/[^\w .-]/g, '') + '\')">Invite</button>');
+        }).join('');
+      }).catch(function () {});
+    }
+    fetch('/api/sync/devices').then(function (r) { return r.json(); }).then(function (j) {
+      var live = (j.devices || []).filter(function (d) { return !d.revoked_at; });
+      if (live.length > WIZ.baseline) wizDone('hub', live[live.length - 1].name);
+    }).catch(function () {});
+  }, 2500);
+}
+function wizHubCode() {
+  wizClearTimers();
+  wizMount(2, 'Pair across networks',
+    'A broadcast does not cross networks, so hand the device a pairing code instead. It carries every address this machine answers on.',
+    '<div class="form-row" style="margin-top:4px;"><div class="field"><label>Name the device</label><input type="text" id="wiz-pairname" placeholder="laptop"></div></div>' +
+    '<div id="wiz-code-zone"></div>',
+    '<button class="btn" onclick="wizMakeCode(this)">Make the code</button><a class="wiz-link" style="margin-top:0;" onclick="wizHubBring()">Back</a>');
+  fetch('/api/sync/devices').then(function (r) { return r.json(); }).then(function (j) {
+    WIZ.baseline = (j.devices || []).filter(function (d) { return !d.revoked_at; }).length;
+  }).catch(function () {});
+}
+function wizMakeCode(btn) {
+  var name = (document.getElementById('wiz-pairname').value || '').trim();
+  if (!name) { toast('Name the device first, e.g. laptop'); return; }
+  if (btn) btn.disabled = true;
+  fetch('/api/sync/pair', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name }),
+  }).then(function (r) { return r.json(); }).then(function (j) {
+    if (btn) btn.disabled = false;
+    if (!j.ok) { toast('Pairing failed: ' + (j.error || 'unknown')); return; }
+    var zone = document.getElementById('wiz-code-zone');
+    zone.innerHTML =
+      '<div class="wiz-code">' + (j.code || '') + '</div>' +
+      '<div class="wiz-sub" style="margin-top:10px;">Shown once. On the device: Set up, then <b>Follow another machine’s mind</b>, then <b>I have a code</b>. This step finishes by itself the moment the device connects.</div>';
+    // The minted device exists at once; the step completes when it first
+    // ANSWERS from the other side, which is the moment that matters.
+    wizPoll(function () {
+      fetch('/api/sync/devices').then(function (r) { return r.json(); }).then(function (jj) {
+        var live = (jj.devices || []).filter(function (d) { return !d.revoked_at; });
+        var minted = live.filter(function (d) { return d.name === name; });
+        if (minted.length && minted[0].last_dev_seq > 0) wizDone('hub', name);
+      }).catch(function () {});
+    }, 3000);
+  }).catch(function () { if (btn) btn.disabled = false; toast('Pairing failed'); });
+}
+// ── Device path ──
+function wizDevFind() {
+  wizClearTimers();
+  wizMount(2, 'Find your mind machine',
+    'Looking on this network. On the mind machine, run Set up once so its door is open.',
+    '<div class="wiz-wait"><span class="pulse"></span><span>Looking…</span></div>' +
+    '<div class="wiz-rows" id="wiz-minds"></div>' +
+    '<div class="wiz-rows" id="wiz-dev-invites"></div>' +
+    '<a class="wiz-link" onclick="wizDevCode()">I have a code</a>',
+    '<a class="wiz-link" style="margin-top:0;" onclick="wizChoice()">Back</a>');
+  wizPoll(function () {
+    var rows = document.getElementById('wiz-minds');
+    if (rows) {
+      fetch('/api/sync/nearby').then(function (r) { return r.json(); }).then(function (j) {
+        var minds = (j.minds || []).filter(function (m) { return m.role !== 'device'; });
+        rows.innerHTML = minds.map(function (m) {
+          return _syncRow('<span class="pulse" style="display:inline-block;margin-right:8px;"></span>' + m.name, m.host + ':' + m.port,
+            '<button class="btn-mini" onclick="wizDevFollow(\'' + m.host + '\',' + m.port + ',\'' + String(m.name).replace(/[^\w .-]/g, '') + '\')">Follow</button>');
+        }).join('');
+      }).catch(function () {});
+    }
+    var inv = document.getElementById('wiz-dev-invites');
+    if (inv) {
+      window.__ignoredInvites = window.__ignoredInvites || {};
+      fetch('/api/sync/invites').then(function (r) { return r.json(); }).then(function (j) {
+        var invites = (j.invites || []).filter(function (i) { return !window.__ignoredInvites[i.invite_id]; });
+        inv.innerHTML = invites.map(function (i) {
+          return _syncRow(i.mind_name + ' invites this device', 'join its mind from here',
+            '<button class="btn-mini" onclick="acceptInvite(\'' + i.invite_id + '\', this)">Join</button>');
+        }).join('');
+      }).catch(function () {});
+    }
+  }, 2500);
+}
+function wizDevFollow(host, port, name) {
+  wizClearTimers();
+  WIZ.mindName = name;
+  fetch('/api/sync/follow', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ host: host, port: port, name: name }),
+  }).then(function () {
+    wizMount(2, 'Waiting for ' + name,
+      'This device asked to follow. Now on ' + name + ': press <b>Approve</b>. This step finishes by itself.',
+      '<div class="wiz-wait"><span class="pulse"></span><span>Waiting for approval…</span></div>',
+      '<a class="wiz-link" style="margin-top:0;" onclick="wizDevFind()">Back</a>');
+    wizPoll(function () {
+      fetch('/api/sync/follow-state').then(function (r) { return r.json(); }).then(function (f) {
+        if (f.state === 'connected') { wizDone('device', WIZ.mindName); return; }
+        if (f.state === 'denied') { toast(name + ' declined this device.'); wizDevFind(); return; }
+        if (f.state === 'failed') { toast('Could not follow: ' + (f.error || 'no answer')); wizDevFind(); }
+      }).catch(function () {});
+    }, 2000);
+  }).catch(function () { toast('Could not reach ' + name); });
+}
+function wizDevCode() {
+  wizClearTimers();
+  wizMount(2, 'Connect with a code',
+    'The code is made on the mind machine and carries the address, the identity and the key, all in one.',
+    '<div class="wiz-instr">' +
+    '<div class="wi-row"><span class="wi-n">1</span><span>On the mind machine: Settings, then Network, then <b>Set up</b>.</span></div>' +
+    '<div class="wi-row"><span class="wi-n">2</span><span>Choose <b>Keep the mind here</b>, then <b>The device is on a different network</b>.</span></div>' +
+    '<div class="wi-row"><span class="wi-n">3</span><span>Press <b>Make the code</b> and bring it here.</span></div>' +
+    '</div>' +
+    '<div class="form-row" style="margin-top:10px;"><div class="field"><label>Pairing code</label><input type="text" id="wiz-paircode" placeholder="troth1."></div></div>',
+    '<button class="btn" onclick="wizConnectCode(this)">Connect</button><a class="wiz-link" style="margin-top:0;" onclick="wizDevFind()">Back</a>');
+}
+function wizConnectCode(btn) {
+  var code = (document.getElementById('wiz-paircode').value || '').trim();
+  if (!code) { toast('Paste the pairing code first'); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Connecting'; }
+  fetch('/api/sync/connect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: code }),
+  }).then(function (r) { return r.json(); }).then(function (j) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Connect'; }
+    if (j.ok) { wizDone('device', j.host || 'the mind machine'); return; }
+    if (j.error === 'self_pair') { toast('This code belongs on the OTHER device. This machine is the mind it points at.'); return; }
+    if (j.error === 'no_host_answered') { toast('The mind machine did not answer. Same network or VPN on?'); return; }
+    toast('Pairing failed: ' + (j.error || 'unknown'));
+  }).catch(function () { if (btn) { btn.disabled = false; btn.textContent = 'Connect'; } toast('Pairing failed'); });
+}
+function inviteDevice(host, port, name) {
+  if (!requireOperator()) return;
+  fetch('/api/sync/invite-create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ host: host, port: port }),
+  }).then(function (r) { return r.json(); }).then(function (j) {
+    if (j.ok) { toast('Invitation sent. On ' + name + ': press Join.'); return; }
+    toast(j.error === 'device_unreachable' ? name + ' did not answer. Is its door open?' : 'Invite failed: ' + (j.error || 'unknown'));
+  }).catch(function () { toast('Invite failed'); });
+}
+function wizDone(kind, detail) {
+  wizClearTimers();
+  if (kind === 'hub') {
+    wizMount(3, 'Connected', '',
+      '<div class="wiz-check">✓ ' + detail + ' follows this mind now.</div>' +
+      '<div class="wiz-sub">Whatever is said there is remembered here, and it recalls from here. Revoke it any time from the Paired devices list.</div>',
+      '<button class="btn btn-ghost" onclick="wizHubBring()">Connect another device</button><button class="btn" onclick="wizClose()">Done</button>', true);
+  } else {
+    wizMount(3, 'Connected', '',
+      '<div class="wiz-check">✓ This device follows ' + detail + '.</div>' +
+      '<div class="wiz-sub">Everything said here is remembered there. Offline, writes queue and land when it is back.</div>',
+      '<button class="btn" onclick="wizClose()">Done</button>', true);
+  }
+  renderSyncCard();
+}
 function toggleMyDataShelf(which) {
   var other = which === 'mydata-import' ? 'mydata-backups' : 'mydata-import';
   document.getElementById(other).classList.remove('open');
