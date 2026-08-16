@@ -20,7 +20,7 @@ This repository runs on macOS and Linux. It uses the Claude, ChatGPT or Kimi sub
 
 troth is a persistent AI partner. Its identity, memory, goals and refusal walls live in a local SQLite substrate (`~/.troth/state.db`) that you own. Nothing about the partner is stored in any vendor's account, and swapping engines never resets it.
 
-**This is not a memory plugin.** A memory plugin remembers text for one vendor's model. troth keeps the whole relationship — memory, identity, goals, refusal walls, and a signed record of what it learned and what it forgot — in a file you own, and rents whichever model happens to be available to do the talking. Memory is one organ of that, not the product.
+**This is not a memory plugin.** A memory plugin remembers text for one vendor's model. troth keeps the whole relationship — memory, identity, goals, refusal walls checked before the model is consulted, and a signed record of what it learned and what it forgot — in a file you own, and rents whichever model happens to be available to do the talking.
 
 ### The move, in thirty seconds
 
@@ -54,17 +54,62 @@ Nothing was pasted back in. No project file was open. Different vendor, differen
 
 **It is for you if** you already pay for an AI plan, you are tired of re-explaining your own project every time you open a session or change model, and you would rather the memory sat on your disk than in someone's account. It runs in a terminal and a local dashboard. Day one it knows nothing about you; it starts learning from the first conversation, and `troth memory import` gives it a past by reading the Claude Code and Codex history already on your machine.
 
-**About using the plan you already pay for:** troth drives each vendor's own CLI, signed in the normal way, on your machine — it does not proxy or resell a subscription. The classic mode that fronts Claude Code strips the inbound claude.ai token instead of forwarding it upstream, because passing a consumer subscription through a third-party harness is exactly what a provider's terms forbid.
+---
 
-**The macOS app is a one-time purchase: €229, free for the first 7 days.** Everything below runs without it.
+## Quick start
 
-<p align="center">
-  <img src="docs/assets/app-home.png" alt="troth on macOS" width="720">
-</p>
+```bash
+npm install -g github:xgre1/troth    # puts the `troth` command on your PATH
+troth setup                          # guided: engine, memory, routing — opens the dashboard
+troth                                # talk to your partner
+```
 
-<p align="center">
-  <sub>The macOS app. The counter is the local substrate: what it has learned, on this machine, still there after every model swap.</sub>
-</p>
+About two minutes to the first reply if you have Node 22 and a subscription already. The memory models (roughly 1 GB, embedding and reranking) download in the background on first use; recall works on word-matching until they land and tells you so rather than pretending to be sharper than it is.
+
+`troth setup` starts the proxy and walks you through the rest in the dashboard: pick an engine (your ChatGPT, Claude or Kimi subscription, or an API key that is tested before it counts), turn on memory, decide where turns route. `troth doctor` tells you what is configured; `troth help` lists everything else.
+
+**Requirements:** Node.js >= 22 and, for the Claude engine, the Claude Code CLI (troth offers to install it on first run). The installer checks both and prints the fix when something is missing.
+
+<details>
+<summary>Debian/Ubuntu: install Node 22 first (stock <code>apt</code> ships Node 18)</summary>
+
+```bash
+sudo apt-get install -y curl
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+The install refuses an old Node and prints these same lines.
+
+</details>
+
+<details>
+<summary>Working from a clone instead</summary>
+
+```bash
+git clone https://github.com/xgre1/troth.git
+cd troth
+npm ci               # installs exactly what the lockfile pins
+sudo npm link        # creates the global `troth` command — do not skip this line
+troth setup
+```
+
+</details>
+
+### Or let your AI set it up
+
+Paste this into Claude Code (or any agent with a shell) and it does the whole thing:
+
+```text
+Install troth on this machine and set it up for me:
+1. git clone https://github.com/xgre1/troth.git && cd troth && npm ci
+2. Read llms.txt for the project map and the non-interactive setup contract.
+3. Ask me which engine I pay for (ChatGPT / Claude / Kimi / an API key),
+   write ~/.troth/config.json accordingly, then run: node bin/troth.js doctor
+4. Show me the doctor output and how to start talking: node bin/troth.js
+```
+
+Full walk-through: [`docs/SETUP_GUIDE.md`](docs/SETUP_GUIDE.md). Claude Code / MCP host installation: [`docs/MCP-HOST-INSTALL.md`](docs/MCP-HOST-INSTALL.md).
 
 ---
 
@@ -95,7 +140,7 @@ flowchart LR
     P <--> L
 ```
 
-Swap anything on the right; nothing in the middle changes. That is the whole thesis.
+Swap anything on the right; nothing in the middle changes.
 
 ---
 
@@ -107,59 +152,7 @@ Swap anything on the right; nothing in the middle changes. That is the whole the
 - **No inference of ours, no middleman.** Every request goes from your machine to the provider you picked.
 - **It spends your quota carefully.** The local proxy routes each request to the engine that fits it, caches repeated responses, and fails over across providers instead of erroring out mid-conversation.
 
----
-
-## Quick start
-
-```bash
-npm install -g github:xgre1/troth    # puts the `troth` command on your PATH
-troth setup                          # guided: engine, memory, routing — opens the dashboard
-troth                                # talk to your partner
-```
-
-About two minutes to the first reply if you have Node 22 and a subscription already. The memory models (roughly 1 GB, embedding and reranking) download in the background on first use; recall works on word-matching until they land and tells you so rather than pretending to be sharper than it is.
-
-<details>
-<summary>Debian/Ubuntu: install Node 22 first (stock <code>apt</code> ships Node 18)</summary>
-
-```bash
-sudo apt-get install -y curl
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt-get install -y nodejs
-```
-
-The install refuses an old Node and prints these same lines.
-
-</details>
-
-Working from a clone instead:
-
-```bash
-git clone https://github.com/xgre1/troth.git
-cd troth
-npm ci               # installs exactly what the lockfile pins
-sudo npm link        # creates the global `troth` command — do not skip this line
-troth setup
-```
-
-`troth setup` starts the proxy and walks you through the rest in the dashboard: pick an engine (your ChatGPT, Claude or Kimi subscription, or an API key that is tested before it counts), turn on memory, decide where turns route. `troth doctor` tells you what is configured; `troth help` lists everything else.
-
-**Requirements:** Node.js >= 22 and, for the Claude engine, the Claude Code CLI (troth offers to install it on first run). The installer checks both and prints the fix when something is missing.
-
-### Or let your AI set it up
-
-Paste this into Claude Code (or any agent with a shell) and it does the whole thing:
-
-```text
-Install troth on this machine and set it up for me:
-1. git clone https://github.com/xgre1/troth.git && cd troth && npm ci
-2. Read llms.txt for the project map and the non-interactive setup contract.
-3. Ask me which engine I pay for (ChatGPT / Claude / Kimi / an API key),
-   write ~/.troth/config.json accordingly, then run: node bin/troth.js doctor
-4. Show me the doctor output and how to start talking: node bin/troth.js
-```
-
-Full walk-through: [`docs/SETUP_GUIDE.md`](docs/SETUP_GUIDE.md). Claude Code / MCP host installation: [`docs/MCP-HOST-INSTALL.md`](docs/MCP-HOST-INSTALL.md).
+**About using the plan you already pay for:** troth drives each vendor's own CLI, signed in the normal way, on your machine — it does not proxy or resell a subscription. The classic mode that fronts Claude Code strips the inbound claude.ai token instead of forwarding it upstream, because passing a consumer subscription through a third-party harness is exactly what a provider's terms forbid.
 
 ---
 
@@ -207,9 +200,7 @@ Slash commands steer it without leaving the conversation:
 | **Walls** | refusals and capability scopes, checked against substrate state *before* the model is asked, not apologised for afterwards |
 | **Audit trail** | a signed chain of what was recorded and what was forgotten, so even the forgetting is accountable |
 
-Each turn rents language work from whichever engine is available and writes what mattered back here. Swap the engine and every row above is still yours.
-
-That is the difference from a memory plugin: a bolt-on remembers text for one vendor's model. This owns the relationship and rents the mouth. The destination is a partner that can act on its own behalf, safely, on a machine you own; every module in this tree is an organ for that, and the full arc is in [VISION.md](VISION.md).
+Each turn rents language work from whichever engine is available and writes what mattered back here. Swap the engine and every row above is still yours. The destination is a partner that can act on its own behalf, safely, on a machine you own; the full arc is in [VISION.md](VISION.md).
 
 ---
 
@@ -217,7 +208,7 @@ That is the difference from a memory plugin: a bolt-on remembers text for one ve
 
 Pair a second machine and the whole substrate travels: each device keeps a full replica, works offline, and converges when your machines meet again. There is no merge magic to distrust: one machine — the hub, which is just your first machine, not a server of ours — assigns every change a single global order as it arrives, and every device applies that same order. Writes land locally first and flow both ways when connected.
 
-Setup is a wizard, not a config file: dashboard → Network → Set up. One machine holds the mind; the other pastes a one-time pairing code, or gets discovered on the local network and invited. From the terminal, `troth device add` mints the code, `troth sync connect <code>` is the whole client side, and `troth sync status` says where you stand. The mind also moves as a single file — export from the dashboard, carry it, import on the new machine, nothing resets.
+Setup is a wizard, not a config file: dashboard → Network → Set up. The hub prints a one-time pairing code; the other machine pastes it, or gets discovered on the local network and invited. From the terminal, `troth device add` mints the code and `troth sync connect <code>` is the whole client side. The mind also moves as a single file — export from the dashboard, import on the new machine, nothing resets.
 
 Every device speaks with its own revocable token, and a change the receiver does not recognise quarantines instead of applying. The channel itself is not yet encrypted, so run it on networks you trust (home, office, a tailnet), not café Wi-Fi. The wire format is the journal the substrate already keeps; [`tests/suite-68-substrate-sync.js`](tests/suite-68-substrate-sync.js) holds the contract: ordering, replay, per-device watermarks, revocation, offline reconciliation.
 
@@ -257,9 +248,9 @@ The line is deliberate: **this repo is the full governed partner when you drive 
 | Native macOS interface | no | yes |
 | Production-tuned calibration configs | reasonable defaults | tuned |
 
-In this repo the autonomy layer is simply absent: its routes and modules are not part of the open tree, so there is nothing to switch on. That is the designed boundary, not a bug. Everything you can do *with* the partner is open; the partner working *unattended with a body* is where the paid app is headed.
+In this repo the autonomy layer is simply absent: its routes and modules are not part of the open tree, so there is nothing to switch on. That is the designed boundary, not a bug. The two "not yet shipped" rows mean exactly that: the app you can buy today does not run unattended and has no VM body. Everything you can do *with* the partner is open; the partner working *unattended with a body* is where the paid app is headed.
 
-Two rows above say **not yet shipped**, and they mean it. The app you can buy today does not run unattended and has no VM body. They are named here because the boundary they describe is already built into this code, not because you get them when you pay.
+**The macOS app is a one-time purchase: €229, free for the first 7 days.** What it buys today is the bottom of the table: voice and dictation, the zero-setup bundle, signed automatic updates, Keychain-held secrets and the native interface. No subscription.
 
 ---
 
@@ -297,30 +288,11 @@ troth/
 └── docs/           # setup guide, honest limits, MCP host install
 ```
 
----
-
-## Recall stack & model downloads
-
-Semantic recall runs fully on your machine. The first time it's needed,
-troth fetches three things into `~/.troth` (one time, in the background,
-with progress in the logs):
-
-| Piece | Size | Purpose |
-|---|---|---|
-| `llama-server` (pinned llama.cpp release) | ~20 MB | serves the two models below |
-| `embeddinggemma-300M` GGUF | ~333 MB | dense semantic memory (engram search) |
-| `bge-reranker-v2-m3` GGUF | ~606 MB | final relevance ordering of recall results |
-
-Until they land (or if they never do), recall degrades gracefully to
-lexical + whatever is available — nothing breaks, results are just less
-sharp. To suppress ALL model/binary downloads (CI, metered networks,
-servers): set `TROTH_NO_MODEL_FETCH=1` and, to pin your own binary,
-`TROTH_LLAMA_SERVER_BIN=/path/to/llama-server`. Apple Silicon gets Metal
-automatically; Intel Macs skip the local stack and stay lexical.
+Semantic recall runs fully on your machine: on first use troth fetches `llama-server` (~20 MB), an embedding model (~333 MB) and a reranker (~606 MB) into `~/.troth`, one time, in the background. Until they land, recall degrades gracefully to word-matching — nothing breaks. `TROTH_NO_MODEL_FETCH=1` suppresses all downloads (CI, metered networks); `TROTH_LLAMA_SERVER_BIN` pins your own binary. Apple Silicon gets Metal automatically; Intel Macs skip the local stack and stay lexical.
 
 ## Honest limits
 
-Read [`docs/HONEST-LIMITS.md`](docs/HONEST-LIMITS.md) before relying on troth. It names what no zero-training stack solves today (conviction under pressure, metacognitive integrity on hard reasoning), what troth actually solves, and how to read the benchmarks without fooling yourself.
+Read [`docs/HONEST-LIMITS.md`](docs/HONEST-LIMITS.md) before relying on troth. It names what no zero-training stack solves today (conviction under pressure, metacognitive integrity on hard reasoning), what troth actually solves, who should not use it, and how to read the benchmarks without fooling yourself.
 
 ---
 
