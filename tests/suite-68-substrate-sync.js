@@ -323,4 +323,70 @@ test('SYN-14: pairing is one string — it roundtrips, the device walks the addr
   assert.strictEqual(out.cfgTok, 'tok_y');
   assert.strictEqual(out.selfErr, 'self_pair', 'a machine cannot be paired with itself');
 });
+
+test('SYN-15: discovery — a beacon roundtrips, our own echo is ignored, silence expires a peer', () => {
+  const out = hermetic(REQ + [
+    "const D = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'sync', 'discovery.js')) + ");",
+    "const b = D.encodeBeacon('studio', 8000);",
+    "const parsed = D.parseBeacon(b);",
+    "const junk = D.parseBeacon(Buffer.from('hello'));",
+    "const self = new Set(['10.0.0.5']);",
+    "const noted = D.noteBeacon(b, '10.0.0.9', self);",
+    "const echoed = D.noteBeacon(b, '10.0.0.5', self);",
+    "const seen = D.nearby();",
+    "console.log(JSON.stringify({ name: parsed && parsed.name, port: parsed && parsed.port, junk: junk === null, noted, echoed, count: seen.length, host: seen[0] && seen[0].host }));"
+  ].join('\n'));
+  assert.strictEqual(out.name, 'studio');
+  assert.strictEqual(out.port, 8000);
+  assert.strictEqual(out.junk, true, 'garbage on the wire parses to nothing');
+  assert.strictEqual(out.noted, true);
+  assert.strictEqual(out.echoed, false, 'a machine never discovers itself');
+  assert.strictEqual(out.count, 1);
+  assert.strictEqual(out.host, '10.0.0.9');
+});
+
+test('SYN-16: knock-to-pair — capped knocks, an approval mints once, and the code leaves only toward the knocking address', () => {
+  const out = hermetic(REQ + [
+    "const PR = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'sync', 'pair-requests.js')) + ");",
+    "const a = PR.create('lap<script>top', '10.0.0.9');",
+    "const b = PR.create('phone', '10.0.0.9');",
+    "const capped = PR.create('third', '10.0.0.9');",
+    "const pend = PR.listPending();",
+    "const ap = PR.approve(a.id, function (name) { return { device_id: 'dev_t', code: 'troth1.codeFor_' + name }; });",
+    "const wrongIp = PR.statusFor(a.id, '10.0.0.66');",
+    "const first = PR.statusFor(a.id, '10.0.0.9');",
+    "const second = PR.statusFor(a.id, '10.0.0.9');",
+    "const dn = PR.deny(b.id);",
+    "const bs = PR.statusFor(b.id, '10.0.0.9');",
+    "console.log(JSON.stringify({ capped: capped.error, pendNames: pend.map(function (r) { return r.name; }), apOk: ap.ok, wrongIp: wrongIp.status, firstStatus: first.status, firstCode: first.code, secondCode: second.code || null, denied: bs.status }));"
+  ].join('\n'));
+  assert.strictEqual(out.capped, 'too_many_pending', 'a stranger cannot flood the door');
+  assert.ok(out.pendNames[0].indexOf('<') === -1, 'names are sanitized before an operator reads them');
+  assert.strictEqual(out.apOk, true);
+  assert.strictEqual(out.wrongIp, 'unknown', 'another address learns nothing, not even that the knock exists');
+  assert.strictEqual(out.firstStatus, 'approved');
+  assert.ok(String(out.firstCode).indexOf('troth1.') === 0, 'the code rides back to the knocker');
+  assert.strictEqual(out.secondCode, null, 'and exactly once');
+  assert.strictEqual(out.denied, 'denied');
+});
+
+test('SYN-17: the bundle shelf lists real bundles by itself — junk skipped, newest first', () => {
+  const out = hermetic(REQ + [
+    "const B = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'substrate-backup.js')) + ");",
+    "const fs = require('fs'); const p = require('path');",
+    "const dir = p.join(process.env.HOME, 'backups');",
+    "for (const [n, at] of [['substrate-old', '2026-08-01T00:00:00.000Z'], ['substrate-new', '2026-08-16T00:00:00.000Z']]) {",
+    "  fs.mkdirSync(p.join(dir, n), { recursive: true });",
+    "  fs.writeFileSync(p.join(dir, n, 'manifest.json'), JSON.stringify({ bundle_version: 1, generated_at: at, engram_count: 7, sync_latest_gseq: 3 }));",
+    "  fs.writeFileSync(p.join(dir, n, 'state.db'), 'x');",
+    "}",
+    "fs.mkdirSync(p.join(dir, 'not-a-bundle'), { recursive: true });",
+    "const got = B.listBundles({ dir });",
+    "console.log(JSON.stringify({ count: got.length, first: got[0] && got[0].name, engrams: got[0] && got[0].engram_count, gseq: got[0] && got[0].sync_latest_gseq }));"
+  ].join('\n'));
+  assert.strictEqual(out.count, 2, 'only real bundles make the shelf');
+  assert.strictEqual(out.first, 'substrate-new', 'newest first');
+  assert.strictEqual(out.engrams, 7);
+  assert.strictEqual(out.gseq, 3, 'the journal position rides along');
+});
 };

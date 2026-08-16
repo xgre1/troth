@@ -276,6 +276,29 @@ function loadOrCreateRemoteToken() {
 }
 const REMOTE_TOKEN = loadOrCreateRemoteToken();
 
+// Follow-a-mind state for the dashboard (satellite side), plus the tiny
+// JSON client the knock-to-pair flow uses toward the other machine.
+let _syncFollow = null;
+function _syncHttpJson(host, port, method, pathName, body, cb) {
+  try {
+    const data = body == null ? null : JSON.stringify(body);
+    const q = require('http').request({
+      host, port, method, path: pathName, timeout: 8000,
+      headers: data ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(data) } : {}
+    }, (r2) => {
+      let b = '';
+      r2.setEncoding('utf8');
+      r2.on('data', (c) => { b += c; if (b.length > 1e6) q.destroy(); });
+      r2.on('end', () => { try { cb(JSON.parse(b)); } catch (_) { cb(null); } });
+      r2.on('error', () => cb(null));
+    });
+    q.on('error', () => cb(null));
+    q.on('timeout', () => { q.destroy(); cb(null); });
+    if (data) q.write(data);
+    q.end();
+  } catch (_) { cb(null); }
+}
+
 // Lazy require so the runner is only loaded when the daemon actually
 // receives an /api/runs request — keeps proxy startup lean for users
 // who don't use remote dispatch at all.
@@ -2506,6 +2529,115 @@ const server = http.createServer((req, res) => {
         jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) });
       });
     });
+    return;
+  }
+  // ── Discovery + knock-to-pair — the AirPods road on one network ───────
+  // Minds announce themselves (UDP beacon, name + port, never a secret);
+  // a device ASKS to follow; the operator APPROVES on the mind machine;
+  // the pairing code rides back to the asking address exactly once. The
+  // knock endpoints are deliberately unauthenticated — that is what a
+  // knock is — but browser-driven cross-origin calls are refused, pending
+  // knocks are capped, and nothing is granted without the human click.
+  if (req.method === 'GET' && url === '/api/sync/nearby') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    try { jsonResponse(res, 200, { ok: true, minds: require('../shared-core/sync/discovery.js').nearby() }); }
+    catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) }); }
+    return;
+  }
+  if (req.method === 'POST' && url === '/api/sync/request-pair') {
+    if (isBrowserDrivenFromElsewhere(req)) { jsonResponse(res, 403, { ok: false, error: 'forbidden' }); return; }
+    try {
+      if (require('../shared-core/sync/remote-client.js').active()) {
+        jsonResponse(res, 409, { ok: false, error: 'satellite_has_no_mind' });
+        return;
+      }
+    } catch (_) {}
+    readJsonBody(req).then((body) => {
+      const ip = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+      const r = require('../shared-core/sync/pair-requests.js').create(body && body.device_name, ip);
+      if (r.error) { jsonResponse(res, 429, { ok: false, error: r.error }); return; }
+      jsonResponse(res, 200, { ok: true, request_id: r.id });
+    });
+    return;
+  }
+  if (req.method === 'GET' && url.startsWith('/api/sync/request-status')) {
+    if (isBrowserDrivenFromElsewhere(req)) { jsonResponse(res, 403, { ok: false, error: 'forbidden' }); return; }
+    const rid = String((new URL(req.url, 'http://x')).searchParams.get('id') || '');
+    const ip = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+    jsonResponse(res, 200, require('../shared-core/sync/pair-requests.js').statusFor(rid, ip));
+    return;
+  }
+  if (req.method === 'GET' && url === '/api/sync/requests') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    jsonResponse(res, 200, { ok: true, requests: require('../shared-core/sync/pair-requests.js').listPending() });
+    return;
+  }
+  if (req.method === 'POST' && (url === '/api/sync/approve' || url === '/api/sync/deny')) {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then((body) => {
+      const rid = body && typeof body.request_id === 'string' ? body.request_id : null;
+      if (!rid) { jsonResponse(res, 400, { ok: false, error: 'request_id_required' }); return; }
+      const pr = require('../shared-core/sync/pair-requests.js');
+      if (url === '/api/sync/deny') { jsonResponse(res, 200, pr.deny(rid)); return; }
+      const out = pr.approve(rid, (name) => {
+        const hub = require('../shared-core/sync/hub.js');
+        const pairing = require('../shared-core/sync/pairing.js');
+        const d = hub.addDevice(name);
+        return { device_id: d.device_id, code: pairing.encode({ hosts: pairing.candidateHosts(PORT), device_id: d.device_id, token: d.token }) };
+      });
+      jsonResponse(res, out.error ? 404 : 200, out);
+    });
+    return;
+  }
+  // Satellite-side follow: knock on a discovered mind, wait for the human
+  // there, connect the moment the code arrives. Server-side because the
+  // browser cannot reach the other machine cross-origin.
+  if (req.method === 'POST' && url === '/api/sync/follow') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then((body) => {
+      const host = body && typeof body.host === 'string' ? body.host : null;
+      const port = body && (body.port | 0);
+      if (!host || !port) { jsonResponse(res, 400, { ok: false, error: 'host_and_port_required' }); return; }
+      const deviceName = (body.device_name && String(body.device_name)) || require('os').hostname().replace(/\.local$/, '');
+      _syncFollow = { state: 'knocking', mind: (body.name || host), host, port, started: Date.now(), error: null };
+      _syncHttpJson(host, port, 'POST', '/api/sync/request-pair', { device_name: deviceName }, (r) => {
+        if (!r || !r.ok || !r.request_id) {
+          _syncFollow = { state: 'failed', mind: (body.name || host), error: (r && r.error) || 'no_answer' };
+          return;
+        }
+        _syncFollow.state = 'waiting_approval';
+        const rid = r.request_id;
+        const t = setInterval(() => {
+          if (Date.now() - _syncFollow.started > 10 * 60 * 1000) { clearInterval(t); _syncFollow = { state: 'failed', mind: _syncFollow.mind, error: 'timed_out' }; return; }
+          _syncHttpJson(host, port, 'GET', '/api/sync/request-status?id=' + encodeURIComponent(rid), null, (s) => {
+            if (!s) return; // transient — keep polling
+            if (s.status === 'denied' || s.status === 'unknown') { clearInterval(t); _syncFollow = { state: 'denied', mind: _syncFollow.mind, error: null }; return; }
+            if (s.status === 'approved' && s.code) {
+              clearInterval(t);
+              _syncFollow.state = 'connecting';
+              require('../shared-core/sync/remote-client.js').connectWithCode(s.code).then((c) => {
+                _syncFollow = c && c.ok
+                  ? { state: 'connected', mind: _syncFollow.mind, host: c.host, error: null }
+                  : { state: 'failed', mind: _syncFollow.mind, error: (c && c.error) || 'connect_failed' };
+              });
+            }
+          });
+        }, 3000);
+        if (t.unref) t.unref();
+      });
+      jsonResponse(res, 200, { ok: true, state: 'knocking' });
+    });
+    return;
+  }
+  if (req.method === 'GET' && url === '/api/sync/follow-state') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    jsonResponse(res, 200, Object.assign({ ok: true }, _syncFollow || { state: 'idle' }));
+    return;
+  }
+  if (req.method === 'GET' && url === '/api/mind/bundles') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    try { jsonResponse(res, 200, { ok: true, bundles: require('../shared-core/substrate-backup.js').listBundles() }); }
+    catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) }); }
     return;
   }
   if (url === '/api/sync/hello' || url === '/api/sync/event' || url === '/api/sync/query') {
@@ -6013,6 +6145,18 @@ server.listen(listenPort, BIND_HOST, () => {
       log('[sync] satellite mode: mind at ' + (_rcFlush.status().host || '?') + ', outbox flusher on');
     }
   } catch (_) { /* sync module absent — nothing to flush */ }
+  // Mind discovery — announce when this machine keeps a mind AND has a
+  // reachable door (a loopback bind has nothing to announce); always
+  // listen, so the Network card can show minds near you either way.
+  try {
+    const disco = require('../shared-core/sync/discovery.js');
+    const rcD = require('../shared-core/sync/remote-client.js');
+    disco.start({
+      name: require('os').hostname().replace(/\.local$/, ''),
+      port: listenPort,
+      shouldBeacon: () => BIND_HOST !== '127.0.0.1' && !rcD.active()
+    });
+  } catch (_) { /* discovery is best-effort */ }
   log('Listening on ' + BIND_HOST + ':' + listenPort + (listenPort === PORT ? '' : ' (auto-bumped from ' + PORT + ')'));
   // Orphan guard. The desktop app spawns us DETACHED so we outlive a closed
   // window, and reaps us when it quits gracefully. A crash or a force-kill
