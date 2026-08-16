@@ -20,7 +20,7 @@ module.exports.run = async (ctx, check) => {
   try { page = await browserLib.open(ctx.root); }
   catch (e) {
     check('a browser is available to look with', false,
-      String(e && e.message) + ' — start Chrome with --remote-debugging-port=9222');
+      String(e && e.message) + ' — the run spawns its own headless Chrome/Chromium; install one for this scenario');
     return;
   }
 

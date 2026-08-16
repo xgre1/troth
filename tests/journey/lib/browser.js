@@ -16,14 +16,30 @@ function load(root) {
   return require(path.join(root, 'shared-core', 'perception', 'cdp-client.js'));
 }
 
-/** Attach to the already-running Chrome (127.0.0.1:9222 by convention) — in
- * a tab of our OWN. The old road took connectFirstPage: the operator's
- * current tab, navigated to a throwaway proxy and left there, so every run
- * ended with their Chrome parked on a dead onboarding page. Create a
- * target, drive that, close it for real (Target.closeTarget — close() on
- * the session only hangs up the websocket, the tab outlives it). */
-async function open(root, { host = '127.0.0.1', port = 9222 } = {}) {
+// A browser of the run's OWN: headless Chrome on a private CDP port with a
+// throwaway profile, spawned through the same chromium-daemon the product
+// uses and killed when the run ends. The operator's browser is never
+// attached, never navigated, never visible — a test that borrows the
+// operator's Chrome (any port, any tab) turns every journey run into a
+// window popping open on their desk, parked on a throwaway proxy's
+// onboarding once the run's HOME dies. 18777 is journey-private: distinct
+// from the product daemon's 18222 and the VM body's 19222, so a live
+// instance on it can only be a previous run's leftover — safe to reuse,
+// safe to kill.
+const JOURNEY_CDP_PORT = parseInt(process.env.TROTH_JOURNEY_CDP_PORT || '18777', 10);
+
+async function open(root) {
   const cdp = load(root);
+  const daemon = require(path.join(root, 'shared-core', 'perception', 'chromium-daemon.js'));
+  const fs = require('fs');
+  const os = require('os');
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'journey-chrome-'));
+  const up = await daemon.ensure({ port: JOURNEY_CDP_PORT, headless: true, user_data_dir: profile });
+  if (!up || !up.ok) {
+    throw new Error('no Chrome/Chromium to look with: ' + ((up && up.error) || 'chromium-daemon could not start one'));
+  }
+  const host = up.host || '127.0.0.1';
+  const port = JOURNEY_CDP_PORT;
   const browser = await cdp.connectBrowser(host, port);
   let targetId = null;
   let page = null;
@@ -103,13 +119,16 @@ async function open(root, { host = '127.0.0.1', port = 9222 } = {}) {
         '  window.addEventListener("unhandledrejection", function(e){ window.__journeyErrors.push("unhandled: " + String(e.reason)); });' +
         '}' });
     },
-    // The tab dies with the run — the operator's browser goes back to being
-    // theirs. Fire-and-forget on purpose: scenarios call this from finally.
+    // The whole browser dies with the run — it was spawned for this run and
+    // owes nothing to anyone. A previous run's leftover (attached, no pid)
+    // gets its tab closed and is left for its own reaper. Fire-and-forget
+    // on purpose: scenarios call this from finally.
     close() {
       (async () => {
         try { await browser.send('Target.closeTarget', { targetId }); } catch (_) {}
         try { page.close(); } catch (_) {}
         try { browser.close(); } catch (_) {}
+        if (up.spawned && up.pid) { try { process.kill(up.pid, 'SIGTERM'); } catch (_) {} }
       })();
     },
   };
