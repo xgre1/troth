@@ -274,4 +274,53 @@ test('SYN-12: satellite recall asks the hub; an unreachable hub answers empty, n
   assert.strictEqual(out.darkLen, 0, 'unreachable mind = empty recall, not a stale local answer');
   assert.strictEqual(out.darkIsArray, true);
 });
+
+test('SYN-13: the mind travels as one file — the bundle carries the journal position and round-trips the memories', () => {
+  const out = hermetic(REQ + [
+    "const engram = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'engram.js')) + ");",
+    "const backup = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'substrate-backup.js')) + ");",
+    "engram.recordEngram({ _local: true, agent_id: 'cli', statement: 'a memory worth carrying across machines' });",
+    "const d = HUB.addDevice('laptop');",
+    "(async () => {",
+    "  await HUB.applyEvent(env(d.device_id, 1, 'engram_record', { statement: 'and one that arrived through sync' }));",
+    "  const ex = backup.exportArchive({ out_path: require('path').join(process.env.HOME, 'mind-bundle') });",
+    "  const target = require('path').join(process.env.HOME, 'restored.db');",
+    "  const im = backup.importArchive({ in_path: ex.bundle_path, target_db: target, replace: true });",
+    "  const Database = require('better-sqlite3');",
+    "  const rdb = new Database(target, { readonly: true });",
+    "  const n = rdb.prepare('SELECT COUNT(*) AS n FROM action_records').get().n;",
+    "  rdb.close();",
+    "  console.log(JSON.stringify({ exported: !!ex.ok, gseqStamp: ex.manifest.sync_latest_gseq, imported: !!im.ok, rows: n }));",
+    "})();"
+  ].join('\n'));
+  assert.strictEqual(out.exported, true);
+  assert.strictEqual(out.gseqStamp, 1, 'the bundle names the journal position it was cut at');
+  assert.strictEqual(out.imported, true, 'import is a first-class road, not a shrug');
+  assert.ok(out.rows >= 2, 'both memories — local-born and sync-born — made the crossing');
+});
+
+test('SYN-14: pairing is one string — it roundtrips, the device walks the addresses to a live one, and a self-pair is refused', () => {
+  const out = hermetic(REQ + [
+    "const P = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'sync', 'pairing.js')) + ");",
+    "const code = P.encode({ hosts: ['http://203.0.113.9:8000', 'http://203.0.113.10:8000'], device_id: 'dev_x', token: 'tok_y' });",
+    "const dec = P.decode(code);",
+    "const selfHosts = Array.from(P.localIps()).filter(function (ip) { return /^[0-9.]+$/.test(ip); }).slice(0, 3).map(function (ip) { return 'http://' + ip + ':8000'; });",
+    "const selfCode = P.encode({ hosts: selfHosts, device_id: 'dev_x', token: 'tok_y' });",
+    "(async () => {",
+    "  const tried = [];",
+    "  RC.__setTransportForTests(function (s) { tried.push(s.host); return Promise.resolve(tried.length < 2 ? { transport_error: true } : { ok: true, protocol: 1, latest_gseq: 0 }); });",
+    "  const r = await RC.connectWithCode(code);",
+    "  const cfg = JSON.parse(require('fs').readFileSync(process.env.TROTH_CONFIG_PATH, 'utf8'));",
+    "  const selfR = await RC.connectWithCode(selfCode);",
+    "  console.log(JSON.stringify({ roundtrip: !!(dec && dec.device_id === 'dev_x' && dec.token === 'tok_y' && dec.hosts.length === 2), ok: r.ok, picked: r.host, tried, cfgHost: cfg.sync && cfg.sync.host, cfgTok: cfg.sync && cfg.sync.deviceToken, selfErr: selfR.error }));",
+    "})();"
+  ].join('\n'));
+  assert.strictEqual(out.roundtrip, true, 'one string carries hosts, identity and key');
+  assert.strictEqual(out.ok, true);
+  assert.deepStrictEqual(out.tried, ['http://203.0.113.9:8000', 'http://203.0.113.10:8000'], 'addresses walked in order');
+  assert.strictEqual(out.picked, 'http://203.0.113.10:8000', 'the one that answered wins');
+  assert.strictEqual(out.cfgHost, out.picked, 'only an address that answered is written to config');
+  assert.strictEqual(out.cfgTok, 'tok_y');
+  assert.strictEqual(out.selfErr, 'self_pair', 'a machine cannot be paired with itself');
+});
 };

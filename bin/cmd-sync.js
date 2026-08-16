@@ -25,19 +25,21 @@ if (command === "device") {
       process.exit(1);
     }
     const d = hub.addDevice(name);
+    const pairing = require("../shared-core/sync/pairing.js");
+    const cfgP = ctx.loadConfig();
+    const code = pairing.encode({ hosts: pairing.candidateHosts(cfgP.port || 8000), device_id: d.device_id, token: d.token });
     console.log("");
     console.log("  Device paired: " + name + "  (" + d.device_id + ")");
     console.log("");
-    console.log("  This token is shown ONCE and never stored in the clear:");
+    console.log("  Its pairing code — shown ONCE, carries the address, identity and key:");
     console.log("");
-    console.log("    " + d.token);
+    console.log("    " + code);
     console.log("");
-    console.log("  On the device, run:");
+    console.log("  On the device: Settings → Network → Pairing code, or:");
     console.log("");
-    console.log("    troth sync connect http://<this-machine>:8000 " + d.device_id + " <token>");
+    console.log("    troth sync connect <code>");
     console.log("");
-    console.log("  (use the Tailscale/VPN address of this machine, and make sure");
-    console.log("   the proxy here binds beyond loopback: bindHost in config)");
+    console.log("  (the proxy here must bind beyond loopback: bindHost in config)");
     process.exit(0);
   }
 
@@ -71,18 +73,33 @@ if (command === "sync") {
   const rc = require("../shared-core/sync/remote-client.js");
 
   if (sub === "connect") {
-    const host = args[args.indexOf("sync") + 2];
-    const deviceId = args[args.indexOf("sync") + 3];
-    const token = args[args.indexOf("sync") + 4];
-    if (!host || !deviceId || !token) {
-      console.error("usage: troth sync connect <host> <device_id> <token>");
-      console.error("       host like http://100.x.y.z:8000 (the mind machine over your VPN)");
+    const a1 = args[args.indexOf("sync") + 2];
+    const a2 = args[args.indexOf("sync") + 3];
+    const a3 = args[args.indexOf("sync") + 4];
+    // One-paste road: a pairing code carries address + identity + key.
+    if (a1 && a1.indexOf("troth1.") === 0 && !a2) {
+      rc.connectWithCode(a1).then((r) => {
+        if (r && r.ok) {
+          console.log("connected — the mind answers at " + r.host);
+          console.log("this install now writes to and recalls from it.");
+          process.exit(0);
+        }
+        if (r && r.error === "self_pair") console.error("this code points at THIS machine — paste it on the other device.");
+        else if (r && r.error === "no_host_answered") console.error("no address in the code answered — same network / VPN up, and the mind machine's proxy bound beyond loopback?");
+        else console.error("pairing failed: " + JSON.stringify(r));
+        process.exit(1);
+      });
+      return;
+    }
+    // By-hand road, for the operator who wants the parts.
+    if (!a1 || !a2 || !a3) {
+      console.error("usage: troth sync connect <pairing-code>");
+      console.error("       (or by hand: troth sync connect <host> <device_id> <token>)");
       process.exit(1);
     }
-    rc.connect(host, deviceId, token).then((h) => {
+    rc.connect(a1, a2, a3).then((h) => {
       if (h && h.ok) {
-        console.log("connected — the mind answers at " + host);
-        console.log("protocol " + h.protocol + ", ops: " + Object.keys(h.ops || {}).join(", "));
+        console.log("connected — the mind answers at " + a1);
         console.log("this install now writes to and recalls from the hub.");
         process.exit(0);
       }

@@ -2475,18 +2475,74 @@ setInterval(function(){
       <div class="card-footer">
         <button class="btn btn-ghost" onclick="saveBindHost()">Save</button>
       </div>
-      <div class="card-title" style="margin-top:18px;">Substrate host</div>
-      <div class="card-hint">Where this install's memory lives. Empty = this machine holds its own mind. To make this machine a window onto another machine's mind: on that machine run <code>troth device add</code>, then enter its address and the printed pairing below. Writes queue locally when the mind is unreachable; recall needs it live.</div>
+      <div class="card-title" style="margin-top:18px;">One mind, many devices</div>
+      <div class="card-hint">Your memory can live on ONE machine and follow you on every other. On the machine that keeps the mind, pair a device; on the other device, paste the pairing code. That's the whole setup.</div>
+      <a href="#" onclick="document.getElementById('sync-breath').classList.toggle('open');return false;" style="display:inline-block;margin-top:2px;color:var(--signal);text-decoration:none;font-size:11px;">how does this work?</a>
+      <div class="breath" id="sync-breath"><div style="font-size:11px;line-height:1.8;color:var(--text-dim);">
+        <b style="color:var(--text)">The mind machine:</b> the computer that keeps your memory (usually the one that's always on). Click <i>Pair a device</i> below &mdash; it makes a pairing code.<br>
+        <b style="color:var(--text)">The other device:</b> paste that code in ITS Settings &rarr; Network &rarr; Pairing code. From then on, whatever you say there is remembered HERE, and it recalls from here.<br>
+        <b style="color:var(--text)">Between machines:</b> both must reach each other &mdash; same network, or a private mesh like Tailscale. The code already carries every address this machine answers on.<br>
+        <b style="color:var(--text)">Offline:</b> the device keeps working; what it writes queues and lands when the mind machine is back. Recall waits for a live connection.<br>
+        <b style="color:var(--text)">Lost a device?</b> Revoke it below &mdash; one click, only that device dies.
+      </div></div>
+      <div style="margin-top:12px;padding:12px 14px;border:1px solid var(--border,#333);border-radius:8px;">
+        <div style="font-size:12px;font-weight:600;">This machine keeps a mind</div>
+        <div class="card-hint" style="margin-top:2px;">Pair another device to it &mdash; a pairing code appears; paste it on that device.</div>
+        <div class="form-row" style="margin-top:8px;">
+          <div class="field"><label>Device name</label><input type="text" id="cfg-pairname" placeholder="laptop"></div>
+        </div>
+        <div class="card-footer" style="margin-top:6px;">
+          <button class="btn btn-ghost" onclick="pairDevice()">Pair a device</button>
+        </div>
+        <div id="sync-devices-wrap" style="display:none;margin-top:10px;">
+          <div class="card-hint">Paired devices</div>
+          <div id="sync-devices-rows" style="font-size:11px;font-family:var(--mono);line-height:1.9;color:var(--text-dim);"></div>
+        </div>
+        <div id="pair-result" style="display:none;font-size:11px;font-family:var(--mono);line-height:1.9;margin-top:10px;padding:10px;border:1px solid var(--border,#333);border-radius:6px;"></div>
+      </div>
+      <div style="margin-top:12px;padding:12px 14px;border:1px solid var(--border,#333);border-radius:8px;">
+        <div style="font-size:12px;font-weight:600;">&hellip;or follow a mind kept on another machine</div>
+        <div id="sync-follow-form">
+          <div class="card-hint" style="margin-top:2px;">Paste the pairing code that machine made for this device.</div>
+          <div class="form-row" style="margin-top:8px;">
+            <div class="field"><label>Pairing code</label><input type="text" id="cfg-paircode" placeholder="troth1.&hellip;"></div>
+          </div>
+          <div class="card-footer" style="margin-top:6px;">
+            <button class="btn btn-ghost" onclick="connectWithPairCode()">Connect</button>
+            <span class="test-result" id="sync-status"></span>
+          </div>
+        </div>
+        <div id="sync-follow-active" style="display:none;">
+          <div class="card-hint" style="margin-top:2px;" id="sync-follow-line"></div>
+          <div class="card-footer" style="margin-top:6px;">
+            <button class="btn btn-ghost" onclick="clearSyncHub()">Back to a local mind</button>
+          </div>
+        </div>
+        <a href="#" onclick="document.getElementById('sync-advanced').classList.toggle('open');return false;" style="display:inline-block;margin-top:8px;color:var(--signal);text-decoration:none;font-size:11px;">advanced: enter by hand</a>
+        <div class="breath" id="sync-advanced">
+          <div class="form-row">
+            <div class="field"><label>Hub address</label><input type="text" id="cfg-synchost" placeholder="http://100.x.y.z:8000"></div>
+            <div class="field"><label>Device ID</label><input type="text" id="cfg-syncdevice" placeholder="dev_xxxxxxxx"></div>
+            <div class="field"><label>Device token</label><input type="password" id="cfg-synctoken" placeholder="shown once at pairing"></div>
+          </div>
+          <div class="card-footer">
+            <button class="btn btn-ghost" onclick="saveSyncHub()">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="settings-card op-gated" data-settings-tab="network">
+      <div class="card-title">My data</div>
+      <div class="card-hint">Your whole mind as one file. Export it to carry or keep &mdash; AirDrop it to a new Mac, stash it as a backup. Import one and this machine wakes up as that mind.</div>
       <div class="form-row">
-        <div class="field"><label>Hub address</label><input type="text" id="cfg-synchost" placeholder="http://100.x.y.z:8000"></div>
-        <div class="field"><label>Device ID</label><input type="text" id="cfg-syncdevice" placeholder="dev_xxxxxxxx"></div>
-        <div class="field"><label>Device token</label><input type="password" id="cfg-synctoken" placeholder="shown once by device add"></div>
+        <div class="field"><label>Bundle to import (folder path)</label><input type="text" id="cfg-mindbundle" placeholder="/Users/you/&hellip;/substrate-2026-08-16"></div>
       </div>
       <div class="card-footer">
-        <button class="btn btn-ghost" onclick="saveSyncHub()">Connect</button>
-        <button class="btn btn-ghost" onclick="clearSyncHub()">Local mind</button>
-        <span class="test-result" id="sync-status"></span>
+        <button class="btn btn-ghost" onclick="exportMindFile(this)">Export</button>
+        <button class="btn btn-ghost" onclick="importMindFile(this)">Import</button>
+        <span class="test-result" id="mydata-result"></span>
       </div>
+      <div id="mydata-path" style="display:none;font-size:11px;font-family:var(--mono);line-height:1.9;margin-top:8px;padding:10px;border:1px solid var(--border,#333);border-radius:6px;"></div>
     </div>
     <div class="settings-card op-gated" data-settings-tab="telemetry">
       <div class="card-title">Telemetry</div>
@@ -3617,6 +3673,7 @@ function loadConfig() {
       // deviceToken comes back [REDACTED] and is stripped on save; the
       // placeholder tells the story, the field stays empty.
       refreshSyncStatus();
+      loadSyncDevices();
     }
     var envEl = document.getElementById('env-cmd');
     if (envEl) {
@@ -3767,13 +3824,25 @@ function saveBindHost() {
     .catch(function (e) { toast('Save failed: ' + (e && e.message || e)); });
 }
 function refreshSyncStatus() {
-  var el = document.getElementById('sync-status');
-  if (!el) return;
+  var form = document.getElementById('sync-follow-form');
+  var act = document.getElementById('sync-follow-active');
+  var line = document.getElementById('sync-follow-line');
+  var st = document.getElementById('sync-status');
+  if (!form || !act || !line) return;
   fetch('/api/sync/status').then(function (r) { return r.json(); }).then(function (s) {
-    if (!s.active) { el.textContent = 'local mind'; el.style.color = 'var(--text-dim)'; return; }
-    if (s.hub && s.hub.reachable) { el.textContent = 'mind reachable' + (s.pending ? ' · ' + s.pending + ' queued' : ''); el.style.color = 'var(--green)'; }
-    else { el.textContent = 'mind UNREACHABLE · ' + s.pending + ' queued'; el.style.color = 'var(--red)'; }
-  }).catch(function () { el.textContent = ''; });
+    if (!s.active) {
+      form.style.display = 'block';
+      act.style.display = 'none';
+      if (st) st.textContent = '';
+      return;
+    }
+    form.style.display = 'none';
+    act.style.display = 'block';
+    var bit = (s.hub && s.hub.reachable)
+      ? '<span style="color:var(--green);">mind reachable</span>'
+      : '<span style="color:var(--red);">mind unreachable — writes are queuing</span>';
+    line.innerHTML = 'Following the mind at <b>' + s.host + '</b> &middot; ' + bit + (s.pending ? ' &middot; ' + s.pending + ' queued' : '');
+  }).catch(function () { /* proxy briefly away — leave the card as it was */ });
 }
 function saveSyncHub() {
   if (!requireOperator()) return;
@@ -3800,6 +3869,121 @@ function clearSyncHub() {
     body: '{}',
   }).then(function (r) { if (!r.ok) throw new Error('http ' + r.status); toast('Local mind again'); setTimeout(refreshSyncStatus, 400); })
     .catch(function (e) { toast('Save failed: ' + (e && e.message || e)); });
+}
+function loadSyncDevices() {
+  var rows = document.getElementById('sync-devices-rows');
+  var wrap = document.getElementById('sync-devices-wrap');
+  if (!rows || !wrap) return;
+  fetch('/api/sync/devices').then(function (r) { return r.json(); }).then(function (j) {
+    var live = (j.devices || []).filter(function (d) { return !d.revoked_at; });
+    if (!live.length) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    rows.innerHTML = live.map(function (d) {
+      return d.name + '  <span style="opacity:.55;">(' + d.device_id + ')</span>  ' +
+        '<a href="#" onclick="revokePairedDevice(\'' + d.device_id + '\');return false;" style="color:var(--red);">revoke</a>';
+    }).join('<br>');
+  }).catch(function () { wrap.style.display = 'none'; });
+}
+function connectWithPairCode() {
+  if (!requireOperator()) return;
+  var code = document.getElementById('cfg-paircode').value.trim();
+  if (!code) { toast('Paste the pairing code from your mind machine first'); return; }
+  if (!confirm('This machine will keep its memory on the mind machine and recall from there.\n\nContinue?')) return;
+  var st = document.getElementById('sync-status');
+  if (st) { st.textContent = 'connecting…'; st.style.color = 'var(--text-dim)'; }
+  fetch('/api/sync/connect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: code }),
+  }).then(function (r) { return r.json(); }).then(function (j) {
+    if (j.ok) {
+      toast('Connected — one mind, this device included');
+      document.getElementById('cfg-paircode').value = '';
+      setTimeout(refreshSyncStatus, 300);
+      return;
+    }
+    if (st) { st.textContent = ''; }
+    if (j.error === 'self_pair') { toast('This code belongs on the OTHER device — this machine is the mind it points at'); return; }
+    if (j.error === 'no_host_answered') { toast('The mind machine did not answer — same network / VPN on, and its proxy reachable?'); return; }
+    toast('Pairing failed: ' + (j.error || 'unknown'));
+  }).catch(function (e) { if (st) st.textContent = ''; toast('Pairing failed: ' + (e && e.message || e)); });
+}
+function pairDevice() {
+  if (!requireOperator()) return;
+  var name = document.getElementById('cfg-pairname').value.trim();
+  if (!name) { toast('Name the device first (e.g. laptop)'); return; }
+  fetch('/api/sync/pair', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name }),
+  }).then(function (r) { return r.json(); }).then(function (j) {
+    if (!j.ok) { toast('Pairing failed: ' + (j.error || 'unknown')); return; }
+    var box = document.getElementById('pair-result');
+    box.style.display = 'block';
+    box.innerHTML = '<b>' + name + '</b> is paired. Its pairing code — shown ONCE:<br><br>' +
+      '<b style="user-select:all;word-break:break-all;">' + (j.code || '') + '</b><br><br>' +
+      'Paste it on the device: Settings → Network → Pairing code' +
+      '<br><span style="opacity:.55;">(or on a terminal there: troth sync connect &lt;code&gt;)</span>';
+    document.getElementById('cfg-pairname').value = '';
+    loadSyncDevices();
+  }).catch(function (e) { toast('Pairing failed: ' + (e && e.message || e)); });
+}
+function revokePairedDevice(id) {
+  if (!requireOperator()) return;
+  if (!confirm('Revoke ' + id + '? Its token dies immediately.')) return;
+  fetch('/api/sync/revoke', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_id: id }),
+  }).then(function (r) { return r.json(); }).then(function (j) {
+    toast(j.ok ? 'Revoked ' + id : 'No live device ' + id);
+    loadSyncDevices();
+  }).catch(function () { toast('Revoke failed'); });
+}
+function exportMindFile(btn) {
+  if (!requireOperator()) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Exporting…'; }
+  fetch('/api/repair/backup', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (j) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Export'; }
+    if (!j.ok) { toast('Export failed: ' + (j.error || 'unknown')); return; }
+    var box = document.getElementById('mydata-path');
+    box.style.display = 'block';
+    box.innerHTML = 'Your mind, as one file:<br>' +
+      '<span style="user-select:all;">' + j.path + '</span><br>' +
+      '<span style="opacity:.55;">AirDrop it, copy it, keep it. Import it on any machine from this same card.</span>';
+  }).catch(function () {
+    if (btn) { btn.disabled = false; btn.textContent = 'Export'; }
+    toast('Export failed');
+  });
+}
+function importMindFile(btn) {
+  if (!requireOperator()) return;
+  var p = document.getElementById('cfg-mindbundle').value.trim();
+  if (!p) { toast('Point at a bundle folder first (see Export)'); return; }
+  if (!confirm('This REPLACES this machine’s memory with the bundle:\n\n' + p + '\n\nQuit the troth app first if it is running. The proxy restarts by itself. Continue?')) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+  fetch('/api/mind/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: p }),
+  }).then(function (r) { return r.json(); }).then(function (j) {
+    if (!j.ok) {
+      if (btn) { btn.disabled = false; btn.textContent = 'Import'; }
+      toast('Import refused: ' + (j.detail || j.error || 'unknown'));
+      return;
+    }
+    var box = document.getElementById('mydata-path');
+    box.style.display = 'block';
+    box.innerHTML = 'Importing — the proxy is restarting as that mind. This page reloads in a few seconds…';
+    setTimeout(function () { location.reload(); }, 6000);
+  }).catch(function () {
+    // The proxy exits to let the helper swap the mind — a dropped fetch here
+    // usually IS the success path. Reload and see who woke up.
+    var box = document.getElementById('mydata-path');
+    box.style.display = 'block';
+    box.innerHTML = 'Importing — the proxy is restarting as that mind. This page reloads in a few seconds…';
+    setTimeout(function () { location.reload(); }, 6000);
+  });
 }
 function testBackend(){var el=document.getElementById('test-result');el.textContent='...';el.style.color='var(--text-dim)';fetch('/api/test-backend').then(function(r){return r.json()}).then(function(d){el.textContent=d.ok?d.latencyMs+'ms':'Failed';el.style.color=d.ok?'var(--green)':'var(--red)';});}
 

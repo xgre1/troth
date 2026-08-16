@@ -380,6 +380,59 @@ if (command === "mind") {
     return; // promise-driven; no synchronous fall-through
   }
 
+  if (subM === "export") {
+    // troth mind export [dest] — the whole mind as one carryable bundle:
+    // state.db + manifest, stamped with the journal position it was cut at.
+    // AirDrop it, copy it, keep it — the same bundle shape the app's Move
+    // flow shares and the weekly background backup writes.
+    var backupX = require("../shared-core/substrate-backup.js");
+    var destX = passthrough[1];
+    if (!destX) {
+      var stampX = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      destX = require("path").join(require("../shared-core/troth-home.js").trothDir(), "backups", "substrate-" + stampX);
+    }
+    var rX = backupX.exportArchive({ out_path: destX });
+    if (!rX.ok) { console.error("export failed: " + rX.error); process.exit(2); }
+    console.log("\x1b[32m✓\x1b[0m mind exported: " + rX.bundle_path);
+    console.log("  engrams: " + (rX.manifest.engram_count == null ? "?" : rX.manifest.engram_count) +
+      (rX.manifest.sync_latest_gseq != null ? "   journal position: " + rX.manifest.sync_latest_gseq : ""));
+    console.log("  restore on a machine: troth mind import " + rX.bundle_path + " --replace");
+    process.exit(0);
+  }
+
+  if (subM === "import") {
+    // troth mind import <bundle-dir> [--replace] — refuses while the proxy
+    // answers /health: replacing the file under a live writer tears the
+    // mind. The entity daemon and the app hold the same file — the message
+    // says to stop them too, because a port probe cannot see them all.
+    var inX = passthrough[1];
+    var wantReplaceX = passthrough.indexOf("--replace") >= 0;
+    if (!inX) { console.error("Usage: troth mind import <bundle-dir> [--replace]"); process.exit(1); }
+    var cfgI = ctx.loadConfig();
+    var httpI = require("http");
+    var doImportX = function () {
+      var backupI = require("../shared-core/substrate-backup.js");
+      var rI = backupI.importArchive({ in_path: inX, replace: wantReplaceX });
+      if (!rI.ok) { console.error("import failed: " + rI.error); process.exit(2); }
+      console.log("\x1b[32m✓\x1b[0m mind imported from " + inX);
+      console.log("  start troth and it wakes up as that mind.");
+      process.exit(0);
+    };
+    var reqI = httpI.request({ host: "127.0.0.1", port: cfgI.port || 8000, path: "/health", timeout: 1500 }, function (resI) {
+      resI.resume();
+      if (resI.statusCode === 200) {
+        console.error("the proxy is answering on :" + (cfgI.port || 8000) + " — a mind cannot be replaced under a live writer.");
+        console.error("quit the troth app and stop the proxy (and the entity daemon), then rerun.");
+        process.exit(2);
+      }
+      doImportX();
+    });
+    reqI.on("error", doImportX);
+    reqI.on("timeout", function () { reqI.destroy(); doImportX(); });
+    reqI.end();
+    return; // probe-driven; no synchronous fall-through
+  }
+
   console.error("Usage:");
   console.error("  troth mind list        [--cwd <path>] [--limit N]");
   console.error("  troth mind show        [--cwd <path>] [--id <snapshot-uuid>]");
@@ -388,6 +441,8 @@ if (command === "mind") {
   console.error("  troth mind decision    --project <id> --summary \"...\" [--rationale \"...\"] [--cwd P]");
   console.error("  troth mind distill     --project <id> [--cwd P]   (requires TROTH_MIND_DISTILL_ENDPOINT)");
   console.error("  troth mind compact     [--cwd P] [--keep-last N=5] [--older-than-days D=30]");
+  console.error("  troth mind export      [dest]                     (the mind as one carryable bundle)");
+  console.error("  troth mind import      <bundle-dir> [--replace]   (refuses under a running proxy)");
   process.exit(1);
 }
 };

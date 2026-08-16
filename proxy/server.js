@@ -1005,6 +1005,41 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Become another mind, one click: validate the bundle, then a detached
+  // helper waits for this process to release the port, swaps the substrate
+  // in (importArchive, replace), and starts a fresh proxy — the same
+  // stop-swap-start choreography the restart endpoint already trusts. The
+  // live process never writes over its own open database.
+  if (req.method === 'POST' && url === '/api/mind/import') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then((body) => {
+      try {
+        const inPath = body && typeof body.path === 'string' ? body.path.trim() : null;
+        if (!inPath) { jsonResponse(res, 400, { ok: false, error: 'path_required' }); return; }
+        if (!fs.existsSync(path.join(inPath, 'manifest.json'))) {
+          jsonResponse(res, 400, { ok: false, error: 'not_a_mind_bundle', detail: 'no manifest.json at ' + inPath });
+          return;
+        }
+        const { spawn } = require('child_process');
+        const backupPath = path.join(__dirname, '..', 'shared-core', 'substrate-backup.js');
+        const helper =
+          'const{spawn}=require("child_process");const net=require("net");' +
+          'const port=' + PORT + ';const server=' + JSON.stringify(__filename) + ';' +
+          'const backup=require(' + JSON.stringify(backupPath) + ');' +
+          'const inPath=' + JSON.stringify(inPath) + ';let tries=0;' +
+          '(function poll(){const s=net.createConnection(port,"127.0.0.1");' +
+          's.on("error",function(){go()});' +
+          's.on("connect",function(){s.destroy();if(++tries>60){process.exit(1);}setTimeout(poll,250);});})();' +
+          'function go(){try{const r=backup.importArchive({in_path:inPath,replace:true});if(!r.ok)process.exit(2);}catch(_){process.exit(2);}' +
+          'const p=spawn(process.execPath,[server],{detached:true,stdio:"ignore",env:process.env});p.unref();process.exit(0);}';
+        spawn(process.execPath, ['-e', helper], { detached: true, stdio: 'ignore', env: process.env }).unref();
+        jsonResponse(res, 200, { ok: true, importing: true, restarting: true });
+        setTimeout(function () { process.exit(0); }, 400);
+      } catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) }); }
+    });
+    return;
+  }
+
   // Check-up: live checks with a fix line per failure. ok is true/false, or
   // null for a check that does not apply on this install.
   if (req.method === 'POST' && url === '/api/doctor') {
@@ -2416,6 +2451,61 @@ const server = http.createServer((req, res) => {
     } catch (e) {
       jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) });
     }
+    return;
+  }
+  // Pairing, operator-side: mint / list / revoke device credentials from the
+  // dashboard — the same primitives the CLI's device command drives. The
+  // token appears exactly once, in the pair response; only its hash lives on.
+  if (req.method === 'GET' && url === '/api/sync/devices') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    try {
+      jsonResponse(res, 200, { ok: true, devices: require('../shared-core/sync/hub.js').listDevices() });
+    } catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) }); }
+    return;
+  }
+  if (req.method === 'POST' && url === '/api/sync/pair') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then((body) => {
+      const name = body && typeof body.name === 'string' && body.name.trim() ? body.name.trim() : null;
+      if (!name) { jsonResponse(res, 400, { ok: false, error: 'name_required' }); return; }
+      try {
+        const d = require('../shared-core/sync/hub.js').addDevice(name);
+        // The pairing CODE is the whole handshake in one string: every
+        // address this machine answers on (found here — the operator
+        // never hunts an IP), the minted identity, the one-time token.
+        const pairing = require('../shared-core/sync/pairing.js');
+        const code = pairing.encode({ hosts: pairing.candidateHosts(PORT), device_id: d.device_id, token: d.token });
+        jsonResponse(res, 200, { ok: true, device_id: d.device_id, token: d.token, code, shown: 'once' });
+      } catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) }); }
+    });
+    return;
+  }
+  if (req.method === 'POST' && url === '/api/sync/revoke') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then((body) => {
+      const id = body && typeof body.device_id === 'string' ? body.device_id : null;
+      if (!id) { jsonResponse(res, 400, { ok: false, error: 'device_id_required' }); return; }
+      try {
+        const gone = require('../shared-core/sync/hub.js').revokeDevice(id);
+        jsonResponse(res, gone ? 200 : 404, { ok: gone, device_id: id });
+      } catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) }); }
+    });
+    return;
+  }
+  // Satellite-side one-paste pairing: decode the code, refuse self-pair,
+  // probe the candidate addresses server-side (the browser could not —
+  // cross-origin), write config only for an address that answered.
+  if (req.method === 'POST' && url === '/api/sync/connect') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then((body) => {
+      const code = body && typeof body.code === 'string' ? body.code.trim() : null;
+      if (!code) { jsonResponse(res, 400, { ok: false, error: 'code_required' }); return; }
+      require('../shared-core/sync/remote-client.js').connectWithCode(code).then((out) => {
+        jsonResponse(res, out.ok ? 200 : 400, out);
+      }).catch((e) => {
+        jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) });
+      });
+    });
     return;
   }
   if (url === '/api/sync/hello' || url === '/api/sync/event' || url === '/api/sync/query') {

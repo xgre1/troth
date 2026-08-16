@@ -225,6 +225,29 @@ async function connect(host, deviceId, deviceToken) {
   return await hello();
 }
 
+// Pairing by CODE — the one-string road. Decode, refuse pairing a machine
+// with itself, then walk the candidate addresses until the mind answers;
+// only an address that answered is written to config. The operator typed
+// one paste, learned nothing, configured everything.
+async function connectWithCode(code) {
+  const pairing = require('./pairing.js');
+  const p = pairing.decode(code);
+  if (!p) return { ok: false, error: 'bad_pairing_code' };
+  const mine = pairing.localIps();
+  const foreign = p.hosts.filter((h) => {
+    try { return !mine.has(new URL(h).hostname); } catch (_) { return false; }
+  });
+  if (!foreign.length) return { ok: false, error: 'self_pair', detail: 'this code points at THIS machine — it belongs on the other device' };
+  for (const h of foreign) {
+    const probe = await _postImpl({ host: h, deviceToken: p.token }, 'GET', '/api/sync/hello', null);
+    if (probe && probe.ok) {
+      require('../config-file.js').patchConfig({ sync: { host: h, deviceId: p.device_id, deviceToken: p.token } });
+      return { ok: true, host: h, protocol: probe.protocol, latest_gseq: probe.latest_gseq };
+    }
+  }
+  return { ok: false, error: 'no_host_answered', tried: foreign };
+}
+
 // ── transport ────────────────────────────────────────────────────────────
 
 function _request(s, method, pathName, body) {
@@ -262,6 +285,6 @@ function _request(s, method, pathName, body) {
 function __setTransportForTests(fn) { _postImpl = fn || _request; }
 
 module.exports = {
-  active, queueWrite, writeThrough, flush, readRemote, hello, status, connect,
+  active, queueWrite, writeThrough, flush, readRemote, hello, status, connect, connectWithCode,
   __setTransportForTests
 };
