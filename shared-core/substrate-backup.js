@@ -344,6 +344,24 @@ function listBundles(opts) {
     try { names = fs.readdirSync(dir); } catch (_) { continue; }
     for (const n of names) {
       const p = path.join(dir, n);
+      // The app's move file — a single .trothmove document — sits beside
+      // folder bundles on this shelf: it is what an AirDrop actually lands.
+      if (/\.trothmove$/i.test(n)) {
+        const peek = peekMoveFile(p);
+        if (peek) {
+          out.push({
+            path: p,
+            name: n,
+            kind: 'move',
+            generated_at: peek.created_at ? new Date(peek.created_at).toISOString() : null,
+            engram_count: peek.atlas_count,
+            sync_latest_gseq: null,
+            source_machine: peek.source_machine,
+            db_size_bytes: peek.size_bytes
+          });
+        }
+        continue;
+      }
       try {
         const manifest = JSON.parse(fs.readFileSync(path.join(p, 'manifest.json'), 'utf8'));
         let size = 0;
@@ -351,6 +369,7 @@ function listBundles(opts) {
         out.push({
           path: p,
           name: n,
+          kind: 'bundle',
           generated_at: manifest.generated_at || null,
           engram_count: manifest.engram_count == null ? null : manifest.engram_count,
           sync_latest_gseq: manifest.sync_latest_gseq == null ? null : manifest.sync_latest_gseq,
@@ -363,4 +382,70 @@ function listBundles(opts) {
   return out;
 }
 
-module.exports = { exportArchive, importArchive, verifyRestore, resolveDbPath, listBundles, BUNDLE_VERSION };
+
+// ── .trothmove files — the app's "move my partner" bundle ────────────────
+//
+// A single JSON document (format "troth-move"): memories as atlas NDJSON
+// (raw, or gzip+base64 under atlas_encoding), plus sanitized app
+// preferences. The memories import through the SAME shared atlas road the
+// app uses — id-keyed and additive, so importing on a LIVE system is safe
+// and a re-import counts as skipped. The app-preference parts belong to
+// the app and are left untouched here.
+
+// Cheap header peek without reading a possibly-large file whole: the
+// fields written before the atlas blob (format, version, created_at,
+// source_machine) live in the first bytes; atlas_count lands after it.
+function peekMoveFile(p) {
+  try {
+    const fd = fs.openSync(p, 'r');
+    let head, tail, size;
+    try {
+      size = fs.fstatSync(fd).size;
+      head = Buffer.alloc(Math.min(4096, size));
+      fs.readSync(fd, head, 0, head.length, 0);
+      tail = Buffer.alloc(Math.min(4096, size));
+      fs.readSync(fd, tail, 0, tail.length, Math.max(0, size - tail.length));
+    } finally { fs.closeSync(fd); }
+    const h = head.toString('utf8');
+    if (!/"format"\s*:\s*"troth-move"/.test(h)) return null;
+    const created = /"created_at"\s*:\s*(\d+)/.exec(h);
+    const source = /"source_machine"\s*:\s*"([^"]{0,80})"/.exec(h);
+    const count = /"atlas_count"\s*:\s*(\d+)/.exec(tail.toString('utf8'));
+    return {
+      created_at: created ? Number(created[1]) : null,
+      source_machine: source ? source[1] : null,
+      atlas_count: count ? Number(count[1]) : null,
+      size_bytes: size
+    };
+  } catch (_) { return null; }
+}
+
+// Import the memories of a .trothmove into THIS substrate, through the
+// shared atlas road. Additive and re-runnable; never touches the DB file
+// itself, so it needs no stop-swap-start.
+function importMoveFile(opts) {
+  opts = opts || {};
+  const p = opts.in_path;
+  if (!p) return { ok: false, error: 'in_path required' };
+  let bundle;
+  try { bundle = JSON.parse(fs.readFileSync(p, 'utf8')); }
+  catch (e) { return { ok: false, error: 'not_a_move_file: ' + e.message }; }
+  if (!bundle || bundle.format !== 'troth-move') return { ok: false, error: 'not_a_move_file' };
+  let ndjson = String(bundle.atlas_ndjson || '');
+  if (bundle.atlas_encoding === 'gzip+base64') {
+    try { ndjson = require('zlib').gunzipSync(Buffer.from(ndjson, 'base64')).toString('utf8'); }
+    catch (e) { return { ok: false, error: 'atlas_decode_failed: ' + e.message }; }
+  }
+  if (!ndjson.trim()) return { ok: false, error: 'move_file_has_no_memories' };
+  try {
+    const atlas = require('./atlas.js');
+    const state = require('./state.js');
+    const r = atlas.importAtlas(state, ndjson, { conflict: 'skip' });
+    return { ok: true, imported: r.imported, skipped: r.skipped, failed: r.failed, source_machine: bundle.source_machine || null };
+  } catch (e) {
+    return { ok: false, error: 'atlas_import_failed: ' + String(e && e.message || e).slice(0, 300) };
+  }
+}
+
+module.exports = { exportArchive, importArchive, verifyRestore, resolveDbPath, listBundles, peekMoveFile, importMoveFile, BUNDLE_VERSION };
+

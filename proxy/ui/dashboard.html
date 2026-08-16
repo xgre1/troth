@@ -4073,8 +4073,15 @@ function _bundleRows(targetId, scope, action, emptyText) {
     if (!bundles.length) { rows.innerHTML = '<div class="tr-desc" style="padding:8px 0;">' + emptyText + '</div>'; return; }
     rows.innerHTML = bundles.map(function (b) {
       var when = b.generated_at ? new Date(b.generated_at).toLocaleString() : '';
-      var meta = [when, (b.engram_count != null ? b.engram_count + ' memories' : null), (b.db_size_bytes ? Math.round(b.db_size_bytes / 1048576 * 10) / 10 + ' MB' : null)].filter(Boolean).join(' · ');
-      return _syncRow(b.name, meta, '<button class="btn-mini" onclick="importBundle(\'' + b.path.replace(/'/g, "\\'") + '\')">' + action + '</button>');
+      var meta = [when,
+        (b.source_machine ? 'from ' + b.source_machine : null),
+        (b.engram_count != null ? b.engram_count + ' memories' : null),
+        (b.db_size_bytes ? Math.round(b.db_size_bytes / 1048576 * 10) / 10 + ' MB' : null)
+      ].filter(Boolean).join(' · ');
+      var act = b.kind === 'move'
+        ? '<button class="btn-mini" onclick="importMoveNow(\'' + b.path.replace(/'/g, "\\'") + '\', this)">' + action + '</button>'
+        : '<button class="btn-mini" onclick="importBundle(\'' + b.path.replace(/'/g, "\\'") + '\')">' + action + '</button>';
+      return _syncRow(b.name, meta, act);
     }).join('');
   }).catch(function () {});
 }
@@ -4089,6 +4096,27 @@ function loadBackupShelf() {
 function importBundle(p) {
   document.getElementById('cfg-mindbundle').value = p;
   importMindFile(null);
+}
+// A move file is additive — memories JOIN the live mind through the shared
+// atlas road. No replacement, no restart, safe to run twice.
+function importMoveNow(p, btn) {
+  if (!requireOperator()) return;
+  if (!confirm('Add the memories from this move file to this machine’s mind?\n\n' + p + '\n\nNothing is replaced — they join what is already here.')) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
+  fetch('/api/mind/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path: p }),
+  }).then(function (r) { return r.json(); }).then(function (j) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Import'; }
+    if (!j.ok) { toast('Import failed: ' + (j.detail || j.error || 'unknown')); return; }
+    var box = document.getElementById('mydata-path');
+    box.style.display = 'block';
+    box.innerHTML = (j.imported || 0) + ' memories arrived' + (j.skipped ? ' · ' + j.skipped + ' were already here' : '') + (j.source_machine ? ' · from ' + j.source_machine : '') + '. One mind.';
+  }).catch(function () {
+    if (btn) { btn.disabled = false; btn.textContent = 'Import'; }
+    toast('Import failed');
+  });
 }
 function exportMindFile(btn) {
   if (!requireOperator()) return;
@@ -4110,7 +4138,8 @@ function exportMindFile(btn) {
 function importMindFile(btn) {
   if (!requireOperator()) return;
   var p = document.getElementById('cfg-mindbundle').value.trim();
-  if (!p) { toast('Point at a bundle folder first (see Export)'); return; }
+  if (!p) { toast('Point at a bundle folder or a .trothmove file first'); return; }
+  if (/\.trothmove$/i.test(p)) { importMoveNow(p, btn); return; }
   if (!confirm('This REPLACES this machine’s memory with the bundle:\n\n' + p + '\n\nQuit the troth app first if it is running. The proxy restarts by itself. Continue?')) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Importing…'; }
   fetch('/api/mind/import', {

@@ -389,4 +389,29 @@ test('SYN-17: the bundle shelf lists real bundles by itself — junk skipped, ne
   assert.strictEqual(out.engrams, 7);
   assert.strictEqual(out.gseq, 3, 'the journal position rides along');
 });
+
+test('SYN-18: a .trothmove on the shelf — detected where an AirDrop lands, memories join the live mind additively', () => {
+  const out = hermetic(REQ + [
+    "const B = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'substrate-backup.js')) + ");",
+    "const atlas = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'atlas.js')) + ");",
+    "const engram = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'engram.js')) + ");",
+    "const zlib = require('zlib'); const fs = require('fs'); const p = require('path');",
+    "engram.recordEngram({ _local: true, agent_id: 'cli', statement: 'a memory that will ride a move file' });",
+    "const ex = atlas.exportAtlas(S, {});",
+    "const downloads = p.join(process.env.HOME, 'Downloads');",
+    "fs.mkdirSync(downloads, { recursive: true });",
+    "const moveFile = p.join(downloads, 'troth-move-test.trothmove');",
+    "fs.writeFileSync(moveFile, JSON.stringify({ format: 'troth-move', version: 1, created_at: 1755300000000, source_machine: 'studio', atlas_ndjson: zlib.gzipSync(Buffer.from(ex.content)).toString('base64'), atlas_encoding: 'gzip+base64', atlas_count: ex.count, desktop_config: {}, provider_config: {} }));",
+    "const shelf = B.listBundles({ dirs: [downloads] });",
+    "const im = B.importMoveFile({ in_path: moveFile });",
+    "console.log(JSON.stringify({ found: shelf.length, kind: shelf[0] && shelf[0].kind, source: shelf[0] && shelf[0].source_machine, count: shelf[0] && shelf[0].engram_count, imOk: im.ok, skipped: im.skipped, failed: im.failed }));"
+  ].join('\n'));
+  assert.strictEqual(out.found, 1, 'the move FILE is seen, not only folder bundles');
+  assert.strictEqual(out.kind, 'move');
+  assert.strictEqual(out.source, 'studio', 'the shelf says whose machine it came from');
+  assert.ok(out.count >= 1, 'the memory count rides the header');
+  assert.strictEqual(out.imOk, true, 'gzip+base64 atlas decodes and imports through the shared road');
+  assert.ok(out.skipped >= 1, 'same ids count as skipped — additive and safe to re-run');
+  assert.strictEqual(out.failed, 0);
+});
 };

@@ -1039,6 +1039,13 @@ const server = http.createServer((req, res) => {
       try {
         const inPath = body && typeof body.path === 'string' ? body.path.trim() : null;
         if (!inPath) { jsonResponse(res, 400, { ok: false, error: 'path_required' }); return; }
+        // A .trothmove is ADDITIVE — memories join through the shared atlas
+        // road on the LIVE substrate, no stop-swap-start, nothing replaced.
+        if (/\.trothmove$/i.test(inPath)) {
+          const r = require('../shared-core/substrate-backup.js').importMoveFile({ in_path: inPath });
+          jsonResponse(res, r.ok ? 200 : 400, Object.assign({ additive: true }, r));
+          return;
+        }
         if (!fs.existsSync(path.join(inPath, 'manifest.json'))) {
           jsonResponse(res, 400, { ok: false, error: 'not_a_mind_bundle', detail: 'no manifest.json at ' + inPath });
           return;
