@@ -64,6 +64,10 @@ module.exports.run = async (ctx, check) => {
   let page;
   try { page = await browserLib.open(ctx.root); }
   catch (e) {
+    if (/no_chromium_browser_found/.test(String(e && e.message))) {
+      console.log('        (no browser on this machine; scenario skipped)');
+      return;
+    }
     check('a browser is available to look with', false, String(e && e.message));
     return;
   }

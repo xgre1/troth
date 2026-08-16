@@ -19,8 +19,14 @@ module.exports.run = async (ctx, check) => {
   let page;
   try { page = await browserLib.open(ctx.root); }
   catch (e) {
-    check('a browser is available to look with', false,
-      String(e && e.message) + ' — the run spawns its own headless Chrome/Chromium; install one for this scenario');
+    // A machine with no Chrome/Chromium at all is an environment fact, not
+    // a product defect — say so and step aside. Any OTHER browser failure
+    // still fails the run.
+    if (/no_chromium_browser_found/.test(String(e && e.message))) {
+      console.log('        (no browser on this machine; scenario skipped)');
+      return;
+    }
+    check('a browser is available to look with', false, String(e && e.message));
     return;
   }
 
