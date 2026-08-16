@@ -16,7 +16,7 @@
 
 **Everything in this repository is AGPL open source and free forever.**
 
-This repository runs on macOS and Linux. It uses the Claude, ChatGPT or Kimi subscription you already pay for, any provider with your own key, or a fully local model. Your data never leaves your machine. (The desktop app is macOS only; everything below works without it.)
+This repository runs on macOS and Linux. It uses the Claude, ChatGPT or Kimi subscription you already pay for, any provider with your own key, or a fully local model. Your substrate never leaves your machine; what does leave is exactly what you send to the provider you picked, and nothing else. (The desktop app is macOS only; everything below works without it.)
 
 troth is a persistent AI partner. Its identity, memory, goals and refusal walls live in a local SQLite substrate (`~/.troth/state.db`) that you own. Nothing about the partner is stored in any vendor's account, and swapping engines never resets it.
 
@@ -105,7 +105,7 @@ Swap anything on the right; nothing in the middle changes. That is the whole the
 - **Your own keys, if you prefer them.** Gemini, DeepSeek, Grok, Qwen, GLM, OpenRouter, or any endpoint that speaks the OpenAI API.
 - **Or no account at all.** Point it at llama.cpp or Ollama and the whole partner runs offline, memory included.
 - **No inference of ours, no middleman.** Every request goes from your machine to the provider you picked.
-- **It spends your quota carefully.** The local proxy routes each request to the engine that fits it, caches responses, and fails over across providers rather than burning through a plan. The dashboard reports what that saved.
+- **It spends your quota carefully.** The local proxy routes each request to the engine that fits it, caches repeated responses, and fails over across providers instead of erroring out mid-conversation.
 
 ---
 
@@ -142,9 +142,9 @@ sudo npm link        # creates the global `troth` command — do not skip this l
 troth setup
 ```
 
-`troth setup` starts the proxy and opens the dashboard onboarding: pick an engine (your ChatGPT, Claude or Kimi subscription, or an API key that is tested before it counts), turn on memory, decide where turns route. The memory models (embeddings, reranking) run locally on their own — nothing to pick. `troth setup --terminal` keeps it in the terminal for machines with no browser. `troth doctor` says what is configured and where the dashboard is; `troth help` lists everything else.
+`troth setup` starts the proxy and walks you through the rest in the dashboard: pick an engine (your ChatGPT, Claude or Kimi subscription, or an API key that is tested before it counts), turn on memory, decide where turns route. `troth doctor` tells you what is configured; `troth help` lists everything else.
 
-**Requirements:** Node.js >= 22 (built-in WebSocket powers browser perception; Node 20 reached end-of-life 2026-04; the installer checks and prints the fix). The Claude faculty rides the Claude Code CLI (troth offers to install `@anthropic-ai/claude-code` on first run). `better-sqlite3` arrives prebuilt for common platforms; exotic ones need `build-essential` and `python3` to compile it. `npm ci` is deliberate over `npm install`: it installs the exact versions `package-lock.json` names and nothing newer, which is both reproducible and one fewer way for a dependency to change under you.
+**Requirements:** Node.js >= 22 and, for the Claude engine, the Claude Code CLI (troth offers to install it on first run). The installer checks both and prints the fix when something is missing.
 
 ### Or let your AI set it up
 
@@ -215,11 +215,11 @@ That is the difference from a memory plugin: a bolt-on remembers text for one ve
 
 ## One mind, many devices
 
-Pair another Mac and the whole substrate travels: each device keeps a full replica, works offline, and reconciles on its own the next time your machines meet. Writes land locally first — a train ride costs you nothing — and flow both ways through a hub you own, never through us.
+Pair a second machine and the whole substrate travels: each device keeps a full replica, works offline, and converges when your machines meet again. There is no merge magic to distrust: one machine — the hub, which is just your first machine, not a server of ours — assigns every change a single global order as it arrives, and every device applies that same order. Writes land locally first and flow both ways when connected.
 
 Setup is a wizard, not a config file: dashboard → Network → Set up. One machine holds the mind; the other pastes a one-time pairing code, or gets discovered on the local network and invited. From the terminal, `troth device add` mints the code, `troth sync connect <code>` is the whole client side, and `troth sync status` says where you stand. The mind also moves as a single file — export from the dashboard, carry it, import on the new machine, nothing resets.
 
-Use it on networks you trust (home, office, a tailnet). The wire format is the same journal the substrate keeps locally, and [`tests/suite-68-substrate-sync.js`](tests/suite-68-substrate-sync.js) is the contract: ordering, replay, revocation, offline reconciliation.
+Every device speaks with its own revocable token, and a change the receiver does not recognise quarantines instead of applying. The channel itself is not yet encrypted, so run it on networks you trust (home, office, a tailnet), not café Wi-Fi. The wire format is the journal the substrate already keeps; [`tests/suite-68-substrate-sync.js`](tests/suite-68-substrate-sync.js) holds the contract: ordering, replay, per-device watermarks, revocation, offline reconciliation.
 
 ---
 
@@ -228,8 +228,9 @@ Use it on networks you trust (home, office, a tailnet). The wire format is the s
 - **Loopback by default.** The proxy binds `127.0.0.1`. Remote access is explicit opt-in (`GF_BIND_HOST=0.0.0.0`, legacy prefix kept for compatibility), and every non-loopback request must present a bearer token (auto-generated, stored `0600`). No IP-range allowlists, no silent bypasses.
 - **Destructive-operation refusals.** The tool layer refuses `rm -rf`, force-pushes, history rewrites and similar patterns unless explicitly acknowledged.
 - **Contained filesystem access.** File operations are capability-scoped to operator-authorized roots with realpath containment, so an in-root symlink cannot smuggle a write outside the boundary.
-- **Governed execution.** The shell tool runs commands directly in interactive use (no container by default); Docker isolation applies to the autonomous step engine only. Every write and tool call passes the STVC gate + path/bash guards (a documented `TROTH_STVC_BYPASS` escape hatch exists for local debugging; `troth doctor` reports it when set); process spawning is signer-gated.
+- **Governed execution.** The shell tool runs commands directly in interactive use (no container by default). Docker isolation covers the autonomous step engine only, and only while Docker is actually running: without it, `troth run` falls back to a plain subprocess on your host with the worker's permission prompts off — read [`docs/HONEST-LIMITS.md`](docs/HONEST-LIMITS.md) before relying on it. Every write and tool call passes the STVC gate + path/bash guards (a documented `TROTH_STVC_BYPASS` escape hatch exists for local debugging; `troth doctor` reports it when set); process spawning is signer-gated.
 - **Tamper-evident audit.** High-irreversibility actions append to a signed audit chain. Verify it end-to-end anytime: `troth audit verify`.
+- **Plaintext at rest, named as such.** `~/.troth/state.db` is not encrypted: anyone with disk access can read the substrate. `troth init --seal` adds an encrypted vault for operator-confirmed memories; full-substrate encryption is an open item, not a hidden one.
 - **No telemetry.** No usage reporting, no crash upload, no analytics, and no endpoint to send any of it to. `shared-core/telemetry.js` can count operations (never content) into a local log if you switch it on; it is short, and reading it is the whole audit. Your substrate is never uploaded. What leaves the machine is what you send to the provider whose key you supplied.
 
 ---
