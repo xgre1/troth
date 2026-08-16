@@ -93,6 +93,24 @@ async function recordRule(opts) {
   if (!text) return { ok: false, error: 'empty_rule' };
   if (text.length < 8) return { ok: false, error: 'too_short', detail: 'a rule needs to say what to do' };
 
+  // Satellite mode: rules are interactive writes — the caller needs the
+  // hub's real answer (similar_rules_exist above all), so this one rides
+  // write-through: queue, flush, return what the mind machine said. When
+  // the hub is unreachable it answers "queued" honestly instead of
+  // pretending the rule landed.
+  if (!opts._local) {
+    let rc = null;
+    try { rc = require('./sync/remote-client.js'); } catch (_) { rc = null; }
+    if (rc && rc.active()) {
+      return await rc.writeThrough('rule_record', {
+        text,
+        why:     opts.why || null,
+        scope:   opts.scope === 'project' ? 'project' : 'global',
+        confirm: !!opts.confirm
+      }, { agent_id: opts.agent_id, cwd: opts.cwd });
+    }
+  }
+
   const emb = await embedText(text, opts.embedding_host);
   let similar = [];
   if (emb) {

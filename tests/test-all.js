@@ -72,6 +72,7 @@ require('./suite-64-irreversibility-floor.js')({ test, skip });
 require('./suite-65-dialogue-dedup.js')({ test, skip });
 require('./suite-66-constraint-ledger.js')({ test, skip });
 require('./suite-67-verifiable-claims.js')({ test, skip });
+require('./suite-68-substrate-sync.js')({ test, skip });
 
 // --- SUMMARY ---
 flushAsyncTests().then(() => {

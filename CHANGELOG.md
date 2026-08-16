@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- One mind, reachable from every device. A second install points its memory
+  at the operator's own hub machine — dashboard Settings → Network →
+  Substrate host, or `troth device add` on the hub + `troth sync connect`
+  on the device. Every mind-write journals to a local outbox and ships to
+  the hub in order; recall answers from the hub; pairing rides per-device
+  revocable tokens, never a shared secret and never IP trust. Offline,
+  writes queue and nothing forks. The wire envelope IS the journal record,
+  so device-local replicas can follow without a protocol break.
 - The partner keeps what it reads. A document opened or a page fetched is
   queued as a pointer on the operator's turn and becomes recallable passages
   on the idle worker, so no turn ever waits on chunking or embedding. PDF,

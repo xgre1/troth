@@ -145,6 +145,27 @@ function recordEngram(opts) {
   const statement = String(opts.statement || '').trim();
   const source    = String(opts.source || 'unspecified');
   if (!agent_id || !statement) return null;
+
+  // Satellite mode: when this install's mind lives on another machine the
+  // write becomes a journal event in the local outbox instead of touching
+  // the local store; the flusher ships it in order. _local marks the hub's
+  // own apply path (and tests) — never re-forwarded. A queue failure is a
+  // visible null, not a silent local fork of the mind.
+  if (!opts._local) {
+    let rc = null;
+    try { rc = require('./sync/remote-client.js'); } catch (_) { rc = null; }
+    if (rc && rc.active()) {
+      try {
+        const q = rc.queueWrite('engram_record', {
+          statement,
+          salience: typeof opts.salience === 'number' ? opts.salience : undefined,
+          scope:    typeof opts.scope === 'string' ? opts.scope : undefined,
+          audience: typeof opts.audience === 'string' ? opts.audience : undefined
+        }, { agent_id, user_id, cwd });
+        return q.event_id; // stands in for the id the hub will mint
+      } catch (_) { return null; }
+    }
+  }
   try {
     // implementation step — write-time quality control via engram-verify.
     //  default flipped to ON. Schnider 2003

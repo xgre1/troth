@@ -663,6 +663,12 @@ if (command === "help" || args.indexOf("-h") !== -1 || args.indexOf("--help") !=
     "  troth start / restart     proxy control  troth tail             follow proxy logs",
     "  troth service [install]   start at login (launchd on macOS, systemd on Linux)",
     "",
+    "One mind, many devices",
+    "  troth device add <name>   (mind machine) pair a device — prints its token once",
+    "  troth sync connect <host> <device_id> <token>",
+    "                            (device) point this install's memory at the mind machine",
+    "  troth sync status         hub reachability, queued writes    troth sync off   local mind again",
+    "",
     "More: config, mcp, schedule, memory-clear, atlas, mind, knowledge, chameleon, agents,",
     "      tenant, orchestrate, incognito, vault, voice, inheritance, presence,",
     "      replicate-wal, seal, cap, project, partner, graduate, drafts,",
@@ -740,6 +746,8 @@ require('./cmd-replicate-wal.js')(__cliCtx);
 require('./cmd-inheritance.js')(__cliCtx);
 
 require('./cmd-voice.js')(__cliCtx);
+
+require('./cmd-sync.js')(__cliCtx);
 
 require('./cmd-vault.js')(__cliCtx);
 

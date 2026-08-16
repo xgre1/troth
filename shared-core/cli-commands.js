@@ -82,6 +82,10 @@ module.exports = [
   "voice",
   // design: end-of-life inheritance (successor claim)
   "inheritance",
+  // substrate sync — one mind, many devices: pair devices on the mind
+  // machine (device add/list/revoke) and point a satellite install at it
+  // (sync connect/status/flush/off).
+  "device", "sync",
   // design: operator-self primitives for autonomous setup
   "cap", "schedule", "project",
   // design: vessel deployment wrapper. Spawns / manages the

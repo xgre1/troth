@@ -89,6 +89,24 @@ function recordTurn(opts) {
   // surface (bare CLI, legacy rows).
   const conversation_id = opts.conversation_id || null;
   if (!agent_id) return false;
+
+  // Satellite mode: the turn ships to the mind machine as a journal event;
+  // the hub runs the SAME dedup window on arrival, so the guard below
+  // stays hub-side truth instead of firing against an empty local store.
+  if (!opts._local) {
+    let rc = null;
+    try { rc = require('./sync/remote-client.js'); } catch (_) { rc = null; }
+    if (rc && rc.active()) {
+      try {
+        rc.queueWrite('dialogue_turn', {
+          user_text, assistant_text, faculty,
+          conversation_id,
+          elapsed_ms: opts.elapsed_ms || null
+        }, { agent_id, user_id, cwd });
+        return true;
+      } catch (_) { return false; }
+    }
+  }
   if (_isRecentDuplicate(agent_id, user_id, user_text, assistant_text)) return false;
   try {
     const rec = {

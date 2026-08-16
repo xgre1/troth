@@ -2475,6 +2475,18 @@ setInterval(function(){
       <div class="card-footer">
         <button class="btn btn-ghost" onclick="saveBindHost()">Save</button>
       </div>
+      <div class="card-title" style="margin-top:18px;">Substrate host</div>
+      <div class="card-hint">Where this install's memory lives. Empty = this machine holds its own mind. To make this machine a window onto another machine's mind: on that machine run <code>troth device add</code>, then enter its address and the printed pairing below. Writes queue locally when the mind is unreachable; recall needs it live.</div>
+      <div class="form-row">
+        <div class="field"><label>Hub address</label><input type="text" id="cfg-synchost" placeholder="http://100.x.y.z:8000"></div>
+        <div class="field"><label>Device ID</label><input type="text" id="cfg-syncdevice" placeholder="dev_xxxxxxxx"></div>
+        <div class="field"><label>Device token</label><input type="password" id="cfg-synctoken" placeholder="shown once by device add"></div>
+      </div>
+      <div class="card-footer">
+        <button class="btn btn-ghost" onclick="saveSyncHub()">Connect</button>
+        <button class="btn btn-ghost" onclick="clearSyncHub()">Local mind</button>
+        <span class="test-result" id="sync-status"></span>
+      </div>
     </div>
     <div class="settings-card op-gated" data-settings-tab="telemetry">
       <div class="card-title">Telemetry</div>
@@ -3598,6 +3610,14 @@ function loadConfig() {
     document.getElementById('cfg-model').value = c.model || '';
     document.getElementById('cfg-apikey').value = c.apiKey || '';
     document.getElementById('cfg-bindhost').value = c.bindHost || '';
+    if (document.getElementById('cfg-synchost')) {
+      var sy = c.sync || {};
+      document.getElementById('cfg-synchost').value = sy.host || '';
+      document.getElementById('cfg-syncdevice').value = sy.deviceId || '';
+      // deviceToken comes back [REDACTED] and is stripped on save; the
+      // placeholder tells the story, the field stays empty.
+      refreshSyncStatus();
+    }
     var envEl = document.getElementById('env-cmd');
     if (envEl) {
       var h = c.host || 'localhost';
@@ -3744,6 +3764,41 @@ function saveBindHost() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ bindHost: host }),
   }).then(function (r) { if (!r.ok) throw new Error('http ' + r.status); toast('Saved — restart proxy to apply'); })
+    .catch(function (e) { toast('Save failed: ' + (e && e.message || e)); });
+}
+function refreshSyncStatus() {
+  var el = document.getElementById('sync-status');
+  if (!el) return;
+  fetch('/api/sync/status').then(function (r) { return r.json(); }).then(function (s) {
+    if (!s.active) { el.textContent = 'local mind'; el.style.color = 'var(--text-dim)'; return; }
+    if (s.hub && s.hub.reachable) { el.textContent = 'mind reachable' + (s.pending ? ' · ' + s.pending + ' queued' : ''); el.style.color = 'var(--green)'; }
+    else { el.textContent = 'mind UNREACHABLE · ' + s.pending + ' queued'; el.style.color = 'var(--red)'; }
+  }).catch(function () { el.textContent = ''; });
+}
+function saveSyncHub() {
+  if (!requireOperator()) return;
+  var host = document.getElementById('cfg-synchost').value.trim();
+  var dev  = document.getElementById('cfg-syncdevice').value.trim();
+  var tok  = document.getElementById('cfg-synctoken').value.trim();
+  if (!host || !dev) { toast('Hub address and device ID are both needed'); return; }
+  if (!confirm('This machine will write its memory to ' + host + ' and recall from there.\n\nContinue?')) return;
+  var sync = { host: host, deviceId: dev };
+  if (tok) sync.deviceToken = tok; // empty = keep the stored one
+  fetch('/api/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sync: sync }),
+  }).then(function (r) { if (!r.ok) throw new Error('http ' + r.status); toast('Connected — this install now syncs to the hub'); document.getElementById('cfg-synctoken').value = ''; setTimeout(refreshSyncStatus, 400); })
+    .catch(function (e) { toast('Save failed: ' + (e && e.message || e)); });
+}
+function clearSyncHub() {
+  if (!requireOperator()) return;
+  if (!confirm('Back to a local mind — this install stops syncing to the hub. Continue?')) return;
+  fetch('/api/sync/disconnect', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  }).then(function (r) { if (!r.ok) throw new Error('http ' + r.status); toast('Local mind again'); setTimeout(refreshSyncStatus, 400); })
     .catch(function (e) { toast('Save failed: ' + (e && e.message || e)); });
 }
 function testBackend(){var el=document.getElementById('test-result');el.textContent='...';el.style.color='var(--text-dim)';fetch('/api/test-backend').then(function(r){return r.json()}).then(function(d){el.textContent=d.ok?d.latencyMs+'ms':'Failed';el.style.color=d.ok?'var(--green)':'var(--red)';});}

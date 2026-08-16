@@ -280,6 +280,63 @@ function migrate(d) {
     );
     CREATE INDEX IF NOT EXISTS claim_events_claim ON claim_events(claim_id, ts);
 
+    -- Substrate sync — one mind reachable from every device.
+    -- sync_events is the HUB-side journal: every remote write arrives as an
+    -- op-event and is sequenced here in ARRIVAL order (gseq). The gseq is
+    -- the only order that exists; hlc_ts is operator INTENT time and never
+    -- arbitrates. Envelope args are weak-schema JSON, additive-only.
+    CREATE TABLE IF NOT EXISTS sync_events (
+      gseq        INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id    TEXT    NOT NULL UNIQUE,   -- UUIDv7, minted on the writing device
+      device_id   TEXT    NOT NULL,
+      dev_seq     INTEGER NOT NULL,          -- per-device, strictly +1, no gaps
+      parent_gseq INTEGER,                   -- device's applied hub prefix at creation
+      op          TEXT    NOT NULL,
+      op_v        INTEGER NOT NULL DEFAULT 1,
+      args        TEXT    NOT NULL,          -- JSON
+      ctx         TEXT,                      -- JSON: agent_id / user_id / cwd provenance
+      hlc_ts      TEXT,                      -- collatable HLC string; metadata only
+      app_version TEXT,
+      received_at INTEGER NOT NULL,
+      outcome     TEXT,                      -- JSON; NULL only inside the crash window
+      UNIQUE(device_id, dev_seq)
+    );
+    CREATE INDEX IF NOT EXISTS sync_events_device ON sync_events(device_id, dev_seq);
+
+    -- Devices allowed to reach the substrate over the network. Tokens are
+    -- stored as sha256 hex — the raw token is printed exactly once at
+    -- device add and never touches disk. last_dev_seq is the watermark:
+    -- at-or-below is a replay (answered from the journal), plus-one is
+    -- next, anything further is a gap and is refused.
+    CREATE TABLE IF NOT EXISTS sync_devices (
+      device_id    TEXT    PRIMARY KEY,
+      name         TEXT    NOT NULL,
+      token_hash   TEXT    NOT NULL,
+      last_dev_seq INTEGER NOT NULL DEFAULT 0,
+      created_at   INTEGER NOT NULL,
+      revoked_at   INTEGER
+    );
+
+    -- Satellite-side: the transactional outbox. A mind-write on a device
+    -- whose substrate lives elsewhere becomes a journal row here in the
+    -- same breath as the caller's request, and a flusher ships rows to the
+    -- hub strictly in dev_seq order. Rows survive restarts and offline
+    -- stretches; sent rows keep the hub-assigned gseq for the record.
+    CREATE TABLE IF NOT EXISTS sync_outbox (
+      dev_seq    INTEGER PRIMARY KEY,
+      event_id   TEXT    NOT NULL UNIQUE,
+      envelope   TEXT    NOT NULL,           -- the full journal event, as POSTed
+      created_at INTEGER NOT NULL,
+      sent_at    INTEGER,
+      gseq       INTEGER                     -- the hub's answer, once acked
+    );
+
+    -- Satellite-side scalar state: device identity, dev_seq counter, HLC.
+    CREATE TABLE IF NOT EXISTS sync_client_state (
+      k TEXT PRIMARY KEY,
+      v TEXT
+    );
+
     -- Session lessons — the glue between critic blocks and the next
     -- UserPromptSubmit's additionalContext. When critic rejects a turn,
     -- we write *why* here; when injector fires on the next prompt, it

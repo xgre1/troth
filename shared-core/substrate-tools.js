@@ -27,6 +27,18 @@ const webFetch       = require('./tools/web-fetch.js');
 const webAllowlist   = require('./tools/web-allowlist.js');
 const credentialVault = require('./tools/credential-vault.js');
 
+// Satellite mode: on an install whose mind lives on another machine, read
+// tools ask the hub directly — thin mode has no local replica, and a
+// stale-empty local answer would be worse than an honest remote one.
+// Returns null on a hub install (or when sync is off) so every entry
+// falls through to its local implementation untouched.
+function _remoteReads() {
+  try {
+    const rc = require('./sync/remote-client.js');
+    return rc.active() ? rc : null;
+  } catch (_) { return null; }
+}
+
 // Recovery hints returned by intent_emit when STVC refuses an intent
 // at write time or dispatch time. The partner reads the hint and the
 // reason, decides the next move (mint a capability, seal a high-
@@ -213,6 +225,8 @@ const REGISTRY = {
       }
     },
     run: async (args, ctx) => {
+      const _rc = !ctx._local && _remoteReads();
+      if (_rc) return await _rc.readRemote('engram_search', args, ctx);
       // Intent-routed: chitchat / epistemic queries return empty —
       // substrate stays quiet on greetings and timeless trivia (date,
       // math, weather) so the model answers from world knowledge.
@@ -475,6 +489,8 @@ const REGISTRY = {
       }
     },
     run: async (args, ctx) => {
+      const _rc = !ctx._local && _remoteReads();
+      if (_rc) return await _rc.readRemote('rule_list', args, ctx);
       const lessonMod = require('./lesson.js');
       const items = lessonMod.listRules({ limit: args.limit || 20, cwd: ctx.cwd || null });
       return { count: items.length, items };
@@ -1193,6 +1209,8 @@ const REGISTRY = {
       }
     },
     run: async (args, ctx) => {
+      const _rc = !ctx._local && _remoteReads();
+      if (_rc) return await _rc.readRemote('dialogue_recent', args, ctx);
       // Scoped BY DEFAULT. recentTurns only honors cwd when same_cwd is set,
       // and this tool never set it, so /save and every skill that summarizes
       // "recent dialogue" read turns from whatever project wrote last
@@ -1238,6 +1256,8 @@ const REGISTRY = {
       }
     },
     run: async (args, _ctx) => {
+      const _rc = !_ctx._local && _remoteReads();
+      if (_rc) return await _rc.readRemote('dialogue_search', args, _ctx);
       try {
         const state = require('./state.js');
         if (!state || typeof state.searchDialogueTurns !== 'function') {

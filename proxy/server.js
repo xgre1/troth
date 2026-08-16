@@ -2371,6 +2371,109 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // ===== API: Substrate sync — the mind, reachable from paired devices =====
+  //
+  // POST /api/sync/event   apply one journal event (write ops)
+  // POST /api/sync/query   run one allowlisted read op
+  // GET  /api/sync/hello   protocol + op catalogue + latest gseq
+  //
+  // Namespaced /api/sync (NOT /api/substrate) — that prefix is the app's
+  // legacy dashboard surface with its own catchall and its own GET /query,
+  // and a shadowed route here would fail only at runtime.
+  //
+  // Auth is PER-DEVICE bearer tokens (sync_devices, paired via the CLI's
+  // device add) — never the shared remote token, never IP trust: a tailnet
+  // is not a trust boundary, and a lost device is one revoked row, not a
+  // rotated secret on every machine. The op catalogue is an allowlist of
+  // memory operations; nothing world-acting is reachable through here.
+  //
+  // Two operator-side routes ride the /api/config gate instead of device
+  // auth: they answer the OPERATOR's dashboard about this install's own
+  // sync posture, they move no memory.
+  if (req.method === 'GET' && url === '/api/sync/status') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    (async () => {
+      try {
+        const rc = require('../shared-core/sync/remote-client.js');
+        const st = rc.status();
+        let hubState = null;
+        if (st.active) {
+          const h = await rc.hello();
+          hubState = (h && h.ok) ? { reachable: true, latest_gseq: h.latest_gseq } : { reachable: false };
+        }
+        jsonResponse(res, 200, Object.assign(st, { hub: hubState }));
+      } catch (e) {
+        jsonResponse(res, 500, { error: String(e && e.message || e).slice(0, 200) });
+      }
+    })();
+    return;
+  }
+  if (req.method === 'POST' && url === '/api/sync/disconnect') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    try {
+      configFileStore.updateConfig((cfg) => { delete cfg.sync; return cfg; });
+      jsonResponse(res, 200, { ok: true, mode: 'local' });
+    } catch (e) {
+      jsonResponse(res, 500, { ok: false, error: String(e && e.message || e).slice(0, 200) });
+    }
+    return;
+  }
+  if (url === '/api/sync/hello' || url === '/api/sync/event' || url === '/api/sync/query') {
+    const hub = require('../shared-core/sync/hub.js');
+    const _am = /^Bearer\s+(.+)$/i.exec(String(req.headers['authorization'] || ''));
+    const device = _am ? hub.authDevice(_am[1]) : null;
+    if (!device) {
+      jsonResponse(res, 401, { ok: false, error: 'unknown_device' });
+      return;
+    }
+    if (req.method === 'GET' && url === '/api/sync/hello') {
+      jsonResponse(res, 200, hub.hello());
+      return;
+    }
+    if (req.method === 'POST' && url === '/api/sync/event') {
+      readJsonBody(req).then((body) => {
+        if (!body || typeof body !== 'object') {
+          jsonResponse(res, 400, { ok: false, error: 'bad_envelope' });
+          return;
+        }
+        // The token IS the device — an envelope claiming another device_id
+        // is refused before it can touch that device's watermark.
+        if (body.device_id !== device.device_id) {
+          jsonResponse(res, 403, { ok: false, error: 'device_id_mismatch' });
+          return;
+        }
+        hub.applyEvent(body).then((out) => {
+          const code =
+            out.error === 'bad_envelope'          ? 400 :
+            out.error === 'unknown_device'        ? 401 :
+            out.error === 'sequence_gap'          ? 409 :
+            out.error === 'version_not_supported' ? 426 : 200;
+          jsonResponse(res, code, out);
+        }).catch((e) => {
+          jsonResponse(res, 500, { ok: false, error: 'apply_threw', detail: String(e && e.message || e).slice(0, 300) });
+        });
+      });
+      return;
+    }
+    if (req.method === 'POST' && url === '/api/sync/query') {
+      readJsonBody(req).then((body) => {
+        if (!body || typeof body.op !== 'string') {
+          jsonResponse(res, 400, { ok: false, error: 'bad_query' });
+          return;
+        }
+        const qctx = Object.assign({}, (body.ctx && typeof body.ctx === 'object') ? body.ctx : {}, { device_id: device.device_id });
+        hub.runQuery(body.op, body.args || {}, qctx).then((out) => {
+          jsonResponse(res, out.ok ? 200 : 400, out);
+        }).catch((e) => {
+          jsonResponse(res, 500, { ok: false, error: 'query_threw', detail: String(e && e.message || e).slice(0, 300) });
+        });
+      });
+      return;
+    }
+    jsonResponse(res, 405, { ok: false, error: 'method_not_allowed' });
+    return;
+  }
+
   // ===== API: v6.2 — Remote run dispatch =====
   //
   // POST /api/runs              start a new run
@@ -4039,7 +4142,10 @@ const server = http.createServer((req, res) => {
           // absent from the map counts as ENABLED, a save carrying one toggle
           // erased the rest and switched them all back on — an explicit off
           // undone by an unrelated click.
-          for (const _k of ['modules', 'modelLimits', 'keepalive', 'mcp']) {
+          // `sync` rides the same list: the dashboard re-saves host/deviceId
+          // without the token (redaction never round-trips it), and a shallow
+          // assign would drop the stored deviceToken on every such save.
+          for (const _k of ['modules', 'modelLimits', 'keepalive', 'mcp', 'sync']) {
             if (safeNewConfig[_k] && current[_k] &&
                 typeof safeNewConfig[_k] === 'object' && !Array.isArray(safeNewConfig[_k])) {
               next[_k] = Object.assign({}, current[_k], safeNewConfig[_k]);
@@ -5803,6 +5909,20 @@ server.listen(listenPort, BIND_HOST, () => {
     }, REAP_MS);
     if (t.unref) t.unref();
   })();
+
+  // Satellite flusher — on an install whose mind lives on another machine,
+  // ship queued mind-writes to the hub on a slow pulse. Each queueWrite
+  // already nudges an immediate flush; this pulse is the retry lane that
+  // drains the outbox after an offline stretch without waiting for the
+  // next write. Inert (active() false) on hub installs.
+  try {
+    const _rcFlush = require('../shared-core/sync/remote-client.js');
+    if (_rcFlush.active()) {
+      const tF = setInterval(() => { _rcFlush.flush().catch(() => {}); }, 15000);
+      if (tF.unref) tF.unref();
+      log('[sync] satellite mode: mind at ' + (_rcFlush.status().host || '?') + ', outbox flusher on');
+    }
+  } catch (_) { /* sync module absent — nothing to flush */ }
   log('Listening on ' + BIND_HOST + ':' + listenPort + (listenPort === PORT ? '' : ' (auto-bumped from ' + PORT + ')'));
   // Orphan guard. The desktop app spawns us DETACHED so we outlive a closed
   // window, and reaps us when it quits gracefully. A crash or a force-kill
