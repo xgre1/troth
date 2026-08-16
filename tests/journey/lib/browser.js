@@ -16,10 +16,34 @@ function load(root) {
   return require(path.join(root, 'shared-core', 'perception', 'cdp-client.js'));
 }
 
-/** Attach to the already-running Chrome (127.0.0.1:9222 by convention). */
+/** Attach to the already-running Chrome (127.0.0.1:9222 by convention) — in
+ * a tab of our OWN. The old road took connectFirstPage: the operator's
+ * current tab, navigated to a throwaway proxy and left there, so every run
+ * ended with their Chrome parked on a dead onboarding page. Create a
+ * target, drive that, close it for real (Target.closeTarget — close() on
+ * the session only hangs up the websocket, the tab outlives it). */
 async function open(root, { host = '127.0.0.1', port = 9222 } = {}) {
   const cdp = load(root);
-  const page = await cdp.connectFirstPage(host, port);
+  const browser = await cdp.connectBrowser(host, port);
+  let targetId = null;
+  let page = null;
+  try {
+    const created = await browser.send('Target.createTarget', { url: 'about:blank' });
+    targetId = created && created.targetId;
+    let candidates = [];
+    for (let i = 0; i < 20 && !candidates.length; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      candidates = (await cdp.listTargets(host, port))
+        .filter((t) => t.id === targetId && t.webSocketDebuggerUrl);
+    }
+    if (!candidates.length) throw new Error('created a journey tab but it never appeared in /json/list');
+    page = new cdp.CdpSession(candidates[0].webSocketDebuggerUrl);
+    await page.open();
+  } catch (e) {
+    if (targetId) { try { await browser.send('Target.closeTarget', { targetId }); } catch (_) {} }
+    try { browser.close(); } catch (_) {}
+    throw e;
+  }
   await page.send('Page.enable', {});
   await page.send('Runtime.enable', {});
 
@@ -79,7 +103,15 @@ async function open(root, { host = '127.0.0.1', port = 9222 } = {}) {
         '  window.addEventListener("unhandledrejection", function(e){ window.__journeyErrors.push("unhandled: " + String(e.reason)); });' +
         '}' });
     },
-    close() { try { page.close(); } catch (_) {} },
+    // The tab dies with the run — the operator's browser goes back to being
+    // theirs. Fire-and-forget on purpose: scenarios call this from finally.
+    close() {
+      (async () => {
+        try { await browser.send('Target.closeTarget', { targetId }); } catch (_) {}
+        try { page.close(); } catch (_) {}
+        try { browser.close(); } catch (_) {}
+      })();
+    },
   };
   return api;
 }

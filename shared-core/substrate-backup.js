@@ -127,6 +127,7 @@ function exportArchive(opts) {
   // still a valid bundle.
   let engram_count = null;
   let last_chain_hash = null;
+  let sync_latest_gseq = null;
   try {
     const Database = require('better-sqlite3');
     const peek = new Database(dbDest, { readonly: true });
@@ -145,6 +146,14 @@ function exportArchive(opts) {
         'SELECT chain_hash FROM l4_signed_audit_chain ORDER BY id DESC LIMIT 1'
       ).get();
       if (last && last.chain_hash) last_chain_hash = last.chain_hash;
+      // The junction between the snapshot lane and the event lane: a bundle
+      // stamped with the journal position it was cut at can seed a device
+      // that then applies events from that point — snapshot + deltas compose
+      // instead of competing. Null on substrates that never synced.
+      try {
+        const g = peek.prepare('SELECT MAX(gseq) AS g FROM sync_events').get();
+        if (g && g.g != null) sync_latest_gseq = Number(g.g);
+      } catch (_) { /* pre-sync substrate */ }
     } finally { peek.close(); }
   } catch (_) { /* schema may pre-date these tables — leave nulls */ }
 
@@ -156,6 +165,7 @@ function exportArchive(opts) {
     db_copy_method: dbCopyMethod,
     engram_count,
     last_chain_hash,
+    sync_latest_gseq,
     agent_id_filter: agent_id,
     include_kv:     includeKV,
     include_cvecs:  includeCvecs,
