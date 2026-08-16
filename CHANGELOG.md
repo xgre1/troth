@@ -9,17 +9,26 @@ All notable changes to troth are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.17] — 2026-08-16
 
 ### Added
-- One mind, reachable from every device. A second install points its memory
-  at the operator's own hub machine — dashboard Settings → Network →
-  Substrate host, or `troth device add` on the hub + `troth sync connect`
-  on the device. Every mind-write journals to a local outbox and ships to
-  the hub in order; recall answers from the hub; pairing rides per-device
-  revocable tokens, never a shared secret and never IP trust. Offline,
-  writes queue and nothing forks. The wire envelope IS the journal record,
-  so device-local replicas can follow without a protocol break.
+- One mind, many devices. A machine that keeps a mind announces itself on
+  the local network; any other install runs Set up, sees it by name, asks
+  to follow, and connects the moment the operator approves. The mind can
+  also invite a device it sees nearby, and its operator presses Join.
+  Across networks, a one-string pairing code carries every address,
+  identity and key. Writes from a following device journal through a
+  local outbox and land in arrival order behind per-device revocable
+  tokens, never a shared secret and never IP trust; offline they queue,
+  and recall answers from the mind machine. The wire envelope IS the
+  journal record, so device-local replicas can follow without a protocol
+  break.
+- The mind travels as one file. Export cuts a carryable bundle. A
+  .trothmove brought from another machine appears in the Import chooser
+  by itself (Downloads and Desktop) and its memories join the live mind
+  additively; My backups lists this machine's own restore points, each a
+  one-click Restore. The same bundle rides `troth mind export` and
+  `troth mind import` from the CLI.
 - The partner keeps what it reads. A document opened or a page fetched is
   queued as a pointer on the operator's turn and becomes recallable passages
   on the idle worker, so no turn ever waits on chunking or embedding. PDF,

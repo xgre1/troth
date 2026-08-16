@@ -216,6 +216,9 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-i
 .wi-n { font-family: var(--mono); font-size: 10px; color: var(--text-muted); min-width: 16px; padding-top: 1px; }
 .wiz-rows { margin-top: 8px; }
 .wiz-code { font-family: var(--mono); font-size: 11px; word-break: break-all; user-select: all; border: 1px solid var(--glass-border); border-radius: 6px; padding: 12px; margin-top: 10px; line-height: 1.7; }
+/* The small hoverable (i) — a quiet safety note where a claim needs one. */
+.info-i { display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; border-radius: 50%; border: 1px solid var(--glass-border-hover); color: var(--text-muted); font-family: var(--mono); font-size: 9px; margin-left: 7px; cursor: help; vertical-align: 1px; transition: color 0.15s, border-color 0.15s; }
+.info-i:hover { color: var(--text); border-color: var(--text-dim); }
 @media (prefers-reduced-motion: reduce) { .wiz-step, .wiz-wait .pulse { animation: none; } .wiz-tile:hover { transform: none; } }
 @media (max-width: 640px) { .wiz-tiles { grid-template-columns: 1fr; } }
 /* Vault: the shelf and its form. Same glass, same quiet, labels in the
@@ -2507,7 +2510,7 @@ setInterval(function(){
         <button class="btn btn-ghost" onclick="saveBindHost()">Save</button>
       </div>
       <div class="card-title" style="margin-top:18px;">One mind, many devices</div>
-      <div class="card-hint" style="margin-bottom:8px;">Your memory lives on one machine and follows you on every other. <a href="#" onclick="document.getElementById('sync-breath').classList.toggle('open');return false;" style="color:var(--signal);text-decoration:none;">how it works</a></div>
+      <div class="card-hint" style="margin-bottom:8px;">Your memory lives on one machine and follows you on every other. <a href="#" onclick="document.getElementById('sync-breath').classList.toggle('open');return false;" style="color:var(--signal);text-decoration:none;">how it works</a><span class="info-i" title="Safety: being on public Wi-Fi is fine; pairing over it is not. On an untrusted network the connection between your machines is not encrypted. Pair and sync at home or over a private mesh like Tailscale, which encrypts everything wherever you sit.">i</span></div>
       <div class="breath" id="sync-breath"><div style="font-size:11px;line-height:1.8;color:var(--text-dim);">
         <b style="color:var(--text)">The mind machine:</b> the computer that keeps your memory, usually the one that is always on. It announces itself on your network with a name and a door, never a secret.<br>
         <b style="color:var(--text)">Any other device:</b> runs Set up, sees that machine by name, asks to follow. Nothing happens until you approve on the mind machine.<br>
