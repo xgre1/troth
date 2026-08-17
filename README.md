@@ -9,13 +9,13 @@
 <p align="center">Swap the model. Keep the mind.</p>
 
 <p align="center">
-  <img src="docs/assets/troth-film.webp" width="860" alt="troth reads the AI history already on your machine, learns from it, and keeps the mind when the model changes">
-</p>
-
-<p align="center">
   <a href="https://github.com/xgre1/troth/actions/workflows/ci.yml"><img src="https://github.com/xgre1/troth/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-blue.svg" alt="License: AGPL v3"></a>
   <a href="package.json"><img src="https://img.shields.io/badge/node-%E2%89%A522-339933.svg" alt="Node >= 22"></a>
+</p>
+
+<p align="center">
+  <img src="docs/assets/troth-film.webp" width="860" alt="troth reads the AI history already on your machine, learns from it, and keeps the mind when the model changes">
 </p>
 
 **Everything in this repository is AGPL open source and free forever.**
