@@ -9,6 +9,10 @@
 <p align="center">Swap the model. Keep the mind.</p>
 
 <p align="center">
+  <img src="docs/assets/troth-film.webp" width="860" alt="troth reads the AI history already on your machine, learns from it, and keeps the mind when the model changes">
+</p>
+
+<p align="center">
   <a href="https://github.com/xgre1/troth/actions/workflows/ci.yml"><img src="https://github.com/xgre1/troth/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL%20v3-blue.svg" alt="License: AGPL v3"></a>
   <a href="package.json"><img src="https://img.shields.io/badge/node-%E2%89%A522-339933.svg" alt="Node >= 22"></a>
@@ -288,7 +292,7 @@ troth/
 └── docs/           # setup guide, honest limits, MCP host install
 ```
 
-Semantic recall runs fully on your machine: on first use troth fetches `llama-server` (~20 MB), an embedding model (~333 MB) and a reranker (~606 MB) into `~/.troth`, one time, in the background. Until they land, recall degrades gracefully to word-matching — nothing breaks. `TROTH_NO_MODEL_FETCH=1` suppresses all downloads (CI, metered networks); `TROTH_LLAMA_SERVER_BIN` pins your own binary. Apple Silicon gets Metal automatically; Intel Macs skip the local stack and stay lexical.
+Semantic recall runs fully on your machine: the first time it is needed, troth fetches `llama-server` (~20 MB), an embedding model (~333 MB) and a reranker (~606 MB) into `~/.troth`, one time, in the background. Until they land, recall degrades gracefully to word-matching — nothing breaks. `TROTH_NO_MODEL_FETCH=1` suppresses all downloads (CI, metered networks); `TROTH_LLAMA_SERVER_BIN` pins your own binary. Apple Silicon gets Metal automatically; Intel Macs skip the local stack and stay lexical.
 
 ## Honest limits
 
