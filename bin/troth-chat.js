@@ -490,8 +490,8 @@ function createSpinner() {
     const frame = SPINNER_FRAMES[Math.floor(elapsedMs / 150) % SPINNER_FRAMES.length];
     const elapsedStr = (elapsedMs / 1000).toFixed(elapsedMs < 10000 ? 1 : 0) + 's';
     // A highlight sliding across the word: each character sits one step further
-    // along the steel ramp and the whole pattern moves. Base well below white —
-    // it has to be tolerable in the corner of the eye for hours.
+    // along the steel ramp and the whole pattern moves. Base is held below
+    // white so the gleam reads without outshining the text.
     const word = THINK_WORDS[(wordSeed + Math.floor(elapsedMs / 2400)) % THINK_WORDS.length];
     const sheen = (s) => {
       if (!isTTY) return s;
@@ -654,12 +654,11 @@ function openErrLog() {
 
 function start() {
   // The composer belongs at the foot of the window, the way the app's input
-  // sits at the foot of the pane. Rather than pin it with a scroll region —
-  // the approach that interleaved with output on real terminals and is still
-  // fenced behind TROTH_FIXED_UI — the screen is filled once at startup so the
-  // first composer already lands on the last rows. From then on every reply
+  // sits at the foot of the pane. The screen is filled once at startup so the
+  // first composer already lands on the last rows; from then on every reply
   // scrolls the window and the composer stays where it is, which is simply how
-  // a terminal behaves once its screen is full.
+  // a terminal behaves once its screen is full. TROTH_FIXED_UI opts into a
+  // scroll region instead; it interleaves with output on some terminals.
   if (isTTY) process.stdout.write('\x1b[2J\x1b[H');
   banner();
   // The composer sits toward the foot of the window. Safe only because the panel
@@ -687,13 +686,9 @@ function start() {
 
   // Slash skills surfaced for the inline selector. Single source of truth
   // for /help, the picker, and the live menu.
-  // The picker offers what the entity actually serves — read from the same
-  // registry /help prints. A hand-kept copy here drifted to 15 while the
-  // registry had grown to 18, so /engine existed everywhere except in the
-  // picker that people learn the commands from.
-  // A name on its own teaches nothing: the picker carries each command's own
-  // one-line description, taken from the skill that defines it, so the list is
-  // readable by someone who has never seen the vocabulary.
+  // Read from the same registry /help prints, so the two cannot drift. Each
+  // row carries the command's own one-line description, taken from the skill
+  // that defines it, so the list is readable without knowing the vocabulary.
   const SLASH_DESC = {};
   const SLASH_CMDS = (function () {
     try {
@@ -730,8 +725,7 @@ function start() {
     let cursor       = 0;
     let menuActive   = false;
     // 'cmd' lists slash commands, 'arg' lists the values a command accepts.
-    // Picking an engine by name meant remembering the vocabulary; the argument
-    // menu turns it into a choice.
+    // An argument menu lets a value be picked rather than typed from memory.
     let menuKind     = 'cmd';
     let menuItems    = [];
     let menuSel      = 0;
@@ -752,9 +746,8 @@ function start() {
     // leaves wrapped tails stacking up as the user keeps typing.
     let lastInputRows = 0;
     // Which row of the composer the cursor was left on, counted from the box's
-    // top border. The old erase walked up (rows - 1) on the assumption that the
-    // cursor sat on the LAST rendered row; with a bordered box it sits on a
-    // middle row, and that assumption would clear transcript lines above it.
+    // top border. Row 0 is that border, so the cursor sits on a middle row —
+    // erasing (rows - 1) from it would clear transcript lines above the panel.
     let lastCursorRow = 0;
     let lastCursorCol = 0;
     function termWidth() { return process.stdout.columns || 80; }
@@ -776,8 +769,7 @@ function start() {
     // The composer is a panel, not a bare line — the same rounded input the
     // app draws, translated to box-drawing characters. Sequential flow is kept:
     // the panel is erased and redrawn in place on every keystroke, so nothing
-    // depends on a scroll region (that attempt interleaved with output on real
-    // terminals and stays opt-in behind TROTH_FIXED_UI).
+    // depends on a scroll region. TROTH_FIXED_UI opts into one.
     const BOX_MARGIN = 2;
     function boxMetrics() {
       const outer = Math.max(24, termWidth() - BOX_MARGIN * 2);
@@ -841,9 +833,8 @@ function start() {
       // still painted with the block so a tick never fights the caret.
       let leadRows = 0;
       if (spinnerLead) {
-        // Air above it: pressed against the operator's own card the working
-        // line read as part of what they had just typed rather than as the
-        // partner starting to answer.
+        // Air above it, so the working line reads as the partner starting to
+        // answer rather than as part of the operator's own card.
         process.stdout.write('\n');
         process.stdout.write(fit(pad + spinnerLead, termWidth() - 1) + '\n');
         leadRows = 2;
@@ -1031,19 +1022,16 @@ function start() {
         // below, so printing a lone glyph would leave a stray mark in the
         // transcript for a message that was never sent.
       } else {
-        // The operator's line is echoed as a lifted block, the same shape the
-        // pinned layout already used. Without it the question and the answer
-        // arrive in identical type at identical indent and the eye cannot tell
-        // who is speaking. The partner's reply stays bare text on purpose
-        // (pane grammar: terminal output, not chat bubbles) — authorship is
-        // carried entirely by this block, so only one side needs styling.
+        // The operator's line is echoed as a lifted block; the partner's reply
+        // stays bare text (pane grammar: terminal output, not chat bubbles).
+        // Authorship is carried by this block alone, so only one side is styled.
         // Pasting a file gives the terminal a long absolute path, and a
         // screenshot's path is longer than most messages. The transcript shows
         // it collapsed to its name; the message itself keeps the full path, so
         // anything that can open the file still can.
         // Matched up to the extension rather than to the next space: the paths
         // a Mac hands over are full of them ("Group Containers", "Application
-        // Support"), so a whitespace-delimited match collapsed nothing.
+        // Support"), so a whitespace-delimited match would collapse nothing.
         const shown = line.replace(
           /\/[^\n]*?\.(png|jpe?g|gif|webp|heic|pdf|mov|mp4|webm)\b/gi,
           (p) => '…/' + p.replace(/^.*\//, ''));
@@ -1063,8 +1051,8 @@ function start() {
       menuSel = 0;
       lastMenuRows = 0;
       // The composer stays up for the whole turn: it is redrawn empty right
-      // after the echo, and the spinner writes into its meter. Tearing the panel
-      // down while the partner thinks reads as the surface crashing.
+      // after the echo, and the spinner writes into its meter. The panel is
+      // never torn down mid-turn.
       if (isTTY) renderInput();
       if (handlers.line) handlers.line(line);
     }
@@ -1277,9 +1265,7 @@ function start() {
       if (!line) continue;
       let msg; try { msg = JSON.parse(line); } catch (_) { continue; }
       // TROTH_FRAME_LOG=<path> records the event stream the surface receives:
-      // kind, faculty, provider, model. Which frame carried which fact is the
-      // question every footer bug turns out to be, and reading it beats
-      // reasoning about it. Off unless the variable is set.
+      // kind, faculty, provider, model. Off unless the variable is set.
       if (process.env.TROTH_FRAME_LOG) {
         try { require('fs').appendFileSync(process.env.TROTH_FRAME_LOG, JSON.stringify({ k: msg.kind, f: msg.faculty, p: msg.provider, m: msg.model }) + '\n'); } catch (_) {}
       }
@@ -1425,16 +1411,12 @@ function start() {
           };
           const wrapped0 = wrapVisible(lines[0] || '');
           // The cockpit-pane thread grammar (styles.css 'terminal output,
-          // not chat bubbles'), which the CLI must mirror exactly: the
-          // USER line carries the faint ❯ prompt glyph, the partner's
-          // output is BARE text — no bullet, no rail, no bubble shape.
+          // not chat bubbles'), which the CLI mirrors exactly.
           // The partner's turn is set in its own tone — no mark, no rail. Two
           // colours are the whole grammar of who is speaking.
           //
-          // Held off the top of the ramp on purpose. Near-white is the brightest
-          // thing a dark terminal can produce, and reading paragraphs of it for
-          // hours is tiring; a step down the steel keeps the operator's own line
-          // clearly the lighter of the two without burning.
+          // Held below the top of the ramp: the operator's line stays the
+          // lighter of the two without reaching near-white.
           const say = (s) => (isTTY ? steelCode(0.42) + s + RESET : s);
           out('  ' + say(wrapped0[0]) + '\n');
           for (let j = 1; j < wrapped0.length; j++) {
@@ -1556,8 +1538,7 @@ function start() {
     dropNextResponse = true;
     lastSlash = null; turnFaculty = null; turnTools = 0; turnStart = 0;
     out('\n' + color(DIM, '  cancelled') + '\n\n');
-    // The words go back into the composer, where they can be edited and sent
-    // again. Changing your mind about a turn should not cost you the typing.
+    // The words go back into the composer so a cancel does not cost the typing.
     if (inFlightText && rl.setBuffer) rl.setBuffer(inFlightText);
     else rl.prompt();
     inFlightText = '';
@@ -1646,7 +1627,7 @@ function start() {
       out(color(DIM, '  entity warming up · queuing\n'));
     }
     awaitingResponse = true;
-    // Held so a cancel can hand the words back instead of destroying them.
+    // Held so a cancel can return the words to the composer.
     inFlightText = String(line || '');
     turnStart = Date.now();
     dropNextResponse = false;
