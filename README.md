@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/troth-film.webp" width="860" alt="troth reads the AI history already on your machine, learns from it, and keeps the mind when the model changes">
+  <img src="docs/assets/troth-film.webp" width="860" alt="troth reads the AI history already on your machine, learns from it, acts through a browser of its own with credentials it never reads, and keeps the mind when the model changes">
 </p>
 
 **Everything in this repository is AGPL open source and free forever.**
