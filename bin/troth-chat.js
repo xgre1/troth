@@ -122,6 +122,9 @@ const silverDim = (s) => isTTY ? steelCode(0.7) + s + RESET : s;
 // Plain sequential output remains the fallback for non-TTY / dumb terms.
 let fixedUI = false;
 let statusEngine = '';
+// The model reported for the turn in flight, if the provider named one. Kept
+// so the end of the turn does not replace a real model with its lane's label.
+let turnModel = null;
 // Session-total REAL tokens (provider-reported usage per turn). Shown on
 // the status line — stats never sit under a reply.
 let sessTokIn = 0, sessTokOut = 0;
@@ -191,7 +194,15 @@ function releaseFixedUI() {
 /** Transcript write — inside the scroll region when the fixed layout is
  * on. Callers pass COMPLETE lines (trailing \n) so the region scrolls
  * cleanly under the pinned prompt. */
+// Set by the input controller once it exists. The composer stays on screen for
+// the whole turn now, so anything written into the transcript has to lift it
+// out of the way first — otherwise a reply prints straight through the panel.
+// Both hooks are idempotent: erasing twice is a no-op, and the prompt redraws
+// the composer when the turn ends.
+let hideComposer = null;
+let meterWriter  = null;
 function out(s) {
+  if (hideComposer) hideComposer();
   if (!fixedUI) { process.stdout.write(s); return; }
   process.stdout.write('\x1b7\x1b[' + (termRows() - 4) + ';1H\x1b[2K' + s + '\x1b8');
 }
@@ -307,33 +318,91 @@ const WORDMARK = [
   ' ▀  ▀ ▀ ▀▀▀  ▀  ▀ ▀'
 ];
 
+// The mascot at banner size, SAMPLED FROM THE REAL GEOMETRY rather than
+// redrawn by hand. The creature is defined analytically (ellipses for body and
+// head, a triangle per ear, superellipse eyes) and rasterises at any grid;
+// every hand-cut version drifted from it — one lost the wings entirely and put
+// a scalloped lump under the head that belongs to no part of the animal.
+//
+// Half-blocks, two pixel rows per cell, which is the medium the full sprite
+// already uses. Whole cells cannot carry this anatomy under about seven rows;
+// half-blocks carry it in six. Width 18 is the smallest sampling where the
+// ears, the eyes and the spread of the wings all survive.
+const MASCOT = {
+  open: [
+    '     █      █',
+    '    ▄█▄▄▄▄▄▄█▄',
+    '    █▀▀▀██▀▀▀█',
+    '  ▄▄█   ██   █▄▄',
+    ' ████████████████',
+    '   ▀█▀ ▀▀▀▀ ▀█▀'
+  ],
+  narrow: [
+    '     █      █',
+    '    ▄█▄▄▄▄▄▄█▄',
+    '    ██████████',
+    '  ▄▄█▄▄▄██▄▄▄█▄▄',
+    ' ████████████████',
+    '   ▀█▀ ▀▀▀▀ ▀█▀'
+  ],
+  happy: [
+    '     █      █',
+    '    ▄█▄▄▄▄▄▄█▄',
+    '    █▀▀████▀▀█',
+    '  ▄▄█▄█▄██▄█▄█▄▄',
+    ' ████████████████',
+    '   ▀█▀ ▀▀▀▀ ▀█▀'
+  ]
+};
+MASCOT.closed = MASCOT.narrow;   // at this sampling the two land on the same cells
+const MASCOT_W = 18;
+
 function banner() {
   const model = activeModel();
-  console.log('');
-  if (isTTY) {
-    WORDMARK.forEach((row, i) => console.log('  ' + steelRow(row, i / (WORDMARK.length - 1))));
-  }
-  console.log('');
-  // The mini banner the operator said reads cleanly — keep it directly
-  // below the ASCII art so the eye lands on logo, then identity, then
-  // model.
-  const glyph = isTTY ? (steelCode(0.1) + '◈' + RESET) : '◈';
-  const mark  = gradient('troth');
-  console.log('  ' + glyph + '  ' + mark);
-  if (model) console.log('      ' + color(DIM, model));
-  // Memory readiness, one line, core-authored wording (memory-readiness.js
-  // — the same truth the app and the dashboard render). Direct require, no
-  // proxy hop: the embedder fields read DISK truth so a foreign process
-  // sees the same answer; only a live download's progress ticker needs the
-  // owning process, and the banner does not tick. Silent on any failure —
-  // a banner must never crash the chat.
+  // Memory readiness is core-authored wording (memory-readiness.js — the same
+  // truth the app and the dashboard render). Direct require, no proxy hop: the
+  // embedder fields read DISK truth so a foreign process sees the same answer.
+  // Silent on any failure — a banner must never crash the chat.
+  let ready = '';
   try {
     const _mr = require('../shared-core/memory-readiness.js').readiness();
-    const _line = (_mr.stage === 'ready' && !(_mr.reasons && _mr.reasons.length))
+    ready = (_mr.stage === 'ready' && !(_mr.reasons && _mr.reasons.length))
       ? 'memory ready · fully indexed'
       : (_mr.reasons || []).join(' · ');
-    if (_line) console.log('      ' + color(DIM, _line));
   } catch (_) { /* no readiness line beats no REPL */ }
+
+  console.log('');
+  if (!isTTY) { console.log('  troth'); console.log(''); return; }
+
+  // The mascot is the mark; the name is set in type. An ASCII wordmark reads
+  // as CAPS — off-brand everywhere else the name appears — and lighting each
+  // of its rows from a different stop of the ramp banded it into a staircase
+  // instead of metal. One flat tone on the face, the name beside it, the
+  // state under the name.
+  const face  = MASCOT.open;
+  const tone  = steelCode(0.35);
+  // The name sits against the middle of the creature so the lockup reads as one
+  // object rather than a picture with a caption stuck to its top.
+  const lines = [];
+  lines[Math.max(0, Math.floor(face.length / 2) - 1)] = gradient('troth');
+  lines[Math.max(1, Math.floor(face.length / 2))] = ready ? color(DIM, ready) : '';
+  // The lockup must never wrap: a wrapped status line pushes the creature's
+  // own rows apart and the mark arrives broken. Anything that does not fit the
+  // window beside the face is cut rather than folded.
+  const cols = process.stdout.columns || 80;
+  const room = Math.max(0, cols - MASCOT_W - 7);
+  const cut = (s) => {
+    if (!s) return '';
+    const plain = stripAnsi(s);
+    if (plain.length <= room) return s;
+    return room > 1 ? color(DIM, plain.slice(0, room - 1) + '…') : '';
+  };
+  for (let i = 0; i < face.length; i++) {
+    const left  = isTTY ? tone + face[i].padEnd(MASCOT_W) + RESET : face[i].padEnd(MASCOT_W);
+    const right = cut(lines[i] || '');
+    console.log(('  ' + left + '    ' + right).replace(/\s+$/, ''));
+  }
+  if (model) console.log('  ' + ' '.repeat(MASCOT_W + 4) + cut(silverDim(model)));
   console.log('');
 }
 
@@ -375,8 +444,11 @@ function dispatchVerb(faculty, lastSlash) {
 // label, and echo/noop/internal names never print (same law as the app).
 function facultyLabel(faculty) {
   switch (faculty) {
-    case 'claude_cli':   return 'Claude subscription';
-    case 'codex_oauth':  return 'ChatGPT subscription';
+    // 'sub' rather than 'subscription': the meter is a glance, not a sentence,
+    // and the room it frees is where the model name lands the moment the
+    // provider reports which one actually answered.
+    case 'claude_cli':   return 'Claude sub';
+    case 'codex_oauth':  return 'ChatGPT sub';
     case 'llamacpp':
     case 'ollama':
     case 'local':        return activeModel() || 'on this mac';
@@ -409,7 +481,19 @@ const fmtTok = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' :
 // whimsy pill) — the label breathes instead of a frozen 'thinking'.
 const THINK_WORDS = ['thinking', 'reasoning', 'weighing', 'connecting', 'shaping', 'sifting', 'composing'];
 
-const SPINNER_FRAMES = ['⠋','⠙','⠹','⠸','⠼','⠴','⠦','⠧','⠇','⠏'];
+// While it works, the creature does the waiting — reduced to the one part of it
+// that is unmistakable, its two square eyes. It does not get a row of its own
+// and it does not spin: the eyes hold steady and blink once every couple of
+// seconds, which reads as attention rather than as a loading bar. The thought
+// word beside it already carries the liveness, so the mark can stay calm.
+// 24 frames at 90ms ≈ one blink every 2.2s.
+const SPINNER_FRAMES = (function () {
+  const open = '██', half = '▄▄', shut = '▁▁';
+  const f = [];
+  for (let i = 0; i < 19; i++) f.push(open);
+  f.push(half, shut, half, open, open);
+  return f;
+})();
 function createSpinner() {
   let i = 0, label = null, timer = null, active = false, startedAt = 0;
   let streamedChars = 0, wordSeed = 0;
@@ -430,6 +514,11 @@ function createSpinner() {
     const tok = streamedChars > 0 ? '\u2193 ~' + fmtTok(Math.round(streamedChars / 4)) + ' tokens' : null;
     const meta = color(DIM, ' (' + [elapsedStr, tok].filter(Boolean).join(' \u00b7 ') + ')');
     const text = (label ? label : wordLit) + meta;
+    // Working state belongs in the composer's own meter, under the panel the
+    // operator is looking at. Writing it as a free-standing line meant the
+    // panel had to be torn down for the length of every turn, so the surface
+    // lost its shape the moment a message was sent.
+    if (meterWriter) { meterWriter(silverDim(frame) + ' ' + text); return; }
     if (fixedUI) {
       process.stdout.write('\x1b7\x1b[' + (termRows() - 4) + ';1H\x1b[2K  ' +
         silverDim(frame) + ' ' + text + '\x1b8');
@@ -465,6 +554,9 @@ function createSpinner() {
       if (timer) clearInterval(timer);
       timer = null;
       active = false;
+      // Hand the meter back to its resting content rather than blanking a row
+      // the composer owns.
+      if (meterWriter) { meterWriter(null); return; }
       if (fixedUI) {
         process.stdout.write('\x1b7\x1b[' + (termRows() - 4) + ';1H\x1b[2K\x1b8');
         return;
@@ -557,7 +649,32 @@ function openErrLog() {
 }
 
 function start() {
+  // The composer belongs at the foot of the window, the way the app's input
+  // sits at the foot of the pane. Rather than pin it with a scroll region —
+  // the approach that interleaved with output on real terminals and is still
+  // fenced behind TROTH_FIXED_UI — the screen is filled once at startup so the
+  // first composer already lands on the last rows. From then on every reply
+  // scrolls the window and the composer stays where it is, which is simply how
+  // a terminal behaves once its screen is full.
+  if (isTTY) process.stdout.write('\x1b[2J\x1b[H');
   banner();
+  // The composer sits at the foot of the window: the screen is filled once here
+  // so the first panel already lands on the last rows, and from then on every
+  // reply scrolls the window while the composer stays put.
+  //
+  // This only holds because the composer is repainted as a whole frame and
+  // every transcript write lifts it first. The earlier attempts anchored it
+  // while writing pieces of it — a saved cursor position here, a lone status
+  // line there — and a single scroll put the erase one row out, which is what
+  // left headless panels and text printed through the border. Set
+  // TROTH_CLI_BOTTOM=0 to keep the composer directly under the transcript.
+  if (isTTY && process.env.TROTH_CLI_BOTTOM !== '0') {
+    const used = 6;                      // banner block, measured against its own layout
+    const composer = 4;                  // top border, one text row, bottom border, meter
+    const headroom = parseInt(process.env.TROTH_CLI_HEADROOM || '4', 10);
+    const fill = Math.max(0, (process.stdout.rows || 24) - used - composer - headroom);
+    if (fill > 0) process.stdout.write('\n'.repeat(fill));
+  }
   const child = spawnEntity();
   let buf = '';
   let ready = false;
@@ -573,11 +690,24 @@ function start() {
   // registry /help prints. A hand-kept copy here drifted to 15 while the
   // registry had grown to 18, so /engine existed everywhere except in the
   // picker that people learn the commands from.
+  // A name on its own teaches nothing: the picker carries each command's own
+  // one-line description, taken from the skill that defines it, so the list is
+  // readable by someone who has never seen the vocabulary.
+  const SLASH_DESC = {};
   const SLASH_CMDS = (function () {
     try {
       const rows = require('../shared-core/slash/loader.js').skillSummaries(process.cwd()) || [];
-      const names = rows.map(function (r) { return r && r.name; }).filter(Boolean);
-      if (names.length) { names.push('quit'); return names.sort(); }
+      const names = [];
+      for (const r of rows) {
+        if (!r || !r.name) continue;
+        names.push(r.name);
+        SLASH_DESC[r.name] = String(r.description || '').replace(/\s+/g, ' ').trim();
+      }
+      if (names.length) {
+        names.push('quit');
+        SLASH_DESC.quit = SLASH_DESC.quit || 'leave the conversation';
+        return names.sort();
+      }
     } catch (_) { /* fall through to the static floor */ }
     return ['goal', 'remember', 'recall', 'forget', 'think', 'agent',
             'save', 'context', 'usage', 'dialogue-reset', 'init', 'help', 'quit',
@@ -594,10 +724,14 @@ function start() {
   function createInput(opts) {
     const PROMPT     = opts.prompt;
     const PROMPT_W   = stripAnsi(PROMPT).length;
-    const handlers   = { line: null, close: null };
+    const handlers   = { line: null, close: null, escape: null };
     let buffer       = '';
     let cursor       = 0;
     let menuActive   = false;
+    // 'cmd' lists slash commands, 'arg' lists the values a command accepts.
+    // Picking an engine by name meant remembering the vocabulary; the argument
+    // menu turns it into a choice.
+    let menuKind     = 'cmd';
     let menuItems    = [];
     let menuSel      = 0;
     let lastMenuRows = 0;
@@ -616,6 +750,12 @@ function start() {
     // of them on the next redraw — '\r\x1b[K' only clears one row and
     // leaves wrapped tails stacking up as the user keeps typing.
     let lastInputRows = 0;
+    // Which row of the composer the cursor was left on, counted from the box's
+    // top border. The old erase walked up (rows - 1) on the assumption that the
+    // cursor sat on the LAST rendered row; with a bordered box it sits on a
+    // middle row, and that assumption would clear transcript lines above it.
+    let lastCursorRow = 0;
+    let lastCursorCol = 0;
     function termWidth() { return process.stdout.columns || 80; }
 
     function eraseInputAndMenu() {
@@ -624,96 +764,214 @@ function start() {
       // wrapped buffer). Move up to the first input row, then clear from
       // there to end of screen — wipes wrapped input rows AND any menu
       // rows in a single sweep.
-      if (lastInputRows > 1) {
-        // The previous render left cursor on some row of the input area.
-        // We want to be at the FIRST input row. Walk up by (lastInputRows-1).
-        // Worst case the cursor was at the end of the last row; this still
-        // lands on or above the first row.
-        process.stdout.write('\x1b[' + (lastInputRows - 1) + 'A');
-      }
+      if (lastCursorRow > 0) process.stdout.write('\x1b[' + lastCursorRow + 'A');
       process.stdout.write('\r\x1b[J');
+      lastCursorRow = 0;
       lastInputRows = 0;
       lastMenuRows = 0;
       if (fixedUI) drawStatus(); // \x1b[J above just wiped the status row
     }
 
-    function renderInput() {
-      // Manual word-wrap: emit PROMPT at the start of every visual row so
-      // the green bar stays in the gutter even when the buffer wraps.
-      // Terminal-driven wrap would put row 2+ flush-left with no prompt
-      // mark, which reads as orphaned text rather than continued input.
-      const w        = termWidth();
-      const visibleW = Math.max(1, w - PROMPT_W);
-      if (buffer.length === 0) {
-        process.stdout.write(PROMPT);
-        lastInputRows = 1;
-      } else {
-        let rowIdx = 0;
-        for (let i = 0; i < buffer.length; i += visibleW) {
-          if (rowIdx > 0) process.stdout.write('\n');
-          process.stdout.write(PROMPT + buffer.substr(i, visibleW));
-          rowIdx++;
+    // The composer is a panel, not a bare line — the same rounded input the
+    // app draws, translated to box-drawing characters. Sequential flow is kept:
+    // the panel is erased and redrawn in place on every keystroke, so nothing
+    // depends on a scroll region (that attempt interleaved with output on real
+    // terminals and stays opt-in behind TROTH_FIXED_UI).
+    const BOX_MARGIN = 2;
+    function boxMetrics() {
+      const outer = Math.max(24, termWidth() - BOX_MARGIN * 2);
+      return { outer, textW: outer - 4 };   // │ + space … space + │
+    }
+
+    // Nothing the composer draws may wrap. A wrapped line costs a PHYSICAL row
+    // that the block's arithmetic does not know about, so the erase comes up a
+    // row short and every repaint leaves the previous panel behind — which is
+    // what turned a narrow window into a stack of empty boxes. Truncation is
+    // measured on visible characters, since colour codes carry no width.
+    function fit(s, w) {
+      if (w <= 0) return '';
+      if (stripAnsi(s).length <= w) return s;
+      let out = '', vis = 0, i = 0;
+      while (i < s.length && vis < w - 1) {
+        if (s[i] === '\x1b') {
+          const m = /^\x1b\[[0-9;]*m/.exec(s.slice(i));
+          if (m) { out += m[0]; i += m[0].length; continue; }
         }
-        lastInputRows = rowIdx;
+        out += s[i]; i++; vis++;
       }
-      // Position the cursor. After the loop above the cursor sits at the
-      // end of the last rendered row; if the logical cursor is earlier,
-      // walk back. Edge case: when cursor lands exactly on a row boundary
-      // (cursor === N * visibleW, N > 0) we keep it at the END of the
-      // previous row rather than the START of the next — matches what
-      // users expect when the cursor is "after the last char".
+      return out + '…' + (isTTY ? RESET : '');
+    }
+
+    // The meter under the composer: which engine is answering, what this
+    // conversation has cost, and how warm the plan's rolling window is.
+    // Internal transport names never print (same law as the app: 'router is
+    // never shown'), so a routing placeholder leaves the slot empty. While a
+    // turn runs the spinner's frame is held here and repainted with the rest of
+    // the block.
+    let spinnerLead = null;
+    function meterText() {
+      const eng = /^(router|routing|any)$/i.test(statusEngine || '') ? '' : statusEngine;
+      const bits = [
+        eng ? silverDim(eng) : (activeModel() ? silverDim(activeModel()) : null),
+        (sessTokIn || sessTokOut) ? color(DIM, '↑' + fmtTok(sessTokIn) + ' ↓' + fmtTok(sessTokOut)) : null,
+        (win5 && (win5.tin || win5.tout)) ? color(DIM, '5h ↑' + fmtTok(win5.tin) + ' ↓' + fmtTok(win5.tout)) : null
+      ].filter(Boolean);
+      return bits.join(color(DIM, '  ·  '));
+    }
+
+    // The composer is repainted as ONE frame, always. An earlier version wrote
+    // the meter row on its own by saving the cursor, stepping down and
+    // restoring — but a save/restore pair holds an ABSOLUTE position, and the
+    // moment the screen scrolled it pointed at the wrong row: the next erase
+    // began a row too low and left a headless panel with a second one drawn
+    // beneath it. Whole-frame repaints carry no absolute state, so a scroll
+    // costs a frame instead of the layout.
+    function drawMeterRow(lead) {
+      spinnerLead = lead;
+      redraw();
+    }
+    function renderInput() {
+      const { outer, textW } = boxMetrics();
+      const pad = ' '.repeat(BOX_MARGIN);
+      const bar = color(DIM, '│');
+      const rows = [];
+      if (buffer.length === 0) rows.push('');
+      else for (let i = 0; i < buffer.length; i += textW) rows.push(buffer.substr(i, textW));
+
+      // The working line belongs to the CONVERSATION, above the composer — it
+      // is the partner's turn happening, not a property of the input. It is
+      // still painted with the block so a tick never fights the caret.
+      let leadRows = 0;
+      if (spinnerLead) {
+        process.stdout.write(fit(pad + spinnerLead, termWidth() - 1) + '\n');
+        leadRows = 1;
+      }
+      process.stdout.write(pad + color(DIM, '╭' + '─'.repeat(outer - 2) + '╮') + '\n');
+      for (const r of rows) {
+        process.stdout.write(pad + bar + ' ' + r + ' '.repeat(Math.max(0, textW - r.length)) + ' ' + bar + '\n');
+      }
+      process.stdout.write(pad + color(DIM, '╰' + '─'.repeat(outer - 2) + '╯') + '\n');
+      // Choices belong directly under the panel they complete, above the meter.
+      // Drawn here rather than in a pass of their own: a separate pass had to
+      // start writing from wherever the caret stood, which put the list below
+      // the meter with the meter stranded in the middle of the composer.
+      //
+      // The list is WINDOWED. A bare '/' matches every command, and printing
+      // all of them made the composer taller than the terminal: the block
+      // scrolled, the erase arithmetic no longer described what was on screen,
+      // and the surface came apart. The window follows the selection, so
+      // arrowing past the edge scrolls the list instead of the screen.
+      let menuRows = 0;
+      if (menuActive && menuItems.length) {
+        const room = Math.max(3, (process.stdout.rows || 24) - rows.length - 8);
+        const cap  = Math.min(8, room, menuItems.length);
+        const half = Math.floor(cap / 2);
+        const start = Math.min(Math.max(0, menuSel - half), Math.max(0, menuItems.length - cap));
+        // Two columns: the name, then what it does. The width is taken from the
+        // longest name in the WINDOW, so the descriptions line up without the
+        // list jumping as it scrolls.
+        let nameW = 0;
+        for (let mi = start; mi < start + cap; mi++) {
+          const n = (menuKind === 'arg' ? menuItems[mi] : '/' + menuItems[mi]).length;
+          if (n > nameW) nameW = n;
+        }
+        const descW = Math.max(0, outer - nameW - 10);
+        for (let mi = start; mi < start + cap; mi++) {
+          const label = menuKind === 'arg' ? menuItems[mi] : '/' + menuItems[mi];
+          let desc = menuKind === 'arg' ? '' : (SLASH_DESC[menuItems[mi]] || '');
+          if (desc.length > descW) desc = descW > 1 ? desc.slice(0, descW - 1) + '…' : '';
+          const head = mi === menuSel
+            ? '  ' + silver('▸ ') + color(BOLD, label)
+            : '    ' + color(DIM, label);
+          const gap = ' '.repeat(Math.max(1, nameW - label.length + 2));
+          process.stdout.write(fit(pad + head + (desc ? gap + color(DIM, desc) : ''), termWidth() - 1) + '\n');
+        }
+        menuRows = cap;
+        if (menuItems.length > cap) {
+          const shown = start + cap;
+          process.stdout.write(fit(pad + '    ' + color(DIM, menuItems.length - shown > 0
+            ? '+' + (menuItems.length - shown) + ' more'
+            : '↑ ' + start + ' above'), termWidth() - 1) + '\n');
+          menuRows += 1;
+        }
+        lastMenuRows = menuRows;
+      } else {
+        lastMenuRows = 0;
+      }
+      // Flush with the panel's own left edge — an extra space read as a line
+      // that had come loose from the box.
+      process.stdout.write(fit(pad + meterText(), termWidth() - 1));
+      lastInputRows = leadRows + rows.length + 3 + menuRows;
+
+      // Put the cursor back on the text row it belongs to. Row 0 is the top
+      // border, rows 1..n the text, row n+1 the bottom border, row n+2 the
+      // meter, and the write above left the cursor on that last row.
       let cRow, cCol;
       if (cursor === 0) { cRow = 0; cCol = 0; }
       else {
-        cRow = Math.floor((cursor - 1) / visibleW);
-        cCol = ((cursor - 1) % visibleW) + 1;
+        cRow = Math.floor((cursor - 1) / textW);
+        cCol = ((cursor - 1) % textW) + 1;
       }
-      const endRow = lastInputRows - 1;
-      const rowsUp = endRow - cRow;
-      if (rowsUp > 0) process.stdout.write('\x1b[' + rowsUp + 'A');
+      const up = rows.length + 1 + menuRows - cRow;
+      if (up > 0) process.stdout.write('\x1b[' + up + 'A');
+      lastCursorRow = leadRows + cRow + 1;
+      lastCursorCol = BOX_MARGIN + 2 + cCol;
       process.stdout.write('\r');
-      const absCol = PROMPT_W + cCol;
-      if (absCol > 0) process.stdout.write('\x1b[' + absCol + 'C');
+      if (lastCursorCol > 0) process.stdout.write('\x1b[' + lastCursorCol + 'C');
     }
 
     function renderMenu() {
-      // Draw N menu rows below the input then move cursor back up onto
-      // the input line at its previous position. Caller is expected to
-      // have already erased any previous menu via eraseInputAndMenu().
+      // Draw N menu rows below the composer, then put the cursor back where
+      // the caret was inside the box. The cursor sits on a TEXT row, so it has
+      // to walk down past the bottom border first — writing from where it
+      // stands would print the menu through the panel.
       if (!menuActive || !menuItems.length) return;
-      // Snapshot current cursor column on input line.
-      const inputCol = PROMPT_W + cursor;
+      const toBottom = (lastInputRows - 1) - lastCursorRow;
+      if (toBottom > 0) process.stdout.write('\x1b[' + toBottom + 'B');
+      process.stdout.write('\r');
       for (const item of menuItems.map((c, i) => {
         return i === menuSel
-          ? '  ' + silver('▶ ') + color(BOLD, '/' + c)
-          : '    ' + color(DIM,  '/' + c);
+          ? '    ' + silver('▸ ') + color(BOLD, '/' + c)
+          : '      ' + color(DIM,  '/' + c);
       })) {
         process.stdout.write('\n' + item);
       }
       lastMenuRows = menuItems.length;
-      // Cursor is now at the end of the last menu row. Move back up to
-      // the input line, then place it at the right column.
-      process.stdout.write('\x1b[' + lastMenuRows + 'A');
+      process.stdout.write('\x1b[' + (lastMenuRows + toBottom) + 'A');
       process.stdout.write('\r');
-      if (inputCol > 0) process.stdout.write('\x1b[' + inputCol + 'C');
+      if (lastCursorCol > 0) process.stdout.write('\x1b[' + lastCursorCol + 'C');
     }
 
+    // Commands whose argument is a closed set worth choosing from rather than
+    // typing. Values mirror the skill's own vocabulary (plugin/skills/engine).
+    const ARG_CHOICES = {
+      engine: ['auto', 'claude', 'chatgpt', 'local', 'kimi', 'router']
+    };
+
     function recomputeMenu() {
-      // Open the menu only when the buffer starts with '/' and the
-      // user hasn't yet typed a space (which means they've moved past
-      // the command name into args).
-      const wantsMenu = buffer.startsWith('/') && !buffer.includes(' ');
-      if (!wantsMenu) {
-        if (menuActive) { menuActive = false; }
+      if (!buffer.startsWith('/')) { menuActive = false; return; }
+      const sp = buffer.indexOf(' ');
+
+      // Past the command name: offer that command's values, if it has a set.
+      if (sp >= 0) {
+        const cmd  = buffer.slice(1, sp);
+        const rest = buffer.slice(sp + 1);
+        const set  = ARG_CHOICES[cmd];
+        if (!set || rest.includes(' ')) { menuActive = false; return; }
+        const hits = set.filter((v) => v.startsWith(rest));
+        if (!hits.length) { menuActive = false; return; }
+        menuItems = hits;
+        menuKind  = 'arg';
+        if (menuSel >= menuItems.length) menuSel = 0;
+        menuActive = true;
         return;
       }
+
       const head = buffer.slice(1);
       const matches = SLASH_CMDS.filter((c) => c.startsWith(head));
-      if (matches.length === 0) {
-        if (menuActive) { menuActive = false; }
-        return;
-      }
+      if (matches.length === 0) { menuActive = false; return; }
       menuItems = matches;
+      menuKind  = 'cmd';
       if (menuSel >= menuItems.length) menuSel = 0;
       menuActive = true;
     }
@@ -725,11 +983,20 @@ function start() {
       if (!process.stdout.isTTY) return;
       eraseInputAndMenu();
       renderInput();
-      renderMenu();
+      // Choices are drawn by renderInput, inside the composer block.
     }
 
     function commitSelection() {
       if (!menuActive || !menuItems.length) return;
+      if (menuKind === 'arg') {
+        // The value completes a command that is already typed: keep the head,
+        // replace whatever fragment follows it.
+        buffer = buffer.slice(0, buffer.indexOf(' ') + 1) + menuItems[menuSel];
+        cursor = buffer.length;
+        menuActive = false;
+        menuSel = 0;
+        return;
+      }
       buffer = '/' + menuItems[menuSel];
       // Append a space only when the skill takes args. Skills with no
       // args (help, quit, clear) work fine either way — the space is
@@ -738,6 +1005,9 @@ function start() {
       cursor = buffer.length;
       menuActive = false;
       menuSel = 0;
+      // Choosing the command may open the next choice straight away: commands
+      // with a closed set of values offer them without waiting for a keystroke.
+      recomputeMenu();
       redraw();
     }
 
@@ -758,10 +1028,23 @@ function start() {
           out('\n' + rows.join('\n') + '\n');
         }
       } else if (line.length === 0) {
-        process.stdout.write(PROMPT + '\n');
+        // Nothing to echo. The composer is still on screen and is redrawn
+        // below, so printing a lone glyph would leave a stray mark in the
+        // transcript for a message that was never sent.
       } else {
-        for (let i = 0; i < line.length; i += visibleW) {
-          process.stdout.write(PROMPT + line.substr(i, visibleW) + '\n');
+        // The operator's line is echoed as a lifted block, the same shape the
+        // pinned layout already used. Without it the question and the answer
+        // arrive in identical type at identical indent and the eye cannot tell
+        // who is speaking. The partner's reply stays bare text on purpose
+        // (pane grammar: terminal output, not chat bubbles) — authorship is
+        // carried entirely by this block, so only one side needs styling.
+        const blockW = Math.max(1, visibleW - 4);
+        for (let i = 0; i < line.length; i += blockW) {
+          // No glyph. Authorship is carried by colour alone: the operator's
+          // line is the lifted block, the partner's is the lighter type below.
+          // A prompt mark on one side and a rail on the other were two answers
+          // to the same question and both of them shouted.
+          process.stdout.write('  ' + userBlock(line.substr(i, blockW)) + '\n');
         }
       }
       if (line && line !== history[history.length - 1]) history.push(line);
@@ -771,7 +1054,11 @@ function start() {
       menuActive = false;
       menuSel = 0;
       lastMenuRows = 0;
-      if (fixedUI) redraw(); // pinned row: show the bare ❯ again immediately
+      // The composer stays up for the whole turn: it is redrawn empty right
+      // after the echo, and the spinner writes into its meter. The panel is
+      // the surface the operator is looking at — tearing it down while the
+      // partner thinks is what made the send feel like a crash.
+      if (isTTY) renderInput();
       if (handlers.line) handlers.line(line);
     }
 
@@ -837,6 +1124,9 @@ function start() {
       // forever and never submitted: scripts and agents drove a REPL that
       // took their keystrokes and answered nothing.
       if (menuActive && (key.name === 'return' || key.name === 'enter')) {
+        // Choosing a VALUE is the whole intent — take it and run, so picking an
+        // engine costs one key rather than a second confirming Enter.
+        if (menuKind === 'arg') { commitSelection(); submit(); return; }
         // If the buffer is already the exact selected command, submit
         // instead of committing (avoids the double-Enter trap for
         // no-args skills like /quit /help /clear).
@@ -847,6 +1137,13 @@ function start() {
       }
       if (menuActive && key.name === 'escape') {
         menuActive = false; redraw(); return;
+      }
+      // With no list open, escape is the stop key. It only ever cancels a turn
+      // in flight — unlike Ctrl-C it never arms an exit, so pressing it out of
+      // reflex can never close the conversation.
+      if (!menuActive && key.name === 'escape') {
+        if (handlers.escape) handlers.escape();
+        return;
       }
 
       // History (only when menu not active)
@@ -898,17 +1195,24 @@ function start() {
     }
     readline.emitKeypressEvents(process.stdin);
     process.stdin.on('keypress', onKey);
+    hideComposer = eraseInputAndMenu;
+    meterWriter  = drawMeterRow;
 
     return {
       on(ev, fn) { handlers[ev] = fn; },
       prompt() {
         paused = false;
         if (fixedUI) process.stdout.write('\x1b[' + (termRows() - 2) + ';1H\x1b[2K');
-        renderInput();
+        // Erase first: the composer is on screen for the whole turn now, so a
+        // bare render would stack a second panel on top of the live one.
+        redraw();
       },
       pause()  { paused = true; },
       resume() { paused = false; },
+      hide()   { eraseInputAndMenu(); },
       close()  {
+        hideComposer = null;
+        meterWriter  = null;
         process.stdin.removeListener('keypress', onKey);
         if (process.stdin.isTTY) {
           try { process.stdout.write('\x1b[?2004l'); } catch (_) {}
@@ -917,7 +1221,16 @@ function start() {
       },
       _write(text) { buffer = text; cursor = text.length; redraw(); },
       getBuffer() { return buffer; },
-      clearBuffer() { buffer = ''; cursor = 0; menuActive = false; redraw(); }
+      clearBuffer() { buffer = ''; cursor = 0; menuActive = false; redraw(); },
+      // Put text back where the operator can edit it. Used when a turn is
+      // cancelled: the words were already typed once and losing them to a
+      // change of mind is a small theft.
+      setBuffer(text) {
+        buffer = String(text || '');
+        cursor = buffer.length;
+        menuActive = false;
+        redraw();
+      }
     };
   }
 
@@ -943,7 +1256,7 @@ function start() {
     String(chunk).split('\n').forEach((line) => {
       if (/\b(fatal|EADDR|ENOENT|cannot find module)\b/i.test(line)) {
         spinner.stop();
-        process.stdout.write(color(RED, '  ✗ ' + line.trim()) + '\n');
+        out(color(RED, '  ✗ ' + line.trim()) + '\n');
       }
     });
   });
@@ -957,6 +1270,13 @@ function start() {
       buf = buf.slice(nl + 1);
       if (!line) continue;
       let msg; try { msg = JSON.parse(line); } catch (_) { continue; }
+      // TROTH_FRAME_LOG=<path> records the event stream the surface receives:
+      // kind, faculty, provider, model. Which frame carried which fact is the
+      // question every footer bug turns out to be, and reading it beats
+      // reasoning about it. Off unless the variable is set.
+      if (process.env.TROTH_FRAME_LOG) {
+        try { require('fs').appendFileSync(process.env.TROTH_FRAME_LOG, JSON.stringify({ k: msg.kind, f: msg.faculty, p: msg.provider, m: msg.model }) + '\n'); } catch (_) {}
+      }
       switch (msg.kind) {
         case 'ready':
           ready = true;
@@ -964,7 +1284,7 @@ function start() {
           break;
         case 'dialogue_reset':
           spinner.stop();
-          process.stdout.write(color(DIM,
+          out(color(DIM,
             '  session reset · identity preserved (' +
             msg.goals_kept + ' goals, ' + msg.engrams_kept + ' engrams)\n'));
           break;
@@ -994,10 +1314,17 @@ function start() {
         case 'served': {
           // The provider/model ACTUALLY answering right now — feeds the
           // pinned status line (cockpit pane parity).
-          const raw = msg.model || msg.provider || '';
+          // A local server reports the model as the FILE it loaded, absolute
+          // path and quant suffix and all. The meter wants the name a person
+          // would say, so it is reduced the same way the config-read path
+          // reduces it: basename, no extension, no quant tail.
+          const raw = String(msg.model || msg.provider || '')
+            .replace(/^.*[\/]/, '')
+            .replace(/\.gguf$/i, '')
+            .replace(/-(UD|MLX|GGUF|Q\d[A-Z0-9_]*).*$/i, '');
           const eng = /^(router|routing|any)$/i.test(raw) ? '' :
             [raw, msg.host ? 'local' : null].filter(Boolean).join(' · ');
-          if (eng) { statusEngine = eng; drawStatus(); }
+          if (eng) { statusEngine = eng; turnModel = eng; drawStatus(); }
           break;
         }
         case 'text_delta':
@@ -1010,7 +1337,18 @@ function start() {
           spinner.update(toolVerb(msg.name, msg.args || msg.input));
           break;
         case 'response': {
-          if (dropNextResponse) { dropNextResponse = false; break; }
+          // A cancelled turn still finishes upstream and its reply still
+          // arrives. Dropping the text is right, but the working indicator
+          // belongs to that same turn and has to go with it — leaving it
+          // running is why the creature kept thinking about a message that
+          // was never sent.
+          if (dropNextResponse) {
+            dropNextResponse = false;
+            spinner.stop();
+            awaitingResponse = false;
+            turnModel = null;
+            break;
+          }
           // Persist the engine that ACTUALLY served this turn: the response
           // carries faculty=choice.faculty, which the fallback walk already
           // reassigned to whoever rescued it — so the footer names the true
@@ -1021,7 +1359,13 @@ function start() {
           // never overwrite a good provider name with an internal one.
           const served    = !(!msg.text && (msg.status === 'aborted' || msg.reason));
           const servedLbl = served ? facultyLabel(msg.faculty) : null;
-          if (servedLbl) { statusEngine = servedLbl; }
+          // The faculty label is the COARSE name of the lane ('ChatGPT sub').
+          // A 'served' frame carries the model that actually answered, which is
+          // the finer and more useful fact, so the lane name only fills the slot
+          // when no model was reported for this turn — otherwise the end of the
+          // turn would erase 'gpt-5.5' and put the lane back.
+          if (servedLbl && !turnModel) { statusEngine = servedLbl; }
+          turnModel = null;
           if (msg.usage && (msg.usage.input_tokens || msg.usage.output_tokens)) {
             sessTokIn  += msg.usage.input_tokens  || 0;
             sessTokOut += msg.usage.output_tokens || 0;
@@ -1079,14 +1423,17 @@ function start() {
           // not chat bubbles'), which the CLI must mirror exactly: the
           // USER line carries the faint ❯ prompt glyph, the partner's
           // output is BARE text — no bullet, no rail, no bubble shape.
-          out('  ' + wrapped0[0] + '\n');
+          // The partner's turn is set in its own tone — no mark, no rail. Two
+          // colours are the whole grammar of who is speaking.
+          const say = (s) => (isTTY ? steelCode(0.05) + s + RESET : s);
+          out('  ' + say(wrapped0[0]) + '\n');
           for (let j = 1; j < wrapped0.length; j++) {
-            out('  ' + wrapped0[j] + '\n');
+            out('  ' + say(wrapped0[j]) + '\n');
           }
           for (let i = 1; i < lines.length; i++) {
             const w = wrapVisible(lines[i]);
             for (const segment of w) {
-              out('  ' + segment + '\n');
+              out('  ' + say(segment) + '\n');
             }
           }
           // NOTHING under the reply (operator: stats belong to the live
@@ -1110,7 +1457,7 @@ function start() {
         case 'fatal':
           if (dropNextResponse) { dropNextResponse = false; break; }
           spinner.stop();
-          process.stdout.write(color(RED, '  ✗ ' + (msg.error || msg.kind)) +
+          out(color(RED, '  ✗ ' + (msg.error || msg.kind)) +
             (msg.detail ? color(DIM, ' — ' + msg.detail) : '') + '\n');
           awaitingResponse = false;
           rl.prompt();
@@ -1133,7 +1480,7 @@ function start() {
           if (awaitingResponse) {
             _pendingBriefings.push(line);
           } else {
-            process.stdout.write(line);
+            out(line);
           }
           break;
         }
@@ -1161,7 +1508,7 @@ function start() {
             // with streaming output.
             _pendingBriefings.push(interstitial);
           } else {
-            process.stdout.write(interstitial);
+            out(interstitial);
             rl.prompt();
           }
           break;
@@ -1189,17 +1536,22 @@ function start() {
   //   empty buffer (2nd hit) → exit
   let ctrlcArmed = false;
   let ctrlcTimer = null;
+  // One cancel path, two keys onto it. Escape reaches only this; Ctrl-C reaches
+  // it first and then falls through to its own buffer/exit tiers.
+  function cancelInFlight() {
+    if (!awaitingResponse) return false;
+    spinner.stop();
+    awaitingResponse = false;
+    // Soft cancel: discard whatever response eventually comes back.
+    dropNextResponse = true;
+    lastSlash = null; turnFaculty = null; turnTools = 0; turnStart = 0;
+    out('\n' + color(DIM, '  cancelled') + '\n\n');
+    rl.prompt();
+    return true;
+  }
+  rl.on('escape', () => { cancelInFlight(); });
   rl.on('interrupt', () => {
-    if (awaitingResponse) {
-      spinner.stop();
-      awaitingResponse = false;
-      // Soft cancel: discard whatever response eventually comes back.
-      dropNextResponse = true;
-      lastSlash = null; turnFaculty = null; turnTools = 0; turnStart = 0;
-      process.stdout.write('\n' + color(DIM, '  cancelled') + '\n\n');
-      rl.prompt();
-      return;
-    }
+    if (cancelInFlight()) return;
     if (rl.getBuffer().length > 0) {
       rl.clearBuffer();
       return;
@@ -1211,7 +1563,7 @@ function start() {
       process.exit(0);
     }
     ctrlcArmed = true;
-    process.stdout.write('\n' + color(DIM, '  (Ctrl-C again to exit)') + '\n');
+    out('\n' + color(DIM, '  (Ctrl-C again to exit)') + '\n');
     rl.prompt();
     if (ctrlcTimer) clearTimeout(ctrlcTimer);
     ctrlcTimer = setTimeout(() => { ctrlcArmed = false; ctrlcTimer = null; }, 1500);
