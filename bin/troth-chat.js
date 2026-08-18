@@ -669,10 +669,17 @@ function start() {
   // left headless panels and text printed through the border. Set
   // TROTH_CLI_BOTTOM=0 to keep the composer directly under the transcript.
   if (isTTY && process.env.TROTH_CLI_BOTTOM !== '0') {
-    const used = 6;                      // banner block, measured against its own layout
-    const composer = 4;                  // top border, one text row, bottom border, meter
-    const headroom = parseInt(process.env.TROTH_CLI_HEADROOM || '4', 10);
-    const fill = Math.max(0, (process.stdout.rows || 24) - used - composer - headroom);
+    // Drop the composer toward the foot of the window without emptying the
+    // window to get there. Filling the whole height left the mark stranded at
+    // the top with a field of nothing under it, which reads as a broken screen
+    // rather than as room to work; a session that opens on a third of a page
+    // and closes the gap as the conversation grows reads as intent. Cap the
+    // opening gap and let real turns take the rest.
+    const used = 8;                       // banner block plus its air
+    const composer = 4;                   // top border, one text row, bottom border, meter
+    const rowsNow = process.stdout.rows || 24;
+    const room = Math.max(0, rowsNow - used - composer);
+    const fill = Math.min(room, Math.max(0, Math.round(rowsNow * 0.33)));
     if (fill > 0) process.stdout.write('\n'.repeat(fill));
   }
   const child = spawnEntity();
@@ -1546,7 +1553,11 @@ function start() {
     dropNextResponse = true;
     lastSlash = null; turnFaculty = null; turnTools = 0; turnStart = 0;
     out('\n' + color(DIM, '  cancelled') + '\n\n');
-    rl.prompt();
+    // The words go back into the composer, where they can be edited and sent
+    // again. Changing your mind about a turn should not cost you the typing.
+    if (inFlightText && rl.setBuffer) rl.setBuffer(inFlightText);
+    else rl.prompt();
+    inFlightText = '';
     return true;
   }
   rl.on('escape', () => { cancelInFlight(); });
@@ -1574,6 +1585,8 @@ function start() {
   // surface doesn't dump a stale answer below a fresh prompt. Cleared
   // on the next submit.
   let dropNextResponse = false;
+  // The text of the turn in flight, so a cancel can return it to the composer.
+  let inFlightText = '';
 
   rl.on('line', (raw) => {
     const line = raw.trim();
@@ -1630,6 +1643,8 @@ function start() {
       out(color(DIM, '  entity warming up · queuing\n'));
     }
     awaitingResponse = true;
+    // Held so a cancel can hand the words back instead of destroying them.
+    inFlightText = String(line || '');
     turnStart = Date.now();
     dropNextResponse = false;
     ctrlcArmed = false;
