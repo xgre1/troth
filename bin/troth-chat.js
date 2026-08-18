@@ -482,49 +482,82 @@ const fmtTok = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' :
 const THINK_WORDS = ['thinking', 'reasoning', 'weighing', 'connecting', 'shaping', 'sifting', 'composing'];
 
 // While it works, the creature does the waiting — reduced to the one part of it
-// that is unmistakable, its two square eyes. It does not get a row of its own
-// and it does not spin: the eyes hold steady and blink once every couple of
-// seconds, which reads as attention rather than as a loading bar. The thought
-// word beside it already carries the liveness, so the mark can stay calm.
-// 24 frames at 90ms ≈ one blink every 2.2s.
-const SPINNER_FRAMES = (function () {
-  const open = '██', half = '▄▄', shut = '▁▁';
-  const f = [];
-  for (let i = 0; i < 19; i++) f.push(open);
-  f.push(half, shut, half, open, open);
-  return f;
-})();
+// that is unmistakable, its two eyes.
+//
+// A diamond that opens from a point and closes again, in place.
+//
+// The constraints a working mark has to satisfy on this surface:
+//   travel     — anything crossing the screen is followed by the eye
+//   up/down    — two marks rising and falling read as a meter
+//   amplitude  — a solid shape jumping cell-corners strobes
+//   pace       — creeping reads as hung, frantic reads as alarm
+//
+// A shape that BLOOMS satisfies all four: same centre, same footprint, opening
+// and closing through fine steps. Nothing moves across anything, so there is
+// nothing to follow, and the change per frame is one ring of the same figure, so
+// no edge snaps. A diamond rather than a flower because the brand is cut from
+// hard edges; a point to solid and back over about a second and a half.
+const SPINNER_FRAMES = ['·', '∙', '◦', '◇', '◈', '◆', '◈', '◇', '◦', '∙'];
 function createSpinner() {
   let i = 0, label = null, timer = null, active = false, startedAt = 0;
   let streamedChars = 0, wordSeed = 0;
   const draw = () => {
     if (!isTTY) return;
-    const frame = SPINNER_FRAMES[i = (i + 1) % SPINNER_FRAMES.length];
     const elapsedMs = Date.now() - startedAt;
+    // Two clocks, one repaint. The line is drawn often so the gleam slides
+    // instead of stepping; the figure is indexed by TIME rather than by tick so
+    // it keeps its own calm pace regardless of how fast the paint runs.
+    const frame = SPINNER_FRAMES[Math.floor(elapsedMs / 150) % SPINNER_FRAMES.length];
     const elapsedStr = (elapsedMs / 1000).toFixed(elapsedMs < 10000 ? 1 : 0) + 's';
-    // Idle label breathes: a thought-word that rotates every ~2.4s AND
-    // pulses along the steel ramp (like the reference spinner's color
-    // pulse — ours stays silver, never a hue). Tool verbs stay steady.
+    // A highlight travelling right to left across the word. Each character is
+    // lit one step further along the steel ramp than the one before it, and the
+    // whole pattern slides — so the light crosses the letters instead of the
+    // letters changing. The band is narrow and the base is well below white:
+    // this is a sheen on metal, not a flashing word, and it has to be tolerable
+    // in the corner of the eye for hours.
     const word = THINK_WORDS[(wordSeed + Math.floor(elapsedMs / 2400)) % THINK_WORDS.length];
-    const pulseT = 0.12 + 0.45 * (0.5 + 0.5 * Math.sin(elapsedMs / 550));
-    const wordLit = isTTY ? (BOLD + steelCode(pulseT) + word + '\u2026' + RESET) : word + '\u2026';
+    const sheen = (s) => {
+      if (!isTTY) return s;
+      const phase = elapsedMs / 300;          // sweep speed
+      let out = '';
+      for (let c = 0; c < s.length; c++) {
+        // Subtracting the rising phase from the character index moves the crest
+        // toward HIGHER indexes: the highlight runs left to right along the
+        // word. The band is wide (0.45 rad between letters) so what travels is
+        // one broad gleam rather than alternating bright and dark letters.
+        //
+        // The swing runs from mid steel to the top of the ramp. Kept inside the
+        // pale end the whole range is about four greys wide and the movement is
+        // invisible: a highlight has to leave something darker behind it to read
+        // as passing.
+        const w = 0.5 + 0.5 * Math.sin(c * 0.45 - phase);
+        out += steelCode(0.62 - 0.54 * w) + s[c];
+      }
+      return out + RESET;
+    };
+    const wordLit = sheen(word + '…');
     // Live volume from streamed deltas — approximate by construction
     // (chars/4), marked '~'; the trailer prints the provider's REAL
     // counts when they exist.
     const tok = streamedChars > 0 ? '\u2193 ~' + fmtTok(Math.round(streamedChars / 4)) + ' tokens' : null;
     const meta = color(DIM, ' (' + [elapsedStr, tok].filter(Boolean).join(' \u00b7 ') + ')');
-    const text = (label ? label : wordLit) + meta;
+    // The mark rides the same sheen as the word, so one highlight crosses the
+    // whole strip rather than a lit word sitting next to a dead glyph. A tool
+    // verb is a statement of fact, not a wait, so it stays steady.
+    const text = label
+      ? silverDim(frame) + ' ' + label + meta
+      : sheen(frame + ' ' + word + '…') + meta;
     // Working state belongs in the composer's own meter, under the panel the
     // operator is looking at. Writing it as a free-standing line meant the
     // panel had to be torn down for the length of every turn, so the surface
     // lost its shape the moment a message was sent.
-    if (meterWriter) { meterWriter(silverDim(frame) + ' ' + text); return; }
+    if (meterWriter) { meterWriter(text); return; }
     if (fixedUI) {
       process.stdout.write('\x1b7\x1b[' + (termRows() - 4) + ';1H\x1b[2K  ' +
-        silverDim(frame) + ' ' + text + '\x1b8');
+        text + '\x1b8');
       return;
     }
-    process.stdout.write('\r  ' + silverDim(frame) + ' ' + text + '\x1b[K');
+    process.stdout.write('\r  ' + text + '\x1b[K');
   };
   return {
     start(initial) {
@@ -539,7 +572,11 @@ function createSpinner() {
       // in this same gap (its leading blank is skipped under fixedUI).
       if (fixedUI) out('\n');
       draw();
-      timer = setInterval(draw, 90);
+      // 60ms is the PAINT rate, not the animation rate. The gleam needs frequent
+      // repaints or it advances in visible steps; the diamond takes its 150ms a
+      // step from the clock, so it still opens and closes over a second and a
+      // half while the light slides smoothly across the word.
+      timer = setInterval(draw, 60);
     },
     stream(nChars) {
       if (!active) return;
@@ -826,13 +863,12 @@ function start() {
       return bits.join(color(DIM, '  ·  '));
     }
 
-    // The composer is repainted as ONE frame, always. An earlier version wrote
-    // the meter row on its own by saving the cursor, stepping down and
-    // restoring — but a save/restore pair holds an ABSOLUTE position, and the
-    // moment the screen scrolled it pointed at the wrong row: the next erase
-    // began a row too low and left a headless panel with a second one drawn
-    // beneath it. Whole-frame repaints carry no absolute state, so a scroll
-    // costs a frame instead of the layout.
+    // The composer is repainted as ONE frame, always. Writing the meter row on
+    // its own means saving the cursor, stepping down and restoring — and a
+    // save/restore pair holds an ABSOLUTE position, so one scroll points it at
+    // the wrong row: the next erase begins a row too low and leaves a headless
+    // panel with a second drawn beneath it. Whole-frame repaints carry no
+    // absolute state, so a scroll costs a frame instead of the layout.
     function drawMeterRow(lead) {
       spinnerLead = lead;
       redraw();
@@ -850,8 +886,12 @@ function start() {
       // still painted with the block so a tick never fights the caret.
       let leadRows = 0;
       if (spinnerLead) {
+        // Air above it: pressed against the operator's own card the working
+        // line read as part of what they had just typed rather than as the
+        // partner starting to answer.
+        process.stdout.write('\n');
         process.stdout.write(fit(pad + spinnerLead, termWidth() - 1) + '\n');
-        leadRows = 1;
+        leadRows = 2;
       }
       process.stdout.write(pad + color(DIM, '╭' + '─'.repeat(outer - 2) + '╮') + '\n');
       for (const r of rows) {
@@ -1059,8 +1099,7 @@ function start() {
         for (let i = 0; i < shown.length; i += blockW) {
           // No glyph. Authorship is carried by colour alone: the operator's
           // line is the lifted block, the partner's is the lighter type below.
-          // A prompt mark on one side and a rail on the other were two answers
-          // to the same question and both of them shouted.
+          // Marking both sides states the same thing twice.
           process.stdout.write('  ' + userBlock(shown.substr(i, blockW)) + '\n');
         }
       }
@@ -1240,8 +1279,7 @@ function start() {
       getBuffer() { return buffer; },
       clearBuffer() { buffer = ''; cursor = 0; menuActive = false; redraw(); },
       // Put text back where the operator can edit it. Used when a turn is
-      // cancelled: the words were already typed once and losing them to a
-      // change of mind is a small theft.
+      // cancelled, so a change of mind does not cost the typing.
       setBuffer(text) {
         buffer = String(text || '');
         cursor = buffer.length;
@@ -1442,7 +1480,12 @@ function start() {
           // output is BARE text — no bullet, no rail, no bubble shape.
           // The partner's turn is set in its own tone — no mark, no rail. Two
           // colours are the whole grammar of who is speaking.
-          const say = (s) => (isTTY ? steelCode(0.05) + s + RESET : s);
+          //
+          // Held off the top of the ramp on purpose. Near-white is the brightest
+          // thing a dark terminal can produce, and reading paragraphs of it for
+          // hours is tiring; a step down the steel keeps the operator's own line
+          // clearly the lighter of the two without burning.
+          const say = (s) => (isTTY ? steelCode(0.42) + s + RESET : s);
           out('  ' + say(wrapped0[0]) + '\n');
           for (let j = 1; j < wrapped0.length; j++) {
             out('  ' + say(wrapped0[j]) + '\n');
