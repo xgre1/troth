@@ -127,6 +127,7 @@ flowchart LR
     subgraph M["Your machine — ~/.troth"]
         S[("The substrate<br/>identity · memory · goals · refusal walls<br/>one SQLite file you own")]
         P["Local proxy<br/>routing · caching · failover"]
+        H["Its hands<br/>its own browser · your tools · a vault it cannot read"]
     end
     subgraph E["Interchangeable engines"]
         C["Claude plan"]
@@ -137,6 +138,7 @@ flowchart LR
     end
     O <--> S
     S <--> P
+    S <--> H
     P <--> C
     P <--> G
     P <--> K
@@ -145,6 +147,19 @@ flowchart LR
 ```
 
 Swap anything on the right; nothing in the middle changes.
+
+### The parts, and where they live
+
+Four components ship in this tree. Each row links to the code that implements it, so nothing here has to be taken on trust.
+
+| Component | What it is | In the tree |
+|---|---|---|
+| **Substrate** | Memory, identity, goals and refusal walls in one file you own | [`shared-core/`](shared-core/) |
+| **Dispatchers** | Every question goes to the cheapest engine that can answer it | [`proxy/modules/`](proxy/modules/) |
+| **Browser** | A browser of its own: its own profile, its own logins, its own port | [`shared-core/perception/`](shared-core/perception/) |
+| **Operator Vault** | Calls your APIs with credentials it is never allowed to read | [`shared-core/tools/credential-vault.js`](shared-core/tools/credential-vault.js) |
+
+Autonomous workers and the sealed body are named at [troth.one](https://troth.one) and are not in this tree.
 
 ---
 
@@ -177,6 +192,8 @@ Chat runs inline in the terminal. Three things happen there that do not happen i
 ```
 
 Governance that arrives after the model has already decided is just an apology. The same wall covers reads of secret stores and writes outside authorized roots.
+
+**It has hands, and a browser of its own.** Research does not go through a vendor search API. It goes through a real Chrome that troth launches on your machine, and what a page says comes back as sanitized text marked untrusted, because a web page is content and not an instruction. When a job needs a login, the model is handed the credential's name and scope and never its value: the substrate attaches the secret at dispatch, and a credential scoped to one kind of work is refused to another.
 
 **It forgets when told, and admits it.** `troth forget "<what>"` suppresses a memory and records the suppression in the signed chain. Nothing is quietly rewritten behind you, including by us.
 
@@ -223,6 +240,7 @@ Every device speaks with its own revocable token, and a change the receiver does
 - **Loopback by default.** The proxy binds `127.0.0.1`. Remote access is explicit opt-in (`GF_BIND_HOST=0.0.0.0`, legacy prefix kept for compatibility), and every non-loopback request must present a bearer token (auto-generated, stored `0600`). No IP-range allowlists, no silent bypasses.
 - **Destructive-operation refusals.** The tool layer refuses `rm -rf`, force-pushes, history rewrites and similar patterns unless explicitly acknowledged.
 - **Contained filesystem access.** File operations are capability-scoped to operator-authorized roots with realpath containment, so an in-root symlink cannot smuggle a write outside the boundary.
+- **The partner's browser is not yours.** Web work runs in a Chrome that troth launches with its own profile directory (`~/.troth/agent-browser-profile`, `0700`) on a private debugging port, never Chrome's default `9222`, so it cannot attach to a session you are signed into. Pointing it at your own logged-in browser is an explicit opt-in (`TROTH_BROWSER_CDP_PORT=9222`). Page text is extracted as sanitized innerText and carried as untrusted content.
 - **Governed execution.** The shell tool runs commands directly in interactive use (no container by default). Docker isolation covers the autonomous step engine only, and only while Docker is actually running: without it, `troth run` falls back to a plain subprocess on your host with the worker's permission prompts off — read [`docs/HONEST-LIMITS.md`](docs/HONEST-LIMITS.md) before relying on it. Every write and tool call passes the STVC gate + path/bash guards (a documented `TROTH_STVC_BYPASS` escape hatch exists for local debugging; `troth doctor` reports it when set); process spawning is signer-gated.
 - **Tamper-evident audit.** High-irreversibility actions append to a signed audit chain. Verify it end-to-end anytime: `troth audit verify`.
 - **Plaintext at rest, named as such.** `~/.troth/state.db` is not encrypted: anyone with disk access can read the substrate. `troth init --seal` adds an encrypted vault for operator-confirmed memories; full-substrate encryption is an open item, not a hidden one.
@@ -238,7 +256,7 @@ The line is deliberate: **this repo is the full governed partner when you drive 
 |---|---|---|
 | Substrate engine (engrams, recall, identity, drift detection) | full | same engine |
 | Write-time + dispatch-time governance walls | full | same walls |
-| Governed tools (shell / fs / http / MCP) in interactive use | full | same tools |
+| Governed tools (shell / fs / http / MCP / browser) in interactive use | full | same tools |
 | CLI chat + Claude Code plugin + MCP servers (4 wired by default, 7 in the tree) | yes | yes |
 | Proxy, dashboard, benchmarks | yes | yes |
 | Providers: BYOK cloud + local (llama.cpp / Ollama) | yes | yes |
