@@ -667,6 +667,13 @@ var providers = {
   local: { enabled: false, host: "127.0.0.1", port: 1234, model: "" }
 };
 
+// Names that all resolve to the ONE local provider entry. The provider is
+// called "local" in config, but the engine-override control and the substrate
+// dispatcher speak in FACULTY names ("llamacpp", "ollama"). Any of the three
+// must pin to the same entry — keep this list as the single source of truth so
+// the pin resolver and the dispatcher can never disagree again.
+var LOCAL_FACULTIES = ["local", "llamacpp", "ollama"];
+
 var routingPrefs = {
   planning: "auto",
   coding: "auto",
@@ -2452,7 +2459,15 @@ function callFallbackChain(bodyStr, cfcOpts) {
     pinApplied = true; // suppress the tier/dispatcher reorders below — the lane is decided
   } else if (routingPrefs.pin) {
     var pinnedEntry = null;
-    if (routingPrefs.pin === "local") {
+    // The pin may arrive as the PROVIDER name ("local") or as the FACULTY name
+    // the engine-override/`/engine` control writes ("llamacpp", "ollama").
+    // Only "local" was matched here, so a llamacpp pin fell through to the byok
+    // scan below — a list that never contains a local faculty — leaving
+    // pinnedEntry null and fail-fasting every turn with a 400 while the local
+    // provider was up and healthy. The dispatcher already maps these three to
+    // the same entry (see LOCAL_FACULTIES use further down); the pin resolver
+    // now agrees with it.
+    if (LOCAL_FACULTIES.indexOf(routingPrefs.pin) !== -1) {
       pinnedEntry = loc;
     } else {
       for (var pni = 0; pni < byok.length; pni++) {
@@ -2527,7 +2542,7 @@ function callFallbackChain(bodyStr, cfcOpts) {
   if (dispatchPick) {
     var preferName = null;
     if (dispatchPick.faculty === 'anthropic') preferName = 'anthropic';
-    else if (dispatchPick.faculty === 'llamacpp' || dispatchPick.faculty === 'ollama') preferName = 'local';
+    else if (LOCAL_FACULTIES.indexOf(dispatchPick.faculty) !== -1) preferName = 'local';
     if (preferName) {
       var preferIdx = chain.findIndex(function(c) { return c.name === preferName; });
       if (preferIdx > 0) {
