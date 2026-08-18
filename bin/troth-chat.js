@@ -1045,13 +1045,23 @@ function start() {
         // who is speaking. The partner's reply stays bare text on purpose
         // (pane grammar: terminal output, not chat bubbles) — authorship is
         // carried entirely by this block, so only one side needs styling.
+        // Pasting a file gives the terminal a long absolute path, and a
+        // screenshot's path is longer than most messages. The transcript shows
+        // it collapsed to its name; the message itself keeps the full path, so
+        // anything that can open the file still can.
+        // Matched up to the extension rather than to the next space: the paths
+        // a Mac hands over are full of them ("Group Containers", "Application
+        // Support"), so a whitespace-delimited match collapsed nothing.
+        const shown = line.replace(
+          /\/[^\n]*?\.(png|jpe?g|gif|webp|heic|pdf|mov|mp4|webm)\b/gi,
+          (p) => '…/' + p.replace(/^.*\//, ''));
         const blockW = Math.max(1, visibleW - 4);
-        for (let i = 0; i < line.length; i += blockW) {
+        for (let i = 0; i < shown.length; i += blockW) {
           // No glyph. Authorship is carried by colour alone: the operator's
           // line is the lifted block, the partner's is the lighter type below.
           // A prompt mark on one side and a rail on the other were two answers
           // to the same question and both of them shouted.
-          process.stdout.write('  ' + userBlock(line.substr(i, blockW)) + '\n');
+          process.stdout.write('  ' + userBlock(shown.substr(i, blockW)) + '\n');
         }
       }
       if (line && line !== history[history.length - 1]) history.push(line);
