@@ -667,11 +667,10 @@ var providers = {
   local: { enabled: false, host: "127.0.0.1", port: 1234, model: "" }
 };
 
-// Names that all resolve to the ONE local provider entry. The provider is
-// called "local" in config, but the engine-override control and the substrate
-// dispatcher speak in FACULTY names ("llamacpp", "ollama"). Any of the three
-// must pin to the same entry — keep this list as the single source of truth so
-// the pin resolver and the dispatcher can never disagree again.
+// Names that all resolve to the ONE local provider entry. Config calls it
+// "local"; the engine-override control and the substrate dispatcher speak in
+// faculty names. Single source of truth for both the pin resolver and the
+// dispatcher.
 var LOCAL_FACULTIES = ["local", "llamacpp", "ollama"];
 
 var routingPrefs = {
@@ -2459,14 +2458,10 @@ function callFallbackChain(bodyStr, cfcOpts) {
     pinApplied = true; // suppress the tier/dispatcher reorders below — the lane is decided
   } else if (routingPrefs.pin) {
     var pinnedEntry = null;
-    // The pin may arrive as the PROVIDER name ("local") or as the FACULTY name
-    // the engine-override/`/engine` control writes ("llamacpp", "ollama").
-    // Only "local" was matched here, so a llamacpp pin fell through to the byok
-    // scan below — a list that never contains a local faculty — leaving
-    // pinnedEntry null and fail-fasting every turn with a 400 while the local
-    // provider was up and healthy. The dispatcher already maps these three to
-    // the same entry (see LOCAL_FACULTIES use further down); the pin resolver
-    // now agrees with it.
+    // The pin may arrive as the provider name ("local") or as the faculty name
+    // the engine-override writes ("llamacpp", "ollama"). Matching only "local"
+    // sends a faculty pin into the byok scan, which holds no local entry, and
+    // the chain fails closed with a 400 while the provider is healthy.
     if (LOCAL_FACULTIES.indexOf(routingPrefs.pin) !== -1) {
       pinnedEntry = loc;
     } else {

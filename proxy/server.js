@@ -5622,14 +5622,11 @@ const server = http.createServer((req, res) => {
             else if (Array.isArray(c)) {
               const txt = c.filter(b => b.type === 'text' && b.text);
               if (!txt.length) { isMidLoop = true; break; }
-              // Score the OPERATOR's words, not the envelope around them.
+              // Score the operator's words, not the envelope around them.
               // Substrate recall, goals and harness reminders ride in the same
-              // message as separate blocks, so joining everything made a
-              // two-character 'yo' measure tens of kilobytes and match the
-              // complexity regex on words it never contained — which woke the
-              // Architect for the better part of a minute before every trivial
-              // turn. Injected blocks are self-identifying, so they are dropped
-              // for scoring only; the request itself is untouched.
+              // message as separate blocks, so joining everything scores a
+              // two-word turn as a large task. Dropped for scoring only — the
+              // request itself is untouched.
               const own = txt.filter(b => !/^\s*(\[troth\/|<system-reminder>)/.test(b.text));
               userText = (own.length ? own : txt).map(b => b.text).join(' ');
             }

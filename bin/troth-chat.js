@@ -318,16 +318,10 @@ const WORDMARK = [
   ' ▀  ▀ ▀ ▀▀▀  ▀  ▀ ▀'
 ];
 
-// The mascot at banner size, SAMPLED FROM THE REAL GEOMETRY rather than
-// redrawn by hand. The creature is defined analytically (ellipses for body and
-// head, a triangle per ear, superellipse eyes) and rasterises at any grid;
-// every hand-cut version drifted from it — one lost the wings entirely and put
-// a scalloped lump under the head that belongs to no part of the animal.
-//
-// Half-blocks, two pixel rows per cell, which is the medium the full sprite
-// already uses. Whole cells cannot carry this anatomy under about seven rows;
-// half-blocks carry it in six. Width 18 is the smallest sampling where the
-// ears, the eyes and the spread of the wings all survive.
+// Banner-size mascot, sampled from the analytic geometry (see the brand source)
+// rather than drawn by hand. Half-blocks, two pixel rows per cell — the medium
+// the full sprite uses. Width 18 is the smallest sampling that keeps the ears,
+// the eyes and the spread of the wings.
 const MASCOT = {
   open: [
     '     █      █',
@@ -374,11 +368,11 @@ function banner() {
   console.log('');
   if (!isTTY) { console.log('  troth'); console.log(''); return; }
 
-  // The mascot is the mark; the name is set in type. An ASCII wordmark reads
-  // as CAPS — off-brand everywhere else the name appears — and lighting each
-  // of its rows from a different stop of the ramp banded it into a staircase
-  // instead of metal. One flat tone on the face, the name beside it, the
-  // state under the name.
+  // The mascot is the mark; the name is set in type. An ASCII wordmark renders
+  // as CAPS, which is off-brand everywhere else the name appears. One flat tone
+  // on the face — lighting each row from a different stop of the ramp bands it
+  // into a staircase instead of metal — then the name beside it and the state
+  // under the name.
   const face  = MASCOT.open;
   const tone  = steelCode(0.35);
   // The name sits against the middle of the creature so the lockup reads as one
@@ -481,22 +475,9 @@ const fmtTok = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' :
 // whimsy pill) — the label breathes instead of a frozen 'thinking'.
 const THINK_WORDS = ['thinking', 'reasoning', 'weighing', 'connecting', 'shaping', 'sifting', 'composing'];
 
-// While it works, the creature does the waiting — reduced to the one part of it
-// that is unmistakable, its two eyes.
-//
-// A diamond that opens from a point and closes again, in place.
-//
-// The constraints a working mark has to satisfy on this surface:
-//   travel     — anything crossing the screen is followed by the eye
-//   up/down    — two marks rising and falling read as a meter
-//   amplitude  — a solid shape jumping cell-corners strobes
-//   pace       — creeping reads as hung, frantic reads as alarm
-//
-// A shape that BLOOMS satisfies all four: same centre, same footprint, opening
-// and closing through fine steps. Nothing moves across anything, so there is
-// nothing to follow, and the change per frame is one ring of the same figure, so
-// no edge snaps. A diamond rather than a flower because the brand is cut from
-// hard edges; a point to solid and back over about a second and a half.
+// Working mark: a diamond that opens from a point and closes again in place.
+// It blooms rather than travels so there is nothing for the eye to follow, and
+// the step between frames is one ring of the same figure so no edge snaps.
 const SPINNER_FRAMES = ['·', '∙', '◦', '◇', '◈', '◆', '◈', '◇', '◦', '∙'];
 function createSpinner() {
   let i = 0, label = null, timer = null, active = false, startedAt = 0;
@@ -504,32 +485,23 @@ function createSpinner() {
   const draw = () => {
     if (!isTTY) return;
     const elapsedMs = Date.now() - startedAt;
-    // Two clocks, one repaint. The line is drawn often so the gleam slides
-    // instead of stepping; the figure is indexed by TIME rather than by tick so
-    // it keeps its own calm pace regardless of how fast the paint runs.
+    // Indexed by time, not by tick: the paint runs faster than the figure so the
+    // gleam slides while the diamond keeps its own pace.
     const frame = SPINNER_FRAMES[Math.floor(elapsedMs / 150) % SPINNER_FRAMES.length];
     const elapsedStr = (elapsedMs / 1000).toFixed(elapsedMs < 10000 ? 1 : 0) + 's';
-    // A highlight travelling right to left across the word. Each character is
-    // lit one step further along the steel ramp than the one before it, and the
-    // whole pattern slides — so the light crosses the letters instead of the
-    // letters changing. The band is narrow and the base is well below white:
-    // this is a sheen on metal, not a flashing word, and it has to be tolerable
-    // in the corner of the eye for hours.
+    // A highlight sliding across the word: each character sits one step further
+    // along the steel ramp and the whole pattern moves. Base well below white —
+    // it has to be tolerable in the corner of the eye for hours.
     const word = THINK_WORDS[(wordSeed + Math.floor(elapsedMs / 2400)) % THINK_WORDS.length];
     const sheen = (s) => {
       if (!isTTY) return s;
       const phase = elapsedMs / 300;          // sweep speed
       let out = '';
       for (let c = 0; c < s.length; c++) {
-        // Subtracting the rising phase from the character index moves the crest
-        // toward HIGHER indexes: the highlight runs left to right along the
-        // word. The band is wide (0.45 rad between letters) so what travels is
-        // one broad gleam rather than alternating bright and dark letters.
-        //
-        // The swing runs from mid steel to the top of the ramp. Kept inside the
-        // pale end the whole range is about four greys wide and the movement is
-        // invisible: a highlight has to leave something darker behind it to read
-        // as passing.
+        // c*k - phase moves the crest toward higher indexes: left to right.
+        // Wide band (0.45 rad/char) so one broad gleam travels rather than
+        // alternating letters. The swing reaches mid steel so the highlight has
+        // something darker behind it and reads as passing.
         const w = 0.5 + 0.5 * Math.sin(c * 0.45 - phase);
         out += steelCode(0.62 - 0.54 * w) + s[c];
       }
@@ -541,16 +513,13 @@ function createSpinner() {
     // counts when they exist.
     const tok = streamedChars > 0 ? '\u2193 ~' + fmtTok(Math.round(streamedChars / 4)) + ' tokens' : null;
     const meta = color(DIM, ' (' + [elapsedStr, tok].filter(Boolean).join(' \u00b7 ') + ')');
-    // The mark rides the same sheen as the word, so one highlight crosses the
-    // whole strip rather than a lit word sitting next to a dead glyph. A tool
-    // verb is a statement of fact, not a wait, so it stays steady.
+    // Mark and word share one sheen. A tool verb is a fact, not a wait, so it
+    // stays steady.
     const text = label
       ? silverDim(frame) + ' ' + label + meta
       : sheen(frame + ' ' + word + '…') + meta;
-    // Working state belongs in the composer's own meter, under the panel the
-    // operator is looking at. Writing it as a free-standing line meant the
-    // panel had to be torn down for the length of every turn, so the surface
-    // lost its shape the moment a message was sent.
+    // The working state lives in the composer's meter; a free-standing line
+    // would mean tearing the panel down for the length of every turn.
     if (meterWriter) { meterWriter(text); return; }
     if (fixedUI) {
       process.stdout.write('\x1b7\x1b[' + (termRows() - 4) + ';1H\x1b[2K  ' +
@@ -572,10 +541,8 @@ function createSpinner() {
       // in this same gap (its leading blank is skipped under fixedUI).
       if (fixedUI) out('\n');
       draw();
-      // 60ms is the PAINT rate, not the animation rate. The gleam needs frequent
-      // repaints or it advances in visible steps; the diamond takes its 150ms a
-      // step from the clock, so it still opens and closes over a second and a
-      // half while the light slides smoothly across the word.
+      // Paint rate, not animation rate: the gleam needs frequent repaints or it
+      // steps. The diamond takes its 150ms from the clock (see draw).
       timer = setInterval(draw, 60);
     },
     stream(nChars) {
@@ -695,23 +662,13 @@ function start() {
   // a terminal behaves once its screen is full.
   if (isTTY) process.stdout.write('\x1b[2J\x1b[H');
   banner();
-  // The composer sits at the foot of the window: the screen is filled once here
-  // so the first panel already lands on the last rows, and from then on every
-  // reply scrolls the window while the composer stays put.
-  //
-  // This only holds because the composer is repainted as a whole frame and
-  // every transcript write lifts it first. The earlier attempts anchored it
-  // while writing pieces of it — a saved cursor position here, a lone status
-  // line there — and a single scroll put the erase one row out, which is what
-  // left headless panels and text printed through the border. Set
-  // TROTH_CLI_BOTTOM=0 to keep the composer directly under the transcript.
+  // The composer sits toward the foot of the window. Safe only because the panel
+  // is repainted as a whole frame and every transcript write lifts it first:
+  // anchoring it while writing pieces of it lets one scroll put the erase a row
+  // out. TROTH_CLI_BOTTOM=0 keeps it directly under the transcript.
   if (isTTY && process.env.TROTH_CLI_BOTTOM !== '0') {
-    // Drop the composer toward the foot of the window without emptying the
-    // window to get there. Filling the whole height left the mark stranded at
-    // the top with a field of nothing under it, which reads as a broken screen
-    // rather than as room to work; a session that opens on a third of a page
-    // and closes the gap as the conversation grows reads as intent. Cap the
-    // opening gap and let real turns take the rest.
+    // Open about a third of a page down, not flush to the last row: a
+    // full-height fill leaves the mark alone over an empty screen.
     const used = 8;                       // banner block plus its air
     const composer = 4;                   // top border, one text row, bottom border, meter
     const rowsNow = process.stdout.rows || 24;
@@ -827,11 +784,9 @@ function start() {
       return { outer, textW: outer - 4 };   // │ + space … space + │
     }
 
-    // Nothing the composer draws may wrap. A wrapped line costs a PHYSICAL row
-    // that the block's arithmetic does not know about, so the erase comes up a
-    // row short and every repaint leaves the previous panel behind — which is
-    // what turned a narrow window into a stack of empty boxes. Truncation is
-    // measured on visible characters, since colour codes carry no width.
+    // Nothing the composer draws may wrap: a wrapped line costs a physical row
+    // the block's arithmetic does not know about, and the erase comes up short.
+    // Measured on visible characters — colour codes carry no width.
     function fit(s, w) {
       if (w <= 0) return '';
       if (stripAnsi(s).length <= w) return s;
@@ -898,16 +853,13 @@ function start() {
         process.stdout.write(pad + bar + ' ' + r + ' '.repeat(Math.max(0, textW - r.length)) + ' ' + bar + '\n');
       }
       process.stdout.write(pad + color(DIM, '╰' + '─'.repeat(outer - 2) + '╯') + '\n');
-      // Choices belong directly under the panel they complete, above the meter.
-      // Drawn here rather than in a pass of their own: a separate pass had to
-      // start writing from wherever the caret stood, which put the list below
-      // the meter with the meter stranded in the middle of the composer.
+      // Choices sit under the panel and above the meter, drawn here rather than
+      // in a pass of their own (a separate pass writes from wherever the caret
+      // stands and lands below the meter).
       //
-      // The list is WINDOWED. A bare '/' matches every command, and printing
-      // all of them made the composer taller than the terminal: the block
-      // scrolled, the erase arithmetic no longer described what was on screen,
-      // and the surface came apart. The window follows the selection, so
-      // arrowing past the edge scrolls the list instead of the screen.
+      // Windowed: a bare '/' matches every command, and printing all of them
+      // makes the composer taller than the terminal. The window follows the
+      // selection, so arrowing past the edge scrolls the list, not the screen.
       let menuRows = 0;
       if (menuActive && menuItems.length) {
         const room = Math.max(3, (process.stdout.rows || 24) - rows.length - 8);
@@ -945,8 +897,8 @@ function start() {
       } else {
         lastMenuRows = 0;
       }
-      // Flush with the panel's own left edge — an extra space read as a line
-      // that had come loose from the box.
+      // Flush with the panel's own left edge: an extra space reads as a line
+      // that has come loose from the box.
       process.stdout.write(fit(pad + meterText(), termWidth() - 1));
       lastInputRows = leadRows + rows.length + 3 + menuRows;
 
@@ -1111,9 +1063,8 @@ function start() {
       menuSel = 0;
       lastMenuRows = 0;
       // The composer stays up for the whole turn: it is redrawn empty right
-      // after the echo, and the spinner writes into its meter. The panel is
-      // the surface the operator is looking at — tearing it down while the
-      // partner thinks is what made the send feel like a crash.
+      // after the echo, and the spinner writes into its meter. Tearing the panel
+      // down while the partner thinks reads as the surface crashing.
       if (isTTY) renderInput();
       if (handlers.line) handlers.line(line);
     }
@@ -1394,9 +1345,8 @@ function start() {
         case 'response': {
           // A cancelled turn still finishes upstream and its reply still
           // arrives. Dropping the text is right, but the working indicator
-          // belongs to that same turn and has to go with it — leaving it
-          // running is why the creature kept thinking about a message that
-          // was never sent.
+          // belongs to that same turn and has to go with it: left running, it
+          // keeps working on a message that was never sent.
           if (dropNextResponse) {
             dropNextResponse = false;
             spinner.stop();
