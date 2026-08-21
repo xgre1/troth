@@ -903,6 +903,7 @@ const taskWorkingMemoryConsolidation = {
         scope: 'consolidated:dialogue',
         source: 'background_worker.wm_consolidation',
         source_authority: 'plr_evolved',
+        provenance_ref: 'dialogue.turn:' + row.id,
         // detectEmphasis runs again inside recordEngram — final salience
         // is 1.0 + boost. Caller's salience here would be additive; we
         // intentionally pass undefined so the write-time emphasis stamp
@@ -1187,10 +1188,11 @@ const taskLedgerPrune = {
   }
 };
 
-// Did the work survive? The substrate records every change and, until this
-// task existed, never learned the answer: 21,188 edit records, 0 outcome
-// events (measured 2026-08-11). action-outcome.js has been able to answer it
-// since it was written and had no caller — this is the first observer it
+// Did the work survive? The substrate records every change but learns the
+// answer only if something observes the outcome; without an observer the edit
+// records accumulate and the outcome events stay at zero. action-outcome.js
+// has been able to answer it since it was written and had no caller — this is
+// the first observer it
 // named, the one that links a change to the commit that kept it.
 //
 // Runs on the idle worker rather than a hook because it shells out to git,

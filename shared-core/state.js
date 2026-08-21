@@ -190,8 +190,7 @@ function migrate(d) {
 
     -- Knowledge the partner SAW while working, queued for ingestion.
     --
-    -- Measured 2026-08-11: 11,753 Read calls over 3,346 distinct files, 8,407
-    -- of them re-reads (72%) — one file opened 352 times. What survived of all
+    -- Most reads are re-reads of a file already opened. What survives of all
     -- that reading: the path, the line count, the byte count. Not one byte of
     -- content. The material the partner actually worked from was never kept,
     -- so it had to be fetched again, and again.
@@ -241,10 +240,10 @@ function migrate(d) {
     );
 
     -- Verifiable claims — facts the substrate can CHECK, not just recall.
-    -- Born 2026-08-15: memory said a repo was public, the world said
-    -- private, and the agent bridged the contradiction with a story instead
-    -- of stopping (the STALE benchmark calls it premise resistance and
-    -- measures frontier models at 55%). The partial unique index makes two
+    -- When a remembered value and the world disagree, a model will bridge the
+    -- contradiction with a story rather than stop (the STALE benchmark calls
+    -- this premise resistance and measures frontier models at 55%), so a claim
+    -- carries a checkable probe. The partial unique index makes two
     -- live values for one (subject, predicate) slot structurally impossible
     -- — supersession is an explicit transaction, never a silent overwrite
     -- (Doyle's justification bookkeeping reduced to one table). probe_kind/
@@ -490,6 +489,12 @@ function migrate(d) {
   try {
     d.exec('CREATE INDEX IF NOT EXISTS idx_ar_audience_class ON action_records(audience, memory_class)');
   } catch (_) { /* noop */ }
+  try {
+    d.exec('ALTER TABLE action_records ADD COLUMN context_id TEXT');
+  } catch (_) { /* column already there */ }
+  try {
+    d.exec('CREATE INDEX IF NOT EXISTS idx_ar_context ON action_records(context_id, timestamp)');
+  } catch (_) { /* noop */ }
 
   //  foundation step (foundation schema additions). Three columns
   // added to action_records to support the agentic-layer state machine:
@@ -553,8 +558,10 @@ function migrate(d) {
       transition_signature TEXT,             -- SHA-1 hash of (step_name, tool_invoked, target_resource) for loop-detector window scan. NULL = legacy writer; loop-detector skips.
       transition_kind TEXT,                  -- 'proposed' | 'accepted' | 'rejected' | 'applied'. STVC pipeline phase stamp. NULL = legacy writer.
       schema_version INTEGER DEFAULT 1,      -- per-row schema fingerprint so migration runner can identify rows written under older shapes. Stamped with CURRENT_SCHEMA on every new write via recordAction().
+      context_id    TEXT,                    -- subject-context binding ('ctx:<slug>'). NULL = unbound (legacy rows, pre-binding writers); read-side treats NULL as ctx:unsorted.
       FOREIGN KEY (parent_id) REFERENCES action_records(id)
     );
+    CREATE INDEX IF NOT EXISTS idx_ar_context     ON action_records(context_id, timestamp);
     CREATE INDEX IF NOT EXISTS idx_ar_timestamp   ON action_records(timestamp);
     CREATE INDEX IF NOT EXISTS idx_ar_type        ON action_records(type);
     CREATE INDEX IF NOT EXISTS idx_ar_session     ON action_records(session_id, timestamp);
@@ -1461,9 +1468,9 @@ function recordLesson(session_id, cwd, source, fingerprint, lesson, opts) {
 // critic and the fidelity rails write is a transient warning: relevant to the
 // next turn, consumed on read, forgotten after. What an operator states is a
 // standing rule: it must survive every session, never be consumed, and come
-// back through recall whenever it is relevant. Measured 2026-08-10: of 5,143
-// lesson rows, 3,785 were an imported curriculum and the rest were automated
-// warnings — ZERO came from operator instruction, because there was no way to
+// back through recall whenever it is relevant. Lesson rows fill with imported
+// curricula and automated warnings; none of them come from operator
+// instruction while there is no way to write one.
 // write one. A rule taught in conversation ended up in an engram if the
 // assistant happened to remember, and nowhere if it did not.
 //
@@ -1617,17 +1624,27 @@ function recordAction(rec, searchText) {
     (id, timestamp, type, agent_id, session_id, user_id, cwd, parent_id,
      context_hash, input, output, verification, outcome, principal_id,
      audience, memory_class, transition_signature, transition_kind,
-     schema_version)
+     schema_version, context_id)
     VALUES
     (@id, @timestamp, @type, @agent_id, @session_id, @user_id, @cwd,
      @parent_id, @context_hash, @input, @output, @verification, @outcome,
      @principal_id, @audience, @memory_class, @transition_signature,
-     @transition_kind, @schema_version)
+     @transition_kind, @schema_version, @context_id)
   `);
   // Which parent_id actually landed (the retry path below strips it). The
   // signed-chain attestation at the end hashes what was STORED, not what was
   // asked for, so a verifier can recompute record_hash from the row alone.
   let _storedParent;
+  // Context default-stamp at the substrate boundary — same one-shot-coverage
+  // rationale as principal_id above: every session-carrying writer inherits
+  // the session's file-activity context without knowing the concept exists.
+  // NULL survives as "unbound" (read side treats it as ctx:unsorted —
+  // reachable by explicit recall, never auto-mounted).
+  let _ctxStamp = rec.context_id || null;
+  if (!_ctxStamp && rec.session_id && rec.type !== 'rejected_transition') {
+    try { _ctxStamp = require('./context-registry.js').resolveSessionContext(rec.session_id); }
+    catch (_) { _ctxStamp = null; }
+  }
   try {
     // Default-stamp principal_id at the substrate boundary so EVERY writer
     // contributes to the unified read-side brain regardless of whether the
@@ -1717,7 +1734,8 @@ function recordAction(rec, searchText) {
       // Per-row schema fingerprint so migration runners can identify rows
       // written under the current shape vs an older one. New writes are
       // always stamped with CURRENT_SCHEMA.
-      schema_version:       rec.schema_version || CURRENT_SCHEMA
+      schema_version:       rec.schema_version || CURRENT_SCHEMA,
+      context_id:           _ctxStamp
     });
     _storedParent = rec.parent_id || null;
   } catch (e) {
@@ -1751,7 +1769,8 @@ function recordAction(rec, searchText) {
           memory_class,
           transition_signature: rec.transition_signature || null,
           transition_kind:      rec.transition_kind || null,
-          schema_version:       rec.schema_version || CURRENT_SCHEMA
+          schema_version:       rec.schema_version || CURRENT_SCHEMA,
+          context_id:           _ctxStamp
         });
         _storedParent = null;
       } catch (_) { return null; }
@@ -1831,7 +1850,7 @@ function getAction(id) {
     SELECT id, timestamp, type, agent_id, session_id, user_id, cwd,
            parent_id, context_hash, input, output, verification, outcome,
            principal_id, audience, memory_class,
-           transition_signature, transition_kind, schema_version
+           transition_signature, transition_kind, schema_version, context_id
     FROM action_records WHERE id = ?
   `).get(id);
   return row || null;
@@ -2113,6 +2132,7 @@ function queryActions(opts) {
   if (opts.session_id)   { where.push('session_id = @session_id');     bind.session_id = opts.session_id; }
   if (opts.cwd)          { where.push('cwd = @cwd');                   bind.cwd = opts.cwd; }
   if (opts.parent_id)    { where.push('parent_id = @parent_id');       bind.parent_id = opts.parent_id; }
+  if (opts.context_id)   { where.push('context_id = @context_id');     bind.context_id = opts.context_id; }
   if (opts.since)        { where.push('timestamp >= @since');          bind.since = opts.since; }
   if (opts.until)        { where.push('timestamp <= @until');          bind.until = opts.until; }
   // Filter by input.kind (JSON-extracted). Lets callers filter without
@@ -2144,6 +2164,10 @@ function queryActions(opts) {
     where.push("json_extract(output,'$.scope') = @scope");
     bind.scope = opts.scope;
   }
+  if (opts.scope_prefix) {
+    where.push("json_extract(output,'$.scope') LIKE @scope_prefix");
+    bind.scope_prefix = String(opts.scope_prefix).replace(/[%_]/g, '') + '%';
+  }
   //  column filters. audience + memory_class are
   // first-class columns (not JSON-embedded); SQL-prunable directly.
   // Without these, recall.js had to read the whole table and JS-filter
@@ -2162,7 +2186,7 @@ function queryActions(opts) {
   return db().prepare(`
     SELECT id, timestamp, type, agent_id, session_id, user_id, cwd,
            parent_id, context_hash, input, output, verification, outcome,
-           principal_id, audience, memory_class
+           principal_id, audience, memory_class, context_id
     FROM action_records
     ${whereSQL}
     ORDER BY timestamp ${order}
@@ -2873,10 +2897,9 @@ function deleteEmbedding(engram_id) {
 
 // Sweep vectors whose memory is already dead.
 //
-// Measured 2026-08-11: 706 of ~62,600 vectors (1.1%) belonged to engrams the
-// garbage collector had already tombstoned, and 5 more to rows that no longer
-// exist at all. Sweeping them moved the full dense scan from 164ms to 151ms
-// average on this substrate — real, and small.
+// A tombstoned engram keeps its vector, and a deleted row leaves one behind.
+// Both are scanned on every dense query. Sweeping them shortens the full dense
+// scan — real, and small.
 //
 // The first measurement of this said 41.6%, and it was wrong by 37x: it
 // counted rows of a JOIN between embeddings and tombstones, and many
@@ -3182,10 +3205,9 @@ function knowledgeAlreadyIngested(sha) {
 // listEngrams() and counting scopes among them — and listEngrams caps its
 // LIMIT at 2000 rows. So the answer was never "which corpora exist", it was
 // "which corpora appear among the 2000 most recent engrams", with counts to
-// match. Measured 2026-08-11 on a 43k-engram substrate: it reported 57
-// scopes where the table holds 2024, and a corpus ingested before the last
-// 2000 writes was simply absent. A browse screen built on that would have
-// lied about every size it showed.
+// match. On a grown substrate that reports a fraction of the scopes the table
+// holds, and a corpus ingested before the last 2000 writes is simply absent.
+// A browse screen built on that lies about every size it shows.
 //
 // One GROUP BY answers it exactly. Identity semantics mirror listEngrams:
 // principal_id is the brain (default 'partner'), agent_id an optional
