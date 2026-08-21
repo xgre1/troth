@@ -225,6 +225,14 @@ if (BACKBONE === 'claude_cli') {
 // thesis. Opt out with TROTH_ENTITY_AGENTIC=0 for legacy single-shot.
 const AGENTIC_DEFAULT = process.env.TROTH_ENTITY_AGENTIC === '0' ? false : true;
 
+if (!process.env.TROTH_CONTEXT_BINDING) {
+  try {
+    const _cfg = JSON.parse(require('fs').readFileSync(
+      require('../shared-core/config-file.js').configPath(), 'utf8')) || {};
+    if (_cfg.context_binding === true) process.env.TROTH_CONTEXT_BINDING = '1';
+  } catch (_) { /* no config → flag stays off */ }
+}
+
 // switchableFaculties() — the faculties an EXPLICIT /engine may land on, read
 // from the operator's own config.json: the same source the Settings provider
 // list is built from, so the two surfaces can never disagree about what exists.
