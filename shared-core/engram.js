@@ -1005,9 +1005,19 @@ function _parseTimeWindow(query, referenceTs) {
     // misses one side. Each side runs as its own sub-query and the union
     // feeds the shared rerank — additive only, never replaces the main pool.
     const _between = /\bbetween\s+([\s\S]{4,80}?)\s+and\s+([\s\S]{4,80}?)(?:[?.!]|$)/i.exec(query);
-    if (_between) {
+    // Counted-noun sub-query: 'how many projects have I led' needs every
+    // PROJECT mention, and the full-sentence similarity spends its budget on
+    // 'how many have I led'. The noun phrase after the count cue runs as its
+    // own sub-query — same additive union as the between-events split.
+    const _counted = _countShaped
+      ? /\b(?:how many|how much|number of|order of|the (?:two|three|four|five|six|seven))\s+([a-z][a-z \-]{3,40}?)(?:\s+(?:have|has|had|did|do|does|i|we|are|is|were|was|in|from|that)\b|[?.!]|$)/i.exec(query)
+      : null;
+    const _subParts = [];
+    if (_between) { _subParts.push(_between[1], _between[2]); }
+    if (_counted && _counted[1]) { _subParts.push(_counted[1].trim()); }
+    if (_subParts.length) {
       const seen = new Set(items.map((it) => it.id));
-      for (const part of [_between[1], _between[2]]) {
+      for (const part of _subParts) {
         try {
           const extra = await recall.recall({
             query: part, class: 'all', audience: opts.audience || 'model_visible',
