@@ -88,11 +88,13 @@ async function main() {
       // Pair consecutive user/assistant turns. LongMemEval sessions are
       // role-alternating; we walk pairs, tolerating stray unmatched roles.
       let userText = null;
+      let pairIdx = 0;
       for (const turn of session) {
         if (turn.role === 'user') {
           userText = turn.content;
         } else if (turn.role === 'assistant') {
           const ok = dialogueMemory.recordTurn({
+            timestamp: sessTs + pairIdx * 1000,
             agent_id,
             user_id: 'default',
             cwd,
@@ -101,7 +103,7 @@ async function main() {
             faculty: 'longmemeval-ingest',
             conversation_id: 'sess-' + si,
           });
-          if (ok) out.ingested_turns++;
+          if (ok) { out.ingested_turns++; pairIdx++; }
           userText = null;
         }
       }
