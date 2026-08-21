@@ -443,11 +443,13 @@ function buildInjection(bodyStr, repoMap) {
       });
       const lessonLines = [];
       for (const l of ranked) {
-        const stmt = (l.output && (l.output.lesson_text || l.output.statement || l.output.summary)) || '';
+        const stmt = (l.output && (l.output.text || l.output.lesson_text || l.output.statement || l.output.summary)) || '';
         if (!stmt) continue;
         const q = (l._quality && l._quality.quality) || 0;
         if (q < 0.25) continue;
-        lessonLines.push('  · [q=' + q.toFixed(2) + '] ' + String(stmt).replace(/\s+/g, ' ').slice(0, 200));
+        const _lts = Number.isFinite(l.ts) ? l.ts : (Number.isFinite(l.timestamp) ? l.timestamp : null);
+        const _ld = _lts ? '[' + new Date(_lts).toISOString().slice(0, 10) + '] ' : '';
+        lessonLines.push('  · [q=' + q.toFixed(2) + '] ' + _ld + String(stmt).replace(/\s+/g, ' ').slice(0, 200));
       }
       if (lessonLines.length) {
         dynamicParts.push('[troth/lessons] Quality-ranked lessons from prior turns:\n' + lessonLines.join('\n'));
@@ -568,7 +570,8 @@ function buildInjection(bodyStr, repoMap) {
         seen.add(key);
         const fname = prov.file_path.split('/').pop();
         const stmt = String(e.output.statement || '').replace(/\s+/g, ' ').slice(0, 180);
-        lines.push('  · ' + fname + ' — ' + stmt);
+        const _ets = Number.isFinite(e.ts) ? e.ts : (Number.isFinite(e.timestamp) ? e.timestamp : null);
+        lines.push('  · ' + (_ets ? '[' + new Date(_ets).toISOString().slice(0, 10) + '] ' : '') + fname + ' — ' + stmt);
         if (lines.length >= 5) break;
       }
       if (lines.length) {
