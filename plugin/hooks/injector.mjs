@@ -209,7 +209,7 @@ try {
       // audience filter would delete it from every answer. So it is separated
       // here instead: same recall, different frame, and the page it came from
       // is named so the model can weigh it.
-      const fmt = (h) => '  • ' + String(h.statement || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      const fmt = (h) => '  • ' + (Number.isFinite(h.ts) ? '[' + new Date(h.ts).toISOString().slice(0, 10) + '] ' : '') + String(h.statement || '').replace(/\s+/g, ' ').trim().slice(0, 200);
       const mine = hits.filter(h => h.provenance_tier !== 'external');
       const outside = hits.filter(h => h.provenance_tier === 'external');
       const lines = mine.map(fmt).filter(l => l.length > 6);
@@ -217,7 +217,8 @@ try {
         pieces.push(
           '[troth/recall] Your substrate (your persistent memory) already knows the following — treat as GROUND TRUTH, do NOT re-derive it from files:\n' +
           lines.join('\n') +
-          '\nIf this answers the question, answer from it directly. Only grep CLAUDE.md / memory/*.md / project files when substrate recall is empty or clearly insufficient — never substitute file/folder search for substrate recall.'
+          '\nDates mark when each memory was recorded — for how-many / most-recent questions, enumerate the matches and prefer the newest value. ' +
+          'If this answers the question, answer from it directly. Only grep CLAUDE.md / memory/*.md / project files when substrate recall is empty or clearly insufficient — never substitute file/folder search for substrate recall.'
         );
       }
       const outLines = outside
