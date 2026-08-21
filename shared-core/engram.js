@@ -949,7 +949,19 @@ async function retrieveRelevant(opts) {
   opts = opts || {};
   const agent_id = opts.agent_id || null;
   const query    = String(opts.query || '');
-  const _countShaped = /\b(how many|how much|how often|total|count|number of)\b|πόσ(α|ες|ους|η|ο)\b|σύνολ/i.test(String(opts.query || ''));
+const _WORD_NUM = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
+function _parseTimeWindow(query, referenceTs) {
+  const q = String(query || '').toLowerCase();
+  const ref = Number.isFinite(referenceTs) ? referenceTs : Date.now();
+  const m = /\b(?:past|last)\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)?\s*(day|week|month|year)s?\b/.exec(q);
+  if (!m) return null;
+  const n = m[1] ? (_WORD_NUM[m[1]] || parseInt(m[1], 10) || 1) : 1;
+  const unitMs = { day: 86400000, week: 7 * 86400000, month: 30 * 86400000, year: 365 * 86400000 }[m[2]];
+  if (!unitMs) return null;
+  return { since: ref - n * unitMs, until: ref };
+}
+
+  const _countShaped = /\b(how many|how much|how often|total|count|number of|order of|first to last|earliest to latest|the (two|three|four|five|six|seven) )\b|πόσ(α|ες|ους|η|ο)\b|σύνολ|με τη σειρά/i.test(String(opts.query || ''));
   const k        = Math.max(1, Math.min(20, (opts.k || 5) + (_countShaped ? 6 : 0)));
   if (!query) return [];
 
@@ -1058,6 +1070,65 @@ async function retrieveRelevant(opts) {
       memory_class: it.class,
       source:    it.source || null
     }));
+    // Temporal window arm. A query that NAMES a time span ('the three trips
+    // in the past three months') often needs evidence sharing no vocabulary
+    // with it — similarity cannot reach 'day hike to Muir Woods' from
+    // 'trips'. When a window parses, a session-diverse sample of dialogue
+    // turns inside it is APPENDED after the ranked results (archive-arm
+    // pattern: bounded labeled depth, never released into the general pool).
+    const _win = _countShaped ? _parseTimeWindow(query, opts.reference_ts) : null;
+    if (_win) {
+      try {
+        const seenIds = new Set(final.map((it) => it.id));
+        const rows = state.queryActions({
+          type: 'tool_call', since: _win.since, until: _win.until,
+          limit: 200, order: 'desc'
+        }) || [];
+        const turns = [];
+        for (const row of rows) {
+          if (seenIds.has(row.id)) continue;
+          let inp = null, out = null;
+          try { inp = typeof row.input === 'string' ? JSON.parse(row.input) : row.input; } catch (_) { continue; }
+          if (!inp || inp.tool_name !== 'dialogue.turn') continue;
+          try { out = typeof row.output === 'string' ? JSON.parse(row.output) : row.output; } catch (_) { out = {}; }
+          const u = (inp.args && inp.args.user_text) || '';
+          const a = (out && out.assistant_text) || '';
+          if (!u && !a) continue;
+          turns.push({ row, sess: row.session_id || 'none', u, a });
+        }
+        // Rank INSIDE the window by cosine to the query. Corpus-wide, evidence
+        // sharing no vocabulary with the query loses to thousands of stronger
+        // neighbors; inside a 200-row window the competition is small enough
+        // for weak-but-real similarity to surface it. Blind newest-per-session
+        // sampling covered ~4 of ~20 window sessions and missed the evidence.
+        let qv = null;
+        try { qv = await require('./local-embedder.js').embed(query, { role: 'query' }); } catch (_) { qv = null; }
+        if (qv) {
+          for (const t of turns) {
+            const ev = state.getEmbedding(t.row.id);
+            t.cos = ev ? Math.max(0, cosine(qv, ev)) : 0;
+          }
+          turns.sort((x, y) => (y.cos || 0) - (x.cos || 0));
+        }
+        const perSession = new Set();
+        let added = 0;
+        for (const t of turns) {
+          if (added >= 4) break;
+          if (perSession.has(t.sess)) continue;
+          perSession.add(t.sess);
+          seenIds.add(t.row.id);
+          final.push({
+            id: t.row.id,
+            ts: t.row.timestamp,
+            statement: (t.u ? 'user: ' + t.u : '') + (t.u && t.a ? ' / ' : '') + (t.a ? 'asst: ' + t.a : ''),
+            score: 0,
+            memory_class: t.row.memory_class || 'episodic',
+            source: 'dialogue-window'
+          });
+          added++;
+        }
+      } catch (_) { /* window arm is additive — never fatal */ }
+    }
     _triggerPLR(final);
     return final;
   }

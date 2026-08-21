@@ -151,6 +151,7 @@ function runQuestion(q) {
     question: q.question,
     haystack_sessions: q.haystack_sessions,
     haystack_dates: q.haystack_dates,
+    question_date: q.question_date,
     agent_id: 'lme-' + q.question_id,
     cwd: '/benchmarks/longmemeval/' + q.question_id,
     embedding_host: EMBED_HOST,

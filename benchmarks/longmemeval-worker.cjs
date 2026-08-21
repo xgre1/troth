@@ -60,7 +60,7 @@ async function main() {
   const raw = readFileSync(0, 'utf8'); // read all of stdin
   const job = JSON.parse(raw);
   const {
-    question_id, question, haystack_sessions, haystack_dates,
+    question_id, question, haystack_sessions, haystack_dates, question_date,
     agent_id, cwd, embedding_host
   } = job;
 
@@ -175,6 +175,11 @@ async function main() {
       k: 10,
       audience: 'model_visible', // matches the real prefix provider's filter
       embedding_host: host,
+      reference_ts: (() => {
+        if (!question_date) return undefined;
+        const p = Date.parse(String(question_date).replace(/\s*\([^)]*\)\s*/, ' '));
+        return Number.isNaN(p) ? undefined : p;
+      })(),
     });
     out.retrieved = items.map(it => ({
       statement: it.statement, score: it.score,
