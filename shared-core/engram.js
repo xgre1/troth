@@ -356,9 +356,9 @@ function recordEngram(opts) {
     //
     // Source-string heuristic for AUTHORITY TIER REMOVED.
     //
-    // Previously: if (s.includes('operator')) → source_authority='operator_confirmed'.
-    // This let any caller (including LLM-faculty writes) launder themselves
-    // into operator_confirmed tier just by including 'operator' in the source
+    // A source-string test — if (s.includes('operator')) → 'operator_confirmed'
+    // — lets any caller, including LLM-faculty writes, launder itself into the
+    // top tier just by putting 'operator' in the source
     // string. The 4-tier authority gradient is supposed to be ambient
     // (derived from authenticated calling surface), NEVER declared in
     // caller-controlled payload content.
@@ -558,6 +558,7 @@ function recordEngram(opts) {
       cwd,
       user_id,
       parent_id: opts.parent_id || null,
+      context_id: opts.context_id || null,
       audience,
       memory_class,
       input:  { source },
@@ -681,6 +682,7 @@ function listEngrams(opts) {
   // docs:codebase-current (scope='codebase-current'). Pass scope=null
   // explicitly to fetch ONLY scopeless engrams.
   const scopeFilter = opts.scope === undefined ? '__any__' : opts.scope;
+  const scopePrefix = typeof opts.scope_prefix === 'string' && opts.scope_prefix ? opts.scope_prefix : null;
   // Audience filter (defense-in-depth — R17, the design work). Most callers
   // hit the recall.recall() path which already enforces audience; this
   // catches the legacy retrieveRelevant fallback + future direct
@@ -692,7 +694,7 @@ function listEngrams(opts) {
   try {
     // When scope filter is set, overfetch — we filter in JS after
     // hydrating because the scope lives inside the JSON output blob.
-    const fetchLimit = scopeFilter === '__any__' ? limit : Math.min(limit * 8, 2000);
+    const fetchLimit = (scopeFilter === '__any__' && !scopePrefix) ? limit : Math.min(limit * 8, 2000);
     // SQL-level commitment_type filter: type='commitment' fans out into
     // many sub-kinds (anchor/refusal/opinion/hard/...). Without this,
     // the LIMIT clip routinely drops engrams in busy substrates because
@@ -717,6 +719,7 @@ function listEngrams(opts) {
       // '__any__' (no-scope) path passes undefined -> SQL unchanged -> the per-turn
       // recall path is byte-identical (no regression).
       scope: (scopeFilter === '__any__') ? undefined : scopeFilter,
+      scope_prefix: scopePrefix || undefined,
       limit: fetchLimit,
       order: 'desc'
     }) || [];
@@ -758,6 +761,7 @@ function listEngrams(opts) {
       if (supersededIds.has(rec.id)) continue;   // PLR-retired, hidden from default view
       const recScope = rec.output.scope || null;
       if (scopeFilter !== '__any__' && recScope !== scopeFilter) continue;
+      if (scopePrefix && (typeof recScope !== 'string' || recScope.indexOf(scopePrefix) !== 0)) continue;
       if (audienceFilter !== 'all') {
         // Treat NULL audience as substrate_internal (matches recall.js
         // audienceOk semantics + the sentinel convention for legacy
@@ -945,18 +949,17 @@ async function retrieveRelevant(opts) {
   opts = opts || {};
   const agent_id = opts.agent_id || null;
   const query    = String(opts.query || '');
-  const k        = Math.max(1, Math.min(20, opts.k || 5));
+  const _countShaped = /\b(how many|how much|how often|total|count|number of)\b|πόσ(α|ες|ους|η|ο)\b|σύνολ/i.test(String(opts.query || ''));
+  const k        = Math.max(1, Math.min(20, (opts.k || 5) + (_countShaped ? 6 : 0)));
   if (!query) return [];
 
   // Cross-type unified retrieval.
   //
-  // Before: this function only looked at commitment-engrams. That was wrong
-  // for the no-scope path because the substrate's user-meaningful memory
-  // is overwhelmingly in dialogue.turn (memory_class=episodic) and lessons
-  // (memory_class=semantic). Live reproduction: 24 BTC dialogue.turn rows
-  // + 9 BTC mind_snapshots existed in the substrate, but retrieveRelevant
-  // (commitment-only) returned 0 hits for "btc puzzle" — the model called
-  // engram_search, got empty, honestly reported "no memory of that."
+  // A commitment-engram-only look-up is wrong for the no-scope path: the
+  // substrate's user-meaningful memory is overwhelmingly dialogue.turn
+  // (memory_class=episodic) and lessons (memory_class=semantic), so a
+  // commitment-only search returns empty and the model reports no memory
+  // for conversations the substrate holds verbatim.
   //
   // recall.recall already does the cross-type pull correctly, routing by
   // memory_class (not type) with token-overlap + recency-weighted scoring.
@@ -985,6 +988,27 @@ async function retrieveRelevant(opts) {
       // to re-rank. Cap at recall's max (50).
       limit:    Math.min(50, Math.max(k * 5, 10))
     });
+    // 'between X and Y' questions need BOTH events retrieved; a single
+    // similarity query returns neighbors of the whole sentence and routinely
+    // misses one side. Each side runs as its own sub-query and the union
+    // feeds the shared rerank — additive only, never replaces the main pool.
+    const _between = /\bbetween\s+([\s\S]{4,80}?)\s+and\s+([\s\S]{4,80}?)(?:[?.!]|$)/i.exec(query);
+    if (_between) {
+      const seen = new Set(items.map((it) => it.id));
+      for (const part of [_between[1], _between[2]]) {
+        try {
+          const extra = await recall.recall({
+            query: part, class: 'all', audience: opts.audience || 'model_visible',
+            cwd: opts.cwd || null, limit: Math.max(4, Math.ceil(k / 2))
+          });
+          for (const it of extra) {
+            if (seen.has(it.id)) continue;
+            seen.add(it.id);
+            items.push(it);
+          }
+        } catch (_) { /* sub-query is additive, never fatal */ }
+      }
+    }
     if (!items.length) return [];
     // Hybrid rerank (the core of associative recall): recall.recall gives a
     // lexical-ranked candidate pool; we fuse it with a SEMANTIC ranking from

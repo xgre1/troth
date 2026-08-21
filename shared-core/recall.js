@@ -373,8 +373,7 @@ function recallIdentity(opts) {
 // exactly as docs:chats rows declare themselves archive-only a few lines
 // below. One item's own scope, not a partition over the whole store.
 //
-// Measured 2026-08-11: without this, a project rule written in one repo
-// ("migrations are applied by hand here, never by the deploy script") came
+// Without this, a project rule written in one repo comes
 // back while working in a different repo. The listing road already honoured
 // the scope; the road the partner walks on its own did not — which is how a
 // partner ends up giving confident advice that is true somewhere else.
@@ -611,7 +610,8 @@ function recallProcedural(opts) {
       catch (_) { return null; }
       // Step B — TMMA tier='flagged' filter for procedural class.
       if (!_includeFlaggedProc && out && out.tier === 'flagged') return null;
-      const triggers = (out && Array.isArray(out.triggers)) ? out.triggers.join(' ') : '';
+      const _trg = (out && (out.trigger_keywords || out.triggers)) || null;
+      const triggers = Array.isArray(_trg) ? _trg.join(' ') : '';
       const name = (out && (out.name || out.statement)) || '';
       const blob = (triggers + ' ' + name).toLowerCase();
       let hits = 0;
@@ -755,14 +755,11 @@ async function recall(opts) {
   else {
     // 'all' — score-fused across every class.
     //
-    // Previously this ran in priority order (identity → procedural →
-    // semantic → episodic) and stopped as soon as `limit` was filled.
-    // That starved episodic content: a query like "what did we say
-    // about the btc puzzle yesterday" returns procedural rows with
-    // score 0.1 BEFORE the episodic dialogue.turn rows with score 1.0
-    // are even queried, because the queue was already full. Result was
-    // the model honestly reporting "no memory" of conversations it had
-    // verbatim stored episodes for.
+    // Priority order (identity → procedural → semantic → episodic) stopping at
+    // `limit` starves episodic content: procedural rows scoring 0.1 fill the
+    // queue before the episodic dialogue.turn rows scoring 1.0 are queried at
+    // all, so the model reports no memory of conversations it has stored
+    // verbatim.
     //
     // Fix: gather ALL classes' top candidates (wider pool than limit),
     // dedup by id, sort by score, take top `limit`. Per-class trust
@@ -838,12 +835,11 @@ async function recall(opts) {
   // lexical hits are always kept (they matched keywords).
   const W_COS = 0.60, W_BASE = 0.40;
   const COS_FLOOR = 0.35;
-  // NOT gated on results.length. The dense arm used to run only when the
-  // lexical arm had already found something, so a query sharing no words with
-  // any memory returned NOTHING — the exact case this arm exists to serve, and
-  // the one its own comment above promises ("NO lexical-overlap requirement").
-  // Measured 2026-08-10: "what did we decide about our data storage engine?"
-  // returned 0 hits while pure cosine ranked the right memory second at 0.353.
+  // NOT gated on results.length. Running the dense arm only when the lexical
+  // arm has already found something makes a query sharing no words with any
+  // memory return NOTHING — the exact case this arm exists to serve, and the
+  // one its own comment above promises ("NO lexical-overlap requirement").
+  // Pure cosine ranks the right memory where lexical overlap finds none.
   // With an empty lexical pool every dense hit is dense-only, scores on cosine
   // alone (base 0), and the COS_FLOOR still keeps weak matches out.
   if (q && q.length >= 3 && opts.skip_embedding_rerank !== true) {
@@ -870,9 +866,9 @@ async function recall(opts) {
           // Unfiltered, it pulled cosine neighbors from the WHOLE corpus,
           // and the massively-embedded dialogue turns entered EVERY class's
           // results in a tight 0.7–0.82 band — near-tied rows that buried
-          // real content memories (measured 2026-08-15: a query naming the
-          // decision record returned three dialogue rows within 0.034 of
-          // each other while the record itself never surfaced) and starved
+          // real content memories — a query naming a decision record returns
+          // near-tied dialogue rows while the record itself never surfaces — and
+          // starved
           // the memory-dispatch dominance gate. class='all' stays unfiltered
           // here; its raw-dialogue flood is handled by the demotion below.
           const _denseAllowed = cls === 'all' ? null : new Set(
@@ -909,7 +905,7 @@ async function recall(opts) {
               // Raw turns that arrived through the dense door alone (no
               // keyword match) are context, not knowledge — marked so the
               // fusion can seat curated memories above them at equal cosine.
-              _rawDialogueDense: row.type === 'dialogue.turn'
+              _rawDialogueDense: row.type === 'tool_call'
             });
           }
         }
@@ -959,7 +955,19 @@ async function recall(opts) {
         }
         // Floor: drop dense-ONLY hits with weak similarity (keep every lexical
         // hit — they matched keywords). Never empty the set if anything matched.
-        const kept = results.filter(r => lexIds.has(r.id) || (typeof r._semantic_cos === 'number' && r._semantic_cos >= COS_FLOOR));
+        // Relative floor. A fixed COS_FLOOR tuned for the production flood
+        // band (top cos ~0.7-0.8) silently starves paraphrase evidence that
+        // peaks at ~0.36: with the whole dense field weak, 0.35 absolute kept
+        // 2 of 40 candidates. Scaling by the field's own top keeps the fixed
+        // value whenever topDenseCos >= 0.565 (every flood case — behavior
+        // there is provably unchanged) and only lowers the bar when the best
+        // available match is itself weak. 0.18 is the noise floor.
+        let topDenseCos = 0;
+        for (const r of results) {
+          if (!lexIds.has(r.id) && typeof r._semantic_cos === 'number' && r._semantic_cos > topDenseCos) topDenseCos = r._semantic_cos;
+        }
+        const effFloor = Math.min(COS_FLOOR, Math.max(0.18, 0.62 * topDenseCos));
+        const kept = results.filter(r => lexIds.has(r.id) || (typeof r._semantic_cos === 'number' && r._semantic_cos >= effFloor));
         results = kept.length ? kept : results;
         results.sort((a, b) => b.score - a.score);
       }
@@ -1002,15 +1010,61 @@ async function recall(opts) {
     const _seenStmt = new Set();
     const _deduped = [];
     for (const r of results) {
-      const nt = String(r.statement || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      let nt = String(r.statement || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      // Dialogue mirrors dedup on their USER half: the app-mirror era wrote
+      // the same exchange many times with micro-variant assistant halves
+      // (seven copies of one turn measured in a single top-10), so whole-
+      // statement equality never collapses them. Highest-ranked copy wins;
+      // content engrams keep whole-statement keys.
+      const _uh = /^user:\s*([\s\S]{4,}?)(?:\s*\/\s*asst:|$)/.exec(nt);
+      if (_uh && _uh[1]) nt = 'u:' + _uh[1].slice(0, 80);
       if (nt && _seenStmt.has(nt)) continue;
       if (nt) _seenStmt.add(nt);
       _deduped.push(r);
     }
     results = _deduped;
   }
+  if (opts.context_id && process.env.TROTH_CONTEXT_BINDING === '1' && results.length) {
+    try {
+      const _ctxRows = state.getActionsByIds(results.map((r) => r.id)) || [];
+      const _ctxById = new Map(_ctxRows.map((r) => [r.id, r.context_id || null]));
+      results = results.filter((r) => r.class === 'identity' || _ctxById.get(r.id) === opts.context_id);
+    } catch (_) { /* filter unavailable → unfiltered pool stands */ }
+  }
   // Collapse the (wider) candidate pool back to the requested `limit`.
-  results = results.slice(0, limit);
+  if (results.length > limit) {
+    let convById = null;
+    try {
+      const _rows = state.getActionsByIds(results.map((r) => r.id)) || [];
+      convById = new Map(_rows.map((r) => [r.id, r.session_id || null]));
+    } catch (_) { convById = null; }
+    if (convById) {
+      // ≤2 slots per conversation, and ONLY for rows that carry a non-null
+      // session_id: unstamped rows (the bulk of production) bypass the cap
+      // entirely, so behavior there is unchanged until threads are stamped.
+      // Score order is preserved; spill refills leftover slots.
+      const perConv = new Map();
+      const picked = [];
+      const spill = [];
+      for (const r of results) {
+        if (picked.length >= limit) break;
+        const conv = convById.get(r.id) || null;
+        if (conv == null) { picked.push(r); continue; }
+        const n = perConv.get(conv) || 0;
+        if (n < 2) { perConv.set(conv, n + 1); picked.push(r); }
+        else spill.push(r);
+      }
+      for (const r of spill) {
+        if (picked.length >= limit) break;
+        picked.push(r);
+      }
+      results = picked;
+    } else {
+      results = results.slice(0, limit);
+    }
+  } else {
+    results = results.slice(0, limit);
+  }
   // Archive arm (2026-08-09): "what did we do in <project>" must reach the
   // imported archive WITHOUT unleashing it into the general pool — the
   // IMPORT-FIX exclusion above stands, because raw fragments out-match
