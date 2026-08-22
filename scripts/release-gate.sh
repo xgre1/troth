@@ -687,6 +687,42 @@ check_open_parity() {
   fi
 }
 
+# ── outgoing history hygiene ─────────────────────────────────────────────────────────────
+# A publish transfers whole COMMITS, not trees: author identities and every
+# historical diff travel with the push and stay readable forever. Tree-level
+# checks cannot see either class. This walks the exact range a publish
+# would transfer — the commits the open repo does not have yet.
+check_outgoing_history() {
+  echo "OUTGOING HISTORY"
+  local url="${TROTH_OPEN_REPO_URL:-https://github.com/xgre1/troth.git}"
+  if ! git fetch -q "$url" main 2>/dev/null; then
+    fail "cannot reach the open repo ($url) — outgoing range unknown"
+    return
+  fi
+  local range="FETCH_HEAD..HEAD"
+  local bad_authors
+  bad_authors="$(git log --format='%ae' "$range" | grep -vE '^(greg@troth\.one|[0-9]+\+xgre1@users\.noreply\.github\.com)$' | sort -u)"
+  if [ -z "$bad_authors" ]; then
+    pass "every outgoing commit is authored as the project identity"
+  else
+    fail "outgoing commits carry non-project author emails — identity travels with the push"
+    note "$bad_authors"
+  fi
+  local idents hits
+  idents="$(tr ',' '|' < "$HOME/.troth/gate-identifiers" 2>/dev/null || true)"
+  if [ -n "$idents" ]; then
+    hits="$(git log -p "$range" 2>/dev/null | grep -icE "$idents" || true)"
+    if [ "${hits:-0}" -eq 0 ]; then
+      pass "outgoing history diffs carry none of the gate identifiers"
+    else
+      fail "gate identifiers found inside outgoing history diffs ($hits lines)"
+      note 'inspect: git log -p FETCH_HEAD..HEAD | grep -inE "$(tr , "|" < ~/.troth/gate-identifiers)"'
+    fi
+  else
+    note "no gate-identifiers file — identifier history scan skipped"
+  fi
+}
+
 # ── ship reality ──────────────────────────────────────────────────────────────
 # The release as STRANGERS receive it. Nothing here reads a local build
 # product: the appcast is fetched live, the artifact is downloaded from the
@@ -743,7 +779,7 @@ case "$MODE" in
   repo) check_repo ;;
   dmg)  check_dmg "${2:?usage: release-gate.sh dmg <path-to-dmg>}" ;;
   ship) check_ship ;;
-  release) check_repo; check_open_parity; check_ship; [ -n "${2:-}" ] && check_dmg "$2" ;;
+  release) check_repo; check_open_parity; check_outgoing_history; check_ship; [ -n "${2:-}" ] && check_dmg "$2" ;;
   --refresh-probes)
         # The stored list is what gates an export, which carries no overlay to
         # derive from. This rewrites it from the disk that does.
