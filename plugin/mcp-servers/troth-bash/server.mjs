@@ -495,7 +495,7 @@ async function handleTool(name, args) {
       // result so neither the model nor the archive can say nobody knew.
       if (hit) caution = hit.kind + ' (' + hit.severity + '): matched ' + hit.pattern;
     }
-    const res = await runCommand(args.command, args.timeout_ms, args.cwd);
+    const res = await runCommand(args.command, Math.min(args.timeout_ms || 120000, MAX_CALL_TIMEOUT_MS), args.cwd);
     let combined = res.stdout + (res.stderr ? '\n---\n' + res.stderr : '');
     // Redact BEFORE compression so every downstream consumer — the model,
     // tool_output_archive, the FTS index, the savings label — sees the same
@@ -551,13 +551,24 @@ async function handleTool(name, args) {
 // Old design: global string concat + sequential `await` inside `'data'` →
 // during a slow bash call, new chunks pile up in node's internal stdin buffer
 // AND in our `inputBuffer`; eventually MCP heartbeat times out → kill.
-// New design: line-by-line via readline; each line enqueued; queue drained
-// serially. stdin is paused while the queue is non-empty so the parent
-// applies natural backpressure instead of accumulating in our memory.
+// New design: line-by-line via readline; each line enqueued. tools/call
+// requests run CONCURRENTLY (bounded): one long-running command must never
+// block the requests behind it — a hung ssh or a legitimately long watcher
+// at the queue head wedges every later call for its whole timeout, and a
+// client that gives up on a call cannot cancel the server-side command, so
+// serial draining turns one slow call into a dead lane. Lifecycle messages
+// (initialize, tools/list) stay serial. stdin is paused while the queue is
+// non-empty so the parent applies natural backpressure.
 process.stdin.setEncoding('utf8');
 const rl = createInterface({ input: process.stdin, terminal: false, crlfDelay: Infinity });
 const msgQueue = [];
 let draining = false;
+// timeout_ms ceiling: without it an orphaned call (client aborted, server
+// still running) can hold resources for hours — the cap bounds orphan life.
+const MAX_CALL_TIMEOUT_MS = 30 * 60 * 1000;
+const MAX_CONCURRENT_CALLS = 8;
+let inflightCalls = 0;
+let inflightWait = null;
 
 rl.on('line', (line) => {
   if (!line.trim()) return;
@@ -587,10 +598,25 @@ async function drainQueue() {
   try { process.stdin.pause(); } catch {}
   while (msgQueue.length) {
     const msg = msgQueue.shift();
-    try {
-      await handleUpstream(msg);
-    } catch (e) {
-      process.stderr.write('[troth-bash] handler threw: ' + (e && (e.stack || e.message) || e) + '\n');
+    if (msg.method === 'tools/call') {
+      while (inflightCalls >= MAX_CONCURRENT_CALLS) {
+        await new Promise((r) => { inflightWait = r; });
+      }
+      inflightCalls++;
+      handleUpstream(msg)
+        .catch((e) => {
+          process.stderr.write('[troth-bash] handler threw: ' + (e && (e.stack || e.message) || e) + '\n');
+        })
+        .finally(() => {
+          inflightCalls--;
+          if (inflightWait) { const w = inflightWait; inflightWait = null; w(); }
+        });
+    } else {
+      try {
+        await handleUpstream(msg);
+      } catch (e) {
+        process.stderr.write('[troth-bash] handler threw: ' + (e && (e.stack || e.message) || e) + '\n');
+      }
     }
   }
   draining = false;
