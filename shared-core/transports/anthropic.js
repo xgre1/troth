@@ -42,7 +42,7 @@ function makeAnthropicTransport(opts) {
   const apiKeyDefault = opts.api_key || null;
   const modelDefault  = opts.model   || null;
   const baseDefault   = opts.base_url || null;
-  // Turn-sized, not probe-sized. Lane audit 2026-08-15: no caller on the
+  // Turn-sized, not probe-sized. Lane audit: no caller on the
   // entity path ever passed max_tokens, so every lane built on this
   // transport (anthropic, kimi_sub) inherited a 1024 ceiling and real
   // replies hit the wall mid-sentence. One knob for every lane:
@@ -237,8 +237,14 @@ function parseFrame(frame, emit, acc) {
   // Which-model display: message_start carries the resolved model.
   if (event === 'message_start' && data && data.message && data.message.model) {
     emit({ served_by: { provider: 'anthropic', model: data.message.model } });
-    if (data.message.usage && data.message.usage.input_tokens) {
-      emit({ usage: { input_tokens: data.message.usage.input_tokens || 0, output_tokens: 0 } });
+    var _mu = data.message.usage;
+    if (_mu) {
+      var _prompt = (_mu.input_tokens || 0) +
+                    (_mu.cache_read_input_tokens || 0) +
+                    (_mu.cache_creation_input_tokens || 0);
+      if (_prompt > 0) {
+        emit({ usage: { input_tokens: _mu.input_tokens || 0, output_tokens: 0, context_used: _prompt } });
+      }
     }
     return;
   }

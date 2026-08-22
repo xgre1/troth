@@ -125,7 +125,7 @@ function makeRouterTransport(opts) {
       }
       const body = {
         model: (req.options && req.options.model) || 'any',
-        // Same knob as every other lane (lane audit 2026-08-15): the old
+        // Same knob as every other lane (lane audit): the old
         // hardcoded 2000 truncated real turns on the default faculty.
         max_tokens: (req.options && req.options.max_tokens) ||
           parseInt(process.env.TROTH_ENTITY_MAX_TOKENS || '8192', 10),
@@ -248,10 +248,16 @@ function makeRouterTransport(opts) {
         if (!yieldedUsage) {
           yieldedUsage = true;
           if (payload && payload.usage) {
-            return { value: { usage: {
+            var _prompt = payload.usage.prompt_tokens ||
+                          ((payload.usage.input_tokens || 0) +
+                           (payload.usage.cache_read_input_tokens || 0) +
+                           (payload.usage.cache_creation_input_tokens || 0));
+            var _u = {
               input_tokens:  payload.usage.prompt_tokens     || payload.usage.input_tokens  || 0,
               output_tokens: payload.usage.completion_tokens || payload.usage.output_tokens || 0
-            } }, done: false };
+            };
+            if (_prompt > 0) _u.context_used = _prompt;
+            return { value: { usage: _u }, done: false };
           }
         }
         if (!doneEmitted) {

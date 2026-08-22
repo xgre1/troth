@@ -94,7 +94,12 @@ const MODEL_ID  = process.env.TROTH_CHAT_MODEL_ID || _autoModel.id;
 // response") on every local turn. 16384 fits tools+envelope+history+reply with
 // headroom; the Qwen3.5/3.6 picks support 32768+ natively, and the KV cache at 16K
 // is ~1-2GB — comfortable on a 16GB+ Mac. Override via TROTH_CHAT_CTX.
-const CONTEXT_SIZE = parseInt(process.env.TROTH_CHAT_CTX || '16384', 10);
+//
+// Unset, this is resolved per model once the file is known: a constant is
+// wrong for every model except the one it was picked for. Held mutable
+// because the model can be switched at runtime.
+const CTX_OVERRIDE = parseInt(process.env.TROTH_CHAT_CTX || '0', 10) || 0;
+let _ctxSize = CTX_OVERRIDE || 16384;
 const MODELS_DIR = process.env.TROTH_CHAT_DIR
   || path.join(process.env.HOME || os.homedir(), '.troth', 'models');
 // Chat is the foreground task — let it use most cores (the embedder already
@@ -159,10 +164,16 @@ async function ensureContext(modelUri) {
     try {
       const { getLlama, resolveModelFile } = nlc;
       const modelPath = await resolveModelFile(_modelUri, MODELS_DIR);
+      try {
+        const chosen = require('./model-context.js').chooseContextSize(modelPath, { explicit: CTX_OVERRIDE });
+        _ctxSize = chosen.size;
+        console.error('[local-chat] context ' + chosen.size + ' (' + chosen.source +
+          (chosen.trained ? ', model trained for ' + chosen.trained : '') + ')');
+      } catch (_) { /* keep the standing size */ }
       const llama = await getLlama();
       _model = await llama.loadModel({ modelPath });
       _ctx = await _model.createContext({
-        contextSize: CONTEXT_SIZE,
+        contextSize: _ctxSize,
         threads: MAX_THREADS
       });
       return _ctx;
@@ -304,9 +315,9 @@ async function complete(opts) {
       const RESERVE = 1024; // headroom for the generated reply
       const toolTok = Array.isArray(opts.tools) ? estTok(JSON.stringify(opts.tools)) : 0;
       const fixed = estTok(systemPrompt) + toolTok + estTok(prompt);
-      let budget = CONTEXT_SIZE - RESERVE - fixed;
+      let budget = _ctxSize - RESERVE - fixed;
       if (budget < 0) {
-        try { console.error(`[local-chat] system+tools (~${fixed} tok) exceed ctx ${CONTEXT_SIZE} − reserve; reply may be truncated`); } catch (_) {}
+        try { console.error(`[local-chat] system+tools (~${fixed} tok) exceed ctx ${_ctxSize} − reserve; reply may be truncated`); } catch (_) {}
       } else {
         let used = 0, keepFrom = msgs.length;
         for (let i = msgs.length - 1; i >= 0; i--) {
@@ -385,7 +396,7 @@ async function complete(opts) {
       let hc = 0; for (const m of msgs) hc += String(m.text || m.content || '').length;
       const tc = (Array.isArray(opts.tools) ? JSON.stringify(opts.tools).length : 0);
       const tn = (Array.isArray(opts.tools) ? opts.tools.length : 0);
-      try { console.error(`[local-chat] sizes chars: system=${sc} prompt=${pc} history=${hc} tools=${tn}(${tc}c) (~tokens system=${Math.round(sc/3.5)} tools=${Math.round(tc/3.5)} ctx=${CONTEXT_SIZE})`); } catch (_) {}
+      try { console.error(`[local-chat] sizes chars: system=${sc} prompt=${pc} history=${hc} tools=${tn}(${tc}c) (~tokens system=${Math.round(sc/3.5)} tools=${Math.round(tc/3.5)} ctx=${_ctxSize})`); } catch (_) {}
     }
 
     const promptOpts = { signal: ac.signal, stopOnAbortSignal: true };
@@ -435,7 +446,7 @@ function status() {
     download_cancelled: _dlCancelled,
     model_id: MODEL_ID,
     model_uri: _modelUri,
-    context_size: CONTEXT_SIZE,
+    context_size: _ctxSize,
     threads: MAX_THREADS
   };
 }
@@ -449,5 +460,5 @@ module.exports = {
   status,
   MODEL_ID,
   MODEL_URI,
-  CONTEXT_SIZE
+  contextSize: () => _ctxSize
 };

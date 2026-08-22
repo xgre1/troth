@@ -144,6 +144,13 @@ function makeOllamaTransport(opts) {
             emit({ tool_calls: tcs });
           }
           if (msg && msg.done) {
+            const _p = msg.prompt_eval_count || 0;
+            const _e = msg.eval_count || 0;
+            if (_p > 0 || _e > 0) {
+              const _u = { input_tokens: _p, output_tokens: _e };
+              if (_p > 0) _u.context_used = _p;
+              emit({ usage: _u });
+            }
             emit({ done: true });
           }
         }

@@ -38,7 +38,24 @@ const MODELS_DIRS = process.env.TROTH_CHAT_DIR
       path.join(HOME, '.troth', 'desktop', 'models'),
       path.join(HOME, '.troth', 'models'),
     ];
-const CTX        = parseInt(process.env.TROTH_CHAT_CTX || '16384', 10);
+// TROTH_CHAT_CTX is the operator's override. Unset, the size comes from the
+// model and the machine rather than a constant that is wrong for both: a fixed
+// number throws away most of a modern window, and on a small machine reserves
+// a KV cache that does not fit. llama.cpp allocates the whole cache at startup,
+// so this is spent the moment the server comes up.
+const CTX_OVERRIDE = parseInt(process.env.TROTH_CHAT_CTX || '0', 10) || 0;
+function contextSizeFor(modelPath) {
+  try {
+    const chosen = require('./model-context.js').chooseContextSize(modelPath, { explicit: CTX_OVERRIDE });
+    try {
+      console.error('[local-server] context ' + chosen.size +
+        ' (' + chosen.source + (chosen.trained ? ', model trained for ' + chosen.trained : '') + ')');
+    } catch (_) {}
+    return chosen.size;
+  } catch (_) {
+    return CTX_OVERRIDE || 16384;
+  }
+}
 const LOG_PATH   = path.join(HOME, '.troth', 'desktop', 'local-llama-server.log');
 
 // Explicit model override tokens (TROTH_CHAT_MODEL, Custom/BYO). The old
@@ -196,9 +213,9 @@ async function ensureBinary() {
       return false;
     }
   } catch (_) { /* no sidecar = never tried */ }
-  // Which official asset fits THIS machine. The download used to be hard-coded
-  // to macOS-arm64 and gated to it, so every Linux box and every Intel Mac was
-  // told the local stack was unavailable — no reranking, no bundled chat
+  // Which official asset fits THIS machine — resolved per platform, never
+  // hard-coded to macOS-arm64: a single-platform download tells every Linux
+  // box and Intel Mac the local stack is unavailable — no reranking, no bundled chat
   // server, and (before the doctor fix) a claim of semantic recall that
   // nothing could serve. The gate existed for a real reason: an earlier
   // version checked arch but not platform, so a Linux arm64 machine unpacked a
@@ -361,7 +378,7 @@ async function ensure() {
         // Bundled Automatic local server = THIS Mac only. Bind loopback so the
         // operator's personal model is never exposed to LAN/Tailscale (no auth).
         bind_host:     '127.0.0.1',
-        context_size:  CTX,
+        context_size:  contextSizeFor(modelPath),
         ngl:           999,
         log_path:      LOG_PATH,
         kill_existing: true

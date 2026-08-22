@@ -245,7 +245,7 @@ const PROFILES = Object.freeze({
         // path ever loaded that key. The pick sat in storage while the spawn
         // used the subscription default: "Fable 5" selectable and silently
         // unserved, the badge honest about a choice that never took effect
-        // (AUDIT-2026-08-09 item 15). Read at spawn time so a new pick takes
+        // (audit item 15). Read at spawn time so a new pick takes
         // effect on the NEXT turn with no daemon respawn. TROTH_CLAUDE_MODEL
         // (env) wins over the config, mirroring TROTH_KIMI_SUB_MODEL above;
         // vars.model — the ambient default id, often a LOCAL model (e.g.
@@ -407,8 +407,8 @@ function makeSubprocessCliTransport(opts) {
     // no second memory) — but it also means NONE of the operator's ~/.claude
     // wiring loads here: no troth-bash, no bash-steer hook, and with
     // --dangerously-skip-permissions the faculty's native Bash ran with no
-    // wall at all. Both AUDIT-2026-08-09 incidents (`cut` on a .env, raw
-    // sqlite3 against state.db) ran on exactly this surface. Provision the
+    // wall at all — reading a secrets file or opening the substrate database
+    // directly are both reachable from this surface. Provision the
     // faculty home's OWN settings.json with a PreToolUse hook that asks the
     // same bash-safety verdict the troth-bash server asks — one wall, two
     // doors. Idempotent + self-healing: recomputed each spawn so an app

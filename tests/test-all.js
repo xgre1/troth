@@ -73,6 +73,8 @@ require('./suite-65-dialogue-dedup.js')({ test, skip });
 require('./suite-66-constraint-ledger.js')({ test, skip });
 require('./suite-67-verifiable-claims.js')({ test, skip });
 require('./suite-68-substrate-sync.js')({ test, skip });
+require('./suite-69-context-window.js')({ test, skip });
+require('./suite-70-field-contract.js')({ test, skip });
 
 // --- SUMMARY ---
 flushAsyncTests().then(() => {
