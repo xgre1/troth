@@ -7078,8 +7078,7 @@ console.log('\nL4 active_project draft + confirm pipeline:');
 // ─────────────────────────────────────────────────────────────────────────
 
 test('IRM-MEM-1: every memory-shaped question mounts full recall — the two classifiers may never disagree', () => {
-  // Measured 2026-08-15: six of ten memory-shaped phrasings — the most
-  // natural Greek forms among them ("τι είχαμε πει", "πού είχαμε μείνει") —
+  // Memory-shaped phrasings — the natural Greek forms among them most of all —
   // fell to default/dmn_slot: the turn reached the model with NO query-
   // driven memory mounted, and the model had to PULL via tools or answer
   // blind. On owned lanes memory is PUSHED; the same classifier that

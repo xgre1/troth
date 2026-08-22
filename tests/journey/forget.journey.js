@@ -2,8 +2,8 @@
 'use strict';
 // The Forget button, end to end, on the surface the operator actually clicks.
 //
-// Measured on a live substrate 2026-08-10: 5 of 6 clicks retired a DIFFERENT
-// memory. The dashboard listed rows by id, sent only the statement text, and
+// Clicking Forget on an aged memory can retire a DIFFERENT one: the dashboard
+// lists rows by id, sends only the statement text, and
 // the handler re-derived its own target through a lookup whose candidate
 // window is the newest 200 engrams — so an older row resolved to whichever
 // recent one shared the most words. Unit tests pin the handler; this pins the

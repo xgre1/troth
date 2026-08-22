@@ -5,14 +5,11 @@
 // garbage collector tombstones an engram and moves on; the vector stays.
 //
 // That is expensive in an exact place: the dense recall arm streams EVERY
-// recallable embedding on EVERY call — measured at 226ms and 178MB on the
-// operator's substrate — so dead vectors are paid for on every single turn.
-//
-// Measured 2026-08-11, before this fix:
-//   ~62,600 vectors    706 (1.1%) on engrams the GC had already killed
-//                      336 (0.5%) on superseded engrams — deliberately spared
-//                        5        orphaned, their row gone entirely
-//   full dense scan: 164ms -> 151ms after sweeping. Real, and small.
+// recallable embedding on EVERY call, so dead vectors are paid for on every
+// single turn. Three kinds accumulate: vectors on engrams the GC has already
+// killed, vectors on superseded engrams (deliberately spared), and orphans
+// whose row is gone entirely. Sweeping the dead ones shortens the full dense
+// scan — real, and small.
 //
 // The first pass at this measurement claimed 41.6%, and was wrong by 37x: it
 // ran COUNT(*) over a JOIN of embeddings to tombstones, and many tombstones

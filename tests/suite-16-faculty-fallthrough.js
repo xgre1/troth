@@ -303,7 +303,7 @@ module.exports = ({ test, skip }) => {
   });
 
   test('LARP-3: a SUCCESSFUL Bash (exitCode 0) with stderr noise never raises a failure note', async () => {
-    // Exact live repro: find scanning node_modules
+    // The shape this covers: find scanning node_modules
     // grumbles "No such file or directory" on stderr while the command
     // succeeds — the staple called a 63-action turn unreliable over it.
     let iter = 0;
@@ -448,7 +448,7 @@ module.exports = ({ test, skip }) => {
   });
 
   test('LARP-7: recovery with DIFFERENT args on the same file clears the stale failure (the hashline retry shape)', async () => {
-    // Live repro: a hashline Edit fails, the model
+    // The shape this covers: a hashline Edit fails, the model
     // re-reads and retries with FRESH line hashes — new args, new signature —
     // and succeeds. The stale failure under the old signature must not
     // staple a recovered action.

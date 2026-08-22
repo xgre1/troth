@@ -2,13 +2,11 @@
 // A project is not a folder.
 //
 // Six places in this tree name a per-project store by sha256 of the DIRECTORY
-// PATH. That convention has three consequences, all measured on a real
-// machine on 2026-08-12:
+// PATH. That convention has three consequences:
 //
-//   MOVED. troth-core lived at ~/Documents/troth-core-bootstrap and now lives
-//   at ~/Documents/troth-files/current/troth-core-bootstrap. Two paths, two
-//   store keys, so the index and every learning store started again from
-//   empty. Nothing pointed at the old ones afterwards.
+//   MOVED. A checkout that moves to a new directory keeps its contents and
+//   changes its key, so the index and every learning store start again from
+//   empty. Nothing points at the old ones afterwards.
 //
 //   SPLIT. The same code shipped inside troth.app is a third and fourth
 //   "project" (…/Resources/core and …/core/proxy each got their own store).

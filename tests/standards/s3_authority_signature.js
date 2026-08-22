@@ -2,22 +2,17 @@
 'use strict';
 // S3 — Authority is signature-rooted and SINGLE-SOURCED.
 //
-// The real anti-drift property (an internal audit): every
-// surface must rank memory through ONE shared authority model, never a forked
-// local copy. Before the fix, recall.js, the entity Phase-F identity read, and
-// the proxy injector each carried their own forked authority map (the literal
-// `const _AUTH_W = { operator_confirmed: 1.0,... }`), so the partner ranked
-// its own memory differently per surface.
+// The anti-drift property: every surface must rank memory through ONE shared
+// authority model, never a forked local copy. A forked map (the literal
+// `const _AUTH_W = { operator_confirmed: 1.0,... }`) makes the partner rank
+// its own memory differently depending on which surface asked.
 //
-// NOTE on the unlabeled default: an earlier version of this standard asserted
-// "missing source_authority must be weight 1.00". That was WRONG — verified
-//  against the live source distribution: the unlabeled engram pool is
-// dominated by low-trust provenance (test/seed/deliberator/watcher), so a
-// blanket 1.00 elevates that junk to operator tier (the d7b614f regression,
-// reverted). Unlabeled defaults to the conservative regex_extracted floor until
-// source-derived authority lands (operator decision #4). So this standard does
-// NOT pin a specific unlabeled weight — it pins the STRUCTURAL property: ONE
-// authority model, no forked definitions.
+// On the unlabeled default: an unlabeled engram pool is dominated by low-trust
+// provenance (test/seed/deliberator/watcher), so weighting it 1.00 would lift
+// that pool to operator tier. Unlabeled sits at the conservative
+// regex_extracted floor until source-derived authority lands. This standard
+// therefore does NOT pin a specific unlabeled weight — it pins the STRUCTURAL
+// property: ONE authority model, no forked definitions.
 //
 // Check: no module outside shared-core/authority-weights.js DEFINES its own
 // authority-weight map. The precise fork signature is a variable assignment to

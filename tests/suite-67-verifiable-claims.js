@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // A fact the substrate can check, not just recall.
 //
-// The 2026-08-15 failure was not forgetting — it was remembering WRONG and
-// bridging the gap with a story when the world disagreed (premise
-// resistance; frontier models measure 55% on STALE). What this suite pins
+// The failure mode is not forgetting — it is remembering WRONG and bridging the
+// gap with a story when the world disagrees (premise resistance; frontier
+// models measure 55% on STALE). What this suite pins
 // is the geometry that makes that impossible for claimed facts: one live
 // value per slot BY INDEX, supersession as an explicit transaction with an
 // event trail, a probe mismatch flipping the row to disputed and OUT of

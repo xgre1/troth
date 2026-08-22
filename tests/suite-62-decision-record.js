@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // A decision record is a strategy a weaker mind can re-run.
 //
-// The measured shape (five-way research pass, 2026-08-15): distilled
+// The measured shape (five-way research pass): distilled
 // strategy beats raw trajectory; the step SKELETON is the transferable
 // payload; the contrastive wrong-turn is the best single field; abstraction
 // ships with one grounding example or it loses to the raw trace; provenance

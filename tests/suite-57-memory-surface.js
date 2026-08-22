@@ -45,6 +45,17 @@ function fire(env, sess) {
     { env, input: payload, encoding: 'utf8', timeout: 30000 });
   return JSON.parse(r.stdout.trim()).hookSpecificOutput;
 }
+function fireShell(env, sess, command) {
+  const payload = JSON.stringify({
+    tool_name: 'mcp__plugin_troth_troth-bash__run', session_id: sess, cwd: '/x',
+    tool_input: { command }
+  });
+  const r = cp.spawnSync('node', [path.join(ROOT, 'plugin', 'hooks', 'pre-action-recall.mjs')],
+    { env, input: payload, encoding: 'utf8', timeout: 30000 });
+  const out = (r.stdout || '').trim();
+  if (!out || out === '{}') return null;          // hook stayed silent
+  return JSON.parse(out).hookSpecificOutput || null;
+}
 function seed(env) {
   // Seed through the real writers so FTS rows exist the way production makes
   // them: one commitment worth remembering, one fresh intent naming the topic.
@@ -100,4 +111,42 @@ test('MSF-3: an empty substrate steers instead of asking — a fresh install is 
     'nothing to show means nothing to ask about');
   assert.ok(/MEMORY file/.test(out.additionalContext));
 });
+
+test('MSF-4: the same hunt through the shell is caught, not just through Read', function () {
+  // The matcher always listed Bash; only the file-path fields were read, so a
+  // search for prior work across the home document folders walked straight past
+  // a guard that stops the identical search through Read.
+  const env = mkEnv();
+  seed(env);
+  const out = fireShell(env, 'msf-four-'+RUN,
+    'find ~/Desktop ~/Downloads ~/Documents -type f -name "*.md" -mtime -2');
+  assert.ok(out, 'the shell hunt must not pass silently');
+  assert.strictEqual(out.permissionDecision, 'ask');
+  assert.ok(/substrate already remembers|MEMORY file/.test(
+    out.permissionDecisionReason || out.additionalContext || ''), 'and says why');
+});
+
+test('MSF-5: naming a memory file in a shell command is caught too', function () {
+  const env = mkEnv();
+  seed(env);
+  const out = fireShell(env, 'msf-five-'+RUN, 'grep -rn troth ~/.claude/projects/x/memory/MEMORY.md');
+  assert.ok(out, 'a shell command naming a memory surface must not pass silently');
+});
+
+test('MSF-6: ordinary repo work through the shell stays silent', function () {
+  // A guard that fires on every search is a guard that gets turned off.
+  const env = mkEnv();
+  seed(env);
+  for (const cmd of [
+    'find src -name "*.js" -newer package.json',
+    'node tests/test-all.js',
+    'grep -rn scaleUsage proxy/server.js',
+    'ls -la dist/'
+  ]) {
+    assert.strictEqual(fireShell(env, 'msf-six-'+RUN+'-'+cmd.length, cmd), null,
+      'must stay silent for: ' + cmd);
+  }
+});
+
+
 };

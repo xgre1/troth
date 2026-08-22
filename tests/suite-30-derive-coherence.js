@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Coherence by derivation (PLAN-COHERENCE-2026-08-09, law 1).
+// Coherence by derivation (law 1).
 //
-// The 2026-08-09 audits traced every "wrong shape" incident to blind
+// The coherence audits traced every "wrong shape" incident to blind
 // defaults: backbone troth beside a Claude-subscription-only install,
 // local-first dispatch with no local engine, a Kimi-only machine wired like
 // a multi-engine one. derive-config.js computes the shape from detected

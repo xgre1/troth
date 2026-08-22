@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Archive provenance + reachability (field reports, 2026-08-09): imported
+// Archive provenance + reachability (field report): imported
 // chunks used to be titled by session uuid with cwd null in ONE flat scope,
 // so "remember what we did in <project>" had nothing to hold on to, and the
 // auto-recall exclusion (correct: raw fragments out-match curated facts)

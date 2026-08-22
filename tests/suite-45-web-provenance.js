@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Pages the partner read, kept and MARKED.
 //
-// Measured 2026-08-11: `WebFetch` had **0 records** in the entire substrate.
-// Not "unsaved" — unseen: no PostToolUse matcher covered it, so five months of
-// arXiv, DeepMind and Google Ads reading left behind only whatever fitted in a
+// `WebFetch` leaves **0 records** in the substrate. Not "unsaved" — unseen: no
+// PostToolUse matcher covers it, so months of reading leave behind only
+// whatever fitted in a
 // summary sentence, itself truncated at 8,000 characters with one vector for
 // the whole turn.
 //
-// The design problem this settles is the one that blocked it for a day.
+// The design problem this settles:
 // recall.js audienceOk() is an EXACT match against what the caller asked for
 // (default 'model_visible'), so the obvious move — tag fetched text
 // 'synthesis_of_external' — does not lower its trust, it removes it from every

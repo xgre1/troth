@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // /forget retires the row you MEANT, not one that reads like it.
 //
-// Measured on a live substrate 2026-08-10: clicking Forget in the dashboard
-// retired a DIFFERENT memory in 5 of 6 attempts. The dashboard listed rows by
-// id, then threw the id away and sent the statement text; the handler re-found
-// its own target with retrieveRelevant(commitment_only) — whose candidate
-// window is the newest 200 engrams — so anything older resolved to whichever
-// recent row shared the most words. Clicking "the user prefers tabs over
-// spaces" would have retired a security note.
+// Clicking Forget in the dashboard can retire a DIFFERENT memory. The
+// dashboard lists rows by id, then throws the id away and sends the statement
+// text; the handler re-finds its own target with
+// retrieveRelevant(commitment_only) — whose candidate window is the newest 200
+// engrams — so anything older resolves to whichever recent row shares the most
+// words, and an unrelated memory is the one that dies.
 //
 // These pin the cure: identity travels with the click, the protection floor
 // still holds on that road, non-engram rows are refused rather than mangled,

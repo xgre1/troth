@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Import atomicity (field question, 2026-08-10): "what if someone closes
+// Import atomicity (field question): "what if someone closes
 // the laptop mid-import?" A session's ingest marker IS its chunk rows, so
 // a half-written session used to read as "already imported" and its
 // missing tail could never be completed — silent, permanent, invisible.

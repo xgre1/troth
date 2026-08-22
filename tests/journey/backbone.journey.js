@@ -6,7 +6,7 @@
 // MCP is mounted (strict), the memory rule rides the prompt, the walls are
 // provisioned into the faculty home, and the served/usage frames the app
 // renders carry the truth back. Every one of these was a reported incident
-// on 2026-08-09 ("picked Fable, served Opus"; "no MCP, cd/cat spelunking";
+// (\"picked Fable, served Opus"; "no MCP, cd/cat spelunking";
 // "no usage on the one lane a subscription user runs").
 //
 // The trick that makes it testable on any target with zero subscription

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Maintenance topology (field report, 2026-08-09): dashboards froze at
+// Maintenance topology (field report): dashboards froze at
 // "28 still indexing / 20,682 still embedding" for TWO DAYS because the
 // drain lived only in the entity daemon and a dashboard-only install never
 // runs one. The cure has three legs, each pinned here: the worker is
@@ -95,7 +95,7 @@ test('MAINT-4: the proxy hosts EVERY upkeep task — including the two that had 
   // were written, tested and registered — in DEFAULT_TASKS, which only the
   // entity daemon runs. On a Claude Code + proxy machine nothing referenced
   // them, so the document queue had no reader and 183 documents sat unread
-  // while the card reported a healthy drain (2026-08-12). The suite passed
+  // while the card reported a healthy drain. The suite passed
   // throughout, because it asserted membership in DEFAULT_TASKS and never
   // asked which list the RUNNING process uses. This asks.
   const fs = require('fs');

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// The DMG-pass regressions (AUDIT-2026-08-09).
+// The DMG-pass regressions (audit).
 //
 // The operator ran the shipped DMG as a new user and the audit reproduced,
 // live, what the suite had never asked: raw stdout carrying a credential

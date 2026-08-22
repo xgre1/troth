@@ -6,7 +6,7 @@
 // the proxy injecting related code chunks into each request. There was no way
 // to ASK it anything, so structural questions were answered with grep.
 //
-// That cost a working day on 2026-08-11, and got the answer wrong: a grep that
+// That cost a working day, and got the answer wrong: a grep that
 // excluded tests/ reported "nothing calls shared-core/action-outcome.js" when
 // the truth is "only the test suite calls it" — which is the sharper finding,
 // and the one the graph returns in milliseconds.
@@ -117,8 +117,8 @@ test('CG-6: every surface can ask, through one implementation', () => {
   // the system prompt under its cap, which was the wrong trade: the cap is not
   // a voice-latency budget, it is a truncation guard on the daemon's prompt in
   // BOTH modes, and it has been raised four times for exactly this reason.
-  // Measured 2026-08-11: these two cost 31 chars in text mode (4,287 -> 4,318)
-  // and the cap moved 4,500 -> 4,800 so the voice variant keeps its margin.
+  // These two add 31 chars in text mode, and the cap moved 4,500 -> 4,800 so
+  // the voice variant keeps its margin.
   // What we build has to work on every surface; the prompt budget is a
   // separate problem and must not quietly amputate one.
   const reg = require(path.join(ROOT, 'shared-core', 'substrate-tools.js')).REGISTRY;

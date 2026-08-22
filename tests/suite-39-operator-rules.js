@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Rules the operator gave, kept the way facts are kept.
 //
-// Measured 2026-08-11: the substrate held 5,143 rows of type='lesson' and not
-// one came from a person — 3,785 curriculum import, 886 fidelity warnings,
-// 281 error tax, 122 critic. `state.recordOperatorLesson` existed with ZERO
+// type='lesson' fills with machine-written rows — curriculum import, fidelity
+// warnings, error tax, critic — and none from a person.
+// `state.recordOperatorLesson` existed with ZERO
 // callers and appeared in neither tool registry, so everything the operator
 // ever said about HOW to work lived in conversation only and died with the
 // window.
@@ -145,8 +145,8 @@ test('RULE-9: /save can reach the tools and no longer caps the save at five', ()
 });
 
 test('RULE-10: a rule scoped to one project does not answer in another', async () => {
-  // Measured 2026-08-11 before the fix: listRules honoured the scope but
-  // recall did not, so a rule written in one repo came back while working in
+  // listRules honours the scope where recall does not, so a rule written in one
+  // repo comes back while working in
   // a different one. The listing road is the road a person walks; recall is
   // the road the partner walks on its own, and that is the one that matters.
   const A = '/tmp/rulesuite-alpha';

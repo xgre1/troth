@@ -211,9 +211,8 @@ console.log('\nPlugin hooks (behavior):');
   test('MD-GUARD-5: blocks the continuity files that sit BESIDE the memory folder', () => {
     // RESUME.md and progress.md live at ~/.claude/projects/<key>/, one level
     // above memory/. The guard required '/memory/' in the path, so a full
-    // session handoff written to RESUME.md sailed past the guard whose entire
-    // purpose is to stop exactly that — observed live 2026-08-12 while troth
-    // was active. Nothing an agent authors belongs anywhere under that
+    // session handoff written to RESUME.md sails past the guard whose entire
+    // purpose is to stop exactly that. Nothing an agent authors belongs anywhere under that
     // directory: it is Claude Code's own store, and continuity is the
     // substrate's job.
     const os5 = require('os');
@@ -235,7 +234,7 @@ console.log('\nPlugin hooks (behavior):');
     // onto troth-hashline, and this guard\'s matcher listed only
     // Write|Edit|MultiEdit. So the product\'s PREFERRED editor was the one
     // path into the operator\'s memory files that nothing checked — proven
-    // live on 2026-08-12 by editing ~/.claude/CLAUDE.md, a file this guard
+    // live by editing ~/.claude/CLAUDE.md, a file this guard
     // names explicitly, with no block. A guard every real edit routes around
     // is decoration.
     const fsG = require('fs');

@@ -2,8 +2,7 @@
 // A memory comes back the size it went in.
 //
 // All three recall arms clipped every returned statement to 600 characters —
-// a prompt budget applied at the data layer, in place from 2026-06-08 to
-// 2026-08-14. Every consumer that spends context already clips at its own
+// a prompt budget applied at the data layer, in place for weeks. Every consumer that spends context already clips at its own
 // edge (the injector to its block sizes, the voice prefix to its session
 // budget, the reranker to its input slice), so the cap protected nothing —
 // but the two surfaces that pass text through untouched inherited it: the

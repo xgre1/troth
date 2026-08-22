@@ -33,7 +33,7 @@ function make({ root, target }) {
     // launchd daemon as a "stray", launchd resurrected it, and the
     // resurrected daemon's own boot closed the journey proxy right back:
     // five boot-family journeys read ECONNREFUSED on any machine running
-    // the real product (2026-08-09, live find). With siblings kept, the
+    // the real product (live find). With siblings kept, the
     // journey proxy touches nobody, the daemon never re-boots, and both
     // worlds coexist — which is the point of a fresh-HOME harness.
     TROTH_KEEP_SIBLINGS: '1',

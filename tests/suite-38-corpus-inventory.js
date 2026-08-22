@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // What corpora does this mind hold, and what is inside one?
 //
-// Both questions had wrong answers on a real substrate (measured 2026-08-11,
-// 43k engrams):
+// Both questions have wrong answers on a grown substrate:
 //
 //   chameleon.listScopes() counted scopes among the engrams listEngrams()
 //   returns — and that reader caps its LIMIT at 2000 rows. So the answer meant
-//   "scopes among the 2000 most recent engrams": 57 reported against a true
-//   2024, and any corpus ingested before the last 2000 writes was absent
-//   entirely. Every size a screen showed would have been fiction.
+//   "scopes among the 2000 most recent engrams": a fraction of the true count,
+//   and any corpus ingested before the last 2000 writes absent entirely. Every
+//   size a screen showed would have been fiction.
 //
 //   The proxy then narrowed it further by agent_id, which only records WHICH
 //   SURFACE wrote a row — not whose mind it belongs to (that is principal_id).
