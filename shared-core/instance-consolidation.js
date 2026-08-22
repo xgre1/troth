@@ -83,15 +83,7 @@ function buildPrompt(turns) {
 // Tolerant of fences and prose margins; intolerant of schema violations.
 // A row missing its provenance (turn_idxs) is DROPPED, not repaired —
 // the covenant is that every instance can show its turns.
-function parseExtraction(text, turnCount) {
-  const out = { instances: [], dropped: 0 };
-  const s = String(text || '');
-  const start = s.indexOf('[');
-  const end = s.lastIndexOf(']');
-  if (start < 0 || end <= start) return out;
-  let arr;
-  try { arr = JSON.parse(s.slice(start, end + 1)); } catch (_) { return out; }
-  if (!Array.isArray(arr)) return out;
+function _validateInstanceRows(arr, turnCount, out) {
   for (const row of arr) {
     if (!row || typeof row !== 'object') { out.dropped++; continue; }
     const kind = String(row.kind || '').toLowerCase();
@@ -115,6 +107,78 @@ function parseExtraction(text, turnCount) {
       turn_idxs: idxs
     });
   }
+  return out;
+}
+
+// Tolerant of fences and prose margins; intolerant of schema violations.
+function parseExtraction(text, turnCount) {
+  const out = { instances: [], dropped: 0 };
+  const s = String(text || '');
+  const start = s.indexOf('[');
+  const end = s.lastIndexOf(']');
+  if (start < 0 || end <= start) return out;
+  let arr;
+  try { arr = JSON.parse(s.slice(start, end + 1)); } catch (_) { return out; }
+  if (!Array.isArray(arr)) return out;
+  return _validateInstanceRows(arr, turnCount, out);
+}
+
+// Combined extraction: identities AND instances in ONE model call per
+// session window. Identity comes first in the schema on purpose — instance
+// merging consults the registry, so a session's identities must land
+// before its instances are written.
+function buildCombinedPrompt(turns) {
+  const lines = turns.map((t, i) =>
+    '[' + i + '] (' + new Date(t.timestamp).toISOString().slice(0, 10) + ') ' +
+    String(t.user_text || '').slice(0, 600));
+  return [
+    'Extract TWO things from the user statements below.',
+    '',
+    '1. identities — people, places or organizations the user names with a',
+    '   relation or role ("my sister Jen" → name Jen, relation sister;',
+    '   "Dr. Patel, my ENT" → name Dr. Patel, relation ENT specialist).',
+    '   Include alternate ways the user refers to them as aliases.',
+    '2. instances — one entry per real-world occurrence the user reports',
+    '   about themselves: a visit made, a purchase, an event attended, an',
+    '   activity done, a possession. ONLY what the user states about their',
+    '   own life — never suggestions or hypotheticals. The same occurrence',
+    '   mentioned twice is ONE instance citing both statements.',
+    '   status: completed | planned | recurring | cancelled — from the',
+    '   user\'s wording. date_iso: YYYY-MM-DD only when the statement pins',
+    '   it; otherwise null — NEVER guess dates. turn_idxs: the [N] indexes',
+    '   attesting the entry. Mandatory.',
+    '',
+    'Return ONLY a JSON object (no prose):',
+    '{"identities":[{"name":"Jen","kind":"person","relation":"sister","aliases":["my sister"]}],',
+    ' "instances":[{"kind":"visit","entity":"Dr. Patel","description":"one line",',
+    '"date_iso":null,"status":"completed","qualifier":"visited","quantity":null,"turn_idxs":[0]}]}',
+    '',
+    'User statements:',
+    ...lines
+  ].join('\n');
+}
+
+function parseCombinedExtraction(text, turnCount) {
+  const out = { identities: [], instances: [], dropped: 0 };
+  const s = String(text || '');
+  const start = s.indexOf('{');
+  const end = s.lastIndexOf('}');
+  if (start < 0 || end <= start) return out;
+  let obj;
+  try { obj = JSON.parse(s.slice(start, end + 1)); } catch (_) { return out; }
+  if (!obj || typeof obj !== 'object') return out;
+  for (const row of (Array.isArray(obj.identities) ? obj.identities : [])) {
+    if (!row || typeof row !== 'object') { out.dropped++; continue; }
+    const name = String(row.name || '').trim();
+    if (!name || name.length < 2 || name.length > 80) { out.dropped++; continue; }
+    out.identities.push({
+      name,
+      kind: row.kind ? String(row.kind) : null,
+      relation: row.relation ? String(row.relation) : null,
+      aliases: Array.isArray(row.aliases) ? row.aliases.map(String).slice(0, 8) : []
+    });
+  }
+  _validateInstanceRows(Array.isArray(obj.instances) ? obj.instances : [], turnCount, out);
   return out;
 }
 
@@ -447,6 +511,8 @@ module.exports = {
   enabled,
   buildPrompt,
   parseExtraction,
+  buildCombinedPrompt,
+  parseCombinedExtraction,
   writeInstances,
   runPass,
   makeLlamacppExtractor,
