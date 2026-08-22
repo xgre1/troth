@@ -105,7 +105,7 @@ function dimStructuralAnchor(rec, ctx) {
 
 function dimSpecificity(rec) {
   if (!rec || !rec.output) return 0;
-  const stmt = String(rec.output.lesson_text || rec.output.statement || rec.output.summary || '');
+  const stmt = String(rec.output.text || rec.output.lesson_text || rec.output.statement || rec.output.summary || '');
   const len = stmt.length;
   if (len < 30)  return 0;
   if (len < 50)  return 0.4;

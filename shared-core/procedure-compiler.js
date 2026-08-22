@@ -195,6 +195,8 @@ function compileProcedure(pattern, opts) {
     cwd: opts.cwd || null,
     user_id: opts.user_id || 'default',
     parent_id: null,
+    memory_class: 'procedural',
+    audience: 'model_visible',
     input: {
       pattern_signature: pattern.signature,
       occurrences: pattern.occurrences,
