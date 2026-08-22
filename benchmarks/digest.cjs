@@ -46,6 +46,29 @@ function _cacheKey(turns) {
   return h.digest('hex');
 }
 
+// One session through extraction: prompt -> cache -> model -> parse.
+// Shared by digestHaystack and the extraction probe so both speak the same
+// prompt version and the same cache.
+async function extractSession(opts) {
+  const turns = opts.turns;
+  const llmCall = opts.llmCall;
+  const cacheDir = opts.cacheDir;
+  const stats = { cache_hit: false, extractor_call: false };
+  let raw = null;
+  const key = _cacheKey(turns);
+  const cachePath = cacheDir ? path.join(cacheDir, key + '.json') : null;
+  if (cachePath && fs.existsSync(cachePath)) {
+    try { raw = fs.readFileSync(cachePath, 'utf8'); stats.cache_hit = true; } catch (_) { raw = null; }
+  }
+  if (raw == null) {
+    raw = await llmCall(ic.buildCombinedPrompt(turns));
+    stats.extractor_call = true;
+    if (cachePath) { try { fs.writeFileSync(cachePath, String(raw)); } catch (_) {} }
+  }
+  const parsed = ic.parseCombinedExtraction(raw, turns.length);
+  return { raw: raw, parsed: parsed, stats: stats };
+}
+
 // Digest every session already ingested for agent_id. llmCall is injected:
 // the bench wires the studio extractor, tests wire a fixture.
 async function digestHaystack(opts) {
@@ -66,18 +89,10 @@ async function digestHaystack(opts) {
     const sessionId = entry[0];
     const turns = entry[1];
     stats.sessions++;
-    let raw = null;
-    const key = _cacheKey(turns);
-    const cachePath = cacheDir ? path.join(cacheDir, key + '.json') : null;
-    if (cachePath && fs.existsSync(cachePath)) {
-      try { raw = fs.readFileSync(cachePath, 'utf8'); stats.cache_hits++; } catch (_) { raw = null; }
-    }
-    if (raw == null) {
-      raw = await llmCall(ic.buildCombinedPrompt(turns));
-      stats.extractor_calls++;
-      if (cachePath) { try { fs.writeFileSync(cachePath, String(raw)); } catch (_) {} }
-    }
-    const parsed = ic.parseCombinedExtraction(raw, turns.length);
+    const ex = await extractSession({ turns: turns, llmCall: llmCall, cacheDir: cacheDir });
+    if (ex.stats.cache_hit) stats.cache_hits++;
+    if (ex.stats.extractor_call) stats.extractor_calls++;
+    const parsed = ex.parsed;
     stats.dropped += parsed.dropped;
 
     // Identities land FIRST: instance merging consults the registry.
@@ -113,4 +128,4 @@ async function digestHaystack(opts) {
   return stats;
 }
 
-module.exports = { digestHaystack: digestHaystack, PROMPT_VERSION: PROMPT_VERSION };
+module.exports = { digestHaystack: digestHaystack, extractSession: extractSession, PROMPT_VERSION: PROMPT_VERSION };
