@@ -1182,6 +1182,51 @@ function _parseTimeWindow(query, referenceTs) {
         }
       } catch (_) { /* instance sweep is additive — never fatal */ }
     }
+    // Continuation arm. A "what did you tell me / remind me what you said"
+    // question paraphrases the user's ASK, so retrieval lands on the ask
+    // turn — while the assistant's specific content (the names, the list,
+    // the text they want back) lives in the turns immediately AFTER it in
+    // the same session. For those questions, each retrieved dialogue turn
+    // pulls its next two session-neighbours, bounded and labeled like the
+    // window and sweep arms — never released into the general pool.
+    const _ssaShaped = /\b(what did you (say|tell|recommend|suggest|write)|you (told|gave|recommended|suggested|wrote) (me|us)|remind me (what|of the|about)|our (previous|last|earlier) (conversation|chat|discussion)|going back to our)\b/i.test(query);
+    if (_ssaShaped) {
+      try {
+        const seenCont = new Set(final.map((it) => it.id));
+        const added = [];
+        for (const it of final.slice(0, k)) {
+          const src = state.getAction(it.id);
+          if (!src || !src.session_id) continue;
+          let inp0 = null;
+          try { inp0 = typeof src.input === 'string' ? JSON.parse(src.input) : src.input; } catch (_) { continue; }
+          if (!inp0 || inp0.tool_name !== 'dialogue.turn') continue;
+          const next = state.queryActions({
+            type: 'tool_call', session_id: src.session_id,
+            since: src.timestamp + 1, limit: 2, order: 'asc'
+          }) || [];
+          for (const row of next) {
+            if (seenCont.has(row.id) || added.length >= 6) continue;
+            let inp = null, out = null;
+            try { inp = typeof row.input === 'string' ? JSON.parse(row.input) : row.input; } catch (_) { continue; }
+            if (!inp || inp.tool_name !== 'dialogue.turn') continue;
+            try { out = typeof row.output === 'string' ? JSON.parse(row.output) : row.output; } catch (_) { out = {}; }
+            const u = (inp.args && inp.args.user_text) || '';
+            const a = (out && out.assistant_text) || '';
+            if (!u && !a) continue;
+            seenCont.add(row.id);
+            added.push({
+              id: row.id,
+              ts: row.timestamp,
+              statement: (u ? 'user: ' + u : '') + (u && a ? ' / ' : '') + (a ? 'asst: ' + a : ''),
+              score: 0,
+              memory_class: row.memory_class || 'episodic',
+              source: 'dialogue-continuation'
+            });
+          }
+        }
+        for (const it of added) final.push(it);
+      } catch (_) { /* continuation arm is additive — never fatal */ }
+    }
     _triggerPLR(final);
     return final;
   }
