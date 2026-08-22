@@ -82,7 +82,8 @@ async function main() {
       const sessDateStr = (haystack_dates && haystack_dates[si]) || null;
       let sessTs = tsCursor;
       if (sessDateStr) {
-        const parsed = Date.parse(sessDateStr.replace(/\s*\([^)]*\)\s*/, ' '));
+        const _cleanDate = sessDateStr.replace(/\s*\([^)]*\)\s*/, ' ').trim();
+        const parsed = Date.parse(_cleanDate + ' UTC') || Date.parse(_cleanDate);
         if (!Number.isNaN(parsed)) sessTs = parsed;
       }
       // Pair consecutive user/assistant turns. LongMemEval sessions are
@@ -177,7 +178,8 @@ async function main() {
       embedding_host: host,
       reference_ts: (() => {
         if (!question_date) return undefined;
-        const p = Date.parse(String(question_date).replace(/\s*\([^)]*\)\s*/, ' '));
+        const _cleanQd = String(question_date).replace(/\s*\([^)]*\)\s*/, ' ').trim();
+        const p = Date.parse(_cleanQd + ' UTC') || Date.parse(_cleanQd);
         return Number.isNaN(p) ? undefined : p;
       })(),
     });

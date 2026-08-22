@@ -229,19 +229,48 @@ function composeAnswerPrompt(q, retrieved) {
     'Memory statements:\n' + mem + '\n\n' +
     (q.question_date ? 'Question asked on: ' + q.question_date + ' — compute any relative time (ago / since / between) from this date using the [dates] on the statements.\n' : '') +
     'Question: ' + q.question + '\n\n' +
-    (/\b(how many|how much|how often|total|count|number of)\b/i.test(q.question)
+    (/\b(how many|how much|how often|total|count|number of|order of|first to last|earliest to latest)\b/i.test(q.question)
       ? 'Work in two steps: first list every DISTINCT item or event that matches ' +
         'what the question counts (cite the statement number for each; merge ' +
-        'duplicates that refer to the same thing; skip anything the statements do ' +
-        'not support). Then give the final result on its own last line as: Answer: <value>'
+        'repeated MENTIONS of the same thing; skip anything the statements do ' +
+        'not support). Statements may contain a "user:" and an "asst:" half - ' +
+        'the assistant restating something the user already said is not a ' +
+        'separate instance, but a DISTINCT entity (a different name, specialty ' +
+        'or type) counts even when the assistant named it first, as long as ' +
+        'the user\'s own messages engage with it as theirs (booked it, used ' +
+        'it, visited it). ' +
+        'Count at the unit the question names: when one storyline leaves several ' +
+        'qualifying units (e.g. one item still to return AND another still to ' +
+        'pick up), count each unit separately. ' +
+        'When the question sets a time window (this year, last month, past N ' +
+        'weeks), place every candidate with the statement dates and drop the ' +
+        'ones outside the window before counting. ' +
+        'One occasion described across several statements is still ONE event: ' +
+        'combine statements that clearly refer to the same occasion instead ' +
+        'of treating the combination as unsupported. ' +
+        'Apply the question\'s own qualifier strictly to every candidate: an ' +
+        'event the user participated in is not one they "watched"; a project ' +
+        'they "worked on" or got congratulated about is not one they "led" ' +
+        'unless they say so. ' +
+        'Exclude a candidate ONLY when a statement explicitly states the ' +
+        'disqualifying fact; never exclude on an inferred possibility ("maybe ' +
+        'it was planned", "perhaps they never went") - when the statements ' +
+        'leave it uncertain, count it. ' +
+        'When mentions state INCREMENTS over time (e.g. wore them twice, then ' +
+        'once more, then three more times), add the increments up for the total. ' +
+        'Then give the final result on its own last line as: Answer: <value>'
       : q.question_type === 'knowledge-update'
       ? 'Work in two steps: first list EVERY dated value the statements give for ' +
         'the asked fact, oldest to newest (cite the statement number for each — ' +
         'include values stated in passing, e.g. "remember when..."). Then answer ' +
         'with the most recent value on its own last line as: Answer: <value>'
       : _pref
-      ? 'Answer the request directly, personalised to this user. No preamble.'
-      : 'Answer in one short sentence or phrase. No preamble.')
+      ? 'First find the preference or prior effort MOST specific to this exact ' +
+        'request and build the answer around it; then weave in the user\'s ' +
+        'other relevant preferences and constraints so each is acknowledged. ' +
+        'A generally personalised answer that ignores the one most on-point ' +
+        'preference is a miss. Personalised, no preamble.'
+      : 'Answer in one short sentence or phrase, using the user\'s own wording for the asked detail where the statements give it. Answer exactly what is asked - do not append extra items or alternatives. No preamble.')
   );
 }
 
@@ -416,6 +445,15 @@ async function main() {
   console.log('  embed:    ' + EMBED_HOST);
   console.log('  answer:   ' + ANSWER + (ANSWER === 'claude' && CLAUDE_MODEL ? ' (' + CLAUDE_MODEL + ')' : '') + '   judge: ' + (JUDGE === 'local' ? 'local@temp0 (' + JUDGE_HOST + ')' : PROVIDER + (PROVIDER === 'claude' && CLAUDE_MODEL ? ' (' + CLAUDE_MODEL + ')' : '')) + '   prompts: ' + JUDGE_PROMPTS_VERSION);
   console.log('');
+  try {
+    const _eh = await fetch(EMBED_HOST + '/health', { signal: AbortSignal.timeout(5000) });
+    if (!_eh.ok) throw new Error('health ' + _eh.status);
+  } catch (e) {
+    console.error('ABORT: embedder unreachable at ' + EMBED_HOST + ' (' + String(e.message || e) + ').');
+    console.error('A run without the dense arm silently measures lexical_fallback retrieval — a different system.');
+    console.error('Start the embedder, or pass --allow-degraded to run anyway.');
+    if (argVal('--allow-degraded', '') !== '1') process.exit(1);
+  }
 
   const rows = [];
   for (let i = 0; i < slice.length; i++) {
