@@ -262,6 +262,25 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-i
 .field input:hover { border-color: var(--glass-border-hover); }
 .field input:focus { border-color: rgba(255,255,255,0.2); background: rgba(255,255,255,0.04); }
 .field input::placeholder { color: var(--text-muted); opacity: 0.6; }
+/* The window a turn on this model is measured against, under the model box.
+   Amber when nothing published it and the number is an assumption. */
+.ctxwin { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-height: 13px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.04em; color: var(--text-muted); }
+@keyframes skl { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.skl { color: transparent !important; border-radius: 4px; background-image: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.10) 50%, rgba(255,255,255,0.04) 100%); background-size: 200% 100%; animation: skl 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .skl { animation: none; } }
+/* A refresh must not be felt. While a new period is on the wire the panel
+   dims for a moment instead of blinking back to placeholders. */
+#page-analytics { transition: opacity 0.18s ease; }
+#page-analytics.ana-loading { opacity: 0.55; }
+@media (prefers-reduced-motion: reduce) { #page-analytics { transition: none; } }
+/* The hovered day lifts to white; the rest of the chart stays where it was. */
+.daycol:hover .daybar { background: rgba(255,255,255,0.92) !important; }
+.daycol:hover .dayfill { background: #ffffff !important; opacity: 1 !important; }
+.ctxwin-assumed { color: var(--amber, #c89b3c); }
+.ctxwin button { background: none; border: 0; padding: 0; font: inherit; color: inherit; opacity: 0.7; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.ctxwin button:hover { opacity: 1; }
+.ctxwin input { background: rgba(255,255,255,0.02); border: 1px solid var(--glass-border); border-radius: var(--r-sm); color: var(--text); padding: 3px 7px; font: inherit; width: 12ch; outline: none; }
+.ctxwin input:focus { border-color: rgba(255,255,255,0.2); }
 
 /* Primary action — Bond-pledged border, no fill (motion
    appendix §3.4: lift is a fact, not a flourish — 1px translateY, Bond
@@ -675,7 +694,7 @@ body.op-on #op-row { color: var(--text-dim); }
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
       <div style="background:rgba(0,0,0,0.25);border-radius:10px;padding:18px;">
         <div id="ph-saved" style="font-size:24px;font-weight:600;color:var(--text);">&mdash;</div>
-        <div style="font-size:10px;color:var(--text-muted);margin-top:6px;">tokens saved · 7 days</div>
+        <div id="ph-used" style="font-size:10px;color:var(--text-muted);margin-top:6px;">tokens saved · 7 days</div>
       </div>
       <div style="background:rgba(0,0,0,0.25);border-radius:10px;padding:18px;">
         <div id="ph-memories" style="font-size:24px;font-weight:600;color:var(--text);">&mdash;</div>
@@ -1979,7 +1998,7 @@ setInterval(function(){
   <!-- Hero stats: $ saved is the primary signal — bumped to first slot in
        green so the marketing-relevant number lands first. The detail line
        under each metric stays muted. -->
-  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0 16px;">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin:18px 0 16px;">
     <div style="position:relative;z-index:45;padding:18px 20px;background:var(--bg-card);border:1px solid var(--bond-muted);border-radius:12px;">
       <!-- Label updated dynamically by renderAnalytics so it names the actual
            baseline model troth is comparing against (Opus / Sonnet /
@@ -1995,48 +2014,82 @@ setInterval(function(){
       <div id="ana-usd-detail" style="display:none;position:absolute;left:14px;right:14px;top:calc(100% - 6px);z-index:40;background:#0e0f12;border:1px solid var(--glass-border);border-radius:10px;padding:10px 14px;font-size:10.5px;color:var(--text-dim);line-height:1.8;box-shadow:0 14px 34px rgba(0,0,0,0.55);"></div>
     </div>
     <div style="padding:18px 20px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-muted);">Tokens saved</div>
-      <div id="ana-tokens-saved" style="font-size:24px;font-weight:600;color:var(--text);margin-top:6px;">—</div>
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-muted);">You were charged</div>
+      <div id="ana-total-cost" style="font-size:24px;font-weight:600;color:var(--text);margin-top:6px;">—</div>
+      <div id="ana-total-cost-note" style="font-size:10px;color:var(--text-muted);margin-top:4px;"></div>
     </div>
     <div style="padding:18px 20px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-muted);">Saved vs API rates</div>
-      <div id="ana-savings-pct" style="font-size:24px;font-weight:600;margin-top:6px;">—</div>
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-muted);">Saved by troth</div>
+      <div id="ana-tokens-saved" style="font-size:24px;font-weight:600;color:var(--text);margin-top:6px;">—</div>
+      <div id="ana-saved-share" style="font-size:10px;color:var(--text-muted);margin-top:4px;"></div>
     </div>
     <div style="padding:18px 20px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;">
       <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--text-muted);">Requests routed</div>
       <div id="ana-requests" style="font-size:24px;font-weight:600;margin-top:6px;">—</div>
+      <div id="ana-requests-note" style="font-size:10px;color:var(--text-muted);margin-top:4px;"></div>
     </div>
   </div>
 
-  <!-- By surface -->
+  <div style="padding:16px 18px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;margin-bottom:14px;">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px;">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);">Traffic with and without troth</div>
+      <div id="ana-flow-total" style="font-family:var(--mono);font-size:10px;color:var(--text-muted);"></div>
+    </div>
+    <div id="ana-flow-bar"></div>
+    <div id="ana-flow-legend" style="margin-top:14px;font-size:11px;color:var(--text-dim);"></div>
+  </div>
+
+  <div style="position:relative;padding:14px 18px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;margin-bottom:14px;">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px;">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);">Per day</div>
+      <div id="ana-daily-legend" style="font-size:10px;color:var(--text-muted);"></div>
+    </div>
+    <div id="ana-daily" style="display:flex;align-items:flex-end;gap:3px;height:90px;"></div>
+    <div id="ana-daily-tip" style="display:none;position:absolute;z-index:60;min-width:190px;padding:10px 12px;background:#0e0f12;border:1px solid var(--glass-border);border-radius:8px;box-shadow:0 14px 34px rgba(0,0,0,0.55);pointer-events:none;"></div>
+    <div id="ana-daily-axis" style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:9px;color:var(--text-muted);margin-top:6px;"></div>
+  </div>
+
   <div style="padding:14px 18px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;margin-bottom:14px;">
     <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:10px;">By surface</div>
     <table id="ana-surfaces-table" style="width:100%;border-collapse:collapse;font-size:11px;">
       <thead>
         <tr style="color:var(--text-muted);text-align:left;border-bottom:1px solid var(--border);">
-          <th>Surface</th>
+          <th></th>
           <th class="num">Events</th>
-          <th class="num">Tokens / metric</th>
-          <th class="num">Notes</th>
+          <th class="num">Tokens kept out</th>
+          <th class="num">Rate</th>
         </tr>
       </thead>
       <tbody id="ana-surfaces-body"></tbody>
     </table>
   </div>
 
-  <!-- Performance + Health + Providers -->
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+  <div style="padding:14px 18px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;margin-bottom:14px;">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);">Engines used</div>
+      <div id="ana-providers-note" style="font-family:var(--mono);font-size:10px;color:var(--text-muted);"></div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;">
+      <thead>
+        <tr style="color:var(--text-muted);text-align:left;border-bottom:1px solid var(--border);">
+          <th>Model</th>
+          <th class="num">Requests</th>
+          <th class="num">Charged</th>
+          <th class="num">At API rates</th>
+        </tr>
+      </thead>
+      <tbody id="ana-providers"></tbody>
+    </table>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
     <div style="padding:14px 18px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;">
       <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:10px;">Performance</div>
       <div id="ana-performance" style="font-size:11px;color:var(--text-dim);">—</div>
     </div>
     <div style="padding:14px 18px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:10px;">Health</div>
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:10px;">Engine failures</div>
       <div id="ana-health" style="font-size:11px;color:var(--text-dim);">—</div>
-    </div>
-    <div style="padding:14px 18px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:10px;">Providers ($ this window)</div>
-      <div id="ana-providers" style="font-size:11px;color:var(--text-dim);">—</div>
     </div>
   </div>
 </div>
@@ -2181,155 +2234,361 @@ function toggleUsdInfo(ev){
 // (The Telemetry explainer now opens inline on Settings — the breath —
 // instead of a floating popover.)
 
+// One refresh must not be felt. Every write on this page goes through these
+// two: text lands only when it differs, markup only when its data signature
+// moves. A tick where nothing changed touches no node at all.
+window.__anaSig = window.__anaSig || {};
+function anaText(el, v) {
+  if (el && el.textContent !== v) el.textContent = v;
+}
+function anaHtml(el, key, html) {
+  if (!el || window.__anaSig[key] === html) return false;
+  window.__anaSig[key] = html;
+  el.innerHTML = html;
+  return true;
+}
+function anaDrop(el, cls) {
+  if (el && el.classList.contains(cls)) el.classList.remove(cls);
+}
+
 function loadAnalytics(){
   var winSel = document.getElementById('analytics-window');
   var w = winSel ? winSel.value : 'today';
+  // The shimmer belongs only to a tile that has never held a number. Changing
+  // the period keeps the figures already on screen and dims them, so nothing
+  // ever blinks back to a placeholder mid-read.
+  var periodChanged = window.__anaShownFor !== w;
+  window.__anaShownFor = w;
+  var anaPage = document.getElementById('page-analytics');
+  if (periodChanged && anaPage) anaPage.classList.add('ana-loading');
+  ['ana-usd-saved','ana-total-cost','ana-tokens-saved','ana-requests'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el || el.classList.contains('skl')) return;
+    var t = (el.textContent || '').trim();
+    if (t === '' || t === '—') { el.textContent = '000,000'; el.classList.add('skl'); }
+  });
+  ['ana-surfaces-body','ana-providers'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el || el.children.length) return;
+    var html = '';
+    for (var i = 0; i < 4; i++) {
+      html += '<tr><td colspan="4" style="padding:7px 0;"><span class="skl">' +
+        'placeholder row for the loading state</span></td></tr>';
+    }
+    el.innerHTML = html;
+  });
+  // Ticks can overlap when the backend is slow. Only the newest answer is
+  // allowed to paint, so a late one never drags the numbers backwards.
+  var seq = (window.__anaSeq = (window.__anaSeq || 0) + 1);
   fetch('/api/analytics?window=' + encodeURIComponent(w))
     .then(function(r){ return r.json(); })
     .then(function(d){
-      // Hero. The priced set: tokens kept out of the model's context (cache
-      // hits, context work, archived output). Fall back to the ledger total
-      // only for an un-restarted proxy that lacks the billable field.
-      var tokSaved = (d.overview && typeof d.overview.tokens_saved_billable === 'number')
-                     ? d.overview.tokens_saved_billable
-                     : ((d.overview && d.overview.tokens_saved_total) || 0);
-      // One set of tokens, one valuation: this headline counts the same set
-      // the $ tile prices — tokens kept out of the model's context. The raw
-      // ledger total (cache writes and counters included) rides the tooltip.
-      var tokTotalEl = document.getElementById('ana-tokens-saved');
-      if (tokTotalEl && d.overview && typeof d.overview.tokens_saved_total === 'number') {
-        var _tt = tokSaved > 0 ? tokSaved : d.overview.tokens_saved_total;
-        tokTotalEl.textContent = _tt >= 1e6 ? (_tt / 1e6).toFixed(1) + 'M' : _tt.toLocaleString();
-        tokTotalEl.title = 'kept out of the context window · ledger total ' +
-          d.overview.tokens_saved_total.toLocaleString() + ' incl. cache writes';
-      }
-      var tokEl = document.createElement('span'); // legacy writer lands off-DOM
-      tokEl.textContent = tokSaved.toLocaleString();
-      tokEl.style.color = tokSaved > 0 ? 'var(--green,#C7D2E0)' : 'var(--text-muted)';
-      var usdSaved = (d.overview && d.overview.estimated_usd_saved) || 0;
-      var usdEl    = document.getElementById('ana-usd-saved');
-      var labelEl  = document.getElementById('ana-usd-label');
-      var reqs     = (d.overview && d.overview.requests_billed) || 0;
-      // COMBINED savings: router arbitrage (baseline_cost_events
-      // diff) + cache/context savings (tokens_saved × baseline_model rate).
-      // They don't overlap: arbitrage = cheaper model picked for an executed
-      // request; cache = request never reached upstream. Adding tells the
-      // truth. Either source on its own can be the only signal.
-      //
-      // Fallback: if the proxy hasn't been restarted since the
-      // tokens_saved_usd_equiv field was added, compute it client-side
-      // from tokens_saved_total × default Sonnet 4.6 input rate ($3/1M).
-      var tokSavedHero  = tokSaved;  // honest billable count (see above)
-      var tokEquivSrv   = (d.overview && d.overview.tokens_saved_usd_equiv);
-      var tokEquiv      = (typeof tokEquivSrv === 'number' && tokEquivSrv > 0)
-                          ? tokEquivSrv
-                          : (tokSavedHero / 1000000) * 3;   // conservative fallback
-      var baselineModel = (d.overview && d.overview.tokens_saved_baseline_model) || 'claude-sonnet-4.6';
-      var rIn  = (d.overview && d.overview.tokens_saved_baseline_rate_input_per_1m)  || 3;
-      var rOut = (d.overview && d.overview.tokens_saved_baseline_rate_output_per_1m) || 15;
-      // Tiny-billing threshold so micro-rounding from baseline_cost_events
-      // doesn't dominate the display.
-      var hasBilling = usdSaved >= 0.0001;
-      var hasCache   = tokEquiv  >= 0.0001;
-      var combined   = (hasBilling ? usdSaved : 0) + (hasCache ? tokEquiv : 0);
+      if (seq !== window.__anaSeq) return;
+      // classList.remove rewrites the attribute even when the class was never
+      // there, so a settled tick would still register as a DOM change. Ask first.
+      anaDrop(anaPage, 'ana-loading');
+      ['ana-usd-saved','ana-total-cost','ana-tokens-saved','ana-requests'].forEach(function (id) {
+        anaDrop(document.getElementById(id), 'skl');
+      });
+      var o = d.overview || {};
+      var fTok = function (n) {
+        n = n || 0;
+        return n >= 1e9 ? (n / 1e9).toFixed(2) + 'B'
+             : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M'
+             : n >= 1e3 ? Math.round(n / 1e3) + 'k'
+             : String(n);
+      };
+      var fUsd = function (n) {
+        n = n || 0;
+        if (n >= 1000) return '$' + Math.round(n).toLocaleString();
+        if (n >= 1) return '$' + n.toFixed(2);
+        if (n > 0) return '$' + n.toFixed(n >= 0.01 ? 2 : 4);
+        return '$0';
+      };
 
-      var detailParts = [];
-      if (hasBilling) {
-        detailParts.push(
-          'engines $' + usdSaved.toFixed(2) + ' avoided · ' + reqs + ' requests'
-        );
-      }
-      if (hasCache) {
-        // The rate label names the model whose rates priced the saving —
-        // one model in the window names itself; a mix gets per-model lines.
-        var byModel = (d.overview && d.overview.tokens_saved_by_model) || {};
-        var modelNames = Object.keys(byModel);
-        var shortModel = function (m) {
-          var s = String(m || '');
-          if (/fable/.test(s)) return 'Fable';
-          if (/opus/.test(s)) return 'Opus';
-          if (/sonnet/.test(s)) return 'Sonnet';
-          if (/haiku/.test(s)) return 'Haiku';
-          return s.replace(/^claude-/, '');
-        };
-        var rateLabel = modelNames.length === 1
-          ? 'at ' + shortModel(modelNames[0]) + ' API rates'
-          : 'at each model\'s API rate';
-        detailParts.push(
-          'context & cache ~$' + tokEquiv.toFixed(2) + ' · ' + tokSavedHero.toLocaleString() + ' tokens kept out of the window · ' + rateLabel
-        );
-        if (modelNames.length > 1) {
-          modelNames.sort(function (a, b) { return byModel[b].usd - byModel[a].usd; });
-          for (var mi = 0; mi < modelNames.length && mi < 4; mi++) {
-            var bm = byModel[modelNames[mi]];
-            detailParts.push(shortModel(modelNames[mi]) + ' ~$' + bm.usd.toFixed(2) + ' · ' +
-              (bm.tokens >= 1e6 ? (bm.tokens / 1e6).toFixed(1) + 'M' : bm.tokens.toLocaleString()) + ' tokens');
-          }
-        }
-      }
+      var paid       = o.actual_usd_spent || 0;
+      var atApi      = o.api_cost_total || 0;
+      var cacheSaved = o.cache_saving_usd || 0;
+      var keptUsd    = o.tokens_saved_usd_equiv || 0;
+      var planSaved  = Math.max(0, atApi - paid);
+      var totalSaved = Math.max(0, atApi - paid);
+      var wouldCost  = atApi;
+      var naiveSaved = (typeof o.total_saved_usd === 'number') ? o.total_saved_usd : (totalSaved + cacheSaved);
+      var tokKeptOut = (typeof o.tokens_saved_billable === 'number')
+        ? o.tokens_saved_billable
+        : (o.tokens_saved_total || 0);
+      var used       = o.tokens_used_total || 0;
+      var cachedTok  = o.tokens_used_cached || 0;
+      var freshTok   = Math.max(0, (o.tokens_used_input || 0) - cachedTok) + (o.tokens_used_output || 0);
+      var reqs       = o.requests_billed || 0;
 
+      var usdEl   = document.getElementById('ana-usd-saved');
+      var labelEl = document.getElementById('ana-usd-label');
       var usdInfo = document.getElementById('ana-usd-info');
       var usdDet  = document.getElementById('ana-usd-detail');
-      if (combined > 0) {
-        // A clean dollar figure — whole dollars once past $100. The
-        // at-API-rates qualifier lives in the ⓘ split, not on the number.
-        usdEl.textContent = '$' +
-          (combined >= 100 ? Math.round(combined).toLocaleString() : combined.toFixed(2));
-        usdEl.style.color = 'var(--green,#C7D2E0)';
-        if (labelEl) labelEl.textContent = '$ saved';
-        // The split lives behind the ⓘ — hover shows it, click pins it.
-        if (usdDet) {
-          usdDet.innerHTML = detailParts.map(function(p){ return '<div>' + p + '</div>'; }).join('');
-          usdDet.style.display = 'none';
+      anaText(labelEl, '$ saved');
+      if (usdEl) {
+        anaText(usdEl, totalSaved > 0 ? fUsd(totalSaved) : '—');
+        var usdColor = totalSaved > 0 ? 'var(--green,#C7D2E0)' : 'var(--text-muted)';
+        if (usdEl.style.color !== usdColor) usdEl.style.color = usdColor;
+      }
+      var detailParts = [];
+      detailParts.push(fUsd(atApi) + ' · the same traffic bought per token, cache reads priced as cache reads');
+      detailParts.push(fUsd(paid) + ' · what you were actually charged');
+      if (keptUsd > 0) detailParts.push(fUsd(keptUsd) + ' · of that never sent at all, ' + fTok(tokKeptOut) + ' tokens');
+      detailParts.push('<div style="border-top:1px solid var(--glass-border);margin:6px 0 4px;"></div>');
+      if (cacheSaved > 0) {
+        detailParts.push('<span style="color:var(--text-muted);">' + fUsd(naiveSaved) +
+          ' against a baseline with no caching at all. Not used here: nobody runs ' +
+          'long sessions uncached, so it flatters the number.</span>');
+      }
+      // The popover is the operator's to open and close. A refresh rewrites what
+      // is inside it only when the split actually moved, and never shuts it.
+      anaHtml(usdDet, 'usdDetail', detailParts.map(function (p) { return '<div>' + p + '</div>'; }).join(''));
+      if (usdInfo) {
+        var infoVis = totalSaved > 0 ? '' : 'none';
+        if (usdInfo.style.display !== infoVis) usdInfo.style.display = infoVis;
+      }
+
+      var costEl = document.getElementById('ana-total-cost');
+      var costNote = document.getElementById('ana-total-cost-note');
+      anaText(costEl, fUsd(paid));
+      anaText(costNote, 'of ' + fUsd(wouldCost) + ' at API prices');
+
+      var removed = o.tokens_removed || tokKeptOut;
+      var carried = o.tokens_removed_carried || removed;
+      var turnsAvg = o.removal_turns_avg || 0;
+      var sentTok = cachedTok + freshTok;
+      var wouldSend = sentTok + carried;
+
+      var keptEl = document.getElementById('ana-tokens-saved');
+      var keptNote = document.getElementById('ana-saved-share');
+      anaText(keptEl, carried > 0 ? fTok(carried) : '—');
+      if (keptNote) {
+        anaText(keptNote, wouldSend > 0
+          ? (carried / wouldSend * 100).toFixed(0) + '% of the traffic, never sent'
+          : '');
+        var keptTitle = fTok(removed) + ' taken out of the window in ' +
+          (o.removal_events || 0).toLocaleString() + ' places\n' +
+          'each stayed out for about ' + turnsAvg + ' turns, until the conversation compacted';
+        if (keptNote.title !== keptTitle) keptNote.title = keptTitle;
+      }
+
+      var flowBar = document.getElementById('ana-flow-bar');
+      var flowLeg = document.getElementById('ana-flow-legend');
+      var flowTot = document.getElementById('ana-flow-total');
+      anaText(flowTot, wouldSend > 0 ? (carried / wouldSend * 100).toFixed(0) + '% lighter' : '');
+      if (flowBar) {
+        // Built once, then only the widths and the numbers move. A bar that
+        // eases to its new length reads as the same bar, not as a new one.
+        if (!flowBar._rows) {
+          flowBar.textContent = '';
+          flowBar._rows = [];
+          var mk = function (label, shade, note) {
+            var wrap = document.createElement('div');
+            wrap.style.cssText = 'display:flex;align-items:center;gap:12px;margin-bottom:8px;';
+            var name = document.createElement('span');
+            name.style.cssText = 'width:150px;flex:none;font-size:11px;color:var(--text-dim);';
+            name.textContent = label;
+            var track = document.createElement('div');
+            track.style.cssText = 'flex:1;height:22px;background:rgba(255,255,255,0.03);border-radius:4px;overflow:hidden;';
+            var fill = document.createElement('div');
+            fill.style.cssText = 'height:100%;width:0;background:' + shade +
+              ';border-radius:4px;transition:width 0.45s cubic-bezier(0.22,1,0.36,1);';
+            track.appendChild(fill);
+            var num = document.createElement('span');
+            num.style.cssText = 'width:86px;flex:none;text-align:right;font-family:var(--mono);font-size:13px;color:var(--text);';
+            wrap.title = note;
+            wrap.appendChild(name); wrap.appendChild(track); wrap.appendChild(num);
+            flowBar.appendChild(wrap);
+            flowBar._rows.push({ fill: fill, num: num });
+          };
+          mk('without troth', 'rgba(255,255,255,0.14)',
+            'what these sessions would have sent if nothing was ever taken out of the window');
+          mk('actually sent', 'var(--chrome,#A8B5C7)', 'what really went to a model');
         }
-        if (usdInfo) { usdInfo.style.display = ''; usdInfo.title = detailParts.join('\n'); }
-      } else {
-        if (labelEl) labelEl.textContent = '$ saved';
-        usdEl.textContent = '—';
-        usdEl.style.color = 'var(--text-muted)';
-        if (usdInfo) usdInfo.style.display = 'none';
-        if (usdDet) {
-          usdDet.style.display = '';
-          usdDet.textContent = 'no proxy requests + no cache savings in this window yet';
+        var flowVals = [wouldSend, sentTok];
+        for (var fi = 0; fi < flowBar._rows.length; fi++) {
+          // Rounded so the string is stable across ticks and CSSOM does not
+          // hand back a re-serialised value that never compares equal.
+          var fw = (wouldSend > 0 ? (flowVals[fi] / wouldSend * 100) : 0).toFixed(2) + '%';
+          if (flowBar._rows[fi].fill.style.width !== fw) flowBar._rows[fi].fill.style.width = fw;
+          anaText(flowBar._rows[fi].num, fTok(flowVals[fi]));
         }
       }
-      var pct = (d.overview && d.overview.savings_percent) || 0;
-      var pctEl = document.getElementById('ana-savings-pct');
-      pctEl.textContent = pct + '%';
-      pctEl.style.color = pct > 0 ? 'var(--green,#C7D2E0)' : 'var(--text-muted)';
-      document.getElementById('ana-requests').textContent = (d.overview && d.overview.requests_billed) || 0;
+      if (flowLeg) {
+        var lines = [
+          ['served from cache', cachedTok, sentTok, 'sent, but not recomputed'],
+          ['computed', freshTok, sentTok, 'processed at full price'],
+          ['never sent', carried, wouldSend, 'troth took it out and it stayed out for ~' + turnsAvg + ' turns']
+        ];
+        if (!flowLeg._rows) {
+          flowLeg.textContent = '';
+          flowLeg._rows = [];
+          for (var q = 0; q < lines.length; q++) {
+            var lr = document.createElement('div');
+            lr.style.cssText = 'display:flex;align-items:baseline;gap:12px;padding:2px 0;';
+            var a1 = document.createElement('span');
+            a1.style.cssText = 'width:150px;flex:none;color:var(--text);';
+            var a2 = document.createElement('span');
+            a2.style.cssText = 'font-family:var(--mono);width:86px;flex:none;';
+            var a3 = document.createElement('span');
+            a3.style.cssText = 'font-family:var(--mono);width:56px;flex:none;color:var(--text-muted);';
+            var a4 = document.createElement('span');
+            a4.style.cssText = 'color:var(--text-muted);';
+            lr.appendChild(a1); lr.appendChild(a2); lr.appendChild(a3); lr.appendChild(a4);
+            flowLeg.appendChild(lr);
+            flowLeg._rows.push([a1, a2, a3, a4]);
+          }
+        }
+        for (var lq = 0; lq < lines.length; lq++) {
+          var cells = flowLeg._rows[lq];
+          anaText(cells[0], lines[lq][0]);
+          anaText(cells[1], fTok(lines[lq][1]));
+          anaText(cells[2], lines[lq][2] > 0 ? (lines[lq][1] / lines[lq][2] * 100).toFixed(1) + '%' : '');
+          anaText(cells[3], lines[lq][3]);
+        }
+      }
 
-      // Surfaces table
-      var tbody = document.getElementById('ana-surfaces-body');
+      var reqEl = document.getElementById('ana-requests');
+      var reqNote = document.getElementById('ana-requests-note');
+      anaText(reqEl, reqs.toLocaleString());
+      if (reqNote) {
+        var errTotal = 0;
+        var _eb = (d.health && d.health.errors_by_module) || {};
+        for (var _ek in _eb) errTotal += (_eb[_ek].total || 0);
+        anaText(reqNote, errTotal > 0 ? errTotal.toLocaleString() + ' failed and retried' : '');
+      }
+
+      var dayEl = document.getElementById('ana-daily');
+      var axisEl = document.getElementById('ana-daily-axis');
+      var legEl = document.getElementById('ana-daily-legend');
+      var days = d.daily || [];
+      window.__anaSig = window.__anaSig || {};
+      var daysSig = JSON.stringify(days);
+      if (dayEl && window.__anaSig.daily === daysSig) dayEl = null;
+      else window.__anaSig.daily = daysSig;
+      if (dayEl) {
+        var reuseCols = dayEl.children.length === days.length && days.length > 0;
+        if (!reuseCols) dayEl.textContent = '';
+        if (!days.length) {
+          dayEl.innerHTML = '<span style="font-size:11px;color:var(--text-muted)">nothing recorded in this window</span>';
+          if (axisEl) axisEl.textContent = '';
+          if (legEl) legEl.textContent = '';
+        } else {
+          var peak = 0;
+          for (var di = 0; di < days.length; di++) {
+            var tot = (days[di].tokens_in || 0) + (days[di].tokens_out || 0);
+            if (tot > peak) peak = tot;
+          }
+          for (var dj = 0; dj < days.length; dj++) {
+            var pt = days[dj];
+            var existing = reuseCols ? dayEl.children[dj] : null;
+            var sent = (pt.tokens_in || 0) + (pt.tokens_out || 0);
+            var fresh = Math.max(0, (pt.tokens_in || 0) - (pt.tokens_cached || 0)) + (pt.tokens_out || 0);
+            var cachedDay = pt.tokens_cached || 0;
+            var keptDay = pt.tokens_saved || 0;
+            var h = peak > 0 ? Math.max(2, Math.round(sent / peak * 84)) : 2;
+            var hFresh = sent > 0 ? Math.max(1, Math.round(h * (fresh / sent))) : 1;
+            var col = existing || document.createElement('div');
+            col.className = 'daycol';
+            col.style.cssText = 'flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:84px;cursor:default;';
+            col.removeAttribute('title');
+            col._d = {
+              date: pt.date, requests: pt.requests || 0, sent: sent,
+              cached: cachedDay, fresh: fresh, kept: keptDay
+            };
+            var bar = (existing && existing.firstChild) || document.createElement('div');
+            bar.className = 'daybar';
+            bar.style.cssText = 'height:' + h + 'px;background:rgba(255,255,255,0.10);border-radius:2px 2px 0 0;position:relative;transition:background 0.12s;';
+            var inner = (bar.firstChild) || document.createElement('div');
+            inner.className = 'dayfill';
+            inner.style.cssText = 'position:absolute;bottom:0;left:0;right:0;height:' + hFresh + 'px;background:var(--chrome,#A8B5C7);opacity:0.85;border-radius:2px 2px 0 0;transition:background 0.12s,opacity 0.12s;';
+            if (!inner.parentNode) bar.appendChild(inner);
+            if (!bar.parentNode) col.appendChild(bar);
+            if (!existing) dayEl.appendChild(col);
+          }
+          if (axisEl) {
+            axisEl.textContent = '';
+            var first = document.createElement('span'); first.textContent = days[0].date.slice(5);
+            var last = document.createElement('span'); last.textContent = days[days.length - 1].date.slice(5);
+            axisEl.appendChild(first); axisEl.appendChild(last);
+          }
+          if (legEl) legEl.textContent = 'bar = tokens sent · solid = actually computed';
+        }
+      }
+
+      var chartHost = document.getElementById('ana-daily');
+      var tipEl = document.getElementById('ana-daily-tip');
+      if (chartHost && tipEl && !chartHost._tipWired) {
+        chartHost._tipWired = true;
+        var tipRow = function (label, value, muted) {
+          return '<div style="display:flex;justify-content:space-between;gap:18px;padding:1px 0;">' +
+            '<span style="color:' + (muted ? 'var(--text-muted)' : 'var(--text-dim)') + ';">' + label + '</span>' +
+            '<span style="font-family:var(--mono);color:' + (muted ? 'var(--text-dim)' : 'var(--text)') + ';">' + value + '</span></div>';
+        };
+        chartHost.addEventListener('mouseover', function (ev) {
+          var col = ev.target.closest ? ev.target.closest('.daycol') : null;
+          if (!col || !col._d) return;
+          var v = col._d;
+          var pct = v.sent > 0 ? (v.cached / v.sent * 100).toFixed(1) : '0';
+          tipEl.innerHTML =
+            '<div style="font-family:var(--mono);font-size:11px;color:var(--text);margin-bottom:8px;">' + v.date + '</div>' +
+            '<div style="font-size:11px;">' +
+              tipRow('sent', fTok(v.sent)) +
+              tipRow('from cache', fTok(v.cached) + ' · ' + pct + '%', true) +
+              tipRow('computed', fTok(v.fresh), true) +
+              '<div style="border-top:1px solid var(--glass-border);margin:6px 0;"></div>' +
+              tipRow('kept out', fTok(v.kept)) +
+              tipRow('requests', v.requests.toLocaleString(), true) +
+            '</div>';
+          var hostBox = chartHost.parentNode.getBoundingClientRect();
+          var colBox = col.getBoundingClientRect();
+          tipEl.style.display = 'block';
+          var left = colBox.left - hostBox.left + colBox.width / 2 - tipEl.offsetWidth / 2;
+          left = Math.max(8, Math.min(left, hostBox.width - tipEl.offsetWidth - 8));
+          tipEl.style.left = left + 'px';
+          tipEl.style.top = (colBox.top - hostBox.top - tipEl.offsetHeight - 8) + 'px';
+        });
+        chartHost.addEventListener('mouseleave', function () { tipEl.style.display = 'none'; });
+      }
+
+      var surfSig = JSON.stringify(d.surfaces || {});
+      var tbody = (window.__anaSig.surfaces === surfSig) ? null : document.getElementById('ana-surfaces-body');
+      window.__anaSig.surfaces = surfSig;
       var rows = '';
       var s = d.surfaces || {};
       function row(name, events, tokens, notes){
+        var tokCell = (tokens === '' || tokens == null || tokens === 0)
+          ? '<span style="color:var(--text-muted);">·</span>'
+          : Number(tokens).toLocaleString();
         rows += '<tr style="border-bottom:1px solid var(--border);">' +
           '<td style="padding:6px 0;color:var(--text);">' + name + '</td>' +
           '<td style="padding:6px 8px;text-align:right;">' + (events||0).toLocaleString() + '</td>' +
-          '<td style="padding:6px 8px;text-align:right;">' + (tokens||0).toLocaleString() + '</td>' +
+          '<td style="padding:6px 8px;text-align:right;">' + tokCell + '</td>' +
           '<td style="padding:6px 8px;text-align:right;color:var(--text-muted);">' + (notes||'') + '</td>' +
         '</tr>';
       }
-      if (s.proxy_cache) row('Proxy cache', s.proxy_cache.hits, s.proxy_cache.tokens_saved,
-        'hit rate ' + Math.round((s.proxy_cache.hit_rate||0)*100) + '%');
+      if (s.proxy_cache) row('Proxy cache', s.proxy_cache.hits, s.proxy_cache.tokens_saved, '');
       if (s.mcp_cache) {
         for (var tool in s.mcp_cache) {
           var m = s.mcp_cache[tool];
           var MCP_NAMES = { cached_grep: 'MCP grep cache', cached_read: 'MCP read cache' };
           row(MCP_NAMES[tool] || ('MCP ' + tool.replace(/_/g, ' ')), m.calls, m.bytes,
-            'hit ' + Math.round((m.hit_rate||0)*100) + '% · p50 ' + m.p50_latency_ms + 'ms · err ' + m.errors);
+            Math.round((m.hit_rate || 0) * 100) + '% hit');
         }
       }
       if (s.context_filter) row('Context filter', s.context_filter.events, s.context_filter.tokens_saved, '');
-      if (s.compaction) row('Compaction events', s.compaction.events, '', '');
+      if (s.bash_compression) row('Bash compression', s.bash_compression.events, s.bash_compression.bytes_saved, '');
+      if (s.output_archive) row('Output archive', s.output_archive.events, s.output_archive.bytes_archived, '');
+      rows += '<tr><td colspan="4" style="padding:14px 0 6px;font-size:10px;text-transform:uppercase;' +
+        'letter-spacing:1px;color:var(--text-muted);">Guardrails, counted in events</td></tr>';
+      if (s.compaction) row('Working-set evictions', s.compaction.events, '', '');
+      if (s.hashline) row('Hashline edits', s.hashline.edits_applied, '', '');
       if (s.editmatch) row('Editmatch rescues', s.editmatch.rescues, '', '');
       if (s.loopbreaker) row('Loopbreaker catches', s.loopbreaker.catches, '', '');
-      if (s.hashline) row('Hashline edits', s.hashline.edits_applied, '', '');
-      if (s.bash_compression) row('Bash compression', s.bash_compression.events, s.bash_compression.bytes_saved, 'bytes');
-      if (s.output_archive) row('Output archive', s.output_archive.events, s.output_archive.bytes_archived, 'bytes');
       if (s.verifyfirst) row('Verifyfirst blocks', s.verifyfirst.blocks, '', '');
-      tbody.innerHTML = rows || '<tr><td colspan="4" style="padding:12px 0;color:var(--text-muted);">No activity in this window.</td></tr>';
+      if (tbody) tbody.innerHTML = rows || '<tr><td colspan="4" style="padding:12px 0;color:var(--text-muted);">No activity in this window.</td></tr>';
 
       // Performance
       var perfEl = document.getElementById('ana-performance');
@@ -2345,62 +2604,95 @@ function loadAnalytics(){
         '<span>Miss p95</span><span>' + (perf.cache_miss_p95_ms || 0) + 'ms</span></div>';
       perfHtml += '<div style="font-size:10px;color:var(--text-muted);margin-top:6px;">samples: ' +
         (perf.hit_samples || 0) + ' hits / ' + (perf.miss_samples || 0) + ' misses</div>';
-      perfEl.innerHTML = perfHtml;
+      anaHtml(perfEl, 'perf', perfHtml);
 
-      // Health
       var hEl = document.getElementById('ana-health');
-      var degraded = (d.health && d.health.degraded) || [];
       var errors = (d.health && d.health.errors_by_module) || {};
       var errKeys = Object.keys(errors);
       var hHtml = '';
-      if (degraded.length === 0 && errKeys.length === 0) {
-        hHtml = '<span style="color:var(--green,#C7D2E0)">● All healthy</span>';
+      if (!errKeys.length) {
+        hHtml = '<span style="color:var(--green,#C7D2E0)">● every request answered on its first engine</span>';
       } else {
-        if (degraded.length) {
-          var healthLine = function (metric, value, threshold) {
-            var m;
-            if ((m = metric.match(/^mcp_cache\.([a-z_]+)\.hit_rate$/)))
-              return (m[1] === 'cached_grep' ? 'grep' : m[1] === 'cached_read' ? 'read' : m[1].replace(/_/g, ' ')) +
-                ' cache hits ' + Math.round(value * 100) + '% · want ≥' + Math.round(threshold * 100) + '%';
-            if ((m = metric.match(/^errors\.router\.([a-z_]+)$/)))
-              return (typeof providerShort === 'function' ? providerShort(m[1]) : m[1]) + ' · ' + value + ' errors';
-            return metric.replace(/_/g, ' ') + ' ' + value;
-          };
-          hHtml += '<div style="color:var(--yellow,#A8B5C7);margin-bottom:6px;">⚠ Needs attention</div>';
-          for (var i = 0; i < degraded.length; i++) {
-            hHtml += '<div title="' + degraded[i].metric + ' = ' + degraded[i].value + '">' + healthLine(degraded[i].metric, degraded[i].value, degraded[i].threshold) + '</div>';
-          }
+        var byLabel = {};
+        for (var ek = 0; ek < errKeys.length; ek++) {
+          var info = errors[errKeys[ek]] || {};
+          var pk = errKeys[ek].replace(/^router\./, '');
+          var lab = (typeof providerShort === 'function' ? providerShort(pk) : pk);
+          if (!byLabel[lab]) byLabel[lab] = { total: 0, kinds: {}, last: '' };
+          byLabel[lab].total += (info.total || 0);
+          for (var kk in (info.by_kind || {})) byLabel[lab].kinds[kk] = (byLabel[lab].kinds[kk] || 0) + info.by_kind[kk];
+          if (info.last_message) byLabel[lab].last = info.last_message;
         }
-        if (errKeys.length) {
-          hHtml += '<div style="color:var(--red,#FFFFFF);margin-top:6px;">✗ Errors this window</div>';
-          for (var ek = 0; ek < errKeys.length; ek++) {
-            var info = errors[errKeys[ek]];
-            var pk = errKeys[ek].replace(/^router\./, '');
-            hHtml += '<div title="' + errKeys[ek] + '">' + (typeof providerShort === 'function' ? providerShort(pk) : pk) + ' · ' + (info.total || 0) + '</div>';
-          }
-        }
-      }
-      hEl.innerHTML = hHtml;
-
-      // Providers
-      var pEl = document.getElementById('ana-providers');
-      var provs = (d.providers && d.providers.perModel) || {};
-      var pkeys = Object.keys(provs);
-      if (!pkeys.length) {
-        pEl.innerHTML = '<span style="color:var(--text-muted)">No provider activity yet</span>';
-      } else {
-        var pHtml = '';
-        for (var pk = 0; pk < pkeys.length; pk++) {
-          var m = provs[pkeys[pk]];
-          pHtml += '<div style="display:flex;justify-content:space-between;padding:2px 0;">' +
-            '<span>' + pkeys[pk] + '</span>' +
-            '<span>' + m.requests + ' req · $' + (m.cost >= 0.01 ? m.cost.toFixed(2) : (m.cost > 0 ? m.cost.toFixed(4) : '0')) + '</span>' +
+        var labs = Object.keys(byLabel).sort(function (a, b) { return byLabel[b].total - byLabel[a].total; });
+        var grand = 0;
+        for (var gi = 0; gi < labs.length; gi++) grand += byLabel[labs[gi]].total;
+        hHtml += '<div style="color:var(--text-muted);margin-bottom:6px;">' + grand.toLocaleString() +
+          ' refused, retried on another engine</div>';
+        for (var li = 0; li < labs.length; li++) {
+          var b = byLabel[labs[li]];
+          var kn = Object.keys(b.kinds).sort(function (a, c) { return b.kinds[c] - b.kinds[a]; });
+          var kindLine = kn.slice(0, 2).map(function (k) { return b.kinds[k] + ' ' + k.replace(/_/g, ' '); }).join(' · ');
+          hHtml += '<div style="display:flex;justify-content:space-between;gap:10px;padding:2px 0;" title="' +
+            (b.last || '').replace(/"/g, '') + '">' +
+            '<span>' + labs[li] + '</span>' +
+            '<span style="color:var(--text-muted);white-space:nowrap;">' + kindLine + '</span>' +
             '</div>';
         }
-        pEl.innerHTML = pHtml;
+        hHtml += '';
+      }
+      var healthSig = JSON.stringify(errors);
+      if (window.__anaSig.health !== healthSig) { window.__anaSig.health = healthSig; hEl.innerHTML = hHtml; }
+
+      // Providers
+      var provSig = JSON.stringify((d.providers && d.providers.perModel) || {});
+      var pEl = (window.__anaSig.providers === provSig) ? null : document.getElementById('ana-providers');
+      window.__anaSig.providers = provSig;
+      var pNote = document.getElementById('ana-providers-note');
+      var provs = (d.providers && d.providers.perModel) || {};
+      var pkeys = Object.keys(provs).sort(function (a, b) { return provs[b].requests - provs[a].requests; });
+      var money = function (n) { return n >= 1 ? '$' + n.toFixed(2) : n > 0 ? '$' + n.toFixed(4) : ''; };
+      if (!pkeys.length) {
+        if (pEl) pEl.innerHTML = '<tr><td colspan="4" style="padding:12px 0;color:var(--text-muted);">No engine activity in this period.</td></tr>';
+        anaText(pNote, '');
+      } else {
+        var pHtml = '';
+        var sumPaid = 0, sumApi = 0;
+        for (var pk = 0; pk < pkeys.length; pk++) {
+          var m = provs[pkeys[pk]];
+          var paid = m.cost || 0;
+          var api = m.cost_at_api || 0;
+          sumPaid += paid; sumApi += api;
+          var label = pkeys[pk];
+          var asProvider = (typeof providerShort === 'function') ? providerShort(label) : label;
+          if (asProvider !== label) {
+            label = '<span title="recorded before the model name was captured on this lane">' +
+              asProvider + ' <span style="color:var(--text-muted);">(model not recorded)</span></span>';
+          }
+          pHtml += '<tr style="border-bottom:1px solid var(--border);">' +
+            '<td style="padding:6px 0;color:var(--text);">' + label + '</td>' +
+            '<td style="padding:6px 8px;text-align:right;">' + m.requests.toLocaleString() + '</td>' +
+            '<td style="padding:6px 8px;text-align:right;">' +
+              (paid > 0 ? money(paid) : '<span style="color:var(--text-muted);">covered by plan</span>') + '</td>' +
+            '<td style="padding:6px 8px;text-align:right;color:var(--text-muted);">' +
+              (api > 0 ? money(api)
+                : (asProvider !== pkeys[pk]
+                  ? '<span title="the model was not captured on these rows, so there is nothing to price">unknown model</span>'
+                  : '<span title="sold only with a subscription, so there is no per-token price to compare against">not sold per token</span>')) + '</td>' +
+          '</tr>';
+        }
+        if (pEl) pEl.innerHTML = pHtml;
+        anaText(pNote, (sumPaid > 0 ? money(sumPaid) : '$0') + ' charged of ' +
+          (sumApi > 0 ? money(sumApi) : '$0') + ' at API rates');
       }
     })
-    .catch(function(){ document.getElementById('ana-tokens-saved').textContent = 'error'; });
+    .catch(function(err){
+      if (seq !== window.__anaSeq) return;
+      window.__anaError = (err && (err.stack || err.message)) || String(err);
+      try { console.error('[analytics]', err); } catch (_) {}
+      anaDrop(anaPage, 'ana-loading');
+      var el = document.getElementById('ana-tokens-saved');
+      if (el) { anaDrop(el, 'skl'); el.textContent = 'error'; }
+    });
 }
 // Refresh on page activation + every 10s while visible
 setInterval(function(){
@@ -2471,6 +2763,7 @@ setInterval(function(){
     <button data-stab="machine" class="active" onclick="setSettingsTab('machine')">This machine</button>
     <button data-stab="behaviour" onclick="setSettingsTab('behaviour')">Behaviour</button>
     <button data-stab="connections" onclick="setSettingsTab('connections')">Connections</button>
+    <button data-stab="security" onclick="setSettingsTab('security')">Security</button>
   </div>
 
 
@@ -2478,6 +2771,22 @@ setInterval(function(){
 
   <div class="settings-grid">
 
+
+    <div class="settings-card full-width op-gated" data-settings-tab="security">
+      <div class="card-title">Operator passphrase</div>
+      <div class="card-hint">One secret opens two locks: the operator key that signs, and the credential vault that holds your logins. Changing it re-wraps both in the same operation — if the vault half fails, the key change is rolled back, so the two can never end up on different passphrases. The vault locks afterwards; unlock it again with the new one.</div>
+      <div class="form-row">
+        <div class="field"><label>Current passphrase</label><input type="password" id="pass-old" autocomplete="current-password" placeholder="the one you use now"></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>New passphrase</label><input type="password" id="pass-new" autocomplete="new-password" placeholder="8 characters or more"></div>
+        <div class="field"><label>New passphrase again</label><input type="password" id="pass-new2" autocomplete="new-password" placeholder="the same, again"></div>
+      </div>
+      <div class="card-footer">
+        <button class="btn" onclick="changeOperatorPassphrase()">Change passphrase</button>
+        <span class="test-result" id="pass-msg"></span>
+      </div>
+    </div>
 
     <div class="settings-card op-gated" data-settings-tab="backend">
       <div class="card-title">Local LLM server</div>
@@ -2836,7 +3145,7 @@ var PROVIDER_LABELS = { anthropic: 'Claude', openai_sub: 'ChatGPT (plan)', aliba
 function providerLabel(k) { return PROVIDER_LABELS[k] || k; }
 // Chip vocabulary: the short name says WHO, the tag says HOW it bills. The
 // long labels above stay for prose; a chip has no room for parentheses.
-var PROVIDER_SHORT = { anthropic: 'Claude', openai_sub: 'ChatGPT', alibaba: 'Qwen', deepinfra: 'DeepInfra', nvidia: 'NVIDIA', deepseek: 'DeepSeek', openrouter: 'OpenRouter', zai: 'GLM', moonshot: 'Kimi API', kimi_sub: 'Kimi', xai: 'Grok', custom_openai: 'Custom', google_ai: 'Gemini', gemini: 'Gemini', local: 'Local' };
+var PROVIDER_SHORT = { anthropic: 'Claude', claude: 'Claude', claude_cli: 'Claude', openai_sub: 'ChatGPT', codex: 'ChatGPT', codex_oauth: 'ChatGPT', alibaba: 'Qwen', qwen: 'Qwen', qwen3: 'Qwen', deepinfra: 'DeepInfra', nvidia: 'NVIDIA', deepseek: 'DeepSeek', openrouter: 'OpenRouter', zai: 'GLM', moonshot: 'Kimi API', kimi_sub: 'Kimi', kimi: 'Kimi', xai: 'Grok', custom_openai: 'Custom', google_ai: 'Gemini', gemini: 'Gemini', minimax: 'MiniMax', local: 'Local', llamacpp: 'Local', ollama: 'Local' };
 var PROVIDER_BILL = { openai_sub: 'plan', kimi_sub: 'sub', anthropic: 'key', alibaba: 'key', deepinfra: 'key', nvidia: 'key', deepseek: 'key', openrouter: 'key', zai: 'key', moonshot: 'key', xai: 'key', custom_openai: 'key', google_ai: 'key', gemini: 'key', local: 'free' };
 function providerShort(k) { return PROVIDER_SHORT[k] || k; }
 
@@ -3386,6 +3695,12 @@ function updateStats(data){
           ? ' at '+(/fable/.test(mns[0])?'Fable':/opus/.test(mns[0])?'Opus':/sonnet/.test(mns[0])?'Sonnet':/haiku/.test(mns[0])?'Haiku':mns[0].replace(/^claude-/,''))+' API rates'
           : ' at each model\'s API rate';
         if(eq>0) el.title='$'+(eq>=100?Math.round(eq).toLocaleString():eq.toFixed(2))+lbl;
+      }
+      var ue=document.getElementById('ph-used');
+      if(ue&&o&&typeof o.tokens_used_total==='number'&&o.tokens_used_total>0){
+        var fmtTok=function(n){ n=n||0; return n>=1e9?(n/1e9).toFixed(1)+'B':n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?Math.round(n/1e3)+'k':String(n); };
+        ue.textContent='tokens saved · of '+fmtTok(o.tokens_used_total)+' used · 7 days';
+        ue.title=(o.tokens_used_input||0).toLocaleString()+' in ('+(o.tokens_used_cached||0).toLocaleString()+' read from cache) · '+(o.tokens_used_output||0).toLocaleString()+' out · '+(o.requests_billed||0).toLocaleString()+' requests';
       }
       // Health at a glance: green when quiet, counted findings when not —
       // and the line itself is the door to Analytics.
@@ -4629,7 +4944,101 @@ function wireAutosave() {
         if (mv) autoSaveProvider(key, { model: mv }, mEl);
       });
     }
+    if (mEl && !document.getElementById('ctxwin-' + key)) {
+      var win = document.createElement('div');
+      win.className = 'ctxwin';
+      win.id = 'ctxwin-' + key;
+      mEl.insertAdjacentElement('afterend', win);
+    }
+    if (mEl) refreshContextWindow(key);
   });
+}
+
+var CTXWIN_SOURCE = {
+  operator:  'you set this',
+  table:     'troth ships this number',
+  declared:  'declared in config',
+  endpoint:  'reported by the server',
+  catalogue: 'published by the vendor',
+  family:    'from the model family',
+  fallback:  'assumed, nothing reported it',
+  default:   'assumed, nothing published it'
+};
+
+document.addEventListener('change', function (ev) {
+  var t = ev.target;
+  var m = t && t.id && /^prov-(.+)-model$/.exec(t.id);
+  if (m) refreshContextWindow(m[1]);
+}, true);
+
+function refreshContextWindow(key, retried) {
+  var mEl = document.getElementById('prov-' + key + '-model');
+  var out = document.getElementById('ctxwin-' + key);
+  if (!mEl || !out) return;
+  var model = mEl.value.trim();
+  if (!model) { out.textContent = ''; out.className = 'ctxwin'; return; }
+  fetch('/api/context-window?model=' + encodeURIComponent(model))
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      var live = document.getElementById('prov-' + key + '-model');
+      if (!live) return;
+      if (live.value.trim() !== model) { if (!retried) refreshContextWindow(key, true); return; }
+      if (!j || !j.window) { out.textContent = ''; out.className = 'ctxwin'; return; }
+      var assumed = j.source === 'default' || j.source === 'fallback';
+      out.textContent = '';
+      out.className = 'ctxwin' + (assumed ? ' ctxwin-assumed' : '');
+      var label = document.createElement('span');
+      label.textContent = Number(j.window).toLocaleString() + ' tokens · ' +
+        (CTXWIN_SOURCE[j.source] || j.source);
+      out.appendChild(label);
+      var edit = document.createElement('button');
+      edit.type = 'button';
+      edit.textContent = assumed ? 'set the real one' : 'override';
+      edit.onclick = function () { openContextWindowInput(key, model, j.window, out); };
+      out.appendChild(edit);
+    })
+    .catch(function () {});
+}
+
+function openContextWindowInput(key, model, current, out) {
+  if (!requireOperator()) return;
+  var box = document.createElement('input');
+  box.type = 'text';
+  box.placeholder = 'tokens';
+  box.value = String(current || '');
+  var done = false;
+  var commit = function (save) {
+    if (done) return;
+    done = true;
+    if (!save) { refreshContextWindow(key); return; }
+    var n = parseInt(String(box.value).replace(/[^0-9]/g, ''), 10);
+    if (!n || n < 1024) { toast('A context window is a token count, e.g. 262144'); refreshContextWindow(key); return; }
+    var limits = {};
+    limits[model] = n;
+    fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modelLimits: limits })
+    }).then(function (r) {
+      if (!r.ok) throw new Error('http ' + r.status);
+      return fetch('/api/routing/reload', { method: 'POST' });
+    }).then(function () {
+      toast('Context window set to ' + n.toLocaleString());
+      refreshContextWindow(key);
+    }).catch(function () {
+      toast('Could not save the context window');
+      refreshContextWindow(key);
+    });
+  };
+  box.addEventListener('blur', function () { commit(true); });
+  box.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); commit(true); }
+    if (e.key === 'Escape') { e.preventDefault(); commit(false); }
+  });
+  out.textContent = '';
+  out.appendChild(box);
+  box.focus();
+  box.select();
 }
 
 function saveProviders(btn) {
@@ -6411,11 +6820,11 @@ function applyProvidersVisibility() {
 // switch. Cards render together, sectioned, in document order.
 // Settings is three rooms behind one door; the strapline is the navigation.
 // Legacy card names (backend/network/…) still deep-link into their room.
-var SETTINGS_TAB_GROUPS = { backend: 'machine', network: 'machine', telemetry: 'machine', mindset: 'behaviour', modules: 'behaviour', mcp: 'connections' };
+var SETTINGS_TAB_GROUPS = { backend: 'machine', network: 'machine', telemetry: 'machine', mindset: 'behaviour', modules: 'behaviour', mcp: 'connections', security: 'security' };
 var _settingsTab = 'machine';
 function setSettingsTab(name) {
   var group = name ? (SETTINGS_TAB_GROUPS[name] || name) : _settingsTab;
-  if (!/^(machine|behaviour|connections)$/.test(group)) group = 'machine';
+  if (!/^(machine|behaviour|connections|security)$/.test(group)) group = 'machine';
   _settingsTab = group;
   [].forEach.call(document.querySelectorAll('#page-settings [data-settings-tab]'), function (c) {
     var g = SETTINGS_TAB_GROUPS[c.dataset.settingsTab] || 'machine';
@@ -6426,6 +6835,38 @@ function setSettingsTab(name) {
   });
   if (group === 'connections' && typeof loadMcpStatus === 'function') loadMcpStatus();
   if (group === 'connections' && typeof loadBrowserStatus === 'function') loadBrowserStatus();
+}
+// The passphrase is never held in a variable longer than the request: the
+// fields are cleared on every outcome, success or failure.
+function changeOperatorPassphrase() {
+  var o = document.getElementById('pass-old');
+  var n = document.getElementById('pass-new');
+  var n2 = document.getElementById('pass-new2');
+  var msg = document.getElementById('pass-msg');
+  var say = function (t) { if (msg) msg.textContent = t; };
+  if (!o || !n || !n2) return;
+  if (!o.value) { say('current passphrase first'); return; }
+  if (n.value.length < 8) { say('new passphrase needs 8 characters or more'); return; }
+  if (n.value !== n2.value) { say('the two new ones do not match'); return; }
+  if (n.value === o.value) { say('that is the passphrase you already have'); return; }
+  say('re-wrapping key and vault…');
+  fetch('/api/vault/change-passphrase', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ old_passphrase: o.value, new_passphrase: n.value })
+  }).then(function (r) { return r.json(); }).then(function (d) {
+    o.value = ''; n.value = ''; n2.value = '';
+    if (!d || !d.ok) {
+      var e = String((d && d.error) || 'refused');
+      say(e === 'wrong_passphrase' ? 'wrong current passphrase — nothing changed' : e);
+      return;
+    }
+    say('changed — key and vault are both on the new passphrase');
+    if (typeof loadVault === 'function') loadVault();
+  }).catch(function () {
+    o.value = ''; n.value = ''; n2.value = '';
+    say('request failed');
+  });
 }
 // Help mirrors Settings: three rooms keyed by where you are typing.
 var _helpTab = 'chat';

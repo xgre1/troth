@@ -113,7 +113,7 @@ const { checkPinning, getStats: pinningStats } = require('./modules/pinning');
 const { checkLoop, getStats: loopStats } = require('./modules/loopguard');
 const { getStats: cacheStats, init: initCache } = require('./modules/hotcache');
 const { initIndex, queryContext, getArchitectureOverview, getStats: codeLensStats } = require('./modules/codelens');
-const { callFallbackChain, callAnthropic, handleCompaction, preprocessAnthropicBody, scaleTokens, forwardToLocal, getStats: routerStats, getProviders, getRoutingPrefs, loadProviders, generatePlan, injectPlan, continueIfTruncated } = require('./modules/router');
+const { callFallbackChain, callAnthropic, handleCompaction, preprocessAnthropicBody, scaleTokens, scaleUsage, scaleUsageInSSE, believedContextWindow, forwardToLocal, getStats: routerStats, getProviders, getRoutingPrefs, loadProviders, generatePlan, injectPlan, continueIfTruncated } = require('./modules/router');
 const { augmentToolResults } = require('./modules/vision');
 const scheduler = require('./modules/scheduler');
 // Closed-extension routes (private overlay; absent on a public clone).
@@ -1124,6 +1124,15 @@ const server = http.createServer((req, res) => {
         const errs = Object.keys((a.health && a.health.errors_by_module) || {}).length;
         add('Engine errors today', errs === 0, errs === 0 ? 'none' : (errs + ' engine(s) erroring'),
           errs === 0 ? '' : 'open Analytics for which engine and how often');
+        const weak = ((a.health && a.health.degraded) || [])
+          .filter((x) => /hit_rate$/.test(x.metric));
+        if (weak.length) {
+          add('Read caches', false,
+            weak.map((x) => x.metric.split('.')[1].replace('cached_', '') + ' ' + Math.round(x.value * 100) + '%').join(' · '),
+            'reads are not being served from cache — the same files are being re-read into the window');
+        } else {
+          add('Read caches', true, 'serving');
+        }
       } catch (e) { add('Engine errors today', null, 'analytics not readable, skipped'); }
       try {
         const svc = require('./modules/service.js');
@@ -1252,6 +1261,33 @@ const server = http.createServer((req, res) => {
         const r = vault.unlock(pass);
         jsonResponse(res, 200, { ok: true, entry_count: r.entry_count, session_expires_at: r.session_expires_at });
       } catch (e) { jsonResponse(res, 403, { error: String(e && e.message || e) }); }
+    }).catch(function (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); });
+    return;
+  }
+  if (url === '/api/vault/change-passphrase' && req.method === 'POST') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then(function (b) {
+      const opk = require('../shared-core/operator-key.js');
+      const oldPass = b && b.old_passphrase;
+      const newPass = b && b.new_passphrase;
+      if (!oldPass || typeof oldPass !== 'string') { jsonResponse(res, 400, { error: 'old_passphrase_required' }); return; }
+      if (!newPass || typeof newPass !== 'string' || newPass.length < 8) { jsonResponse(res, 400, { error: 'new_passphrase_min_8_chars' }); return; }
+      if (oldPass === newPass) { jsonResponse(res, 400, { error: 'new_passphrase_identical' }); return; }
+      if (!opk.exists()) { jsonResponse(res, 409, { error: 'no_operator_key' }); return; }
+      try {
+        // changePassphrase re-wraps the operator key AND the credential vault
+        // in one operation, rolling the key back if the vault half fails.
+        const r = opk.changePassphrase(oldPass, newPass);
+        // The live session was derived from the old secret. Drop it so the
+        // operator proves the new passphrase on the next unlock instead of
+        // riding a session nobody re-authenticated.
+        try { require('../shared-core/vault.js').lock(); } catch (_) {}
+        jsonResponse(res, 200, { ok: true, public_key_id: r && r.public_key_id });
+      } catch (e) {
+        const m = String(e && e.message || e);
+        const wrong = /decryption failed|wrong passphrase/i.test(m);
+        jsonResponse(res, wrong ? 403 : 500, { error: wrong ? 'wrong_passphrase' : m });
+      }
     }).catch(function (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); });
     return;
   }
@@ -1692,11 +1728,6 @@ const server = http.createServer((req, res) => {
         // A commitment WHERE-count is not "things learned": engram-gc writes
         // its eviction/duplicate markers as ordinary commitments
         // (commitment_type='engram_tombstoned'), and bench/test seeds live in
-        // the same table. The raw count told the operator the partner had
-        // learned 231,071 things when 81% were the garbage collector talking
-        // to itself — measured 2026-08-09: 188k tombstones + ~7k test/bench
-        // rows against 43k real facts, a 5.3x inflation on the dashboard's
-        // headline number. Both consumer surfaces (ChatSurface's "things
         // I've learned" and Activity's "memories") read by_type.commitment,
         // so the honest predicate lives here, once. The raw ledger count
         // stays available as by_type_raw_commitment for anyone auditing the
@@ -2428,6 +2459,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && url === '/api/routing/reload') {
     try {
       loadProviders();
+      try { require('./modules/router').warmContextWindows(); } catch (_) {}
       log('Providers reloaded via /api/routing/reload');
       jsonResponse(res, 200, { ok: true });
     } catch (e) {
@@ -3160,8 +3192,6 @@ const server = http.createServer((req, res) => {
           // has it), the statement only as the CLI-shaped fallback. Passing
           // text made /forget re-derive its own target through a lookup whose
           // window is the newest 200 engrams, which retired a DIFFERENT memory
-          // for anything older (measured 2026-08-10: 5 of 6 clicks hit the
-          // wrong row). Identity travels with the click now.
           const targetId = String(body.id || '').trim();
           const stmt = String(body.statement || '').trim();
           if (!targetId && !stmt) { jsonResponse(res, 400, { ok: false, error: 'missing_statement' }); return; }
@@ -4812,6 +4842,23 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  {
+    const mCtxWin = req.method === 'GET' && url === '/api/context-window';
+    if (mCtxWin) {
+      if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+      const q = new URL(req.url, 'http://localhost').searchParams;
+      const model = (q.get('model') || '').trim();
+      if (!model) { jsonResponse(res, 400, { error: 'model required' }); return; }
+      try {
+        const r = require('./modules/router').resolveContextWindow(model);
+        jsonResponse(res, 200, { model, window: r.window, source: r.source });
+      } catch (e) {
+        jsonResponse(res, 500, { error: String(e && e.message || e) });
+      }
+      return;
+    }
+  }
+
   // GET /api/providers/openrouter/models → {models:[{id,name}]} — live list for
   // the Settings dropdown (the operator "adds a key but sees no models" bug:
   // nothing ever fetched OpenRouter's catalog). The /models endpoint is public +
@@ -5766,7 +5813,8 @@ const server = http.createServer((req, res) => {
         // Scale tokens for correct compaction timing + log estimator drift.
         try {
           const p = JSON.parse(responseBody);
-          if (p.usage && p.usage.input_tokens && requestedModel) {
+          const servedModel = p.model || requestedModel;
+          if (p.usage && requestedModel) {
             // P3.1: drift telemetry — our estimate vs Anthropic's real count.
             if (estimatedInputTokens > 0) {
               try {
@@ -5775,7 +5823,7 @@ const server = http.createServer((req, res) => {
                 );
               } catch (e) {}
             }
-            p.usage.input_tokens = scaleTokens(p.usage.input_tokens, requestedModel);
+            scaleUsage(p.usage, servedModel, believedContextWindow(requestedModel, req.headers));
           }
           if (p.model && requestedModel) p.model = requestedModel;
           responseBody = JSON.stringify(p);
@@ -5828,7 +5876,10 @@ const server = http.createServer((req, res) => {
         let responseBody = processResponse(fbResult, false);
         try {
           const p = JSON.parse(responseBody);
-          if (p.model && requestedModel) { p.model = requestedModel; responseBody = JSON.stringify(p); }
+          const servedModel = p.model || requestedModel;
+          if (p.model && requestedModel) p.model = requestedModel;
+          if (p.usage) scaleUsage(p.usage, servedModel, believedContextWindow(requestedModel, req.headers));
+          responseBody = JSON.stringify(p);
         } catch (e) {}
         res.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(responseBody) });
         res.end(responseBody);
@@ -5872,10 +5923,11 @@ const server = http.createServer((req, res) => {
         if (wantsStream) {
           try {
             const respObj = JSON.parse(responseBody);
+            const servedModel = respObj.model || requestedModel;
             // Mask model identity + scale tokens for compaction
             if (requestedModel && respObj.model) respObj.model = requestedModel;
-            if (respObj.usage && respObj.usage.input_tokens && requestedModel) {
-              respObj.usage.input_tokens = scaleTokens(respObj.usage.input_tokens, requestedModel);
+            if (respObj.usage && requestedModel) {
+              scaleUsage(respObj.usage, servedModel, believedContextWindow(requestedModel, req.headers));
             }
             res.writeHead(200, {
               'content-type': 'text/event-stream',
@@ -5968,6 +6020,8 @@ const server = http.createServer((req, res) => {
             // model never leaks.
             if (!res.headersSent && /^\s*event:\s*message/.test(responseBody)) {
               let sse = responseBody;
+              const sseServed = (sse.match(/"model"\s*:\s*"([^"]+)"/) || [])[1] || requestedModel;
+              sse = scaleUsageInSSE(sse, sseServed, believedContextWindow(requestedModel, req.headers));
               if (requestedModel) sse = sse.replace(/"model"\s*:\s*"[^"]+"/g, '"model":"' + requestedModel + '"');
               res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'connection': 'keep-alive' });
               res.end(sse);
@@ -6007,10 +6061,11 @@ const server = http.createServer((req, res) => {
 
         try {
           const p = JSON.parse(responseBody);
+          const servedModel = p.model || requestedModel;
           if (p.model && requestedModel) p.model = requestedModel;
           // Scale tokens for correct compaction timing on non-200K models
-          if (p.usage && p.usage.input_tokens && requestedModel) {
-            p.usage.input_tokens = scaleTokens(p.usage.input_tokens, requestedModel);
+          if (p.usage && requestedModel) {
+            scaleUsage(p.usage, servedModel, believedContextWindow(requestedModel, req.headers));
           }
           responseBody = JSON.stringify(p);
         } catch (e) {}
@@ -6075,7 +6130,12 @@ const server = http.createServer((req, res) => {
       if (requestedModel) {
         try {
           parsedForUsage = JSON.parse(responseBody);
-          if (parsedForUsage.model) { parsedForUsage.model = requestedModel; responseBody = JSON.stringify(parsedForUsage); }
+          const servedLocal = parsedForUsage.model || cfg.model || '';
+          if (parsedForUsage.usage) {
+            scaleUsage(parsedForUsage.usage, servedLocal, believedContextWindow(requestedModel, req.headers));
+          }
+          if (parsedForUsage.model) parsedForUsage.model = requestedModel;
+          responseBody = JSON.stringify(parsedForUsage);
         } catch (e) {
           // SSE/streaming response — string replace model name
           responseBody = responseBody.replace(/"model"\s*:\s*"[^"]+"/g, '"model":"' + requestedModel + '"');
@@ -6237,6 +6297,8 @@ server.listen(listenPort, BIND_HOST, () => {
   } catch (_) { /* non-fatal */ }
   log('troth Proxy v' + VERSION);
   log('Local LLM server: ' + BACKEND_HOST + ':' + BACKEND_PORT);
+
+  try { require('./modules/router').warmContextWindows(); } catch (_) {}
 
   // B2 uninstall self-reaper - mirrors bin/troth-entity.js.
   // A proxy whose server.js vanished serves deleted code forever after an

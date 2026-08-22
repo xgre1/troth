@@ -143,8 +143,22 @@ function _writeEncrypted(p, entries, aesKey, scryptN) {
   // Read the existing salt from the file if present.
   const existing = _readRawIfExists(p);
   const writeSalt = existing && existing.salt ? Buffer.from(existing.salt, 'base64') : salt;
+  // A session key outlives the file it was derived from: another process
+  // (or a passphrase change) can re-wrap the vault under a new salt while
+  // this session still holds the old key. Writing then would encrypt with
+  // the old key under the new salt and leave a file NEITHER passphrase can
+  // open, so prove the held key still opens the current file first.
+  if (existing && existing.ciphertext) {
+    try {
+      const check = crypto.createDecipheriv('aes-256-gcm', aesKey, Buffer.from(existing.iv, 'base64'));
+      check.setAuthTag(Buffer.from(existing.tag, 'base64'));
+      Buffer.concat([check.update(Buffer.from(existing.ciphertext, 'base64')), check.final()]);
+    } catch (_) {
+      throw new Error('vault: stale session key — the vault was re-keyed elsewhere; unlock again before writing');
+    }
+  }
   // If we generated a fresh salt (first write), persist it.
-  const writeAesKey = (existing && existing.salt) ? aesKey : aesKey;
+  const writeAesKey = aesKey;
   const cipher = crypto.createCipheriv('aes-256-gcm', writeAesKey, iv);
   const plaintext = Buffer.from(JSON.stringify({ entries, updated_ts: Date.now() }), 'utf8');
   const ctBuf = Buffer.concat([cipher.update(plaintext), cipher.final()]);
@@ -758,8 +772,72 @@ function _drainDrops(privEntry, opts) {
   return out;
 }
 
+// Re-wrap the vault under a new passphrase. The vault file carries its own
+// scrypt salt and is decrypted by a key derived from the passphrase alone —
+// so an operator-key passphrase change leaves this file readable only by the
+// OLD secret unless it is re-wrapped here. Entries are decrypted with the old
+// passphrase, re-encrypted under a fresh salt+iv derived from the new one,
+// and swapped in atomically; the pre-rekey file is kept alongside so a failed
+// change is always recoverable.
+function rekey(oldPassphrase, newPassphrase, opts) {
+  opts = opts || {};
+  if (!newPassphrase || typeof newPassphrase !== 'string' || newPassphrase.length < 8) {
+    throw new Error('vault.rekey: new passphrase must be a string >= 8 chars');
+  }
+  const p = _vaultPath(opts);
+  const raw = _readRawIfExists(p);
+  if (!raw || !raw.ciphertext) return { ok: true, rekeyed: false, reason: 'no_vault' };
+  if (raw.cipher !== 'aes-256-gcm' || raw.kdf !== 'scrypt') {
+    throw new Error('vault.rekey: unsupported file format (cipher=' + raw.cipher + ' kdf=' + raw.kdf + ')');
+  }
+  const scryptN = raw.N || SCRYPT_N_DEFAULT;
+  const oldKey = _deriveAesKey(oldPassphrase, Buffer.from(raw.salt, 'base64'), scryptN);
+  let entries;
+  try {
+    const decipher = crypto.createDecipheriv('aes-256-gcm', oldKey, Buffer.from(raw.iv, 'base64'));
+    decipher.setAuthTag(Buffer.from(raw.tag, 'base64'));
+    const pt = Buffer.concat([
+      decipher.update(Buffer.from(raw.ciphertext, 'base64')),
+      decipher.final()
+    ]).toString('utf8');
+    const parsed = JSON.parse(pt);
+    entries = (parsed && Array.isArray(parsed.entries)) ? parsed.entries : [];
+  } catch (e) {
+    throw new Error('vault.rekey: decryption failed (wrong old passphrase or corrupted vault)');
+  }
+  const newSalt = crypto.randomBytes(SCRYPT_SALT_BYTES);
+  const newKey = _deriveAesKey(newPassphrase, newSalt, scryptN);
+  const iv = crypto.randomBytes(GCM_IV_BYTES);
+  const cipher = crypto.createCipheriv('aes-256-gcm', newKey, iv);
+  const plaintext = Buffer.from(JSON.stringify({ entries, updated_ts: Date.now() }), 'utf8');
+  const ctBuf = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  const blob = {
+    v: 1, kdf: 'scrypt', N: scryptN, r: SCRYPT_R, p: SCRYPT_P, keylen: SCRYPT_KEYLEN,
+    salt: newSalt.toString('base64'),
+    iv: iv.toString('base64'),
+    tag: tag.toString('base64'),
+    cipher: 'aes-256-gcm',
+    ciphertext: ctBuf.toString('base64')
+  };
+  const backup = p + '.pre-rekey-' + Date.now();
+  fs.copyFileSync(p, backup);
+  try { fs.chmodSync(backup, 0o600); } catch (_) {}
+  const tmp = p + '.tmp-' + process.pid + '-' + Date.now();
+  fs.writeFileSync(tmp, JSON.stringify(blob), { mode: 0o600 });
+  try { fs.chmodSync(tmp, 0o600); } catch (_) {}
+  fs.renameSync(tmp, p);
+  try { fs.chmodSync(p, 0o600); } catch (_) {}
+  if (_session && _session.vault_path === p) {
+    _session.aes_key = newKey;
+    _session.entries = entries;
+  }
+  return { ok: true, rekeyed: true, entry_count: entries.length, backup };
+}
+
 module.exports = {
   unlock,
+  rekey,
   controlUnlock,
   lock,
   isUnlocked,
