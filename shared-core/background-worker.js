@@ -939,6 +939,45 @@ const taskWorkingMemoryConsolidation = {
   }
 };
 
+// taskInstanceConsolidation.
+//
+// Typed distillation of first-person occurrences (visits, purchases,
+// events, activities, possessions) into instance:<kind> engrams with
+// mandatory provenance — the substrate counts what it understood instead
+// of re-reading transcripts per question. All mechanics live in
+// shared-core/instance-consolidation.js (the bench's lazy-distillation
+// path calls the same module); this wrapper only wires the worker cadence,
+// the flag gate and the local extractor transport. Extractor unreachable
+// ⇒ the pass retains its window (no watermark advance) and the next
+// cadence retries — unavailability queues, it never drops.
+const taskInstanceConsolidation = {
+  name: 'instance_consolidation',
+  cadence_ms: 10 * 60 * 1000,
+  run: async function (view) {
+    const ic = require('./instance-consolidation.js');
+    if (!ic.enabled()) {
+      return { events: [], notes: ['instance_consolidation: disabled (TROTH_INSTANCE_CONSOLIDATION!=1)'] };
+    }
+    const ctx = (view && view.substrate_ctx) || {};
+    let stats;
+    try {
+      stats = await ic.runPass({
+        agent_id: ctx.agent_id || 'background-worker',
+        user_id: ctx.user_id || 'default',
+        cwd: ctx.cwd || null,
+        llmCall: ic.makeLlamacppExtractor()
+      });
+    } catch (e) {
+      return { events: [], notes: ['instance_consolidation: ' + String(e && e.message || e)] };
+    }
+    const note = stats.advanced
+      ? ('instance_consolidation: processed=' + stats.processed + ' written=' + stats.written +
+         ' dup=' + stats.dup + ' dropped=' + stats.dropped + ' no_provenance=' + stats.no_provenance)
+      : ('instance_consolidation: window retained (' + (stats.transport_error || 'no new turns') + ')');
+    return { events: [], notes: [note] };
+  }
+};
+
 // taskEmbeddingBackfill.
 //
 // Walks engrams missing embeddings (engram_embeddings JOIN miss),
@@ -1379,7 +1418,7 @@ function hydrateLastRunFromRecords(cwd, stateOverride) {
   return lastRun;
 }
 
-const DEFAULT_TASKS = [taskContradictionScan, taskDormantReview, taskStateSummary, taskDriftScan, taskEngramGc, taskAnchorSuggest, taskIdentityExtract, taskReconsolidationReview, taskBackup, taskOrchestrationReview, taskHypothesisGeneration, taskPurposeRefresh, taskWorkingMemoryConsolidation, taskEmbeddingBackfill, taskDormancyWarn, taskWalReplicate, taskImportSync, taskLedgerPrune, taskOutcomeFold, taskKnowledgeDrain];
+const DEFAULT_TASKS = [taskContradictionScan, taskDormantReview, taskStateSummary, taskDriftScan, taskEngramGc, taskAnchorSuggest, taskIdentityExtract, taskReconsolidationReview, taskBackup, taskOrchestrationReview, taskHypothesisGeneration, taskPurposeRefresh, taskWorkingMemoryConsolidation, taskInstanceConsolidation, taskEmbeddingBackfill, taskDormancyWarn, taskWalReplicate, taskImportSync, taskLedgerPrune, taskOutcomeFold, taskKnowledgeDrain];
 // Closed-extension worker tasks (guarded optional require — absent in the open build).
 try { const _ext = require('./core-ext.js'); if (Array.isArray(_ext.workerTasks)) DEFAULT_TASKS.push(..._ext.workerTasks); } catch (_) {}
 
