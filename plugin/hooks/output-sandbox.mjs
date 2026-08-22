@@ -52,10 +52,9 @@ const payload = await readStdinJson();
 const tool = payload.tool_name || '';
 const session = payload.session_id || null;
 
-// Never archive an archive RETRIEVAL. The second blind trial (2026-08-16)
-// hit the recursion live: archive_excerpt returned a >4KB single-line JSON,
-// this hook archived the excerpt, and the agent chased archive ids in a
-// circle until it gave up on the archive entirely. An excerpt the agent
+// Never archive an archive RETRIEVAL: archive_excerpt can return a >4KB
+// single-line JSON, and archiving the excerpt sends the agent chasing
+// archive ids in a circle until it abandons the archive. An excerpt the agent
 // explicitly asked for is wanted WHOLE, whatever it weighs.
 const _argsStr = JSON.stringify(payload.tool_input || {});
 if (/archive_(?:excerpt|search)/.test(tool) || /archive_(?:excerpt|search)/.test(_argsStr)) { allow(); }

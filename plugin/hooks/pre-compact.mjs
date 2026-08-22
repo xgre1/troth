@@ -309,10 +309,30 @@ try {
     try {
       const engram = require('../../shared-core/engram.js');
       const today = new Date().toISOString().slice(0, 10);
+      let handoffProject = null;
+      try {
+        const pid = require('../../shared-core/project-id.js');
+        const rows = session_id
+          ? (state.queryActions({ type: 'read', session_id, limit: 200, order: 'desc' }) || [])
+              .concat(state.queryActions({ type: 'edit', session_id, limit: 200, order: 'desc' }) || [])
+          : [];
+        const tally = new Map();
+        for (const r of rows) {
+          let inp; try { inp = JSON.parse(r.input); } catch (_) { continue; }
+          if (!inp || !inp.file_path) continue;
+          const p = pid.resolveProjectId(pid.projectDirForFile(inp.file_path, cwd));
+          if (!p || p === '__ephemeral__') continue;
+          tally.set(p, (tally.get(p) || 0) + 1);
+        }
+        let best = null, bestN = 0;
+        for (const [p, n] of tally) if (n > bestN) { best = p; bestN = n; }
+        handoffProject = best;
+      } catch (_) { handoffProject = null; }
       engram.recordEngram({
         agent_id:   'claude-code',
         user_id:    'default',
         cwd,
+        project_id: handoffProject || undefined,
         statement:  summary,
         source:     'pre-compact-hook',
         scope:      'handoff:' + today + ':' + (session_id || 'no-session'),
