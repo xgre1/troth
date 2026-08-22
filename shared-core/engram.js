@@ -1141,6 +1141,63 @@ function _parseTimeWindow(query, referenceTs) {
       } catch (_) { /* window arm is additive — never fatal */ }
     }
     const _nounHead = _counted && _counted[1] ? _counted[1].trim().split(/\s+/).pop().toLowerCase() : null;
+    // Instance-pool arm — on count-shaped queries the UNDERSTOOD stratum
+    // reads first: typed occurrences distilled by consolidation, already
+    // deduplicated by identity, status-resolved, provenance-counted. The
+    // raw-turn sweep below stays — a count reads instances and sweeps the
+    // primary record for reconciliation; the two strata compose, neither
+    // replaces the other. Instances live as substrate_internal so the
+    // general pool never mounts them; a count-shaped query is the ONE
+    // deliberate lift (audience:'all' here is that lift, not a leak).
+    if (_countShaped) {
+      try {
+        const qLow = query.toLowerCase();
+        const qTokens = qLow.split(/[^\p{L}\p{N}]+/u).filter((t) => t.length >= 4);
+        const querySlugs = new Set();
+        try {
+          const ident = require('./entity-identity.js');
+          for (const h of ident.lookupFromText(query, { agent_id })) querySlugs.add(h.identity.slug);
+        } catch (_) {}
+        const _nounHead2 = [];
+        if (_nounHead) {
+          _nounHead2.push(_nounHead);
+          if (_nounHead.endsWith('s') && !_nounHead.endsWith('ss')) _nounHead2.push(_nounHead.slice(0, -1));
+          if (_nounHead.length >= 7 && _nounHead.endsWith('ing')) _nounHead2.push(_nounHead.slice(0, -3));
+        }
+        const poolRows = listEngrams({
+          scope_prefix: 'instance:', audience: 'all',
+          agent_id: agent_id || undefined, limit: 1000
+        }) || [];
+        const scored = [];
+        for (const r of poolRows) {
+          const inst = r && r.payload && r.payload.instance;
+          if (!inst) continue;
+          const blob = String(r.statement || '').toLowerCase();
+          let sc = 0;
+          if (inst.entity_slug && querySlugs.has(inst.entity_slug)) sc += 2;
+          if (_nounHead2 && _nounHead2.some((v) => blob.indexOf(v) >= 0)) sc += 2;
+          for (const t of qTokens) if (blob.indexOf(t) >= 0) sc += 1;
+          if (sc > 0) scored.push({ r, sc });
+        }
+        scored.sort((x, y) => y.sc - x.sc || (x.r.ts || 0) - (y.r.ts || 0));
+        for (const { r } of scored.slice(0, 12)) {
+          let attested = 1;
+          try {
+            const raw = state.getAction(r.id);
+            const out = typeof raw.output === 'string' ? JSON.parse(raw.output) : (raw.output || {});
+            if (Array.isArray(out.provenance_ref)) attested = out.provenance_ref.length;
+          } catch (_) {}
+          final.push({
+            id: r.id,
+            ts: r.ts || 0,
+            statement: '[instance] ' + r.statement + ' (attested ×' + attested + ')',
+            score: 0,
+            memory_class: 'semantic',
+            source: 'instance-pool'
+          });
+        }
+      } catch (_) { /* instance pool arm is additive — never fatal */ }
+    }
     if (_nounHead && _nounHead.length >= 3) {
       try {
         const seenSweep = new Set(final.map((it) => it.id));

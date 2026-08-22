@@ -230,7 +230,15 @@ function composeAnswerPrompt(q, retrieved) {
     (q.question_date ? 'Question asked on: ' + q.question_date + ' — compute any relative time (ago / since / between) from this date using the [dates] on the statements.\n' : '') +
     'Question: ' + q.question + '\n\n' +
     (/\b(how many|how much|how often|total|count|number of|order of|first to last|earliest to latest)\b/i.test(q.question)
-      ? 'Work in two steps: first list every DISTINCT item or event that matches ' +
+      ? 'Statements marked [instance] are the memory\'s own consolidated ledger ' +
+        'of occurrences: one line per real occurrence however many times it was ' +
+        'told, status-resolved, with (attested xN) counting the conversations ' +
+        'that attest it. When [instance] lines cover what the question counts, ' +
+        'count THOSE lines (apply the question\'s qualifier and time window to ' +
+        'their [status, date] fields) and use the raw statements only to ' +
+        'cross-check; if the raw statements show a qualifying occurrence ' +
+        'missing from the ledger, add it and say so. ' +
+        'Otherwise work in two steps: first list every DISTINCT item or event that matches ' +
         'what the question counts (cite the statement number for each; merge ' +
         'repeated MENTIONS of the same thing; skip anything the statements do ' +
         'not support). Statements may contain a "user:" and an "asst:" half - ' +
@@ -659,4 +667,11 @@ function renderMarkdown(s) {
   return lines.join('\n');
 }
 
-main().catch(e => { console.error(e); process.exit(1); });
+// Run ONLY when invoked as the entry script. A benchmark that fires on
+// import is a benchmark that fires by accident — a syntax probe, a tooling
+// import, a test harness pulling helpers — and every accidental firing
+// ingests haystacks and writes a junk result into the archive.
+import { pathToFileURL } from 'url';
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch(e => { console.error(e); process.exit(1); });
+}
