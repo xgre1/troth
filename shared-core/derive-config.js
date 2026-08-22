@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// derive-config.js — coherence by derivation (PLAN-COHERENCE-2026-08-09, law 1).
+// derive-config.js — coherence by derivation.
 //
-// Backbone / dispatch preference / backbone engine used to ship as BLIND
+// Backbone / dispatch preference / backbone engine must never ship as BLIND
 // defaults: "troth" and local-first no matter what the operator actually
-// configured. Every 2026-08-09 incident traces there — a Claude-subscription-
+// configured. That is where the whole class traces from — a Claude-subscription-
 // only install ran the troth loop around an inner `claude -p` that had no
 // substrate MCP and no memory rule, a Kimi-only install would get the same
 // shape, and the pure open-repo CLI had nobody to say otherwise (the app
@@ -162,8 +162,8 @@ function deriveCoherentConfig(d) {
     return out;
   }
   if (engines.length === 1 && d.kimi_sub) {
-    // Kimi answers only inside the claude CLI harness (pin_rides_backbone
-    // learned this the hard way: kimi + troth loop = dead entity).
+    // Kimi answers only inside the claude CLI harness: pinning it as its own
+    // backbone loops the entity against itself and it stops responding.
     out.backbone = 'claude_cli'; out.backbone_engine = 'kimi';
     out.dispatch_prefer = 'hosted';
     out.reasons.push('Kimi membership is the only engine: it serves inside the Claude Code harness');

@@ -662,9 +662,8 @@ check_dmg() {
 }
 
 # ── open-repo parity ─────────────────────────────────────────────────────────
-# The inverse of the incident this gate was born from. The original failure
-# was a bundle carrying files the open repo does not contain; on 2026-08-15
-# a release closed with the OPPOSITE hole — DMG, CDN and site all shipped
+# The inverse hole to a bundle carrying files the open repo does not
+# contain: a release can close with the OPPOSITE gap — DMG, CDN and site all shipped
 # while the open repo still showed the previous version, because the publish
 # step lived in nobody's file and one context window's memory. A release is
 # not closed until the code the world reads IS the code that shipped, and
@@ -727,9 +726,9 @@ check_outgoing_history() {
 # The release as STRANGERS receive it. Nothing here reads a local build
 # product: the appcast is fetched live, the artifact is downloaded from the
 # CDN and hashed, the public CI verdict is read off the open repo's HEAD.
-# Born of 2026-08-15, when every inside-facing check was green while the
-# outside was wrong twice over (open repo a version behind; package.json a
-# version behind the site).
+# Every inside-facing check can be green while the
+# outside is wrong twice over (open repo a version behind; package.json a
+# version behind the site) — so the outside is read directly.
 check_ship() {
   echo "SHIP REALITY"
   local appcast site_ver repo_ver dmg_url site_sha

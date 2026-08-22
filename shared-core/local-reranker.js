@@ -123,10 +123,10 @@ async function ensureServer() {
       const logPath = path.join(process.env.HOME || os.homedir(), '.troth', 'desktop', 'rerank-server.log');
       try { require('fs').mkdirSync(path.dirname(logPath), { recursive: true }); } catch (_) {}
       // What this server may spend, answered in one place for every local
-      // model. It used to be pinned to the CPU with no thread bound at all:
-      // llama.cpp then took every core it could see, and one rerank of fifty
-      // candidates cost 6.72 CPU-seconds where offload costs 441ms and four
-      // threads beat sixteen even without it.
+      // model. Pinned to the CPU with no thread bound,
+      // llama.cpp takes every core it can see: one rerank of fifty
+      // candidates costs ~6.7 CPU-seconds where offload costs ~440ms and
+      // four threads beat sixteen even without it.
       const _dc = require('./device-capabilities.js');
 
       // Offload is attempted, not assumed. What llama.cpp does when a backend

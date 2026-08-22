@@ -31,8 +31,8 @@ const HOST = '127.0.0.1';
 // PRIVATE Troth CDP port — NOT Chrome's well-known 9222. Security:
 // on 9222, ensure() would silently ATTACH to whatever Chrome already listens there
 // including the operator's REAL browser (every logged-in session) or another
-// agent's instance. That confused-deputy footgun was observed live (two Chromes
-// fighting over 9222). A private port means: a live instance on it is OURS, so
+// agent's instance — a confused-deputy attach. A private port means: a live
+// instance on it is OURS, so
 // attach is safe. To DELIBERATELY drive the operator's own browser ("do a job in
 // my account"), set TROTH_BROWSER_CDP_PORT=9222 explicitly — that, and only that,
 // is the opt-in path to the real session. (Mode-2 VM body uses 19222; host
@@ -125,9 +125,9 @@ async function ensure(opts) {
       return { ok: false, error: 'no_chromium_browser_found',
         detail: 'no Chrome/Chromium/Brave/Edge found — install one or set TROTH_BROWSER_BIN' };
     }
-    // PRIVATE profile, the twin of the private port above. This used to be
-    // ~/.troth/chrome-profile, the same directory the operator's own opt-in
-    // browser uses, which quietly handed the agent every session that
+    // PRIVATE profile, the twin of the private port above — NEVER
+    // ~/.troth/chrome-profile, the directory the operator's own opt-in
+    // browser uses: sharing it quietly hands the agent every session that
     // operator was logged into: mail, bank, everything, with nobody having
     // agreed to it. Worse, both instances fought over one profile lock, and
     // reaping one could kill a window a human was typing in.

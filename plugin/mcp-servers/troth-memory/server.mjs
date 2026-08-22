@@ -741,11 +741,10 @@ const HANDLERS = {
     return { hits: rows };
   },
   'troth/archive_excerpt': (params) => {
-    // Coerced, not typeof-checked: every caller that follows the archiver's
-    // own retrieval hint arrives with a STRING id, and the strict check sent
-    // them all away with 'missing archive_id' — found by the first blind
-    // agent trial (2026-08-16) after burning four manual attempts the day
-    // before. An id is an id in either spelling.
+    // Coerced, not typeof-checked: a caller that follows the archiver's
+    // own retrieval hint arrives with a STRING id, and a strict type check
+    // would send it away with 'missing archive_id'. An id is an id in
+    // either spelling.
     const _aid = params ? Number(params.archive_id) : NaN;
     if (!Number.isFinite(_aid)) return rpcError(-32602, 'missing archive_id');
     const excerpt = state.getArchiveExcerpt(_aid, params.start_line, params.end_line);

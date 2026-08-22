@@ -6,8 +6,8 @@
 // Why at install and not only at runtime: on a stock Ubuntu VM (Node 18)
 // `npm ci` completes with nothing but EBADENGINE warnings — engines in
 // package.json are advisory unless the user set engine-strict — and the
-// failure then surfaces minutes later as `troth` refusing to start. Two
-// real first-day users hit exactly that on 2026-08-04. Failing here turns
+// failure then surfaces minutes later as `troth` refusing to start —
+// exactly how first-day users hit it. Failing here turns
 // a delayed mystery into an immediate instruction.
 //
 // Deliberately dependency-free and silent on success: this runs on every

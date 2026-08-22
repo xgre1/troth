@@ -921,8 +921,8 @@ function validateTransition(opts) {
     }
     // L1/L2 SECURITY HARDENING  — integration point fix.
     //
-    // Per-evaluator try/catch. Before: if any evaluator threw, the
-    // exception propagated up to recordAction's outer catch (state.js:1367)
+    // Per-evaluator try/catch. Unguarded, an exception from one evaluator
+    // propagates to recordAction's outer catch (state.js:1367)
     // which swallowed it as fail-OPEN ("validator crash → fail open").
     // That was correct for telemetry predicates but disastrous for
     // refusal/safety predicates — a crafted input that crashed the

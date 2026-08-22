@@ -81,9 +81,9 @@ function _operatorValue(envName, fileName) {
 // asking, and whose quota is spent, is decided by the operator's own
 // browser sign-in, never by these.
 //
-// They were removed on 2026-07-31 on the grounds that bundling them
-// decided on the operator's behalf that their subscription may be spent
-// this way. The objection was to deciding for them, so the answer is to
+// Bundling them silently would decide on the operator's behalf that
+// their subscription may be spent this way.
+// The objection is to deciding for them, so the answer is to
 // ask them, not to leave a working feature dark on every machine but the
 // one that happens to carry two hand-written files. Consent belongs in
 // the sign-in surface; the identifier belongs here, overridable by
@@ -369,8 +369,8 @@ function login(opts) {
       // The superseded attempt's close() can release :1455 a beat after we
       // try to bind — absorb that race instead of failing the fresh click.
       // And when a PARKED flow still owns the port (first click opened the
-      // wrong browser, second click found the door locked — field report
-      // 2026-08-15: the button just died silently), EVICT it once: the old
+      // wrong browser, second click finds the door locked and the button
+      // dies silently), EVICT it once: the parked
       // handler treats a mismatched state as a failed callback, answers 400
       // and closes its server, freeing the port for THIS click. A fresh
       // click must always win over an abandoned one.
@@ -399,16 +399,16 @@ function login(opts) {
       _browserOpened = true;
       // The dashboard flow passes onUrl so the PAGE can open/show the link:
       // this openBrowser runs on the PROXY's machine, and a headless box (or
-      // one without xdg-open) opened nothing while the button said it had —
-      // a first-day Ubuntu user clicked into silence on 2026-08-04. The URL
+      // one without xdg-open) opens nothing while the button says it has —
+      // a first-day user clicks into silence. The URL
       // is only valid from THIS attempt (state + PKCE live in this closure),
       // which is why callers cannot rebuild it themselves.
       // Exactly ONE opener owns the URL. When a caller passes onUrl, the
-      // caller's surface opens/shows it — opening here TOO sent the link
+      // caller's surface opens/shows it — opening here TOO sends the link
       // through the OS default handler, and macOS routes same-bundle URLs
-      // to whichever Chrome instance is already running: on 2026-08-15
-      // that was the managed CDP browser, and the operator's sign-in
-      // landed in a profile with no ChatGPT session. Server-side open
+      // to whichever Chrome instance is already running: with a managed
+      // CDP browser up, the operator's sign-in
+      // lands in a profile with no ChatGPT session. Server-side open
       // remains ONLY for surfaces that cannot open a browser themselves
       // (CLI without onUrl), where it is the sole opener.
       if (typeof opts.onUrl === 'function') { try { opts.onUrl(authUrl); } catch (_) {} }

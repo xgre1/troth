@@ -4,10 +4,9 @@
 // Fill the knowledge reservoir from what is already on disk.
 //
 // Live capture only sees documents from the moment it was wired. Everything
-// the operator collected before that is still sitting in their folders:
-// measured 2026-08-11, 2,069 documents across ~/Downloads, ~/Desktop and
-// ~/Documents against 2,922 passages ingested from essentially ONE folder in
-// May and June.
+// the operator collected before that is still sitting in their folders, while
+// what has been ingested comes from whichever folder the capture happened to
+// watch.
 //
 // This does not ingest. It QUEUES — the same spool the proxy and the read hook
 // write to — so the same drain does the work, with the same extractor, the

@@ -66,10 +66,9 @@ function langFor(filePath) {
 // bytes and throws "Invalid argument". Every caller here treats a throw as a
 // skip, so the four largest files in this tree — the proxy at 307 KB, the
 // state layer at 159 KB, the background worker at 85 KB and the substrate MCP
-// server at 80 KB — were written without ever being parsed. A stray brace in
-// one of them reached disk on 2026-08-13 and the validator reported nothing,
-// which is the failure mode a silent skip always has: it reads exactly like a
-// pass.
+// server at 80 KB — would be written without ever being parsed, and a stray
+// brace could reach disk with the validator reporting nothing. That is the
+// failure mode a silent skip always has: it reads exactly like a pass.
 //
 // Measured on the boundary: 32,723 bytes parses, 32,779 throws. The binding's
 // documented form for large input is a callback that returns the next chunk,

@@ -1513,10 +1513,9 @@ function recordOperatorLesson(opts) {
     // these two ride on AFTER it. They are not decoration: recall filters on
     // exactly these columns (memory_class in the recallable set AND audience
     // model_visible), and the writer's fail-closed defaults are
-    // operational/substrate_internal. Passing them into create() looked
-    // right and produced a rule the partner could never retrieve — written,
-    // listed by the durable reader, invisible to every recall. Measured
-    // 2026-08-10 before this line existed.
+    // operational/substrate_internal. Passing them into create() looks
+    // right and produces a rule the partner can never retrieve — written,
+    // listed by the durable reader, invisible to every recall.
     rec.memory_class = 'semantic';
     rec.audience = 'model_visible';
     const v = actionRecord.validate(rec);
@@ -2966,9 +2965,9 @@ function listEngramsMissingEmbeddings(limit) {
 // the backfill's embedTextForRow (statement / text / name / a dialogue
 // turn with words). Rows with none of these (tool_call telemetry, blank
 // turns) can never leave a missing-list: counting them as "still indexing"
-// promised a drain that can never finish, and their permanent presence at
-// the head of the recall lane starved the archive lane behind them (the
-// frozen dashboard numbers, field 2026-08-09). They are NOT deleted and
+// promises a drain that can never finish, and their permanent presence at
+// the head of the recall lane starves the archive lane behind them — the
+// frozen dashboard numbers. They are NOT deleted and
 // NOT touched — they simply are not part of the index promise.
 const EMBEDDABLE_SQL = `(
          COALESCE(json_extract(ar.output,'$.statement'),'') <> ''
@@ -3393,9 +3392,8 @@ function pruneSessionLessons(opts) {
 // The memories a human can SEE — newest distilled/committed facts (never
 // docs:chats raw chunks, never substrate_internal bookkeeping). Serves the
 // dashboard's Recent memories list so "did the import actually produce
-// memories?" has a visible answer instead of a bare count (2026-08-09 field
-// report: an operator who had just imported could not find the memories
-// anywhere on screen).
+// memories?" has a visible answer instead of a bare count — an operator
+// who has just imported must be able to find the memories on screen.
 function listRecentMemories(limit) {
   limit = Math.max(1, Math.min(50, parseInt(limit || 10, 10)));
   try {

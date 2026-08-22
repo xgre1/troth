@@ -1480,9 +1480,9 @@ const server = http.createServer((req, res) => {
       let cli = [];
       try {
         // The same DATA module the CLI dispatch builds its Set from.
-        // This used to regex bin/troth.js SOURCE for the literal, and
-        // shipped bundles are minified: every published build served the
-        // reference page with zero CLI commands (gate behave, 2026-08-09).
+        // Read from the module, never by regexing bin/troth.js SOURCE for
+        // the literal: shipped bundles are minified, and a source regex
+        // serves the reference page with zero CLI commands.
         cli = require('../shared-core/cli-commands.js').slice();
       } catch (_) {}
       jsonResponse(res, 200, { slash: slash, cli: cli });
@@ -1644,8 +1644,8 @@ const server = http.createServer((req, res) => {
             }
           } catch (_) { /* reranker is an enhancement, never a blocker */ }
           // `verified` — recall proven by a real vector, not by a file landing
-          // on disk. "Ready" used to mean "download_done", which is true on
-          // machines where nothing can run the model, and a setup that says
+          // on disk. "download_done" is true even on machines where nothing
+          // can run the model, and a setup that says
           // memory is on while recall is lexical is the failure nobody
           // notices. The awaited embed runs ONCE, in the background, and only
           // after the file exists: the first in-process load is ~30s on CPU,
@@ -1669,8 +1669,8 @@ const server = http.createServer((req, res) => {
       } else if (url === '/api/memory/recent') {
         // The memories a human can SEE — newest distilled/committed facts,
         // so "did the import actually produce memories?" has a visible
-        // answer on the dashboard instead of a bare count (field question,
-        // 2026-08-09). Read-only; raw archive chunks and substrate
+        // answer on the dashboard instead of a bare count.
+        // Read-only; raw archive chunks and substrate
         // bookkeeping never appear here.
         try {
           out = { memories: sharedState.listRecentMemories(query.get('limit')) };
@@ -3152,9 +3152,9 @@ const server = http.createServer((req, res) => {
         // whole recallable corpus. This used to call the legacy
         // commitment-only path, whose candidate window is the newest 200
         // engrams scored on word overlap with no embeddings at all: on a
-        // 43,209-engram substrate that is the last WEEK, so typing a memory's
-        // own words verbatim could not find it if it was older (measured
-        // 2026-08-10). The search a human runs and the recall the partner runs
+        // large substrate that is only the last week deep, so typing a
+        // memory's own words verbatim cannot find anything older.
+        // The search a human runs and the recall the partner runs
         // now answer from the same engine, or they teach the human that the
         // memory is broken when it is not.
         const recall = require('../shared-core/recall.js');
@@ -4771,10 +4771,9 @@ const server = http.createServer((req, res) => {
   //
   // This endpoint is what the Tauri app calls, and it used to write a
   // free-standing scope:'system:tombstone' engram — which NOTHING filters,
-  // so the "forgotten" fact kept surfacing. That visible failure is why a
-  // partner, asked to forget something, escalated to raw sqlite against
-  // state.db (incident 2, 2026-08-09): the sanctioned path did not work.
-  // Now it retires exactly the way the slash path does: a successor engram
+  // so the "forgotten" fact keeps surfacing, and a sanctioned path that
+  // does not work invites raw sqlite against state.db.
+  // It retires exactly the way the slash path does: a successor engram
   // written through the blessed reconsolidation primitive, with
   // lifetime.supersedes pointing at the original (every recall path hides
   // it) at tier='flagged' (the successor itself never surfaces). The wire
@@ -5991,10 +5990,10 @@ const server = http.createServer((req, res) => {
             });
             emit('message_stop', { type: 'message_stop' });
             res.end();
-            // Perflog — the streaming lane ended here without ever recording,
-            // so a day of Claude Code turns (always stream:true) left no
-            // per-request rows at all: the 2026-08-04 burn analysis had to
-            // reconstruct "before" from a month-old file. Mirror of the
+            // Perflog — the streaming lane must record here too: Claude
+            // Code turns are always stream:true, and a streaming lane that
+            // ends without recording leaves no per-request rows at all.
+            // Mirror of the
             // non-streaming record further down; the catch keeps a scope or
             // shape surprise from ever touching the served response.
             try {
@@ -6498,9 +6497,9 @@ server.listen(listenPort, BIND_HOST, () => {
   // The memory pipeline's upkeep (embedding drain, import delta-sync) has
   // to live where EVERY topology keeps a process alive — and that is this
   // proxy: a dashboard-only Linux install (`troth start` + browser) has no
-  // entity daemon, so before this block nothing there ever drained the
-  // index and the readiness numbers froze forever (field report,
-  // 2026-08-09). The entity daemon still runs the full task set when it is
+  // entity daemon — without this block nothing there drains the index and
+  // the readiness numbers freeze forever.
+  // The entity daemon still runs the full task set when it is
   // up; the background_task_run ledger acts as a cross-process lease so
   // the two never double-work one queue. TROTH_MAINTENANCE=0 disables.
   if (process.env.TROTH_MAINTENANCE !== '0') {

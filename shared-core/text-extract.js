@@ -7,9 +7,9 @@
 // docx sat in the operator's folders and would have been ingested as binary
 // mojibake, embedded, and returned as recall hits.
 //
-// NO NEW DEPENDENCIES, and none are needed — both extractors were already on
-// the machine (verified 2026-08-11): `pdftotext` from poppler, and `textutil`,
-// which ships with macOS and converts rtf/doc/docx/html. Measured per file:
+// NO NEW DEPENDENCIES, and none are needed — both extractors are already on
+// the machine: `pdftotext` from poppler, and `textutil`,
+// which ships with macOS and converts rtf/doc/docx/html. Typical per file:
 // pdf 56ms, rtf 31ms, docx 35ms, html 435ms, plain text 1ms. When a converter
 // is missing the file is SKIPPED rather than ingested as garbage — a corpus
 // full of mojibake is worse than a corpus without the document.

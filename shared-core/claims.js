@@ -2,11 +2,11 @@
 'use strict';
 // Facts the substrate can CHECK, not just recall.
 //
-// A memory row is a hypothesis about the world; the world moves. On
-// 2026-08-15 the substrate held "the repo is public" while GitHub said
-// private, and the agent — like the frontier models the STALE benchmark
-// measures at 55% premise resistance — bridged the contradiction with a
-// story instead of stopping. Retrieval cannot catch this: a stale fact
+// A memory row is a hypothesis about the world; the world moves. A
+// substrate can hold "the repo is public" while GitHub says private, and
+// a model — like the frontier models the STALE benchmark measures at 55%
+// premise resistance — bridges the contradiction with a story instead of
+// stopping. Retrieval cannot catch this: a stale fact
 // still matches its query. Only a CHECK can.
 //
 // So a claim is a typed (subject, predicate, value) with a machine probe

@@ -40,11 +40,11 @@ const MAX_SUMMARY_CHARS  = 600;
 //   substrate tools (engram_search/dialogue_search/update_identity/etc.
 //     they ARE recall, no point recalling for them)
 //   mcp_* (third-party, unpredictable)
-// Bash is NOT excluded wholesale anymore — it was ('too noisy'), and the
-// noise argument held right up until 2026-08-15, when a public commit
-// message was authored and a push fired with the relevant decisions sitting
-// unserved in the substrate: the costliest actions of the day were exactly
-// the ones with zero pre-action cueing. The fix keeps the noise wall but
+// Bash is NOT excluded wholesale ('too noisy'): a wholesale exclusion
+// lets a public commit
+// message be authored and a push fire with the relevant decisions sitting
+// unserved in the substrate — the costliest actions are exactly
+// the ones with zero pre-action cueing. The design keeps the noise wall but
 // moves it INSIDE: _bashSignal() answers null for the trivial shell calls
 // (ls, builds, tests — the overwhelming majority), so only the rare
 // consequential verbs (commit, push, publish, notarize, remote mutation)
@@ -149,7 +149,7 @@ function _precedentByFts(token, fallbackToken) {
       // limit 24, not 6: FTS ranks by raw term frequency, so on broad tokens
       // ('release') a pile of ordinary commitments can outrank the one
       // TEMPLATED decision — and _compactDecision, which only accepts the
-      // template, then starved on the top-6 (probe-caught 2026-08-15). The
+      // template, starves on a top-6. The
       // template IS the quality filter; the scan just has to reach it.
       const rows = state.searchActionsFull(String(t), { limit: 24, type: 'commitment', memory_class: 'procedural' }) || [];
       for (const r of rows) {
@@ -278,7 +278,6 @@ function gatherPriorContext(args) {
   // the case where the substring road returns nothing, yet it was nested
   // INSIDE that road's success branch — an empty store (or a situation-
   // shaped WHEN with no filename overlap) skipped the fallback entirely.
-  // Probe-caught 2026-08-15 while wiring the bash arm hermetically.
   const decisions = decisionHits.filter(e =>
     e.scope && typeof e.scope === 'string' && e.scope.indexOf('decision:') === 0
   );

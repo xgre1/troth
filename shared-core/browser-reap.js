@@ -5,7 +5,7 @@
 // for half an hour is idle by definition; a browser might have a person
 // reading it. Human use writes no stamp, so silence means "cannot know".
 //
-// Three rules, and the third is the one that was wrong:
+// Three rules:
 //
 //   The operator's own debug session is never ours to kill. Port 9222 is
 //   their real browser, offered on purpose, and the agent is a guest in it.

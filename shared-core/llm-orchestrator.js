@@ -140,11 +140,11 @@ function makeOrchestrator(opts) {
   // each call sees current state, not the boot-time snapshot.
   const prefixProvider = typeof opts.prefix_provider === 'function' ? opts.prefix_provider : null;
   // PREFIX-STABILITY: the provider's output is
-  // VOLATILE (situation snapshot, recent dialogue, per-turn recall), and it
-  // used to be appended into req.system. Chat templates render system FIRST,
+  // VOLATILE (situation snapshot, recent dialogue, per-turn recall) and must
+  // never ride req.system. Chat templates render system FIRST,
   // then the ~9K tokens of tool schemas - so one changed byte near the top
-  // invalidated the server's whole KV prefix and EVERY turn re-prefilled
-  // ~10K tokens (40s per "hey" on a 31B Q8; measured: llama-server reuses
+  // invalidates the server's whole KV prefix and EVERY turn re-prefills
+  // ~10K tokens (40s per "hey" on a 31B Q8; llama-server reuses
   // 4107/4114 tokens when the prefix IS stable). Now req.system carries ONLY
   // the static stable_prefix and the volatile context rides at the TOP of
   // the user message, which renders AFTER the tools in every template -
@@ -795,8 +795,8 @@ function makeOrchestrator(opts) {
       // A turn that also fired tools is narration in motion — plans,
       // manifests, "let me search…" — and belongs to the activity trace,
       // not the reply. The codex-served models re-emit their plan preamble
-      // EVERY round, and concatenating rounds shipped EIGHT manifests above
-      // one answer (field-verified 2026-08-15). Only a tool-free
+      // EVERY round, and concatenating rounds ships a stack of manifests
+      // above one answer. Only a tool-free
       // turn speaks to the operator; finalize() salvages a last turn that
       // spoke and acted at once.
       if (turnText && !(pendingToolCalls && pendingToolCalls.length)) {

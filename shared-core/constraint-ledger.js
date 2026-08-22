@@ -2,9 +2,8 @@
 'use strict';
 // The operator's "don't" becomes state, not sentence.
 //
-// Measured on 2026-08-15, the hard way: an explicit operator freeze ("μην
-// κάνεις τίποτα") was violated by a git push a few turns later — while the
-// freeze was still in the window. The literature has the numbers for why:
+// A freeze held as prose decays across turns; held as state it does not.
+// The literature has the numbers:
 // omission constraints ("don't X") decay from 73% compliance at turn 5 to
 // 33% by turn 16 while requirement-type constraints hold (arXiv:2604.20911),
 // and models restate the very rule they are breaking up to 99% of the time
@@ -68,8 +67,8 @@ const FREEZE_PATTERNS = [
   // generic: stop everything / do nothing / wait
   /\b(?:do\s+nothing|don'?t\s+do\s+anything|stop\s+everything|freeze\s+everything|touch\s+nothing)\b/i,
   // JS \b is ASCII-only: between a space and a Greek letter there is NO word
-  // boundary, so \b-wrapped Greek never matches (probe-caught 2026-08-15;
-  // memory-shaped.js learned the same lesson). Greek runs bare, ASCII keeps \b.
+  // boundary, so \b-wrapped Greek never matches (memory-shaped.js carries
+  // the same trap). Greek runs bare, ASCII keeps \b.
   /μην?\s+κάν(?:εις|ετε)\s+τίποτα/i,
   /\bmin\s+kaneis\s+tipota\b/i,
   /σταμάτα\s+(?:τα\s+)?όλα/i,
@@ -226,8 +225,8 @@ function activeConstraints(opts) {
 const _LOCAL_HOST = /^(?:localhost|127\.0\.0\.1|\[?::1\]?|0\.0\.0\.0)(?::\d+)?$/i;
 
 // git's SUBCOMMAND is the first non-option token — parsed, not pattern-
-// matched. The first blind trial (2026-08-16) walked a push straight
-// through the freeze as `git -C <path> push`: the old regex bridge had no
+// matched. A regex bridge walks a push straight
+// through the freeze as `git -C <path> push`: no
 // room for `-C`'s uppercase or its path argument. Agents write options;
 // a wall that reads tokens like git does cannot be dressed around — and
 // `git log --grep push` stays free, because its subcommand is log.

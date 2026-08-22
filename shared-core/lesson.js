@@ -3,12 +3,10 @@
 // Rules the OPERATOR gave, as opposed to lessons the machine wrote about
 // itself.
 //
-// The substrate held 5,143 rows of type='lesson' and not one of them came
-// from a person: 3,785 curriculum import, 886 fidelity warnings, 281 error
-// tax, 122 critic. Everything the operator ever said about HOW to work lived
-// in conversation only, and died with the window. There was no tool to write
-// one — `state.recordOperatorLesson` existed with zero callers, in neither
-// registry.
+// Machine-written lessons (curriculum import, fidelity warnings, error tax,
+// critic) fill type='lesson' on their own. What the operator says about HOW to
+// work has no row of its own unless something writes it, so it lives in
+// conversation only and dies with the window.
 //
 // This is the single road both registries call, for the same reason the
 // forget handler has one: two implementations of the same rule drift, and the

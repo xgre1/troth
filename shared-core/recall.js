@@ -439,8 +439,8 @@ function recallSemantic(opts) {
       // recall pool (conversational fragments out-match curated research/facts).
       // Excluded here from the default recall; still fully retrievable via an
       // EXPLICIT scoped query (chameleon_query scope='docs:chats[:project]').
-      // PREFIX match since 2026-08-09: sessions land in per-project scopes
-      // (docs:chats:<encoded-dir>) — exact equality would have let every
+      // PREFIX match, not equality: sessions land in per-project scopes
+      // (docs:chats:<encoded-dir>), and exact equality would let every
       // scoped chunk flood the very pool this exclusion protects.
       if (String(out.scope || '').startsWith('docs:chats')) return null;
       // A rule the operator scoped to one project answers only there.
@@ -475,11 +475,11 @@ function recallSemantic(opts) {
     .slice(0, opts.limit);
   return scored.map(({ r, out, score }) => ({
     id: r.id,
-    // The statement travels WHOLE. A 600-char cap sat on all three arms from
-    // 2026-06-08 to 2026-08-14 — a prompt budget applied at the data layer —
-    // and the surfaces that pass text through untouched inherited it: the
-    // recall tool handed the model amputated memories and the dashboard search
-    // showed the same cut, so a long engram could not be read back whole by
+    // The statement travels WHOLE. A char cap here is a prompt budget
+    // applied at the data layer,
+    // and the surfaces that pass text through untouched inherit it: the
+    // recall tool hands the model amputated memories and the dashboard search
+    // shows the same cut, so a long engram cannot be read back whole by
     // anyone. Every consumer that spends context clips at its own edge (the
     // injector to its block sizes, the voice prefix to its session budget);
     // the data layer answering short just teaches the reader that the memory
@@ -924,9 +924,9 @@ async function recall(opts) {
         // SELF-ECHO demotion. Asking a question retrieves the asking of it:
         // the operator's own near-verbatim recent question (mirrored as a
         // dialogue turn) scores near-perfect lexical AND cosine against
-        // itself and seats above the memory that ANSWERS it (measured
-        // 2026-08-15: the just-asked app question + its manifest reply took
-        // #0/#1 over the actual decision-record engram). A turn whose USER
+        // itself and seats above the memory that ANSWERS it — the just-asked
+        // question and its reply take
+        // #0/#1 over the actual decision-record engram. A turn whose USER
         // half IS the query is the question repeated, not knowledge —
         // halved, not dropped: "what did I ask before" queries legitimately
         // want their echoes.
@@ -1075,7 +1075,7 @@ async function recall(opts) {
   } else {
     results = results.slice(0, limit);
   }
-  // Archive arm (2026-08-09): "what did we do in <project>" must reach the
+  // Archive arm: "what did we do in <project>" must reach the
   // imported archive WITHOUT unleashing it into the general pool — the
   // IMPORT-FIX exclusion above stands, because raw fragments out-match
   // curated facts. When a query token names a known per-project archive

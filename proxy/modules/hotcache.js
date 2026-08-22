@@ -22,15 +22,14 @@ function hashContent(content) {
   return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
 }
 
-// The initial walk reads every matching file's CONTENT, and init() used to
-// run it synchronously at proxy module scope — on a large home directory
-// (the desktop app points WATCH_DIR there) nothing listened until the walk
-// ended: minutes of dead dashboard, sampled live on 2026-08-08 stuck inside
-// fs::ReadDir. Same port-gating disease the CodeLens index already cured;
-// same cure — the walk yields to the event loop every ~40ms, and the same
-// caps: without them one directory of hundred-MB .json files blocks a
-// whole slice and starves every request while the walk churns (also
-// observed live, /ui timing out with the walk mid-flight). Files over
+// The initial walk reads every matching file's CONTENT, so running it
+// synchronously at proxy module scope leaves nothing listening until the walk
+// ends — on a large home directory (the desktop app points WATCH_DIR there)
+// that is minutes of dead dashboard inside fs::ReadDir. Same port-gating
+// disease the CodeLens index already cured; same cure — the walk yields to the
+// event loop every ~40ms, and the same caps: without them one directory of
+// hundred-MB .json files blocks a whole slice and starves every request. Files
+// over
 // 512KB are skipped outright — CodeLens draws its own line at 500KB — and
 // the walk stops at a total-bytes/files budget, announced when it bites.
 // Everything skipped hashes fresh on first lookup; the cache loses a

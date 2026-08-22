@@ -9,9 +9,9 @@
 // questions get answered with grep: "who calls this", "is this reachable",
 // "what would break if I changed it".
 //
-// That cost a full working day on 2026-08-11. Whether
-// `shared-core/action-outcome.js` was dead code was answered by grepping four
-// directories and getting it WRONG (the grep excluded tests/, so the answer
+// Grep gets this wrong at real cost. Whether
+// `shared-core/action-outcome.js` was dead code was once answered by grepping
+// four directories (excluding tests/), so the answer
 // came back "zero callers" when the truth was "only the test suite calls it" —
 // which is a sharper finding, and the one the graph gives in milliseconds).
 //

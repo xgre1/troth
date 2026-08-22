@@ -220,12 +220,11 @@ function spawnWorker(task, worktreePath, runDir, opts) {
 
   // Subprocess fallback — no Docker, runs claude directly on the host.
   // A1+A2+A3: env carries provider, role, tenant + STATE_DB_PATH.
-  // The worker's LLM traffic goes to THIS instance's proxy. This used to be
-  // the literal string http://127.0.0.1:8000 regardless of configuration, so
-  // a second troth on a different port sent its worker's turns (and their
-  // cost) to whichever instance happened to own 8000: a stranger reproduced
-  // it with an empty config and no key and still got a completed answer,
-  // served by someone else's account.
+  // The worker's LLM traffic goes to THIS instance's proxy, read from
+  // configuration — never a hardcoded 127.0.0.1:8000. A literal port would
+  // send a second troth's worker turns (and their cost) to whichever
+  // instance happens to own 8000, completing answers on someone else's
+  // account.
   const workerPort = (function () {
     try {
       const cfg = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));

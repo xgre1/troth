@@ -5,8 +5,8 @@
 // `action-outcome.js` has answered this question since it was written:
 // event-sourced, append-only, multi-observer, with a materialized fold. It
 // works — exercised end to end before this file existed. It has never once
-// been called. Measured 2026-08-11: 21,188 `edit` records in the substrate,
-// **0 outcome events**, so the partner cannot tell you whether anything it has
+// been called. Edit records accumulate against zero outcome events, so the
+// partner cannot tell you whether anything it has
 // ever done worked. The module's own header names the observers it expected —
 // "test runner marks accepted, critic marks reverted, commit hook marks
 // led_to_commit" — and none of the three was ever built.

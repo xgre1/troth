@@ -446,9 +446,9 @@ async function handleTool(name, args) {
     // Operator-freeze gate. An active "don't" in the ledger blocks outward
     // commands (push / upload / notarize) HERE, at the one chokepoint both
     // lanes pass through (native Bash arrives via bash-steer). The freeze is
-    // state written by constraint-capture, not a sentence in a window — born
-    // 2026-08-15, when a git push sailed through an explicit operator freeze
-    // because the wall only existed as text. Fail-open on a missing ledger
+    // state written by constraint-capture, not a sentence in a window — a
+    // freeze that exists only as text in a window is a wall a push can sail
+    // straight through. Fail-open on a missing ledger
     // (bare clone), fail-CLOSED on an active freeze: no acknowledge flag
     // overrides the operator's standing word.
     if (constraintLedger) {
@@ -488,11 +488,10 @@ async function handleTool(name, args) {
           isError: true
         };
       }
-      // Medium hits (git branch -D, --no-verify, killall…) used to be
-      // classified and then thrown away — the one severity that ran with
-      // no trace at all. They still run without an ack, because intent is
-      // plausibly legitimate, but the classification now travels with the
-      // result so neither the model nor the archive can say nobody knew.
+      // Medium hits (git branch -D, --no-verify, killall…) run without an
+      // ack — intent is plausibly legitimate — but their classification
+      // travels with the result, so neither the model nor the archive can
+      // say nobody knew.
       if (hit) caution = hit.kind + ' (' + hit.severity + '): matched ' + hit.pattern;
     }
     const res = await runCommand(args.command, Math.min(args.timeout_ms || 120000, MAX_CALL_TIMEOUT_MS), args.cwd);

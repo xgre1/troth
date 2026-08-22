@@ -1059,9 +1059,9 @@ const taskEmbeddingBackfill = {
     // smaller cap: recall quality is the product promise, the archive is
     // depth. Bounded so the old cost fear (that justified excluding the
     // archive entirely) stays controlled — an import done before the embed
-    // host was warm now heals over idle cycles instead of staying
-    // keyword-only forever (field-hit 2026-08-09, a real user's ~1000-chunk
-    // import held 39 vectors).
+    // host was warm heals over idle cycles instead of staying
+    // keyword-only forever (a ~1000-chunk import can otherwise sit at a
+    // few dozen vectors).
     const ARCHIVE_CHUNK = 64;
     const t0 = Date.now();
     let embedded = 0, failed = 0, scanned = 0, more = false;
@@ -1077,10 +1077,9 @@ const taskEmbeddingBackfill = {
       let picked = collectEmbedWork(rows);
       if (!picked.work.length) {
         // The recall lane is drained OR holds only quarantined residue —
-        // either way the archive lane gets its turn NOW. Before this
-        // fall-through, residue at the head of the recall lane starved the
-        // archive forever (the frozen "still embedding" dashboards, field
-        // report 2026-08-09).
+        // either way the archive lane gets its turn NOW. Without this
+        // fall-through, residue at the head of the recall lane starves the
+        // archive forever — the frozen "still embedding" dashboard.
         rows = state.listArchiveMissingEmbeddings(ARCHIVE_CHUNK)
           .filter(function (r) { return !_embedQuarantine.has(r.id); });
         cap = ARCHIVE_CHUNK;

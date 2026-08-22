@@ -12,14 +12,12 @@
 // regex_extracted. Signature-rooted authority outranks self-evolved outranks
 // model-inferred outranks regex-scraped. It discriminates among LABELED facts.
 //
-// UNLABELED rows (no source_authority): these predate the // labeling layer. On the live DB the unlabeled engram pool is DOMINATED by
-// low-trust provenance — test fixtures (test/pe6/pe7/pe8/*-test/bench), seeds,
-// deliberator drift-noise, and /tmp watcher ingests — mixed with a minority of
-// genuine operator facts (source=user / slash:deterministic:remember). So the
-// default for unlabeled MUST stay conservative (regex_extracted weight): a
-// blanket high default would elevate test junk + drift noise to operator-tier
-// (verified  against the live source distribution — that was the
-// regression in d7b614f, now reverted).
+// UNLABELED rows (no source_authority) predate the labeling layer. That pool is
+// dominated by low-trust provenance — test fixtures, seeds, deliberator
+// drift-noise and watcher ingests — mixed with a minority of genuine operator
+// facts (source=user / slash:deterministic:remember). So the default for
+// unlabeled MUST stay conservative (regex_extracted weight): a blanket high
+// default elevates test junk and drift noise to operator tier.
 //
 // The CORRECT upgrade is source-derived authority, NOT a blanket default:
 // derive the tier from the engram's `source` provenance (which IS populated).

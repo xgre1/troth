@@ -56,9 +56,9 @@ function dashboardUrl(suffix) {
 // The ports a proxy actually HOLDS right now. The proxy writes
 // proxy-<port>.pid at bind and unlinks it on exit; a pid that still
 // answers signal-0 marks a living proxy. Every SNAPSHOT of the address
-// (spawn env, saved config, adopted-at-boot cells) each went stale across
-// consecutive boots (field-verified 2026-08-15) — races handed daemons a port that died a
-// second later, and every engine read as offline. The pid file is written
+// (spawn env, saved config, adopted-at-boot cells) goes stale across
+// consecutive boots — races hand daemons a port that dies a
+// second later, and every engine reads as offline. The pid file is written
 // by the bound process itself; it cannot lie about where the proxy lives.
 function liveProxyPorts() {
   const out = [];

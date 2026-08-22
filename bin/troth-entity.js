@@ -70,10 +70,10 @@ const net  = require('net');
 // standalone runs fall back to <core>/.troth-entity-state.json (mirrors how
 // the Rust troth_root() — the dir holding bin/troth.js — resolves it).
 const DAEMON_MODE = process.env.TROTH_ENTITY_DAEMON === '1' || process.env.TROTH_ENTITY_DAEMON === 'true';
-// Default is the SHARED per-user location. It used to be the
-// install root (repo/bundle dir) — but a mixed topology (open-repo CLI +
-// installed app) then has TWO state files, each side blind to the other's
-// daemon: the one-mind/singleton/staleness machinery silently stops seeing
+// Default is the SHARED per-user location, never the install root
+// (repo/bundle dir): a mixed topology (open-repo CLI + installed app) with
+// per-install state files leaves each side blind to the other's daemon —
+// the one-mind/singleton/staleness machinery silently stops seeing
 // half the world. ~/.troth is the one place every surface already shares
 // (same state.db). TROTH_ENTITY_STATE_FILE still overrides for tests.
 const ENTITY_STATE_FILE = process.env.TROTH_ENTITY_STATE_FILE ||
@@ -171,7 +171,7 @@ function _updateContextBinding(text) {
     if (mention) _bindContext(mention, 'mention', t);
   } catch (_) { /* unbound is a valid state */ }
 }
-// Coherence by derivation (PLAN-COHERENCE-2026-08-09): when NOTHING above
+// Coherence by derivation: when NOTHING above
 // this process stated a backbone or a dispatch preference — no app env, no
 // desktop-config parity (pure open-repo installs have neither) — detect
 // what engines this machine can actually serve and fill the ABSENT keys
