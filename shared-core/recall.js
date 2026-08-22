@@ -71,6 +71,16 @@ function buildFtsQuery(query) {
   return tokens.map(t => '"' + t.replace(/"/g, '') + '"').join(' OR ');
 }
 
+function stemLight(t) {
+  if (t.length <= 3 || /[^a-z]/.test(t)) return t;
+  if (t.length > 5 && t.endsWith('ies')) return t.slice(0, -3) + 'y';
+  if (t.length > 5 && t.endsWith('ing')) { const s = t.slice(0, -3); return s.length >= 4 ? s : t; }
+  if (t.length > 4 && t.endsWith('ed')) { const s = t.slice(0, -2); return s.length >= 4 ? s : t; }
+  if (t.length > 4 && t.endsWith('es') && /[sxzh]es$/.test(t)) return t.slice(0, -2);
+  if (t.endsWith('s') && !t.endsWith('ss')) return t.slice(0, -1);
+  return t;
+}
+
 function audienceOk(rowAudience, want) {
   if (want === 'all') return true;
   // Legacy rows (audience IS NULL) treated as substrate_internal at read,
@@ -439,7 +449,7 @@ function recallSemantic(opts) {
       const text = String(out.text || out.statement || '').toLowerCase();
       if (!text) return null;
       let hits = 0;
-      for (const t of qt) if (text.indexOf(t) >= 0) hits++;
+      for (const t of qt) { if (text.indexOf(t) >= 0) { hits++; continue; } const s = stemLight(t); if (s !== t && text.indexOf(s) >= 0) hits++; }
       if (!hits) return null; // min_overlap floor: zero-overlap can't be saved by topic alone
       const overlap = hits / qt.length;
       const topic = topicBoost(text, opts.topicTokens);
@@ -551,7 +561,7 @@ function recallEpisodic(opts) {
       if (!statement) return null;
       const blob = String(statement).toLowerCase();
       let hits = 0;
-      for (const t of qt) if (blob.indexOf(t) >= 0) hits++;
+      for (const t of qt) { if (blob.indexOf(t) >= 0) { hits++; continue; } const s = stemLight(t); if (s !== t && blob.indexOf(s) >= 0) hits++; }
       if (!hits) return null; // min_overlap floor
       const overlap = hits / qt.length;
       const ageDays = Math.max(0, (Date.now() - r.timestamp) / (1000 * 60 * 60 * 24));
@@ -615,7 +625,7 @@ function recallProcedural(opts) {
       const name = (out && (out.name || out.statement)) || '';
       const blob = (triggers + ' ' + name).toLowerCase();
       let hits = 0;
-      for (const t of qt) if (blob.indexOf(t) >= 0) hits++;
+      for (const t of qt) { if (blob.indexOf(t) >= 0) { hits++; continue; } const s = stemLight(t); if (s !== t && blob.indexOf(s) >= 0) hits++; }
       if (!hits) return null; // min_overlap floor
       const overlap = hits / qt.length;
       const topic = topicBoost(blob, opts.topicTokens);

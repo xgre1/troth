@@ -577,7 +577,7 @@ function migrate(d) {
     -- Separate virtual table so we can drop/rebuild it independently without
     -- touching the canonical rows. Populated + kept in sync by triggers.
     CREATE VIRTUAL TABLE IF NOT EXISTS action_records_fts
-      USING fts5(search_text, content='', contentless_delete=1);
+      USING fts5(search_text, content='', contentless_delete=1, tokenize='porter unicode61');
 
     -- P17 Tier 3 — LLM-evolved wire-format profiles. Each row stores a
     -- TOON header proposed by an LLM (or hand-authored) for a specific
