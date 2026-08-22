@@ -9,6 +9,37 @@ All notable changes to troth are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Every engine reports how much of its context window a turn used. Token
+  usage from every lane — Anthropic, ChatGPT-subscription, Ollama,
+  llama.cpp and the router itself — carries a `context_used` figure, and
+  model limits resolve in layers: the curated table ships with the
+  product, the operator's own limits override it from config, and a local
+  GGUF model answers from its own file metadata, which states its context
+  length outright. Engine pins render under their proper names.
+
+### Changed
+- Analytics updates without being felt. The page re-reads itself while you
+  watch it, and a reading that carries the same numbers now touches nothing:
+  no node is rewritten, the flow bars keep their own elements and ease to a
+  new length instead of being rebuilt, and the $ split stays open under your
+  cursor for as long as you keep it there. Choosing a different period holds
+  the figures already on screen and dims them until the new ones land, rather
+  than blanking them to placeholders; the shimmer is reserved for a figure
+  that has never been shown. When readings overlap, only the newest one is
+  allowed to paint, so a slow answer can no longer drag the numbers backwards.
+
+- Secret redaction keeps full speed on large tool output. Every command
+  result is swept for credential shapes before it is archived or shown, and
+  that sweep now runs in linear time: a multi-megabyte result is scanned in
+  milliseconds, and a long unbroken blob of hex, base64 or JWT-shaped text
+  costs no more than ordinary prose. What is detected is unchanged. The same
+  key prefixes, URL passwords, PEM blocks and credential-named fields are
+  caught, and git hashes, uuids, placeholders and vault references stay
+  untouched.
+
 ## [0.1.17] — 2026-08-16
 
 ### Added
