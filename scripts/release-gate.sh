@@ -203,7 +203,7 @@ PYKEY
   #     Files whose JOB is to strip those artifacts from transcripts must name
   #     them to remove them — they are declared below, the same conscious act
   #     as the working-language list. Everything else fails on any hit.
-  local voice_ok=" bin/troth-import-chats.js plugin/hooks/constraint-capture.mjs proxy/modules/router.js scripts/backfill-mind-from-transcripts.js tools/backfill-claude-sessions.js tests/suite-02-ratelimit-behavior.js "
+  local voice_ok=" bin/troth-import-chats.js plugin/hooks/constraint-capture.mjs proxy/modules/router.js proxy/server.js scripts/backfill-mind-from-transcripts.js tools/backfill-claude-sessions.js tests/suite-02-ratelimit-behavior.js "
   local voice_hits="" vf
   for vf in $(git grep -lIiE '<thinking|as an ai language model|the previous agent|system-reminder|antml' -- ':!scripts/release-gate.sh' 2>/dev/null); do
     case "$voice_ok" in *" $vf "*) ;; *) voice_hits="$voice_hits $vf";; esac
