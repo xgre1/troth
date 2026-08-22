@@ -111,6 +111,26 @@ async function main() {
       tsCursor = sessTs + 60_000;
     }
 
+    // Full digestion (TROTH_BENCH_FULL_SAUCE=1): the same understanding a
+    // long-running entity accrues over time - identity registry, typed
+    // instances, chunked docs:chats archive - built here, question-blind,
+    // before the question is seen. Off by default so the raw-turn lane
+    // stays runnable as the before/after baseline.
+    if (process.env.TROTH_BENCH_FULL_SAUCE === '1') {
+      const digest = require('./digest.cjs');
+      const ic = require('../shared-core/instance-consolidation.js');
+      const llmCall = ic.makeLlamacppExtractor({
+        host: process.env.TROTH_BENCH_EXTRACTOR_HOST || undefined,
+        timeout_ms: parseInt(process.env.TROTH_BENCH_EXTRACTOR_TIMEOUT_MS || '120000', 10)
+      });
+      out.digest = await digest.digestHaystack({
+        agent_id,
+        user_id: 'default',
+        llmCall,
+        cacheDir: process.env.TROTH_BENCH_EXTRACT_CACHE || null
+      });
+    }
+
     // Backfill embeddings BEFORE recall.
     //
     // In a real long-running troth-entity process, shared-core/

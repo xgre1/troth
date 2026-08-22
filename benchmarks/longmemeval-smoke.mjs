@@ -534,8 +534,14 @@ async function main() {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const jsonOutPath = join(REPO, 'benchmarks/results/longmemeval-smoke-' + ts + '.json');
   mkdirSync(dirname(jsonOutPath), { recursive: true });
+  let _commit = null;
+  try { _commit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).stdout.trim(); } catch (_) {}
   writeFileSync(jsonOutPath, JSON.stringify({
     timestamp: Date.now(),
+    // The commit that produced this result. Overlay-synced trees have no
+    // commit identity; a result that cannot name its code cannot be replayed.
+    commit: _commit,
+    full_sauce: process.env.TROTH_BENCH_FULL_SAUCE === '1',
     // Relative on purpose: an absolute dataset path records the build machine
     // into a published result file.
     dataset: DATASET_PATH.replace(REPO + '/', ''),
