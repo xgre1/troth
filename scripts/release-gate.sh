@@ -707,8 +707,19 @@ check_outgoing_history() {
     fail "outgoing commits carry non-project author emails — identity travels with the push"
     note "$bad_authors"
   fi
+  local badsubj
+  badsubj="$(git log --format='%s' "$range" | grep -vE '^v[0-9]+\.[0-9]+(\.[0-9]+)?(: .+)?$|^[a-z0-9 .+-]+: .+' | head -5)"
+  if [ -z "$badsubj" ]; then
+    pass "every outgoing subject follows the commit convention (scoped or version-first)"
+  else
+    fail "outgoing subjects break the commit convention"
+    note "$badsubj"
+  fi
   local idents hits
-  idents="$(tr ',' '|' < "$HOME/.troth/gate-identifiers" 2>/dev/null || true)"
+  # History scans exclude the retired brand token: it appears legitimately in
+  # old diffs (the product was renamed) and removing it would rewrite
+  # historical trees. Tree-level checks keep the full identifier list.
+  idents="$(tr ',' '|' < "$HOME/.troth/gate-identifiers" 2>/dev/null | sed -E 's/(^|\|)troth(\||$)/\1\2/; s/\|\|/|/g; s/^\|//; s/\|$//')"
   if [ -n "$idents" ]; then
     hits="$(git log -p "$range" 2>/dev/null | grep -icE "$idents" || true)"
     if [ "${hits:-0}" -eq 0 ]; then
