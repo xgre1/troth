@@ -127,11 +127,11 @@ function _statementFor(inst) {
     ' [' + inst.status + (inst.date_iso ? ', ' + inst.date_iso : '') + ']';
 }
 
-// Statement-level dedup against the existing pool — same mechanism
-// wm_consolidation uses, and the Eywa-named failure mode it prevents:
-// the same occurrence distilled twice inflates every later count.
-function _existingStatements(opts) {
-  const seen = new Set();
+// Current instance pool — the ONE view lifecycle matching runs against.
+// listEngrams follows supersession chains, so a superseded instance never
+// re-matches. Loaded once per pass and mutated as writes land.
+function _loadPool(opts) {
+  const pool = [];
   try {
     const rows = engram.listEngrams({
       scope_prefix: SCOPE_PREFIX,
@@ -140,16 +140,51 @@ function _existingStatements(opts) {
       limit: 1000
     }) || [];
     for (const r of rows) {
-      if (r && r.statement) seen.add(String(r.statement).trim());
+      const inst = r && r.payload && r.payload.instance;
+      if (inst) pool.push({ id: r.id, statement: String(r.statement || '').trim(), instance: inst });
     }
   } catch (_) {}
-  return seen;
+  return pool;
 }
+
+function _refsOf(id) {
+  try {
+    const raw = state.getAction(id);
+    if (!raw) return [];
+    const out = typeof raw.output === 'string' ? JSON.parse(raw.output) : (raw.output || {});
+    return Array.isArray(out.provenance_ref) ? out.provenance_ref.map(String) : [];
+  } catch (_) { return []; }
+}
+
+function _normEntity(s) {
+  return String(s || '').trim().toLowerCase().normalize('NFKC');
+}
+
+// Same real-world occurrence? Conservative on purpose — over-counting
+// (two instances for one wedding) is the covenant-breaking failure, so
+// ambiguity merges: same kind, same entity IDENTITY (slug when both
+// resolved, normalized surface string otherwise), and dates compatible.
+// Two PINNED, different dates are two occurrences — never merged.
+function _sameOccurrence(entry, inst, entity_slug) {
+  const e = entry.instance;
+  if (!e || e.kind !== inst.kind) return false;
+  const entityMatch = (e.entity_slug && entity_slug)
+    ? e.entity_slug === entity_slug
+    : _normEntity(e.entity) === _normEntity(inst.entity);
+  if (!entityMatch) return false;
+  if (e.date_iso && inst.date_iso && e.date_iso !== inst.date_iso) return false;
+  return true;
+}
+
+// Status lifecycle: newest evidence wins, terminal states never regress.
+// A stale "planned" retelling cannot downgrade a completed/cancelled
+// occurrence — the ku organ's newest-wins, with a direction guard.
+const TERMINAL_STATUS = { completed: true, cancelled: true };
 
 function writeInstances(opts) {
   const turns = opts.turns || [];
-  const stats = { written: 0, dup: 0, no_provenance: 0 };
-  const seen = opts._seen || _existingStatements(opts);
+  const stats = { written: 0, dup: 0, no_provenance: 0, transitions: 0, strengthened: 0 };
+  const pool = opts._pool || _loadPool(opts);
   for (const inst of (opts.instances || [])) {
     const refs = (inst.turn_idxs || [])
       .map(i => turns[i] && turns[i].id ? 'dialogue.turn:' + turns[i].id : null)
@@ -166,39 +201,77 @@ function writeInstances(opts) {
         canonical = hits[0].identity.canonical;
       }
     } catch (_) {}
-    const statement = _statementFor(inst);
-    if (seen.has(statement)) { stats.dup++; continue; }
-    seen.add(statement);
+
+    const match = pool.find(p => _sameOccurrence(p, inst, entity_slug));
+    let finalInst, supersedes = null, reason = null, provenance = refs;
+    if (match) {
+      const old = match.instance;
+      let status = inst.status;
+      if (TERMINAL_STATUS[old.status] && inst.status === 'planned') status = old.status;
+      const oldRefs = _refsOf(match.id);
+      provenance = Array.from(new Set(oldRefs.concat(refs)));
+      const changed = status !== old.status || provenance.length !== oldRefs.length;
+      if (!changed) { stats.dup++; continue; }
+      finalInst = {
+        kind: inst.kind,
+        // Keep the richer identity: canonical when known, else whichever
+        // surface form arrived first.
+        entity: canonical || old.canonical || inst.entity,
+        entity_slug: entity_slug || old.entity_slug || null,
+        canonical: canonical || old.canonical || null,
+        description: inst.description || old.description,
+        date_iso: inst.date_iso || old.date_iso || null,
+        status,
+        qualifier: inst.qualifier || old.qualifier || null,
+        quantity: Number.isFinite(inst.quantity) ? inst.quantity : (old.quantity != null ? old.quantity : null),
+        session_id: opts.session_id || old.session_id || null
+      };
+      supersedes = match.id;
+      reason = status !== old.status ? 'status_transition' : 'restatement';
+    } else {
+      finalInst = {
+        kind: inst.kind,
+        entity: canonical || inst.entity,
+        entity_slug,
+        canonical,
+        description: inst.description,
+        date_iso: inst.date_iso,
+        status: inst.status,
+        qualifier: inst.qualifier,
+        quantity: inst.quantity,
+        session_id: opts.session_id || null
+      };
+    }
+
+    const statement = _statementFor(finalInst);
+    const extra_output = {
+      payload: { instance: finalInst },
+      provenance_ref: provenance
+    };
+    if (supersedes) extra_output.lifetime = { supersedes, reason };
     const id = engram.recordEngram({
       agent_id: opts.agent_id,
       user_id: opts.user_id,
       cwd: opts.cwd || null,
       statement,
-      scope: SCOPE_PREFIX + inst.kind,
+      scope: SCOPE_PREFIX + finalInst.kind,
       source: opts.source || 'instance_consolidation',
       source_authority: 'plr_evolved',
       audience: 'substrate_internal',
       memory_class: 'operational',
       auto_verify: false,
-      extra_output: {
-        payload: {
-          instance: {
-            kind: inst.kind,
-            entity: inst.entity,
-            entity_slug,
-            canonical,
-            description: inst.description,
-            date_iso: inst.date_iso,
-            status: inst.status,
-            qualifier: inst.qualifier,
-            quantity: inst.quantity,
-            session_id: opts.session_id || null
-          }
-        },
-        provenance_ref: refs
-      }
+      extra_output
     });
-    if (id) stats.written++;
+    if (!id) continue;
+    const entry = { id, statement, instance: finalInst };
+    if (supersedes) {
+      const at = pool.indexOf(match);
+      if (at >= 0) pool[at] = entry; else pool.push(entry);
+      if (reason === 'status_transition') stats.transitions++; else stats.strengthened++;
+    } else {
+      pool.push(entry);
+      stats.written++;
+    }
   }
   return stats;
 }
@@ -285,8 +358,8 @@ async function runPass(opts) {
     bySession.get(k).push(t);
   }
 
-  const stats = { processed: turns.length, written: 0, dup: 0, no_provenance: 0, dropped: 0 };
-  const seen = _existingStatements(opts);
+  const stats = { processed: turns.length, written: 0, dup: 0, no_provenance: 0, dropped: 0, transitions: 0, strengthened: 0 };
+  const pool = _loadPool(opts);
   let latestTs = since;
   for (const [sessionId, sessTurns] of bySession) {
     const prompt = buildPrompt(sessTurns);
@@ -306,11 +379,13 @@ async function runPass(opts) {
       user_id: opts.user_id,
       cwd: opts.cwd,
       session_id: sessionId === '__unscoped__' ? null : sessionId,
-      _seen: seen
+      _pool: pool
     });
     stats.written += w.written;
     stats.dup += w.dup;
     stats.no_provenance += w.no_provenance;
+    stats.transitions += w.transitions;
+    stats.strengthened += w.strengthened;
     for (const t of sessTurns) latestTs = Math.max(latestTs, t.timestamp);
   }
   _writeWatermark(opts, latestTs);
