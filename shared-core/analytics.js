@@ -35,6 +35,56 @@ function pct(sorted, p) {
   return sorted[i];
 }
 
+// A token removed from the window is absent from every later prompt too, until
+// the conversation compacts and the window is rebuilt. Only the transcripts
+// record where that happens, so the sessions that produced savings are read
+// once and held for a few minutes.
+const _sessionCache = { at: 0, byId: new Map() };
+const SESSION_CACHE_MS = 5 * 60 * 1000;
+
+function sessionTimeline(ids) {
+  const now = Date.now();
+  if (now - _sessionCache.at < SESSION_CACHE_MS) return _sessionCache.byId;
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const wanted = new Set(ids);
+  const out = new Map();
+  const root = path.join(process.env.HOME || os.homedir(), '.claude', 'projects');
+  let dirs = [];
+  try { dirs = fs.readdirSync(root); } catch (_) { dirs = []; }
+  for (const d of dirs) {
+    let files = [];
+    try { files = fs.readdirSync(path.join(root, d)); } catch (_) { continue; }
+    for (const f of files) {
+      if (!f.endsWith('.jsonl')) continue;
+      const sid = f.slice(0, -6);
+      if (!wanted.has(sid) || out.has(sid)) continue;
+      let txt;
+      try { txt = fs.readFileSync(path.join(root, d, f), 'utf8'); } catch (_) { continue; }
+      const turns = [], compactions = [];
+      for (const line of txt.split('\n')) {
+        if (!line) continue;
+        const isTurn = line.indexOf('"type":"user"') >= 0;
+        const isCompact = line.indexOf('isCompactSummary') >= 0 || line.indexOf('compact_boundary') >= 0;
+        if (!isTurn && !isCompact) continue;
+        let j;
+        try { j = JSON.parse(line); } catch (_) { continue; }
+        const t = Date.parse(j.timestamp || '');
+        if (!t) continue;
+        if (j.isCompactSummary === true || j.subtype === 'compact_boundary') compactions.push(t);
+        else if (j.type === 'user') turns.push(t);
+      }
+      turns.sort((a, b) => a - b);
+      compactions.sort((a, b) => a - b);
+      out.set(sid, { turns, compactions });
+    }
+  }
+  _sessionCache.at = now;
+  _sessionCache.byId = out;
+  return out;
+}
+
 function getAnalytics(opts) {
   opts = opts || {};
   const w = windowBounds(opts.window || 'today');
@@ -90,6 +140,8 @@ function getAnalytics(opts) {
   // zero spend rather than attributing global spend to one session (matches
   // the previous behaviour, where the session filter hit an empty window).
   let actual_usd_spent = 0, baseline_usd = 0, requests_billed = 0;
+  let api_cost_total = 0, cache_saving_usd = 0;
+  let tokens_used_input = 0, tokens_used_output = 0, tokens_used_cached = 0;
   let ledgerModels = [];   // per-model window rows, reused by the providers panel
   if (!opts.session_id) {
     try {
@@ -107,13 +159,84 @@ function getAnalytics(opts) {
         requests_billed += r.requests;
         bIn += r.input; bOut += r.output; bCached += r.cached_input;
         r.cost = costMod ? costMod.calculateCost(r.model, r.input, r.output, r.cached_input).cost : 0;
+        const _bare = String(r.model).replace(/ \(plan\)$/, '');
+        r.cost_at_api = (costMod && costMod.costAtApiRates)
+          ? costMod.costAtApiRates(_bare, r.input, r.output, r.cached_input)
+          : 0;
+        const _rt = (costMod && costMod.apiRateFor) ? costMod.apiRateFor(_bare) : null;
+        r.cache_saving = (_rt && _rt.in)
+          ? (r.cached_input || 0) * ((_rt.in - (_rt.cached_in || 0)) / 1000000)
+          : 0;
+        api_cost_total += r.cost_at_api;
+        cache_saving_usd += r.cache_saving;
         actual_usd_spent += r.cost;
       }
+      tokens_used_input = bIn;
+      tokens_used_output = bOut;
+      tokens_used_cached = bCached;
       if (costMod && requests_billed > 0) {
         baseline_usd = costMod.calculateCost(tokens_saved_baseline_model, bIn, bOut, bCached).cost;
       }
     } catch (_) { /* usage_ledger absent on fresh substrate — zeros */ }
   }
+
+  const REMOVING_KINDS = ['output_archive', 'bash_compression', 'context_filter', 'mcp_cache:hit', 'gemcache:hit'];
+  let tokens_removed = 0, tokens_removed_carried = 0, removal_events = 0, removal_turns = 0;
+  try {
+    const removals = db.prepare(
+      `SELECT tokens, session_id, ts FROM savings_ledger
+       WHERE ts >= ? AND ts <= ? AND session_id IS NOT NULL AND tokens > 0
+         AND kind IN (${REMOVING_KINDS.map(() => '?').join(',')})`
+    ).all(w.from_ts, w.to_ts, ...REMOVING_KINDS);
+    const ids = [];
+    for (const r of removals) if (ids.indexOf(r.session_id) === -1) ids.push(r.session_id);
+    const timeline = ids.length ? sessionTimeline(ids) : new Map();
+    for (const r of removals) {
+      tokens_removed += r.tokens;
+      removal_events++;
+      const s = timeline.get(r.session_id);
+      let later = 0;
+      if (s) {
+        const stop = s.compactions.find((c) => c > r.ts);
+        for (const t of s.turns) {
+          if (t <= r.ts) continue;
+          if (stop && t >= stop) break;
+          later++;
+        }
+      }
+      removal_turns += later;
+      tokens_removed_carried += r.tokens * (1 + later);
+    }
+  } catch (_) { /* transcripts unreadable — the certain number still stands */ }
+
+  const daily = [];
+  try {
+    const DAY = 24 * 60 * 60 * 1000;
+    const usageDays = db.prepare(
+      `SELECT CAST(ts / ${DAY} AS INTEGER) AS d, COUNT(*) AS reqs,
+              COALESCE(SUM(tokens_in),0) AS tin,
+              COALESCE(SUM(tokens_out),0) AS tout,
+              COALESCE(SUM(cached_in),0) AS tcached
+       FROM usage_ledger WHERE ts >= ? AND ts <= ? GROUP BY d ORDER BY d`
+    ).all(w.from_ts, w.to_ts);
+    const savedDays = db.prepare(
+      `SELECT CAST(ts / ${DAY} AS INTEGER) AS d, COALESCE(SUM(tokens),0) AS saved
+       FROM savings_ledger WHERE ts >= ? AND ts <= ? GROUP BY d`
+    ).all(w.from_ts, w.to_ts);
+    const savedByDay = {};
+    for (const r of savedDays) savedByDay[r.d] = r.saved;
+    for (const r of usageDays) {
+      daily.push({
+        date: new Date(r.d * DAY).toISOString().slice(0, 10),
+        requests: r.reqs,
+        tokens_in: r.tin,
+        tokens_out: r.tout,
+        tokens_cached: r.tcached,
+        tokens_saved: savedByDay[r.d] || 0
+      });
+    }
+  } catch (_) { /* usage_ledger absent on fresh substrate */ }
+
   actual_usd_spent = +actual_usd_spent.toFixed(6);
   baseline_usd = +baseline_usd.toFixed(6);
   const estimated_usd_saved = +Math.max(0, baseline_usd - actual_usd_spent).toFixed(6);
@@ -161,7 +284,10 @@ function getAnalytics(opts) {
   // All read from savings_ledger. Use savings counts (not just tokens) for the
   // surfaces where token-equivalent doesn't make sense (e.g. loopbreaker_denied
   // is "1 per catch", not tokens).
-  const surface = (kind) => savingsRows.find(r => r.kind === kind) || { tokens: 0, events: 0 };
+  const surface = (kind) => savingsRows
+    .filter(r => r.kind === kind)
+    .reduce((a, r) => ({ tokens: a.tokens + (r.tokens || 0), events: a.events + (r.events || 0) }),
+            { tokens: 0, events: 0 });
 
   const surfaces = {
     proxy_cache: {
@@ -210,7 +336,8 @@ function getAnalytics(opts) {
     for (const r of ledgerModels) {
       perModel[r.model] = {
         requests: r.requests, input: r.input, cached_input: r.cached_input,
-        output: r.output, cost: +(r.cost || 0).toFixed(6)
+        output: r.output, cost: +(r.cost || 0).toFixed(6),
+        cost_at_api: +(r.cost_at_api || 0).toFixed(6)
       };
       grandTotalUSD += r.cost || 0;
     }
@@ -261,10 +388,9 @@ function getAnalytics(opts) {
       degraded.push({ metric: `mcp_cache.${tool}.p50_latency_ms`, value: m.p50_latency_ms, threshold: 50 });
     }
   }
-  // High error rate per module → flag
   for (const [mod, info] of Object.entries(errors_by_module)) {
-    if (info.total >= 10) {
-      degraded.push({ metric: `errors.${mod}`, value: info.total, threshold: 10 });
+    if ((info.by_kind || {}).auth_error >= 5) {
+      degraded.push({ metric: `auth.${mod}`, value: info.by_kind.auth_error, threshold: 5 });
     }
   }
 
@@ -360,6 +486,17 @@ function getAnalytics(opts) {
 
   // ── overview ──────────────────────────────────────────────────────────
   const overview = {
+    tokens_removed,
+    tokens_removed_carried,
+    removal_events,
+    removal_turns_avg: removal_events ? Math.round(removal_turns / removal_events) : 0,
+    api_cost_total: +api_cost_total.toFixed(6),
+    cache_saving_usd: +cache_saving_usd.toFixed(6),
+    total_saved_usd: +(cache_saving_usd + Math.max(0, api_cost_total - actual_usd_spent) + tokens_saved_usd_equiv).toFixed(6),
+    tokens_used_input,
+    tokens_used_output,
+    tokens_used_cached,
+    tokens_used_total: tokens_used_input + tokens_used_output,
     tokens_saved_total,
     tokens_saved_billable,
     tokens_saved_by_kind,
@@ -402,6 +539,7 @@ function getAnalytics(opts) {
 
   return {
     window: w,
+    daily,
     overview,
     surfaces,
     providers,
