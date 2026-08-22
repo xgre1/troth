@@ -962,7 +962,8 @@ function _parseTimeWindow(query, referenceTs) {
 }
 
   const _countShaped = /\b(how many|how much|how often|total|count|number of|order of|first to last|earliest to latest|the (two|three|four|five|six|seven) )\b|πόσ(α|ες|ους|η|ο)\b|σύνολ|με τη σειρά/i.test(String(opts.query || ''));
-  const k        = Math.max(1, Math.min(20, (opts.k || 5) + (_countShaped ? 6 : 0)));
+  const _reqShaped = /\b(can you (recommend|suggest)|any (tips|suggestions|recommendations|ideas)|what should i|could you (recommend|suggest)|suggest some|recommend some|what time|when did i|what day)\b/i.test(String(opts.query || ''));
+  const k        = Math.max(1, Math.min(20, (opts.k || 5) + (_countShaped ? 6 : 0) + (!_countShaped && _reqShaped ? 6 : 0)));
   if (!query) return [];
 
   // Cross-type unified retrieval.
@@ -1138,6 +1139,48 @@ function _parseTimeWindow(query, referenceTs) {
           added++;
         }
       } catch (_) { /* window arm is additive — never fatal */ }
+    }
+    const _nounHead = _counted && _counted[1] ? _counted[1].trim().split(/\s+/).pop().toLowerCase() : null;
+    if (_nounHead && _nounHead.length >= 3) {
+      try {
+        const seenSweep = new Set(final.map((it) => it.id));
+        const ftsRows = state.searchActionsFull('"' + _nounHead.replace(/"/g, '') + '"', {
+          type: 'tool_call', rank: true, limit: 200
+        }) || [];
+        const cands = [];
+        for (const row of ftsRows) {
+          if (seenSweep.has(row.id)) continue;
+          let inp = null, out = null;
+          try { inp = typeof row.input === 'string' ? JSON.parse(row.input) : row.input; } catch (_) { continue; }
+          if (!inp || inp.tool_name !== 'dialogue.turn') continue;
+          const u = (inp.args && inp.args.user_text) || '';
+          if (!u) continue;
+          const _uLow = u.toLowerCase();
+          const _variants = [_nounHead];
+          if (_nounHead.endsWith('s') && !_nounHead.endsWith('ss')) _variants.push(_nounHead.slice(0, -1));
+          if (_nounHead.length >= 7 && _nounHead.endsWith('ing')) _variants.push(_nounHead.slice(0, -3));
+          if (!_variants.some((v) => _uLow.indexOf(v) >= 0)) continue;
+          try { out = typeof row.output === 'string' ? JSON.parse(row.output) : row.output; } catch (_) { out = {}; }
+          cands.push({ row, sess: row.session_id || 'none', u, a: (out && out.assistant_text) || '' });
+        }
+        const bySess = new Map();
+        for (const t of cands) {
+          const prev = bySess.get(t.sess);
+          if (!prev || t.row.timestamp < prev.row.timestamp) bySess.set(t.sess, t);
+        }
+        const picked = [...bySess.values()].sort((x, y) => x.row.timestamp - y.row.timestamp).slice(0, 8);
+        for (const t of picked) {
+          seenSweep.add(t.row.id);
+          final.push({
+            id: t.row.id,
+            ts: t.row.timestamp,
+            statement: (t.u ? 'user: ' + t.u : '') + (t.u && t.a ? ' / ' : '') + (t.a ? 'asst: ' + t.a : ''),
+            score: 0,
+            memory_class: t.row.memory_class || 'episodic',
+            source: 'instance-sweep'
+          });
+        }
+      } catch (_) { /* instance sweep is additive — never fatal */ }
     }
     _triggerPLR(final);
     return final;
