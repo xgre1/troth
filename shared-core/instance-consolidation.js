@@ -326,19 +326,32 @@ function _turnHalves(row) {
 // transport, the bench wires the studio answerer, tests wire a fixture.
 // Extractor unreachable ⇒ the pass aborts BEFORE the watermark advances:
 // the un-distilled window is the queue, and the next pass retries it.
+//
+// opts.since (explicit, ≥0): the caller owns the window. The watermark is
+// neither read nor written — required for ingested histories whose turns
+// carry timestamps far older than any cadence lookback (a bench haystack,
+// an imported archive): the 24h first-run guard would otherwise see an
+// empty window and distill nothing. Idempotence in caller-windowed mode
+// comes from pool matching, not from the watermark.
 async function runPass(opts) {
   opts = opts || {};
   if (typeof opts.llmCall !== 'function') throw new Error('instance-consolidation: llmCall required');
   const now = opts.now || Date.now();
-  let since = _readWatermark(opts.agent_id);
-  if (!since) since = now - FIRST_RUN_LOOKBACK_MS;
+  const callerWindow = Number.isFinite(opts.since) && opts.since >= 0;
+  let since;
+  if (callerWindow) {
+    since = opts.since;
+  } else {
+    since = _readWatermark(opts.agent_id);
+    if (!since) since = now - FIRST_RUN_LOOKBACK_MS;
+  }
 
   let rows = [];
   try {
     rows = state.queryActions({
       type: 'tool_call',
       agent_id: opts.agent_id || undefined,
-      since: since + 1,
+      since: callerWindow ? since : since + 1,
       limit: opts.limit || 200,
       order: 'asc'
     }) || [];
@@ -388,8 +401,12 @@ async function runPass(opts) {
     stats.strengthened += w.strengthened;
     for (const t of sessTurns) latestTs = Math.max(latestTs, t.timestamp);
   }
-  _writeWatermark(opts, latestTs);
-  return Object.assign(stats, { watermark: latestTs, advanced: true });
+  if (!callerWindow) _writeWatermark(opts, latestTs);
+  return Object.assign(stats, {
+    watermark: latestTs,
+    advanced: !callerWindow,
+    windowed_by: callerWindow ? 'caller' : 'watermark'
+  });
 }
 
 // Default extractor transport: the configured llama.cpp server, spoken
