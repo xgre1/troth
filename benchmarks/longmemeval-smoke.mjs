@@ -253,11 +253,7 @@ function composeAnswerPrompt(q, retrieved) {
         '"watched", and a project described only as "working on" in a team is ' +
         'not one they "led" - but a SOLO project is led by its only member, ' +
         'and doing something alone satisfies leading it. ' +
-        'After the qualifier: exclude a candidate ONLY when a statement ' +
-        'explicitly states the disqualifying fact; never exclude on an ' +
-        'inferred possibility ("maybe it was planned", "perhaps they never ' +
-        'went") - when the statements leave it uncertain without ' +
-        'contradicting the qualifier, count it. ' +
+
         'When mentions state INCREMENTS over time (e.g. wore them twice, then ' +
         'once more, then three more times), add the increments up for the total. ' +
         'Then give the final result on its own last line as: Answer: <value>'
