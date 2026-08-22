@@ -35,6 +35,7 @@ const _set = new Set();
 // Known credential prefixes / token shapes. Word-ish boundaries; each match is
 // the secret itself.
 const PREFIX_RE = new RegExp(
+  '(?<![A-Za-z0-9_-])' +
   '(?:sk-[A-Za-z0-9_-]{16,}|sk_(?:live|test)_[A-Za-z0-9]{16,}|rk_(?:live|test)_[A-Za-z0-9]{16,}|' +
   'ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|' +
   'xox[bpars]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|' +
@@ -43,7 +44,7 @@ const PREFIX_RE = new RegExp(
   'eyJ[A-Za-z0-9_-]{10,}\\.eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,})', 'g');
 
 // scheme://user:PASSWORD@host - capture group 1 is the password.
-const URL_CRED_RE = /[a-z][a-z0-9+.-]*:\/\/[^\s:@\/]+:([^\s@\/]{4,})@/gi;
+const URL_CRED_RE = /(?<![A-Za-z0-9+.-])[a-z][a-z0-9+.-]{0,31}:\/\/[^\s:@\/]+:([^\s@\/]{4,})@/gi;
 
 // PEM private-key blocks (the whole block is the secret).
 const PEM_RE = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
@@ -51,7 +52,16 @@ const PEM_RE = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVAT
 // credential-named fields in JSON / env / yaml-ish text. Capture group 2 is
 // the value. Name must CONTAIN a credential word; value must be a single
 // unbroken token of >= MIN_LEN chars.
-const FIELD_RE = /["']?([A-Za-z0-9_.-]*(?:secret|token|passwd|password|api[_-]?key|apikey|service_role|access[_-]?key|private[_-]?key|credential|client[_-]?secret)[A-Za-z0-9_.-]*)["']?\s*[:=]\s*["']?([A-Za-z0-9+\/_.=~-]{8,})/gi;
+//
+// Split in two on purpose. Folding the credential-word alternation INSIDE a
+// [A-Za-z0-9_.-]* quantifier let the name part overlap its own alternation:
+// every offset of a long unbroken token re-scanned the whole run, so cost was
+// O(n^2). A ~1.3MB tool result pinned a core at 100% for ~40min inside a
+// single exec(). The pair matcher below is linear: the lookbehind refuses to
+// start mid-token, and the bounded {1,128} name caps backtracking. The word
+// test then runs on the short captured name, not on the whole haystack.
+const FIELD_PAIR_RE = /(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]{1,128})["']?\s*[:=]\s*["']?([A-Za-z0-9+\/_.=~-]{8,})/g;
+const CRED_NAME_RE = /secret|token|passwd|password|api[_-]?key|apikey|service_role|access[_-]?key|private[_-]?key|credential|client[_-]?secret/i;
 
 // Field VALUES that are clearly not secrets even when the field name matches
 // (booleans, placeholders, vault references).
@@ -79,8 +89,8 @@ function harvest(text) {
   while ((m = URL_CRED_RE.exec(text)) !== null) _add(m[1]);
   PEM_RE.lastIndex = 0;
   while ((m = PEM_RE.exec(text)) !== null) _add(m[0]);
-  FIELD_RE.lastIndex = 0;
-  while ((m = FIELD_RE.exec(text)) !== null) _add(m[2]);
+  FIELD_PAIR_RE.lastIndex = 0;
+  while ((m = FIELD_PAIR_RE.exec(text)) !== null) { if (CRED_NAME_RE.test(m[1])) _add(m[2]); }
   return _fifo.length - before;
 }
 
