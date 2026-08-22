@@ -172,6 +172,26 @@ function multiAxisQuery(opts) {
   const principalForward = opts.principal;
 
   const entities = extractEntities(prompt);
+  // Identity expansion — recognition-from-memory (entity-identity.js).
+  // extractEntities above is code-shaped on purpose (high precision);
+  // people and life entities enter the axis ONLY through the identity
+  // registry (engrams in scope entity:<slug>), so "my sister" expands to
+  // "Jen"/"Jen and Tom" when — and only when — the mind has recorded who
+  // that is. Purely additive: empty registry ⇒ byte-identical behavior.
+  // Feeds the same findByEntity scoring path; no new ranking rules.
+  // TROTH_ENTITY_IDENTITY=0 disables.
+  if (process.env.TROTH_ENTITY_IDENTITY !== '0') {
+    try {
+      const identity = require('./entity-identity.js');
+      const ex = identity.expandForQuery(prompt, {
+        agent_id: opts.agent_id,
+        principal: principalForward
+      });
+      for (const tok of ex.tokens) {
+        if (!entities.includes(tok)) entities.push(tok);
+      }
+    } catch (_) { /* identity organ is optional — the axis never fails on it */ }
+  }
   // Map<id, { row, axis_hits: Set<axis>, score }>
   const candidates = new Map();
 
