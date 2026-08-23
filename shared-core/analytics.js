@@ -265,11 +265,12 @@ function getAnalytics(opts) {
 
   const REMOVING_KINDS = ['output_archive', 'bash_compression', 'context_filter', 'mcp_cache:hit', 'gemcache:hit'];
   let tokens_removed = 0, tokens_removed_carried = 0, removal_events = 0, removal_turns = 0;
+  let removal_carried_estimated = 0;
   let removal_sessions = [];
   const _removalBySid = new Map();
   try {
     const removals = db.prepare(
-      `SELECT tokens, session_id, ts, carried_turns FROM savings_ledger
+      `SELECT tokens, session_id, ts, carried_turns, note FROM savings_ledger
        WHERE ts >= ? AND ts <= ? AND session_id IS NOT NULL AND tokens > 0
          AND kind IN (${REMOVING_KINDS.map(() => '?').join(',')})`
     ).all(w.from_ts, w.to_ts, ...REMOVING_KINDS);
@@ -291,9 +292,11 @@ function getAnalytics(opts) {
           later++;
         }
       }
+      const _est = r.carried_turns != null && r.note && String(r.note).indexOf('carried_est') === 0;
+      if (_est) removal_carried_estimated += r.tokens * (1 + later);
       removal_turns += later;
       tokens_removed_carried += r.tokens * (1 + later);
-      const _e = _removalBySid.get(r.session_id) || { tokens: 0, carried: 0, events: 0, timeline: r.carried_turns != null ? 'frozen' : (s ? (s.src || 'transcript') : 'none') };
+      const _e = _removalBySid.get(r.session_id) || { tokens: 0, carried: 0, events: 0, timeline: r.carried_turns != null ? (_est ? 'estimated' : 'frozen') : (s ? (s.src || 'transcript') : 'none') };
       _e.tokens += r.tokens;
       _e.carried += r.tokens * (1 + later);
       _e.events++;
@@ -586,6 +589,7 @@ function getAnalytics(opts) {
     removal_events,
     removal_turns_avg: removal_events ? Math.round(removal_turns / removal_events) : 0,
     removal_sessions,
+    removal_carried_estimated,
     api_cost_total: +api_cost_total.toFixed(6),
     cache_saving_usd: +cache_saving_usd.toFixed(6),
     total_saved_usd: +(cache_saving_usd + Math.max(0, api_cost_total - actual_usd_spent) + tokens_saved_usd_equiv).toFixed(6),

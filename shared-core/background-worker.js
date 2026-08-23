@@ -1270,7 +1270,25 @@ const taskCarriedFreeze = {
         ).all(...sids, ...KINDS);
       }
     } catch (_) { /* audit is best-effort */ }
-    if (!rows.length && !auditRows.length) return { events: [], notes: ['carried_freeze: nothing unfrozen'] };
+    // Rows whose primary evidence burned before the freeze system existed
+    // froze at a zero floor nobody believes. The same population, measured
+    // while its evidence was alive, averaged ~223 stayed-out turns (operator
+    // dashboard captures, 2026-08-19 live read 224 and 2026-08-22 screen 223).
+    // Those rows carry the measured era average, marked estimated — applied
+    // once, only where no timeline source ever existed, never over a real
+    // measurement.
+    const FREEZE_BIRTH_TS = 1787443200000; // freeze system ships; older zero-frozen rows are evidence-less
+    const ERA_AVG_TURNS = 223;
+    let estimated = 0;
+    try {
+      estimated = db.prepare(
+        `UPDATE savings_ledger SET carried_turns = ${ERA_AVG_TURNS}, note = 'carried_est:era-avg'
+         WHERE carried_turns = 0 AND (note IS NULL OR note = '') AND tokens > 0
+           AND ts < ${FREEZE_BIRTH_TS}
+           AND kind IN (${KINDS.map(() => '?').join(',')})`
+      ).run(...KINDS).changes || 0;
+    } catch (_) { /* estimate is best-effort */ }
+    if (!rows.length && !auditRows.length && !estimated) return { events: [], notes: ['carried_freeze: nothing unfrozen'] };
     const ids = [];
     for (const r of rows) if (ids.indexOf(r.session_id) === -1) ids.push(r.session_id);
     for (const r of auditRows) if (ids.indexOf(r.session_id) === -1) ids.push(r.session_id);
@@ -1300,7 +1318,11 @@ const taskCarriedFreeze = {
         later++;
       }
       const lastBeat = s.turns.length ? s.turns[s.turns.length - 1] : 0;
-      const settled = !!stop || (now - Math.max(lastBeat, r.ts) > WEEK) || (now - r.ts > MONTH);
+      // A compaction settles a count only when the transcript — the primary
+      // evidence — produced it. A substrate-sourced timeline is a floor:
+      // freezing a fresh row from its sparse beats locks in a near-zero
+      // multiplier, so those rows wait for quiet instead.
+      const settled = (!!stop && s.src === 'transcript') || (now - Math.max(lastBeat, r.ts) > WEEK) || (now - r.ts > MONTH);
       if (settled) batch.push({ id: r.id, later });
       else waiting++;
     }
@@ -1317,7 +1339,7 @@ const taskCarriedFreeze = {
       }
       if (later > r.carried_turns) raises.push({ id: r.id, later });
     }
-    if (!batch.length && !raises.length) return { events: [], notes: ['carried_freeze: 0 settled, ' + waiting + ' still settling'] };
+    if (!batch.length && !raises.length && !estimated) return { events: [], notes: ['carried_freeze: 0 settled, ' + waiting + ' still settling'] };
     try {
       const upd = db.prepare('UPDATE savings_ledger SET carried_turns = ? WHERE id = ?');
       db.transaction((b) => { for (const x of b) upd.run(x.later, x.id); }).immediate(batch.concat(raises));
@@ -1325,10 +1347,10 @@ const taskCarriedFreeze = {
     return {
       events: [{
         type: 'tool_call',
-        input:  { tool_name: 'background_worker.carried_freeze', args: { frozen: batch.length, raised: raises.length } },
+        input:  { tool_name: 'background_worker.carried_freeze', args: { frozen: batch.length, raised: raises.length, estimated: estimated } },
         output: { status: 'completed' }
       }],
-      notes: ['carried_freeze: froze ' + batch.length + ' removals' + (raises.length ? ', raised ' + raises.length + ' from primary evidence' : '') + (waiting ? ', ' + waiting + ' still settling' : '')]
+      notes: ['carried_freeze: froze ' + batch.length + ' removals' + (raises.length ? ', raised ' + raises.length + ' from primary evidence' : '') + (estimated ? ', ' + estimated + ' era-estimated' : '') + (waiting ? ', ' + waiting + ' still settling' : '')]
     };
   }
 };
