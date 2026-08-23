@@ -324,9 +324,81 @@ function _descOverlap(a, b) {
   return hit / Math.min(A.size, B.size);
 }
 
+// Social events retold across sessions drift in entity wording ("Emily and
+// Sarah's wedding" / "my cousin's wedding" / "Rachel") while the separating
+// truth lives elsewhere: named participants, and place/time ANCHORS inside
+// the text. Measured on a real haystack where every session shares one
+// date, so session timestamps separate nothing. Four rungs, in order:
+// disjoint named participants split; a shared name joins; same-axis anchors
+// with no overlap split; no separator anywhere joins (retellings are the
+// norm, over-counting the covenant-breaking failure).
+const _EVENT_HEAD = /(wedding|birthday|funeral|graduation|anniversary|baby shower|bachelorette|bachelor party|reunion|festival)/i;
+const _NAME_STOP = new Set(['User', 'The', 'A', 'An', 'My', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']);
+
+function _eventText(inst) {
+  return String(inst.entity || '') + ' ' + String(inst.description || '') + ' ' + String(inst.quote || '');
+}
+
+function _headNoun(inst) {
+  const m = _EVENT_HEAD.exec(_eventText(inst));
+  return m ? m[1].toLowerCase() : null;
+}
+
+function _nameTokens(inst) {
+  const text = _eventText(inst);
+  const out = new Set();
+  for (const m of text.matchAll(/\b([A-Z][a-z]{2,})\b/g)) {
+    if (_NAME_STOP.has(m[1])) continue;
+    // A real name is capitalized EVERYWHERE it appears; a word that also
+    // shows up lowercase in the same text is sentence-case, not a person.
+    if (new RegExp('\\b' + m[1].toLowerCase() + '\\b').test(text)) continue;
+    out.add(m[1].toLowerCase());
+  }
+  return out;
+}
+
+function _eventAnchors(inst) {
+  const text = _eventText(inst).toLowerCase();
+  const anchors = new Set();
+  for (const m of text.matchAll(/\b(?:in|last|this|next)\s+(january|february|march|april|may|june|july|august|september|october|november|december)\b/g)) anchors.add('t:' + m[1]);
+  if (/\blast weekend\b/.test(text)) anchors.add('t:last-weekend');
+  if (/\blast month\b/.test(text)) anchors.add('t:last-month');
+  if (/\byesterday\b/.test(text)) anchors.add('t:yesterday');
+  for (const m of text.matchAll(/\b(vineyard|beach|rooftop|church|downtown|hotel|barn|lakeside|mountains?|backyard|city)\b/g)) anchors.add('p:' + m[1]);
+  return anchors;
+}
+
+function _sameEvent(e, inst) {
+  const h1 = _headNoun(e), h2 = _headNoun(inst);
+  if (!h1 || h1 !== h2) return null; // not this arm's call
+  const n1 = _nameTokens(e), n2 = _nameTokens(inst);
+  if (n1.size && n2.size) {
+    let sharedName = false;
+    for (const n of n1) if (n2.has(n)) sharedName = true;
+    if (sharedName) return true;
+    return false; // both name people, none in common - different occasions
+  }
+  const a1 = _eventAnchors(e), a2 = _eventAnchors(inst);
+  const axis = (s, p) => [...s].some((x) => x.startsWith(p));
+  const axisShared = (p) => [...a1].some((x) => x.startsWith(p) && a2.has(x));
+  if (axis(a1, 't:') && axis(a2, 't:') && !axisShared('t:')) return false;
+  if (axis(a1, 'p:') && axis(a2, 'p:') && !axisShared('p:')) return false;
+  return true; // nothing separates them - the same occasion, retold
+}
+
 function _sameOccurrence(entry, inst, entity_slug) {
   const e = entry.instance;
   if (!e || e.kind !== inst.kind) return false;
+  if (e.kind === 'event') {
+    const verdict = _sameEvent(e, inst);
+    if (verdict === false) return false;
+    if (verdict === true) {
+      // Two PINNED, different dates are two occurrences - never merged,
+      // whatever the wording shares.
+      if (e.date_iso && inst.date_iso && e.date_iso !== inst.date_iso) return false;
+      return true;
+    }
+  }
   const entityMatch = (e.entity_slug && entity_slug)
     ? e.entity_slug === entity_slug
     : _normEntity(e.entity) === _normEntity(inst.entity);
