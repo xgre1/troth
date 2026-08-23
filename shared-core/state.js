@@ -365,6 +365,9 @@ function migrate(d) {
     );
     CREATE INDEX IF NOT EXISTS idx_savings_ts   ON savings_ledger(ts);
     CREATE INDEX IF NOT EXISTS idx_savings_kind ON savings_ledger(kind);
+    CREATE INDEX IF NOT EXISTS idx_savings_sess ON savings_ledger(session_id, ts);
+    CREATE INDEX IF NOT EXISTS idx_hook_events_sess ON hook_events(session_id, ts);
+    CREATE INDEX IF NOT EXISTS idx_tool_output_sess ON tool_output_archive(session_id, ts);
   `);
 
   // Migration: add cwd column to session_lessons so lessons can cross
@@ -373,6 +376,12 @@ function migrate(d) {
   // exists (SQLite throws, we swallow).
   try {
     d.exec('ALTER TABLE session_lessons ADD COLUMN cwd TEXT');
+  } catch (_) { /* column already there */ }
+  // Migration: carried_turns freezes a removal's later-turn count once its
+  // session settles, so the carried metric stops depending on transcript
+  // retention. NULL = not yet frozen (analytics live-computes it).
+  try {
+    d.exec('ALTER TABLE savings_ledger ADD COLUMN carried_turns INTEGER');
   } catch (_) { /* column already there */ }
   // Tri-pool autonomy limits: per-charge provider so the
   // circuit-breaker can cap the SUBSCRIPTION pool by tokens (a flat-rate

@@ -6517,7 +6517,7 @@ server.listen(listenPort, BIND_HOST, () => {
         // install. Both were registered in DEFAULT_TASKS — the entity daemon's
         // list — so on this machine the document queue had no reader at all
         // and the operator watched "183 still to read" never move.
-        tasks: [bw.tasks.embeddingBackfill, bw.tasks.knowledgeDrain, bw.tasks.outcomeFold, bw.tasks.importSync, bw.tasks.backup, bw.tasks.walReplicate, bw.tasks.ledgerPrune],
+        tasks: [bw.tasks.embeddingBackfill, bw.tasks.knowledgeDrain, bw.tasks.outcomeFold, bw.tasks.importSync, bw.tasks.backup, bw.tasks.walReplicate, bw.tasks.ledgerPrune, bw.tasks.carriedFreeze],
         cross_process_lease: true,
         idle_threshold_ms: Math.max(parseInt(process.env.TROTH_MAINT_IDLE_MS || '60000', 10) || 60000, 0),
         tick_ms: Math.max(parseInt(process.env.TROTH_MAINT_TICK_MS || '30000', 10) || 30000, 250),

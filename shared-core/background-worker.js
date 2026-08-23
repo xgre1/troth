@@ -1226,6 +1226,113 @@ const taskLedgerPrune = {
   }
 };
 
+// The carried multiplier reads timelines that decay — transcripts prune on
+// their owner's schedule and substrate traces thin out. Once a removal's
+// count is settled (its session compacted after it, went quiet for a week,
+// or the row is a month old), the value is frozen onto the row itself and
+// analytics stops recomputing it. Savings become append-only history.
+const taskCarriedFreeze = {
+  name: 'carried_freeze',
+  cadence_ms: 60 * 60 * 1000,
+  run: async function () {
+    const state = require('./state.js');
+    const analytics = require('./analytics.js');
+    const db = state.db();
+    const KINDS = ['output_archive', 'bash_compression', 'context_filter', 'mcp_cache:hit', 'gemcache:hit'];
+    let rows = [];
+    try {
+      rows = db.prepare(
+        `SELECT id, ts, session_id FROM savings_ledger
+         WHERE carried_turns IS NULL AND session_id IS NOT NULL AND tokens > 0
+           AND kind IN (${KINDS.map(() => '?').join(',')})
+         ORDER BY ts LIMIT 20000`
+      ).all(...KINDS);
+    } catch (e) { return { events: [], notes: ['carried_freeze: ' + (e && e.message || e)] }; }
+    // Frozen values are floors, not verdicts. The value-heaviest frozen
+    // sessions get their rows re-derived whenever a readable transcript — the
+    // primary evidence — says MORE turns than the row holds; a value only
+    // ever rises. This heals rows frozen while their transcript was
+    // unreadable or missing, and costs one indexed query per run.
+    let auditRows = [];
+    try {
+      const sids = db.prepare(
+        `SELECT session_id, SUM(tokens) AS tok FROM savings_ledger
+         WHERE carried_turns IS NOT NULL AND session_id IS NOT NULL AND tokens > 0
+           AND kind IN (${KINDS.map(() => '?').join(',')})
+         GROUP BY session_id ORDER BY tok DESC LIMIT 40`
+      ).all(...KINDS).map((r) => r.session_id);
+      if (sids.length) {
+        auditRows = db.prepare(
+          `SELECT id, ts, session_id, carried_turns FROM savings_ledger
+           WHERE carried_turns IS NOT NULL AND tokens > 0
+             AND session_id IN (${sids.map(() => '?').join(',')})
+             AND kind IN (${KINDS.map(() => '?').join(',')})`
+        ).all(...sids, ...KINDS);
+      }
+    } catch (_) { /* audit is best-effort */ }
+    if (!rows.length && !auditRows.length) return { events: [], notes: ['carried_freeze: nothing unfrozen'] };
+    const ids = [];
+    for (const r of rows) if (ids.indexOf(r.session_id) === -1) ids.push(r.session_id);
+    for (const r of auditRows) if (ids.indexOf(r.session_id) === -1) ids.push(r.session_id);
+    let timeline;
+    try { timeline = analytics.sessionTimeline(ids, { fresh: true }); } catch (e) {
+      return { events: [], notes: ['carried_freeze: timeline failed — ' + (e && e.message || e)] };
+    }
+    const now = Date.now();
+    const WEEK = 7 * 24 * 60 * 60 * 1000;
+    const MONTH = 30 * 24 * 60 * 60 * 1000;
+    const batch = [];
+    let waiting = 0;
+    for (const r of rows) {
+      const s = timeline.get(r.session_id);
+      if (!s) {
+        // No timeline anywhere. Month-old rows freeze at the honest floor of
+        // zero; younger ones wait for traces to appear.
+        if (now - r.ts > MONTH) batch.push({ id: r.id, later: 0 });
+        else waiting++;
+        continue;
+      }
+      const stop = s.compactions.find((c) => c > r.ts);
+      let later = 0;
+      for (const t of s.turns) {
+        if (t <= r.ts) continue;
+        if (stop && t >= stop) break;
+        later++;
+      }
+      const lastBeat = s.turns.length ? s.turns[s.turns.length - 1] : 0;
+      const settled = !!stop || (now - Math.max(lastBeat, r.ts) > WEEK) || (now - r.ts > MONTH);
+      if (settled) batch.push({ id: r.id, later });
+      else waiting++;
+    }
+    const raises = [];
+    for (const r of auditRows) {
+      const s = timeline.get(r.session_id);
+      if (!s || s.src !== 'transcript') continue;
+      const stop = s.compactions.find((c) => c > r.ts);
+      let later = 0;
+      for (const t of s.turns) {
+        if (t <= r.ts) continue;
+        if (stop && t >= stop) break;
+        later++;
+      }
+      if (later > r.carried_turns) raises.push({ id: r.id, later });
+    }
+    if (!batch.length && !raises.length) return { events: [], notes: ['carried_freeze: 0 settled, ' + waiting + ' still settling'] };
+    try {
+      const upd = db.prepare('UPDATE savings_ledger SET carried_turns = ? WHERE id = ?');
+      db.transaction((b) => { for (const x of b) upd.run(x.later, x.id); }).immediate(batch.concat(raises));
+    } catch (e) { return { events: [], notes: ['carried_freeze: update failed — ' + (e && e.message || e)] }; }
+    return {
+      events: [{
+        type: 'tool_call',
+        input:  { tool_name: 'background_worker.carried_freeze', args: { frozen: batch.length, raised: raises.length } },
+        output: { status: 'completed' }
+      }],
+      notes: ['carried_freeze: froze ' + batch.length + ' removals' + (raises.length ? ', raised ' + raises.length + ' from primary evidence' : '') + (waiting ? ', ' + waiting + ' still settling' : '')]
+    };
+  }
+};
+
 // Did the work survive? The substrate records every change but learns the
 // answer only if something observes the outcome; without an observer the edit
 // records accumulate and the outcome events stay at zero. action-outcome.js
@@ -1417,7 +1524,7 @@ function hydrateLastRunFromRecords(cwd, stateOverride) {
   return lastRun;
 }
 
-const DEFAULT_TASKS = [taskContradictionScan, taskDormantReview, taskStateSummary, taskDriftScan, taskEngramGc, taskAnchorSuggest, taskIdentityExtract, taskReconsolidationReview, taskBackup, taskOrchestrationReview, taskHypothesisGeneration, taskPurposeRefresh, taskWorkingMemoryConsolidation, taskInstanceConsolidation, taskEmbeddingBackfill, taskDormancyWarn, taskWalReplicate, taskImportSync, taskLedgerPrune, taskOutcomeFold, taskKnowledgeDrain];
+const DEFAULT_TASKS = [taskContradictionScan, taskDormantReview, taskStateSummary, taskDriftScan, taskEngramGc, taskAnchorSuggest, taskIdentityExtract, taskReconsolidationReview, taskBackup, taskOrchestrationReview, taskHypothesisGeneration, taskPurposeRefresh, taskWorkingMemoryConsolidation, taskInstanceConsolidation, taskEmbeddingBackfill, taskDormancyWarn, taskWalReplicate, taskImportSync, taskLedgerPrune, taskCarriedFreeze, taskOutcomeFold, taskKnowledgeDrain];
 // Closed-extension worker tasks (guarded optional require — absent in the open build).
 try { const _ext = require('./core-ext.js'); if (Array.isArray(_ext.workerTasks)) DEFAULT_TASKS.push(..._ext.workerTasks); } catch (_) {}
 
@@ -1760,6 +1867,7 @@ module.exports = {
     embeddingBackfill: taskEmbeddingBackfill,
     importSync:        taskImportSync,
     ledgerPrune:       taskLedgerPrune,
+    carriedFreeze:     taskCarriedFreeze,
     // Both of these were written, tested and scheduled — into DEFAULT_TASKS,
     // which only the entity daemon runs. In the topology the operator
     // actually has (Claude Code + proxy) nothing referenced them, so the

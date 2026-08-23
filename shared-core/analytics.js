@@ -36,15 +36,94 @@ function pct(sorted, p) {
 }
 
 // A token removed from the window is absent from every later prompt too, until
-// the conversation compacts and the window is rebuilt. Only the transcripts
-// record where that happens, so the sessions that produced savings are read
-// once and held for a few minutes.
+// the conversation compacts and the window is rebuilt. The transcripts record
+// where that happens, but they belong to another program that prunes them on
+// its own schedule — and a pruned project dir silently collapses the carried
+// number. So the substrate's own per-session traces rebuild the same timeline,
+// and per session the richer of the two views wins. Sessions that produced
+// savings are read once and held for a few minutes.
 const _sessionCache = { at: 0, byId: new Map() };
 const SESSION_CACHE_MS = 5 * 60 * 1000;
 
-function sessionTimeline(ids) {
+// Every lane of a session leaves traces the substrate itself owns: hook
+// events, archived tool outputs, action records, the savings rows. Their
+// union, one beat per second of activity, is the session's turn series.
+// Conversation compactions are only the PreCompact marks the plugin hook
+// recorded — the proxy's own window compactions rebuild a different window
+// and must not truncate this count.
+function _substrateTimeline(db, sid) {
+  const beats = [];
+  const marks = [];
+  const pull = (sql, into) => {
+    try { for (const r of db.prepare(sql).all(sid)) into.push(r.t); } catch (_) { /* table absent on older substrates */ }
+  };
+  pull('SELECT ts AS t FROM hook_events WHERE session_id = ?', beats);
+  pull('SELECT ts AS t FROM tool_output_archive WHERE session_id = ?', beats);
+  pull("SELECT timestamp AS t FROM action_records WHERE session_id = ? AND type <> 'compact'", beats);
+  pull('SELECT ts AS t FROM savings_ledger WHERE session_id = ?', beats);
+  pull("SELECT ts AS t FROM hook_events WHERE session_id = ? AND event LIKE 'PreCompact%'", marks);
+  pull("SELECT timestamp AS t FROM action_records WHERE session_id = ? AND type = 'compact' AND agent_id = 'claude-code'", marks);
+  const dedupe = (arr) => {
+    arr.sort((a, b) => a - b);
+    const seen = new Set();
+    const kept = [];
+    for (const t of arr) {
+      const b = Math.floor(t / 1000);
+      if (seen.has(b)) continue;
+      seen.add(b);
+      kept.push(t);
+    }
+    return kept;
+  };
+  return { turns: dedupe(beats), compactions: dedupe(marks), src: 'substrate' };
+}
+
+// Chunked line scan — marathon transcripts outgrow what a single string can
+// hold (readFileSync throws past the V8 string cap and the session silently
+// vanished from this timeline), so the bytes stream through a carry buffer.
+function _scanTranscript(fs, file) {
+  let fd;
+  try { fd = fs.openSync(file, 'r'); } catch (_) { return null; }
+  const turns = [], compactions = [];
+  const CHUNK = 8 * 1024 * 1024;
+  let carry = Buffer.alloc(0);
+  const takeLine = (line) => {
+    const isTurn = line.indexOf('\"type\":\"user\"') >= 0;
+    const isCompact = line.indexOf('isCompactSummary') >= 0 || line.indexOf('compact_boundary') >= 0;
+    if (!isTurn && !isCompact) return;
+    let j;
+    try { j = JSON.parse(line); } catch (_) { return; }
+    const t = Date.parse(j.timestamp || '');
+    if (!t) return;
+    if (j.isCompactSummary === true || j.subtype === 'compact_boundary') compactions.push(t);
+    else if (j.type === 'user') turns.push(t);
+  };
+  try {
+    for (;;) {
+      const b = Buffer.allocUnsafe(CHUNK);
+      const got = fs.readSync(fd, b, 0, CHUNK, null);
+      if (got <= 0) break;
+      carry = carry.length ? Buffer.concat([carry, b.subarray(0, got)]) : b.subarray(0, got);
+      let start = 0;
+      for (let nl = carry.indexOf(0x0A, start); nl !== -1; nl = carry.indexOf(0x0A, start)) {
+        const line = carry.subarray(start, nl).toString('utf8');
+        start = nl + 1;
+        if (line) takeLine(line);
+      }
+      carry = start ? carry.subarray(start) : carry;
+      if (carry.length > 64 * 1024 * 1024) carry = Buffer.alloc(0); // no real line is 64MB — drop, don't hold
+    }
+    if (carry.length) { const line = carry.toString('utf8'); if (line) takeLine(line); }
+  } catch (_) { /* mid-read surprise — keep what parsed */ } finally {
+    try { fs.closeSync(fd); } catch (_) {}
+  }
+  return { turns, compactions };
+}
+
+function sessionTimeline(ids, opts) {
+  const fresh = !!(opts && opts.fresh);
   const now = Date.now();
-  if (now - _sessionCache.at < SESSION_CACHE_MS) return _sessionCache.byId;
+  if (!fresh && now - _sessionCache.at < SESSION_CACHE_MS) return _sessionCache.byId;
   const fs = require('fs');
   const os = require('os');
   const path = require('path');
@@ -60,28 +139,32 @@ function sessionTimeline(ids) {
       if (!f.endsWith('.jsonl')) continue;
       const sid = f.slice(0, -6);
       if (!wanted.has(sid) || out.has(sid)) continue;
-      let txt;
-      try { txt = fs.readFileSync(path.join(root, d, f), 'utf8'); } catch (_) { continue; }
-      const turns = [], compactions = [];
-      for (const line of txt.split('\n')) {
-        if (!line) continue;
-        const isTurn = line.indexOf('"type":"user"') >= 0;
-        const isCompact = line.indexOf('isCompactSummary') >= 0 || line.indexOf('compact_boundary') >= 0;
-        if (!isTurn && !isCompact) continue;
-        let j;
-        try { j = JSON.parse(line); } catch (_) { continue; }
-        const t = Date.parse(j.timestamp || '');
-        if (!t) continue;
-        if (j.isCompactSummary === true || j.subtype === 'compact_boundary') compactions.push(t);
-        else if (j.type === 'user') turns.push(t);
-      }
-      turns.sort((a, b) => a - b);
-      compactions.sort((a, b) => a - b);
-      out.set(sid, { turns, compactions });
+      const scanned = _scanTranscript(fs, path.join(root, d, f));
+      if (!scanned) continue;
+      scanned.turns.sort((a, b) => a - b);
+      scanned.compactions.sort((a, b) => a - b);
+      out.set(sid, { turns: scanned.turns, compactions: scanned.compactions, src: 'transcript' });
     }
   }
-  _sessionCache.at = now;
-  _sessionCache.byId = out;
+  // The substrate only stands in for sessions whose transcript is gone — a
+  // live transcript keeps its exact semantics untouched.
+  if (process.env.TROTH_TIMELINE_SUBSTRATE !== '0') {
+    let sdb = null;
+    try { sdb = state.db(); } catch (_) { /* substrate closed — transcripts alone */ }
+    if (sdb) {
+      for (const sid of wanted) {
+        if (out.has(sid)) continue;
+        let sub = null;
+        try { sub = _substrateTimeline(sdb, sid); } catch (_) { continue; }
+        if (!sub || !sub.turns.length) continue;
+        out.set(sid, sub);
+      }
+    }
+  }
+  if (!fresh) {
+    _sessionCache.at = now;
+    _sessionCache.byId = out;
+  }
   return out;
 }
 
@@ -182,9 +265,11 @@ function getAnalytics(opts) {
 
   const REMOVING_KINDS = ['output_archive', 'bash_compression', 'context_filter', 'mcp_cache:hit', 'gemcache:hit'];
   let tokens_removed = 0, tokens_removed_carried = 0, removal_events = 0, removal_turns = 0;
+  let removal_sessions = [];
+  const _removalBySid = new Map();
   try {
     const removals = db.prepare(
-      `SELECT tokens, session_id, ts FROM savings_ledger
+      `SELECT tokens, session_id, ts, carried_turns FROM savings_ledger
        WHERE ts >= ? AND ts <= ? AND session_id IS NOT NULL AND tokens > 0
          AND kind IN (${REMOVING_KINDS.map(() => '?').join(',')})`
     ).all(w.from_ts, w.to_ts, ...REMOVING_KINDS);
@@ -196,7 +281,9 @@ function getAnalytics(opts) {
       removal_events++;
       const s = timeline.get(r.session_id);
       let later = 0;
-      if (s) {
+      if (r.carried_turns != null) {
+        later = r.carried_turns;
+      } else if (s) {
         const stop = s.compactions.find((c) => c > r.ts);
         for (const t of s.turns) {
           if (t <= r.ts) continue;
@@ -206,7 +293,15 @@ function getAnalytics(opts) {
       }
       removal_turns += later;
       tokens_removed_carried += r.tokens * (1 + later);
+      const _e = _removalBySid.get(r.session_id) || { tokens: 0, carried: 0, events: 0, timeline: r.carried_turns != null ? 'frozen' : (s ? (s.src || 'transcript') : 'none') };
+      _e.tokens += r.tokens;
+      _e.carried += r.tokens * (1 + later);
+      _e.events++;
+      _removalBySid.set(r.session_id, _e);
     }
+    removal_sessions = Array.from(_removalBySid, ([session_id, e]) => ({ session_id, ...e }))
+      .sort((a, b) => b.tokens - a.tokens)
+      .slice(0, 12);
   } catch (_) { /* transcripts unreadable — the certain number still stands */ }
 
   const daily = [];
@@ -490,6 +585,7 @@ function getAnalytics(opts) {
     tokens_removed_carried,
     removal_events,
     removal_turns_avg: removal_events ? Math.round(removal_turns / removal_events) : 0,
+    removal_sessions,
     api_cost_total: +api_cost_total.toFixed(6),
     cache_saving_usd: +cache_saving_usd.toFixed(6),
     total_saved_usd: +(cache_saving_usd + Math.max(0, api_cost_total - actual_usd_spent) + tokens_saved_usd_equiv).toFixed(6),
@@ -556,4 +652,4 @@ function getAnalytics(opts) {
   };
 }
 
-module.exports = { getAnalytics, windowBounds, WINDOWS };
+module.exports = { getAnalytics, windowBounds, WINDOWS, sessionTimeline };
