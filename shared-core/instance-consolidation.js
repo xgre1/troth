@@ -330,7 +330,7 @@ function _statementFor(inst) {
     (inst.qualifier ? inst.qualifier + ' ' : '') +
     inst.entity + ' — ' + inst.description +
     (Number.isFinite(inst.quantity) ? ' (qty ' + inst.quantity + ')' : '') +
-    ' [' + inst.status + (inst.date_iso ? ', ' + inst.date_iso : '') + ']' +
+    ' [' + inst.status + (inst.basis === 'entailed' ? ', inferred' : '') + (inst.date_iso ? ', ' + inst.date_iso : '') + ']' +
     (extras.length ? ' (also said: ' + extras.join(', ') + ')' : '');
 }
 
@@ -464,6 +464,10 @@ function _sameEvent(e, inst) {
 function _sameOccurrence(entry, inst, entity_slug) {
   const e = entry.instance;
   if (!e || e.kind !== inst.kind) return false;
+  // An entailed occurrence and a stated one with DIFFERENT statuses are
+  // different occurrences by construction: the derived prior visit must
+  // never absorb the scheduled follow-up it was inferred from.
+  if ((e.basis === 'entailed') !== (inst.basis === 'entailed') && e.status !== inst.status) return false;
   if (e.kind === 'event') {
     const verdict = _sameEvent(e, inst);
     if (verdict === false) return false;
@@ -491,14 +495,79 @@ function _sameOccurrence(entry, inst, entity_slug) {
 // occurrence — the ku organ's newest-wins, with a direction guard.
 const TERMINAL_STATUS = { completed: true, cancelled: true };
 
+// ── Entailed occurrences ──────────────────────────────────────────────
+// Some statements ENTAIL a completed occurrence without stating it: booking
+// a follow-up presupposes the first visit; holding a prescription "from
+// Dr. P" is impossible without an encounter. Membership test for the
+// artifact schema (encounter-constitutive): could the user truthfully hold
+// this "from P" with zero interaction ever having occurred? A closed
+// schema mints visit rows [completed, inferred] carrying the entailing
+// turns as receipts. Derivation reads STATED rows only (no chaining),
+// never mints when a stated completed visit for the same person exists,
+// and ships dark behind its own flag.
+const _ARTIFACT_RE = /\b(prescription|referral|diagnosis|filling|crown|stitches)\b[^.]*?\bfrom\s+(Dr\.?\s*[A-Z][\w.]*(?:\s+[A-Z][a-z]+)?|[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]+)?)/;
+const _FOLLOWUP_RE = /\b(follow[\s-]?up|another appointment with|again with)\b/i;
+
+function entailmentEnabled() {
+  return process.env.TROTH_INSTANCE_ENTAILMENT === '1';
+}
+
+function _hasStatedCompletedVisit(pool, entity) {
+  const norm = _normEntity(entity);
+  return pool.some((p) => {
+    const e = p.instance;
+    return e && e.kind === 'visit' && e.status === 'completed' && e.basis !== 'entailed' && _normEntity(e.entity) === norm;
+  });
+}
+
+function _deriveEntailed(pool, opts, stats) {
+  const derived = [];
+  for (const p of pool.slice()) {
+    const e = p.instance;
+    if (!e || e.basis === 'entailed') continue;
+    const text = String(e.description || '') + ' ' + String(p.statement || '');
+    if (e.kind === 'visit' && _FOLLOWUP_RE.test(text) && !_hasStatedCompletedVisit(pool, e.entity)) {
+      derived.push({
+        kind: 'visit', entity: e.entity,
+        description: 'prior visit implied by the follow-up being arranged',
+        date_iso: null, status: 'completed', basis: 'entailed',
+        qualifier: 'visited', quantity: null,
+        _provenance_refs: _refsOf(p.id)
+      });
+    }
+    if (e.kind === 'possession' || e.kind === 'purchase') {
+      const m = _ARTIFACT_RE.exec(String(e.description || ''));
+      if (m && m[2] && !_hasStatedCompletedVisit(pool, m[2])) {
+        derived.push({
+          kind: 'visit', entity: m[2].trim(),
+          description: 'visit implied by the ' + m[1] + ' they issued',
+          date_iso: null, status: 'completed', basis: 'entailed',
+          qualifier: 'visited', quantity: null,
+          _provenance_refs: _refsOf(p.id)
+        });
+      }
+    }
+  }
+  if (!derived.length) return;
+  const w = writeInstances({
+    instances: derived, turns: [],
+    agent_id: opts.agent_id, user_id: opts.user_id, cwd: opts.cwd,
+    session_id: opts.session_id || null, source: 'instance_entailment',
+    _pool: pool, _entailing: true
+  });
+  stats.derived = (stats.derived || 0) + w.written + w.strengthened;
+}
+
 function writeInstances(opts) {
   const turns = opts.turns || [];
   const stats = { written: 0, dup: 0, no_provenance: 0, transitions: 0, strengthened: 0 };
   const pool = opts._pool || _loadPool(opts);
   for (const inst of (opts.instances || [])) {
-    const refs = (inst.turn_idxs || [])
-      .map(i => turns[i] && turns[i].id ? 'dialogue.turn:' + turns[i].id : null)
-      .filter(Boolean);
+    const refs = Array.isArray(inst._provenance_refs) && inst._provenance_refs.length
+      ? inst._provenance_refs.slice()
+      : (inst.turn_idxs || [])
+        .map(i => turns[i] && turns[i].id ? 'dialogue.turn:' + turns[i].id : null)
+        .filter(Boolean);
     if (!refs.length) { stats.no_provenance++; continue; }
     // Identity resolution: if the mind knows who this entity is, the
     // instance carries the canonical slug — counting merges by identity,
@@ -516,11 +585,20 @@ function writeInstances(opts) {
     let finalInst, supersedes = null, reason = null, provenance = refs;
     if (match) {
       const old = match.instance;
-      let status = inst.status;
-      if (TERMINAL_STATUS[old.status] && inst.status === 'planned') status = old.status;
       const oldRefs = _refsOf(match.id);
       provenance = Array.from(new Set(oldRefs.concat(refs)));
-      const changed = status !== old.status || provenance.length !== oldRefs.length;
+      // Basis precedence: an entailed arrival may only ATTEST a stated row
+      // (provenance grows, every field stands); a stated arrival onto an
+      // entailed row overwrites freely and promotes the basis.
+      if (inst.basis === 'entailed' && old.basis !== 'entailed') {
+        if (provenance.length === oldRefs.length) { stats.dup++; continue; }
+        finalInst = Object.assign({}, old);
+        supersedes = match.id;
+        reason = 'entailed_attestation';
+      } else {
+      let status = inst.status;
+      if (TERMINAL_STATUS[old.status] && inst.status === 'planned') status = old.status;
+      const changed = status !== old.status || provenance.length !== oldRefs.length || (old.basis === 'entailed' && inst.basis !== 'entailed');
       if (!changed) { stats.dup++; continue; }
       // Every verb the user ever attached to this occurrence is kept as an
       // attested facet with its own receipts — a later "interested in" adds a
@@ -537,13 +615,17 @@ function writeInstances(opts) {
         description: _preferDescription(old.description, inst.description),
         date_iso: inst.date_iso || old.date_iso || null,
         status,
+        basis: (inst.basis !== 'entailed' || old.basis !== 'entailed') ? 'stated' : 'entailed',
         qualifier: _primaryQualifier(facets, inst.qualifier || old.qualifier || null),
         facets,
         quantity: Number.isFinite(inst.quantity) ? inst.quantity : (old.quantity != null ? old.quantity : null),
         session_id: opts.session_id || old.session_id || null
       };
       supersedes = match.id;
-      reason = status !== old.status ? 'status_transition' : 'restatement';
+      reason = old.basis === 'entailed' && inst.basis !== 'entailed'
+        ? 'basis_promotion'
+        : (status !== old.status ? 'status_transition' : 'restatement');
+      }
     } else {
       finalInst = {
         kind: inst.kind,
@@ -553,6 +635,7 @@ function writeInstances(opts) {
         description: inst.description,
         date_iso: inst.date_iso,
         status: inst.status,
+        basis: inst.basis === 'entailed' ? 'entailed' : 'stated',
         qualifier: inst.qualifier,
         facets: inst.qualifier ? [{ verb: inst.qualifier, class: _verbClass(inst.qualifier), refs: refs.slice() }] : [],
         quantity: inst.quantity,
@@ -589,6 +672,9 @@ function writeInstances(opts) {
       pool.push(entry);
       stats.written++;
     }
+  }
+  if (entailmentEnabled() && !opts._entailing) {
+    try { _deriveEntailed(pool, opts, stats); } catch (_) { /* derivation is additive — never fatal */ }
   }
   return stats;
 }
@@ -762,6 +848,7 @@ function makeLlamacppExtractor(cfg) {
 
 module.exports = {
   enabled,
+  entailmentEnabled,
   buildPrompt,
   parseExtraction,
   buildCombinedPrompt,
