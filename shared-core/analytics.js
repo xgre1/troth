@@ -268,6 +268,7 @@ function getAnalytics(opts) {
   let removal_carried_estimated = 0;
   let removal_sessions = [];
   const _removalBySid = new Map();
+  const _removalByDay = new Map();
   try {
     const removals = db.prepare(
       `SELECT tokens, session_id, ts, carried_turns, note FROM savings_ledger
@@ -296,6 +297,11 @@ function getAnalytics(opts) {
       if (_est) removal_carried_estimated += r.tokens * (1 + later);
       removal_turns += later;
       tokens_removed_carried += r.tokens * (1 + later);
+      const _rd = Math.floor(r.ts / 86400000);
+      const _rday = _removalByDay.get(_rd) || { removed: 0, carried: 0 };
+      _rday.removed += r.tokens;
+      _rday.carried += r.tokens * (1 + later);
+      _removalByDay.set(_rd, _rday);
       const _e = _removalBySid.get(r.session_id) || { tokens: 0, carried: 0, events: 0, timeline: r.carried_turns != null ? (_est ? 'estimated' : 'frozen') : (s ? (s.src || 'transcript') : 'none') };
       _e.tokens += r.tokens;
       _e.carried += r.tokens * (1 + later);
@@ -330,7 +336,9 @@ function getAnalytics(opts) {
         tokens_in: r.tin,
         tokens_out: r.tout,
         tokens_cached: r.tcached,
-        tokens_saved: savedByDay[r.d] || 0
+        tokens_saved: savedByDay[r.d] || 0,
+        tokens_removed: (_removalByDay.get(r.d) || {}).removed || 0,
+        tokens_removed_carried: (_removalByDay.get(r.d) || {}).carried || 0
       });
     }
   } catch (_) { /* usage_ledger absent on fresh substrate */ }
