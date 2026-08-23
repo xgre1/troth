@@ -204,8 +204,9 @@ async function main() {
       })(),
     });
     out.retrieved = items.map(it => ({
-      statement: it.statement, score: it.score,
-      memory_class: it.memory_class, ts: it.ts
+      id: it.id, statement: it.statement, score: it.score,
+      memory_class: it.memory_class, ts: it.ts,
+      source: it.source || null, refs: it.refs || undefined
     }));
     out.retrieval_path = healthy ? 'semantic+lexical' : 'lexical_fallback';
   } catch (e) {

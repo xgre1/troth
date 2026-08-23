@@ -207,10 +207,21 @@ function composeAnswerPrompt(q, retrieved) {
   if (!retrieved.length) {
     return null; // nothing retrieved — answer is definitionally "unknown"
   }
-  const mem = retrieved.map((it, i) => {
-    const d = Number.isFinite(it.ts) ? '[' + new Date(it.ts).toISOString().slice(0, 10) + '] ' : '';
-    return `${i + 1}. ${d}${it.statement}`;
-  }).join('\n');
+  const _hasLedger = retrieved.some((it) => it.source === 'instance-pool');
+  let mem;
+  if (_hasLedger) {
+    const { buildReconciledView } = require('../shared-core/reconciled-view.js');
+    const _stamp = (it) => Object.assign({}, it, {
+      statement: (Number.isFinite(it.ts) && it.source !== 'instance-pool'
+        ? '[' + new Date(it.ts).toISOString().slice(0, 10) + '] ' : '') + it.statement
+    });
+    mem = buildReconciledView(retrieved.map(_stamp)).render();
+  } else {
+    mem = retrieved.map((it, i) => {
+      const d = Number.isFinite(it.ts) ? '[' + new Date(it.ts).toISOString().slice(0, 10) + '] ' : '';
+      return `${i + 1}. ${d}${it.statement}`;
+    }).join('\n');
+  }
   const _pref = q.question_type === 'single-session-preference';
   return (
     (_pref
@@ -230,17 +241,11 @@ function composeAnswerPrompt(q, retrieved) {
     (q.question_date ? 'Question asked on: ' + q.question_date + ' — compute any relative time (ago / since / between) from this date using the [dates] on the statements.\n' : '') +
     'Question: ' + q.question + '\n\n' +
     (/\b(how many|how much|how often|total|count|number of|order of|first to last|earliest to latest)\b/i.test(q.question)
-      ? 'Statements marked [instance] are the memory\'s own consolidated ledger ' +
-        'of occurrences: one line per real occurrence however many times it was ' +
-        'told, status-resolved, with (attested xN) counting the conversations ' +
-        'that attest it. When [instance] lines cover what the question counts, ' +
-        'count the UNION of the two sources: every [instance] line that passes ' +
-        'the question\'s qualifier and time window (from its [status, date] ' +
-        'fields), PLUS every qualifying occurrence the raw statements attest ' +
-        'that has no [instance] line — the ledger can be incomplete and a raw ' +
-        'occurrence missing from it MUST still be counted. A ledger line the ' +
-        'raw statements contradict is dropped; one they merely do not repeat ' +
-        'is kept. ' +
+      ? 'When a Consolidated ledger is present: count the L-lines that pass ' +
+        'the question\'s qualifier and time window, plus any S-line marked ' +
+        '"not in the ledger" that you judge qualifying. S-lines marked ' +
+        '"supports" are already counted in their L-line — never count them ' +
+        'separately. ' +
         'Otherwise work in two steps: first list every DISTINCT item or event that matches ' +
         'what the question counts (cite the statement number for each; merge ' +
         'repeated MENTIONS of the same thing; skip anything the statements do ' +

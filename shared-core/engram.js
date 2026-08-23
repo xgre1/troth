@@ -1182,10 +1182,11 @@ function _parseTimeWindow(query, referenceTs) {
         scored.sort((x, y) => y.sc - x.sc || (x.r.ts || 0) - (y.r.ts || 0));
         for (const { r } of scored.slice(0, 12)) {
           let attested = 1;
+          let _refs = [];
           try {
             const raw = state.getAction(r.id);
             const out = typeof raw.output === 'string' ? JSON.parse(raw.output) : (raw.output || {});
-            if (Array.isArray(out.provenance_ref)) attested = out.provenance_ref.length;
+            if (Array.isArray(out.provenance_ref)) { attested = out.provenance_ref.length; _refs = out.provenance_ref.map(String); }
           } catch (_) {}
           final.push({
             id: r.id,
@@ -1193,7 +1194,8 @@ function _parseTimeWindow(query, referenceTs) {
             statement: '[instance] ' + r.statement + ' (attested ×' + attested + ')',
             score: 0,
             memory_class: 'semantic',
-            source: 'instance-pool'
+            source: 'instance-pool',
+            refs: _refs
           });
         }
       } catch (_) { /* instance pool arm is additive — never fatal */ }
