@@ -1202,6 +1202,43 @@ function _parseTimeWindow(query, referenceTs) {
             refs: _refs
           });
         }
+        // Provenance completion — a ledger line whose receipts are absent from
+        // the mounted statements used to carry a flag admitting it ("attested
+        // outside the shown statements"). The receipts are turn ids the pool
+        // already holds, so those turns mount too: both strata present for
+        // every member of the counted class — measured missing on the
+        // third-doctor run, where neither stratum surfaced the specialist.
+        try {
+          const have = new Set(final.map((it) => String(it.id)));
+          const wantTurns = [];
+          for (const it of final) {
+            if (it.source !== 'instance-pool') continue;
+            for (const ref of (it.refs || [])) {
+              const tid = String(ref).replace(/^dialogue\.turn:/, '');
+              if (!have.has(tid) && wantTurns.indexOf(tid) === -1) wantTurns.push(tid);
+            }
+          }
+          for (const tid of wantTurns.slice(0, 30)) {
+            let raw = null;
+            try { raw = state.getAction(tid); } catch (_) { continue; }
+            if (!raw) continue;
+            let inp = null, out = null;
+            try { inp = typeof raw.input === 'string' ? JSON.parse(raw.input) : raw.input; } catch (_) { continue; }
+            try { out = typeof raw.output === 'string' ? JSON.parse(raw.output) : raw.output; } catch (_) { out = {}; }
+            const u = (inp && inp.args && inp.args.user_text) || '';
+            const a = (out && out.assistant_text) || '';
+            if (!u && !a) continue;
+            have.add(tid);
+            final.push({
+              id: tid,
+              ts: raw.timestamp || 0,
+              statement: (u ? 'user: ' + u : '') + (u && a ? ' / ' : '') + (a ? 'asst: ' + a : ''),
+              score: 0,
+              memory_class: raw.memory_class || 'episodic',
+              source: 'provenance'
+            });
+          }
+        } catch (_) { /* completion is additive — never fatal */ }
       } catch (_) { /* instance pool arm is additive — never fatal */ }
     }
     if (_nounHead && _nounHead.length >= 3) {
