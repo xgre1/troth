@@ -1301,12 +1301,17 @@ function _parseTimeWindow(query, referenceTs) {
             const cid = 'identity:' + idn.slug;
             if (final.some((it) => String(it.id) === cid)) continue;
             const otherNames = (idn.aliases || []).filter((a) => String(a).toLowerCase() !== String(idn.canonical).toLowerCase());
+            // Names the view may LINK on: only those the registry resolves to
+            // exactly this one identity — shared aliases render but never join.
+            let linkNames = [String(idn.canonical).toLowerCase()];
+            try { linkNames = identReg.linkableNames(idn, { agent_id: agent_id || undefined }).map((n) => String(n).toLowerCase()); } catch (_) {}
             final.push({
               id: cid,
               ts: 0,
               statement: '[cast] ' + idn.canonical +
                 (idn.relation ? ' — ' + idn.relation : (idn.kind ? ' — ' + idn.kind : '')) +
                 (otherNames.length ? ' (also: ' + otherNames.join(', ') + ')' : ''),
+              link_names: linkNames,
               score: 0,
               memory_class: 'semantic',
               source: 'identity-cast'

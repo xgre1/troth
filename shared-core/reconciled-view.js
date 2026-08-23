@@ -47,17 +47,25 @@ function buildReconciledView(items) {
   });
   // Cast: identities the mounted material mentions. Distinctness questions
   // ("how many different doctors") are counted over people, not mentions,
-  // so each cast line links the ledger lines that evidence that person.
+  // so each cast line links the ledger AND statement lines that evidence
+  // that person — over every registry-unique name it carries (an alias two
+  // identities share renders but never joins).
+  const _nameRe = (n) => {
+    const esc = String(n).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp('(?<![a-z0-9])' + esc + '(?![a-z0-9])', 'i');
+  };
   const cast = castItems.map((it, i) => {
     const m = /^\[cast\]\s*([^—(]+)/.exec(String(it.statement || ''));
-    const name = m ? m[1].trim().toLowerCase() : '';
+    const parsed = m ? m[1].trim().toLowerCase() : '';
+    const names = (Array.isArray(it.link_names) && it.link_names.length ? it.link_names : (parsed ? [parsed] : []))
+      .map((n) => String(n).toLowerCase())
+      .filter((n) => n.length >= 3);
+    const res = names.map(_nameRe);
     const links = [];
-    if (name) {
-      for (const l of ledger) {
-        if (String(l.statement).toLowerCase().indexOf(name) >= 0) links.push(l.n);
-      }
-    }
-    return { n: i + 1, statement: it.statement, links };
+    const slinks = [];
+    for (const l of ledger) if (res.some((re) => re.test(String(l.statement)))) links.push(l.n);
+    for (const r of raw) if (res.some((re) => re.test(String(r.statement)))) slinks.push(r.n);
+    return { n: i + 1, statement: it.statement, links, slinks };
   });
   return {
     ledger,
@@ -92,7 +100,8 @@ function buildReconciledView(items) {
         lines.push('Known people and entities here (identity registry) - when the question counts DISTINCT people or entities, count over THIS list, using ledger and statements as each one\'s evidence:');
         for (const c of cast) {
           lines.push('C' + c.n + '. ' + c.statement.replace(/^\[cast\]\s*/, '') +
-            (c.links.length ? ' (ledger: ' + c.links.map(n => 'L' + n).join(', ') + ')' : ''));
+            (c.links.length ? ' (ledger: ' + c.links.map(n => 'L' + n).join(', ') + ')' : '') +
+            (c.slinks && c.slinks.length ? ' (statements: ' + c.slinks.map(n => 'S' + n).join(', ') + ')' : ''));
         }
         lines.push('');
       }

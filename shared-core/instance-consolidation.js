@@ -414,6 +414,21 @@ function _nameTokens(inst) {
     if (new RegExp('\\b' + m[1].toLowerCase() + '\\b').test(text)) continue;
     out.add(m[1].toLowerCase());
   }
+  // The registry speaks for role-only references: "the bride's wedding"
+  // carries Jen into the participant rung when exactly one identity owns
+  // that alias — a shared alias stays silent, same hits-of-one idiom the
+  // entity resolver already uses.
+  try {
+    const ident = require('./entity-identity.js');
+    const hits = ident.lookupFromText(text, {}) || [];
+    if (hits.length) {
+      const counts = ident.uniqueNameOwners({});
+      for (const h of hits) {
+        const uniq = (h.matched || []).some((n) => counts.get(ident.normAlias(n)) === 1);
+        if (uniq && h.identity && h.identity.canonical) out.add(String(h.identity.canonical).toLowerCase());
+      }
+    }
+  } catch (_) { /* registry absent — surface names alone */ }
   return out;
 }
 

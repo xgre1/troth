@@ -79,5 +79,32 @@ t('possessions keep their numeric-difference guard untouched', () => {
   assert.strictEqual(r.written, 2, JSON.stringify(r));
 });
 
+// Registry-name rung: role-only references join through a UNIQUE alias and
+// stay silent through a shared one.
+const identity = require(path.join(__dirname, '..', 'shared-core', 'entity-identity.js'));
+
+t('a unique alias joins the retelling through the registry', () => {
+  identity._resetCacheForTests();
+  identity.recordEntityIdentity({ agent_id: 'claude-code', name: 'Jen', kind: 'person', relation: 'friend', aliases: ['the bride'] });
+  identity._resetCacheForTests();
+  const { r } = writeAll([
+    inst('event', 'wedding', "The bride's wedding at a vineyard in August", "the bride's wedding was lovely"),
+    inst('event', 'Jen and Tom', 'Wedding of Jen and Tom in the city last weekend', 'Jen and Tom got married')
+  ]);
+  assert.strictEqual(r.written, 1, JSON.stringify(r));
+  assert.strictEqual(r.dup, 1);
+});
+
+t('a shared alias stays silent - conflicting anchors split as before', () => {
+  identity._resetCacheForTests();
+  identity.recordEntityIdentity({ agent_id: 'claude-code', name: 'Mara', kind: 'person', relation: 'cousin', aliases: ['the bride'] });
+  identity._resetCacheForTests();
+  const { r } = writeAll([
+    inst('event', 'wedding', "The bride's wedding at a vineyard in August", "the bride's wedding was lovely"),
+    inst('event', 'wedding', 'Wedding in the city last weekend', 'got back from a wedding in the city')
+  ]);
+  assert.strictEqual(r.written, 2, JSON.stringify(r));
+});
+
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

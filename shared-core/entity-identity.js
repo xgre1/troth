@@ -235,6 +235,27 @@ function expandForQuery(text, opts) {
   return { tokens, identities: hits.map(h => h.identity) };
 }
 
+// A name is linkable when the registry resolves it to exactly one identity —
+// "the bride" links while only one bride is known, and "my friend" stops
+// linking the day a second friend carries it. Same idiom as the consolidation
+// entity resolver: act only on hits.length === 1.
+function uniqueNameOwners(opts) {
+  const counts = new Map();
+  for (const ident of loadRegistry(opts || {})) {
+    for (const name of _mergeAliases([[ident.canonical], ident.aliases])) {
+      const k = _normAlias(name);
+      counts.set(k, (counts.get(k) || 0) + 1);
+    }
+  }
+  return counts;
+}
+
+function linkableNames(ident, opts) {
+  const counts = uniqueNameOwners(opts);
+  return _mergeAliases([[ident.canonical], ident.aliases])
+    .filter((n) => counts.get(_normAlias(n)) === 1);
+}
+
 function _resetCacheForTests() { _cache = null; }
 
 module.exports = {
@@ -244,6 +265,9 @@ module.exports = {
   getIdentity,
   lookupFromText,
   expandForQuery,
+  uniqueNameOwners,
+  linkableNames,
+  normAlias: _normAlias,
   SCOPE_PREFIX,
   _resetCacheForTests
 };
