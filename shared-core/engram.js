@@ -1249,7 +1249,17 @@ function _parseTimeWindow(query, referenceTs) {
               if (!have.has(tid) && wantTurns.indexOf(tid) === -1) wantTurns.push(tid);
             }
           }
+          // Receipts are evidence sentences, not transcripts: each mounted
+          // turn is clipped and the whole completion runs under a character
+          // budget — an unbounded mount once pushed the biggest haystacks
+          // past every compose clock. A receipt that stays unmounted leaves
+          // its ledger line carrying the existing honesty flag ("attested
+          // outside the shown statements"), so truncation is never silent.
+          const TURN_CLIP = 600;
+          const COMPLETION_BUDGET = 12000;
+          let spent = 0;
           for (const tid of wantTurns.slice(0, 30)) {
+            if (spent >= COMPLETION_BUDGET) break;
             let raw = null;
             try { raw = state.getAction(tid); } catch (_) { continue; }
             if (!raw) continue;
@@ -1259,11 +1269,14 @@ function _parseTimeWindow(query, referenceTs) {
             const u = (inp && inp.args && inp.args.user_text) || '';
             const a = (out && out.assistant_text) || '';
             if (!u && !a) continue;
+            let text = (u ? 'user: ' + u : '') + (u && a ? ' / ' : '') + (a ? 'asst: ' + a : '');
+            if (text.length > TURN_CLIP) text = text.slice(0, TURN_CLIP) + ' …';
+            spent += text.length;
             have.add(tid);
             final.push({
               id: tid,
               ts: raw.timestamp || 0,
-              statement: (u ? 'user: ' + u : '') + (u && a ? ' / ' : '') + (a ? 'asst: ' + a : ''),
+              statement: text,
               score: 0,
               memory_class: raw.memory_class || 'episodic',
               source: 'provenance'

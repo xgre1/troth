@@ -98,6 +98,9 @@ const STRATIFIED = parseInt(argVal('--stratified', '0'), 10);
 const ONLY = argVal('--only', '');
 const WORKER_TIMEOUT_MS = parseInt(argVal('--worker-timeout-ms', '120000'), 10);
 const JUDGE_TIMEOUT_MS = parseInt(argVal('--judge-timeout-ms', '60000'), 10);
+// The answer lane gets its own clock — a compose over a big mount is not a
+// judge call, and the two lanes must never share a budget again.
+const ANSWER_TIMEOUT_MS = parseInt(argVal('--answer-timeout-ms', String(Math.max(JUDGE_TIMEOUT_MS, 240000))), 10);
 // Judge/compose provider: 'codex' = the ChatGPT Responses endpoint via the
 // codex-oauth transport;
 // 'claude' = the original `claude -p` path. Default codex.
@@ -346,10 +349,21 @@ function _callProvider(prompt, timeoutMs) {
 function composeAnswer(prompt, retrieved, timeoutMs) {
   if (ANSWER === 'llamacpp') {
     const boost = retrieved.map((it) => it.statement).filter(Boolean);
-    const res = spawnSync(process.execPath, [LLAMA_ONESHOT], {
+    // Both clocks agree: the child's internal abort gets the same budget as
+    // the spawn, and the spawn adds margin for node boot + stdin. One retry
+    // on transport-class failures only — a judged-wrong answer never retries.
+    const run = () => spawnSync(process.execPath, [LLAMA_ONESHOT], {
       input: JSON.stringify({ prompt, boost }),
-      encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, timeout: timeoutMs, cwd: REPO,
+      encoding: 'utf8', maxBuffer: 16 * 1024 * 1024,
+      timeout: timeoutMs + 15000, cwd: REPO,
+      env: { ...process.env, TROTH_BENCH_LOCAL_TIMEOUT_MS: String(timeoutMs) },
     });
+    let res = run();
+    const transportFail = (r) => r.error || (r.status !== 0 && /ETIMEDOUT|ECONNREFUSED|aborted|socket hang up/i.test(String(r.stderr || '') + String(r.error && r.error.message || '')));
+    if (transportFail(res)) {
+      process.stdout.write(' [transport retry]');
+      res = run();
+    }
     if (res.error) throw new Error('llamacpp spawn error: ' + res.error.message);
     if (res.status !== 0) throw new Error('llamacpp exit ' + res.status + ': ' + String(res.stderr || '').slice(0, 500));
     return String(res.stdout || '');
@@ -492,7 +506,7 @@ async function main() {
     let ourAnswer = null, judgeResult = null, judgeError = null;
     const answerPrompt = composeAnswerPrompt(q, w.retrieved || []);
     try {
-      ourAnswer = answerPrompt ? composeAnswer(answerPrompt, w.retrieved || [], JUDGE_TIMEOUT_MS) : null;
+      ourAnswer = answerPrompt ? composeAnswer(answerPrompt, w.retrieved || [], ANSWER_TIMEOUT_MS) : null;
       judgeResult = await judge(q, ourAnswer);
     } catch (e) {
       judgeError = String(e.message || e);
