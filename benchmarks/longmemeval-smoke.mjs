@@ -250,6 +250,10 @@ function composeAnswerPrompt(q, retrieved) {
         'When C-lines (known people and entities) are present and the question ' +
         'counts DISTINCT people or entities, count the C-lines that pass the ' +
         'question\'s filter — the ledger and statements are each one\'s evidence. ' +
+        'The question\'s own verb is the filter: when it asks what you LED, an ' +
+        'entry only counts if its qualifier is that verb class (led, leading) — ' +
+        'planning, working on, participating or a solo effort are not leading; ' +
+        'apply the same verb-class match for attended, bought, visited. ' +
         'Otherwise work in two steps: first list every DISTINCT item or event that matches ' +
         'what the question counts (cite the statement number for each; merge ' +
         'repeated MENTIONS of the same thing; skip anything the statements do ' +
