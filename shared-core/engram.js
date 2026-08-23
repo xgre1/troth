@@ -1180,7 +1180,11 @@ function _parseTimeWindow(query, referenceTs) {
           if (sc > 0) scored.push({ r, sc });
         }
         scored.sort((x, y) => y.sc - x.sc || (x.r.ts || 0) - (y.r.ts || 0));
-        for (const { r } of scored.slice(0, 12)) {
+        // A count needs the whole matching class, not the likeliest dozen —
+        // measured: the third doctor scored low on keyword overlap, fell
+        // below a 12-row cut, and the count came back one short. Forty rows
+        // (~800 tokens) covers every observed pool's relevant subset.
+        for (const { r } of scored.slice(0, 40)) {
           let attested = 1;
           let _refs = [];
           try {

@@ -35,14 +35,16 @@ t('the ledger carries its receipts as statement numbers', () => {
   assert.deepStrictEqual(v.ledger[0].refs, [1]);
   const out = v.render();
   assert.ok(out.indexOf('(attested by S1)') >= 0, out.split('\n')[1]);
-  assert.ok(out.indexOf('(supports L1 - already counted there)') >= 0);
+  assert.ok(out.indexOf('[=L1]') >= 0, 'covered statement carries its ledger mark');
 });
 
 t('an uncovered raw statement is explicitly offered for judgment', () => {
   const v = buildReconciledView(tanks);
   const free = v.raw.find(r => r.id === 'r4');
   assert.strictEqual(free.role, 'new');
-  assert.ok(v.render().indexOf('(not in the ledger - judge this one)') >= 0);
+  const out = v.render();
+  assert.ok(out.indexOf('S4. [+] ') >= 0, 'uncovered statement carries the + mark');
+  assert.ok(out.indexOf('judge those individually') >= 0, 'legend explains the marks once');
 });
 
 // KITS fixture: 4 ledger kits but 5 raw kit statements - the 5th must
@@ -83,7 +85,21 @@ t('with no instances at all the view degrades to the plain numbered statements',
   const out = v.render();
   assert.ok(out.indexOf('Consolidated ledger') < 0);
   assert.ok(out.indexOf('S1. user: plain.') >= 0);
-  assert.ok(out.indexOf('judge this one') < 0, 'no judge-tag noise when there is no ledger');
+  assert.ok(out.indexOf('judge those individually') < 0, 'no legend noise when there is no ledger');
+  assert.ok(out.indexOf('[+]') < 0, 'no coverage marks when there is no ledger');
+});
+
+t('possessions render as owned with the doctrine stated once', () => {
+  const v = buildReconciledView(tanks);
+  const out = v.render();
+  assert.ok(out.indexOf('[owned') >= 0, 'possession status renders as owned');
+  assert.ok(!/possession:[^\n]*\[completed/.test(out), 'no possession line keeps [completed');
+  assert.ok(out.indexOf('Possessions stay owned until an explicit disposal') >= 0, 'doctrine header present');
+});
+
+t('the ownership doctrine stays out of non-possession views', () => {
+  const v = buildReconciledView(kits);
+  assert.ok(v.render().indexOf('Possessions stay owned') < 0);
 });
 
 console.log('');

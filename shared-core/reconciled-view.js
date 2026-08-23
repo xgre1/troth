@@ -50,17 +50,31 @@ function buildReconciledView(items) {
       const lines = [];
       if (ledger.length) {
         lines.push('Consolidated ledger (each line is ONE real-world occurrence; its attestations are listed - never count an attestation separately):');
+        // Ownership doctrine — measured: a possession's [completed] status read
+        // as "done with it", and a real, still-owned tank was subtracted the
+        // moment a newer one appeared. Completed acquisition means owned;
+        // only explicit disposal ends ownership, and the header says so once.
+        if (ledger.some((l) => /^(\[instance\]\s*)?possession:/.test(l.statement))) {
+          lines.push('Possessions stay owned until an explicit disposal (sold, gave away, broke, returned) - a newer similar item never replaces an older one by itself.');
+        }
         for (const l of ledger) {
-          lines.push('L' + l.n + '. ' + l.statement.replace(/^\[instance\]\s*/, '') +
+          let text = l.statement.replace(/^\[instance\]\s*/, '');
+          if (/^possession:/.test(text)) text = text.replace('[completed', '[owned');
+          lines.push('L' + l.n + '. ' + text +
             (l.refs.length ? ' (attested by ' + l.refs.map(n => 'S' + n).join(', ') + ')' : '') +
             (l.flags.length ? ' [flag: ' + l.flags.join('; ') + ']' : ''));
         }
         lines.push('');
       }
-      lines.push('Memory statements:');
+      // The coverage marks live in ONE legend up here — measured: a per-line
+      // "judge this one" clause got quoted back mid-reasoning and derailed an
+      // enumeration. Statements stay clean; the marks stay terse.
+      lines.push(ledger.length
+        ? 'Memory statements ("=Ln" marks one already counted by ledger line Ln; "+" marks one the ledger does not cover - judge those individually):'
+        : 'Memory statements:');
       for (const r of raw) {
-        lines.push('S' + r.n + '. ' + r.statement +
-          (r.role === 'supports' ? '  (supports ' + r.supports.map(n => 'L' + n).join(', ') + ' - already counted there)' : (ledger.length ? '  (not in the ledger - judge this one)' : '')));
+        const mark = r.role === 'supports' ? ' [=' + r.supports.map(n => 'L' + n).join(',') + ']' : (ledger.length ? ' [+]' : '');
+        lines.push('S' + r.n + '.' + mark + ' ' + r.statement);
       }
       return lines.join('\n');
     }
