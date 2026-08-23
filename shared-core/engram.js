@@ -1168,7 +1168,7 @@ function _parseTimeWindow(query, referenceTs) {
           scope_prefix: 'instance:', audience: 'all',
           agent_id: agent_id || undefined, limit: 1000
         }) || [];
-        const scored = [];
+        const candidates = [];
         for (const r of poolRows) {
           const inst = r && r.payload && r.payload.instance;
           if (!inst) continue;
@@ -1177,14 +1177,45 @@ function _parseTimeWindow(query, referenceTs) {
           if (inst.entity_slug && querySlugs.has(inst.entity_slug)) sc += 2;
           if (_nounHead2 && _nounHead2.some((v) => blob.indexOf(v) >= 0)) sc += 2;
           for (const t of qTokens) if (blob.indexOf(t) >= 0) sc += 1;
-          if (sc > 0) scored.push({ r, sc });
+          candidates.push({ r, sc });
         }
-        scored.sort((x, y) => y.sc - x.sc || (x.r.ts || 0) - (y.r.ts || 0));
+        // Hyponyms are invisible to token overlap — a sweater never contains
+        // the word "clothing" — and the pool carries vectors like every other
+        // recallable row. Rank-fuse the token ordering with a cosine ordering
+        // when the embedder answers; token order alone when it does not —
+        // degraded, never broken. Zero-token rows enter only semantically.
+        const lexOrder = candidates.filter((c) => c.sc > 0)
+          .sort((x, y) => y.sc - x.sc || (x.r.ts || 0) - (y.r.ts || 0));
+        let mounted = lexOrder;
+        try {
+          const _emb = require('./local-embedder.js');
+          const qv = await _emb.embed(query, { role: 'query' });
+          if (qv) {
+            const withCos = candidates.map((c) => {
+              let ev = null;
+              try { ev = state.getEmbedding(c.r.id); } catch (_) {}
+              return { c, cos: ev ? Math.max(0, cosine(qv, ev)) : null };
+            });
+            const lexRank = new Map(lexOrder.map((c, i) => [c, i + 1]));
+            const semOrder = withCos.filter((x) => x.cos != null).sort((a, b) => b.cos - a.cos);
+            const semRank = new Map(semOrder.map((x, i) => [x.c, i + 1]));
+            const C = 60;
+            mounted = withCos
+              .map((x) => ({
+                c: x.c,
+                rrf: (lexRank.has(x.c) ? 1 / (C + lexRank.get(x.c)) : 0) +
+                     (semRank.has(x.c) ? 1 / (C + semRank.get(x.c)) : 0)
+              }))
+              .filter((x) => x.rrf > 0)
+              .sort((a, b) => b.rrf - a.rrf)
+              .map((x) => x.c);
+          }
+        } catch (_) { /* embedder absent — token order stands */ }
         // A count needs the whole matching class, not the likeliest dozen —
         // measured: the third doctor scored low on keyword overlap, fell
         // below a 12-row cut, and the count came back one short. Forty rows
         // (~800 tokens) covers every observed pool's relevant subset.
-        for (const { r } of scored.slice(0, 40)) {
+        for (const { r } of mounted.slice(0, 40)) {
           let attested = 1;
           let _refs = [];
           try {

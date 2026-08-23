@@ -3000,8 +3000,9 @@ function listRecallableMissingEmbeddings(limit, currentModel) {
         SELECT ar.id, ar.type, ar.input, ar.output, ar.timestamp
         FROM action_records ar
         LEFT JOIN engram_embeddings ee ON ee.engram_id = ar.id
-        WHERE ar.memory_class IN ('episodic','semantic','identity','procedural')
-          AND (ar.audience IS NULL OR ar.audience = 'model_visible')
+        WHERE ((ar.memory_class IN ('episodic','semantic','identity','procedural')
+          AND (ar.audience IS NULL OR ar.audience = 'model_visible'))
+          OR json_extract(ar.output,'$.scope') LIKE 'instance:%')
           AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'docs:chats%')  -- skip recall-EXCLUDED docs:chats (never recalled; embedding them = wasted CPU + 45GB logs)
           AND (ee.engram_id IS NULL OR ee.model IS NULL OR ee.model <> ?)
           AND ${EMBEDDABLE_SQL}
@@ -3013,8 +3014,9 @@ function listRecallableMissingEmbeddings(limit, currentModel) {
       SELECT ar.id, ar.type, ar.input, ar.output, ar.timestamp
       FROM action_records ar
       LEFT JOIN engram_embeddings ee ON ee.engram_id = ar.id
-      WHERE ar.memory_class IN ('episodic','semantic','identity','procedural')
-        AND (ar.audience IS NULL OR ar.audience = 'model_visible')
+      WHERE ((ar.memory_class IN ('episodic','semantic','identity','procedural')
+        AND (ar.audience IS NULL OR ar.audience = 'model_visible'))
+        OR json_extract(ar.output,'$.scope') LIKE 'instance:%')
         AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'docs:chats%')  -- skip recall-EXCLUDED docs:chats
         AND ee.engram_id IS NULL
         AND ${EMBEDDABLE_SQL}
@@ -3066,8 +3068,9 @@ function memoryIndexCounts(currentModel) {
     const RECALL_WHERE = `
       FROM action_records ar
       LEFT JOIN engram_embeddings ee ON ee.engram_id = ar.id
-      WHERE ar.memory_class IN ('episodic','semantic','identity','procedural')
-        AND (ar.audience IS NULL OR ar.audience = 'model_visible')
+      WHERE ((ar.memory_class IN ('episodic','semantic','identity','procedural')
+        AND (ar.audience IS NULL OR ar.audience = 'model_visible'))
+        OR json_extract(ar.output,'$.scope') LIKE 'instance:%')
         AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'docs:chats%')
         AND ${EMBEDDABLE_SQL}`;
     out.recall_missing = currentModel
