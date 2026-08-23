@@ -143,6 +143,35 @@ await t('two PINNED different dates stay two occurrences (never merged)', async 
   assert.strictEqual(lee.length, 2);
 });
 
+await t('possessions with different descriptions stay DISTINCT (the tanks class)', async () => {
+  turnRow('I have a 5-gallon tank with my betta Finley.', T0 + 400 * 1000, 'sess-T1');
+  turnRow('My 20-gallon tank finished cycling this week.', T0 + 460 * 1000, 'sess-T2');
+  const s = await ic.runPass({
+    agent_id: BRAIN, user_id: 'default',
+    llmCall: (prompt) => Promise.resolve(JSON.stringify(
+      prompt.indexOf('betta') >= 0
+        ? [{ kind: 'possession', entity: 'tank', description: '5-gallon tank with betta Finley', date_iso: null, status: 'completed', qualifier: 'owns', quantity: null, turn_idxs: [0] }]
+        : [{ kind: 'possession', entity: 'tank', description: '20-gallon tank finished cycling', date_iso: null, status: 'completed', qualifier: 'owns', quantity: null, turn_idxs: [0] }]
+    ))
+  });
+  assert.strictEqual(s.written, 2, 'two different tanks are two possessions: ' + JSON.stringify(s));
+  const tanks = engram.listEngrams({ scope: 'instance:possession', audience: 'all', agent_id: BRAIN, limit: 20 })
+    .filter(p => p.payload.instance.entity === 'tank');
+  assert.strictEqual(tanks.length, 2);
+});
+
+await t('the same possession retold with agreeing description still merges', async () => {
+  turnRow('The 5-gallon tank with Finley the betta needs a filter change.', T0 + 520 * 1000, 'sess-T3');
+  const s = await ic.runPass({
+    agent_id: BRAIN, user_id: 'default',
+    llmCall: () => Promise.resolve(JSON.stringify(
+      [{ kind: 'possession', entity: 'tank', description: '5-gallon betta tank (Finley)', date_iso: null, status: 'completed', qualifier: 'owns', quantity: null, turn_idxs: [0] }]
+    ))
+  });
+  assert.strictEqual(s.written, 0, 'restatement must not mint a third tank: ' + JSON.stringify(s));
+  assert.strictEqual(s.strengthened, 1);
+});
+
 console.log('');
 console.log('instance-lifecycle: ' + pass + ' passed, ' + fail + ' failed');
 try { fs.unlinkSync(DB); fs.unlinkSync(DB + '-wal'); fs.unlinkSync(DB + '-shm'); } catch (_) {}

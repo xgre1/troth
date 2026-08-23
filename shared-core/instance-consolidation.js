@@ -229,6 +229,18 @@ function _normEntity(s) {
 // ambiguity merges: same kind, same entity IDENTITY (slug when both
 // resolved, normalized surface string otherwise), and dates compatible.
 // Two PINNED, different dates are two occurrences — never merged.
+function _descOverlap(a, b) {
+  // Numbers are kept whole ("5" vs "20" gallons IS the difference between
+  // two possessions); words shorter than 4 chars are noise.
+  const tok = (x) => new Set(String(x || '').toLowerCase().split(/[^\p{L}\p{N}]+/u)
+    .filter(t => t.length >= 4 || /^\d+$/.test(t)));
+  const A = tok(a), B = tok(b);
+  if (!A.size || !B.size) return 0;
+  let hit = 0;
+  for (const t of A) if (B.has(t)) hit++;
+  return hit / Math.min(A.size, B.size);
+}
+
 function _sameOccurrence(entry, inst, entity_slug) {
   const e = entry.instance;
   if (!e || e.kind !== inst.kind) return false;
@@ -237,6 +249,10 @@ function _sameOccurrence(entry, inst, entity_slug) {
     : _normEntity(e.entity) === _normEntity(inst.entity);
   if (!entityMatch) return false;
   if (e.date_iso && inst.date_iso && e.date_iso !== inst.date_iso) return false;
+  // Possessions are the kind where several similar items are the NORM
+  // (three fish tanks, two rackets): a name-level match with unpinned
+  // dates is not the same object unless the descriptions agree too.
+  if (inst.kind === 'possession' && _descOverlap(e.description, inst.description) < 0.5) return false;
   return true;
 }
 
