@@ -60,6 +60,12 @@ engram.recordEngram({
   }
 });
 
+// The registry knows both doctors; only the one the mounted material
+// mentions may enter the cast.
+const identity = require(path.join(__dirname, '..', 'shared-core', 'entity-identity.js'));
+identity.recordEntityIdentity({ agent_id: AGENT, name: 'Dr. Patel', kind: 'person', relation: 'ENT specialist', aliases: [] });
+identity.recordEntityIdentity({ agent_id: AGENT, name: 'Dr. Lee', kind: 'person', relation: 'primary care physician', aliases: [] });
+
 (async () => {
   let pass = 0, fail = 0;
   function t(name, fn) { try { fn(); pass++; console.log('  ok ' + name); } catch (e) { fail++; console.log('  FAIL ' + name + ' — ' + (e && e.message || e)); } }
@@ -83,6 +89,19 @@ engram.recordEngram({
     assert.ok(led, 'ledger line present');
     assert.ok(led.refs.length >= 1, 'receipts linked');
     assert.strictEqual(led.flags.length, 0, 'no absence flag');
+  });
+  t('the cast carries the mentioned identity with its specialty', () => {
+    const c = items.find((it) => it.source === 'identity-cast');
+    assert.ok(c, 'cast item present: ' + JSON.stringify(items.map(i => i.source)));
+    assert.ok(/Dr\. Patel/.test(c.statement) && /ENT specialist/.test(c.statement), c.statement);
+  });
+  t('an identity the mounted material never mentions stays out of the cast', () => {
+    assert.ok(!items.some((it) => it.source === 'identity-cast' && /Dr\. Lee/.test(it.statement)));
+  });
+  t('the view renders the cast linked to its ledger evidence', () => {
+    const { buildReconciledView } = require(path.join(__dirname, '..', 'shared-core', 'reconciled-view.js'));
+    const out = buildReconciledView(items).render();
+    assert.ok(/C1\. Dr\. Patel — ENT specialist \(ledger: L\d/.test(out), out.split('\n').filter(l => l.startsWith('C')).join(' | '));
   });
 
   console.log(pass + ' passed, ' + fail + ' failed');

@@ -1239,6 +1239,37 @@ function _parseTimeWindow(query, referenceTs) {
             });
           }
         } catch (_) { /* completion is additive — never fatal */ }
+        // Identity cast — a "how many different doctors" question counts
+        // PEOPLE, and the registry holds exactly that: canonical identities
+        // with their role or relation. The cast of the mounted material rides
+        // along (lookupFromText over what is already mounted — no new
+        // ontology), so distinctness is counted over identities while the
+        // ledger stays the evidence of what each one actually did.
+        try {
+          const identReg = require('./entity-identity.js');
+          const mountedText = final.map((it) => it.statement || '').join('\n');
+          const hits = identReg.lookupFromText(mountedText, { agent_id: agent_id || undefined }) || [];
+          let castAdded = 0;
+          for (const h of hits) {
+            if (castAdded >= 15) break;
+            const idn = h && h.identity;
+            if (!idn || !idn.canonical) continue;
+            const cid = 'identity:' + idn.slug;
+            if (final.some((it) => String(it.id) === cid)) continue;
+            const otherNames = (idn.aliases || []).filter((a) => String(a).toLowerCase() !== String(idn.canonical).toLowerCase());
+            final.push({
+              id: cid,
+              ts: 0,
+              statement: '[cast] ' + idn.canonical +
+                (idn.relation ? ' — ' + idn.relation : (idn.kind ? ' — ' + idn.kind : '')) +
+                (otherNames.length ? ' (also: ' + otherNames.join(', ') + ')' : ''),
+              score: 0,
+              memory_class: 'semantic',
+              source: 'identity-cast'
+            });
+            castAdded++;
+          }
+        } catch (_) { /* cast is additive — never fatal */ }
       } catch (_) { /* instance pool arm is additive — never fatal */ }
     }
     if (_nounHead && _nounHead.length >= 3) {

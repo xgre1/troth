@@ -14,12 +14,14 @@
 
 // items: the retrieval output - instance-pool items carry refs (dialogue
 // turn ids from provenance), raw dialogue items carry their own id.
-// Returns { ledger, raw, render() }.
+// Returns { ledger, cast, raw, render() }.
 function buildReconciledView(items) {
   const instances = [];
+  const castItems = [];
   const raws = [];
   for (const it of (items || [])) {
     if (it.source === 'instance-pool') instances.push(it);
+    else if (it.source === 'identity-cast') castItems.push(it);
     else raws.push(it);
   }
   const rawIndex = new Map();  // action id -> raw entry
@@ -43,8 +45,23 @@ function buildReconciledView(items) {
     if (!refs.length) flags.push('attested outside the shown statements');
     return { n: i + 1, statement: it.statement, refs, flags };
   });
+  // Cast: identities the mounted material mentions. Distinctness questions
+  // ("how many different doctors") are counted over people, not mentions,
+  // so each cast line links the ledger lines that evidence that person.
+  const cast = castItems.map((it, i) => {
+    const m = /^\[cast\]\s*([^—(]+)/.exec(String(it.statement || ''));
+    const name = m ? m[1].trim().toLowerCase() : '';
+    const links = [];
+    if (name) {
+      for (const l of ledger) {
+        if (String(l.statement).toLowerCase().indexOf(name) >= 0) links.push(l.n);
+      }
+    }
+    return { n: i + 1, statement: it.statement, links };
+  });
   return {
     ledger,
+    cast,
     raw,
     render() {
       const lines = [];
@@ -63,6 +80,14 @@ function buildReconciledView(items) {
           lines.push('L' + l.n + '. ' + text +
             (l.refs.length ? ' (attested by ' + l.refs.map(n => 'S' + n).join(', ') + ')' : '') +
             (l.flags.length ? ' [flag: ' + l.flags.join('; ') + ']' : ''));
+        }
+        lines.push('');
+      }
+      if (cast.length) {
+        lines.push('Known people and entities here (identity registry) - when the question counts DISTINCT people or entities, count over THIS list, using ledger and statements as each one\'s evidence:');
+        for (const c of cast) {
+          lines.push('C' + c.n + '. ' + c.statement.replace(/^\[cast\]\s*/, '') +
+            (c.links.length ? ' (ledger: ' + c.links.map(n => 'L' + n).join(', ') + ')' : ''));
         }
         lines.push('');
       }
