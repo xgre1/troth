@@ -245,9 +245,8 @@ function composeAnswerPrompt(q, retrieved) {
     (/\b(how many|how much|how often|total|count|number of|order of|first to last|earliest to latest)\b/i.test(q.question)
       ? 'When a Consolidated ledger is present: count the L-lines that pass ' +
         'the question\'s qualifier and time window, plus any S-line marked ' +
-        '"not in the ledger" that you judge qualifying. S-lines marked ' +
-        '"supports" are already counted in their L-line — never count them ' +
-        'separately. ' +
+        '"[+]" that you judge qualifying. S-lines marked "[=Ln]" are already ' +
+        'counted in ledger line Ln — never count them separately. ' +
         'Otherwise work in two steps: first list every DISTINCT item or event that matches ' +
         'what the question counts (cite the statement number for each; merge ' +
         'repeated MENTIONS of the same thing; skip anything the statements do ' +
