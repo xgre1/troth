@@ -243,17 +243,10 @@ function composeAnswerPrompt(q, retrieved) {
     (q.question_date ? 'Question asked on: ' + q.question_date + ' — compute any relative time (ago / since / between) from this date using the [dates] on the statements.\n' : '') +
     'Question: ' + q.question + '\n\n' +
     (/\b(how many|how much|how often|total|count|number of|order of|first to last|earliest to latest)\b/i.test(q.question)
-      ? 'When a Consolidated ledger is present: count the L-lines that pass ' +
-        'the question\'s qualifier and time window, plus any S-line marked ' +
-        '"[+]" that you judge qualifying. S-lines marked "[=Ln]" are already ' +
-        'counted in ledger line Ln — never count them separately. ' +
-        'When C-lines (known people and entities) are present and the question ' +
-        'counts DISTINCT people or entities, count the C-lines that pass the ' +
-        'question\'s filter — the ledger and statements are each one\'s evidence. ' +
-        'The question\'s own verb is the filter: when it asks what you LED, an ' +
-        'entry only counts if its qualifier is that verb class (led, leading) — ' +
-        'planning, working on, participating or a solo effort are not leading; ' +
-        'apply the same verb-class match for attended, bought, visited. ' +
+      ? 'When a Consolidated ledger is present, follow its own legends: the ' +
+        'L-lines are the occurrences, the marks say what is already counted ' +
+        'and what you judge individually, and the header rules (verb match, ' +
+        'ownership, distinct people over C-lines) are the counting law. ' +
         'Otherwise work in two steps: first list every DISTINCT item or event that matches ' +
         'what the question counts (cite the statement number for each; merge ' +
         'repeated MENTIONS of the same thing; skip anything the statements do ' +
