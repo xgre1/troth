@@ -31,6 +31,7 @@ const CACHE = argVal('--cache', process.env.TROTH_BENCH_EXTRACT_CACHE || null);
 const MOCK = argVal('--mock', '0') === '1';
 const IDS = argVal('--ids', '');
 const GREP = argVal('--grep', '');
+const CONCURRENCY = Math.max(1, parseInt(argVal('--concurrency', '1'), 10));
 const DATASET_PATH = join(REPO, 'benchmarks/datasets/longmemeval/longmemeval_s_cleaned.json');
 
 function sessionTurns(q, si) {
@@ -66,12 +67,24 @@ async function main() {
     agg.questions++;
     const row = { question_id: q.question_id, question: q.question, sessions: 0,
                   identities: 0, instances: 0, parse_empty: 0, samples: [] };
+    const jobs = [];
     for (let si = 0; si < q.haystack_sessions.length; si++) {
       const turns = sessionTurns(q, si);
       if (!turns.length) continue;
       if (grepRe && !turns.some(t => grepRe.test(t.user_text))) continue;
+      jobs.push(turns);
+    }
+    const results = [];
+    for (let i = 0; i < jobs.length; i += CONCURRENCY) {
+      const batch = jobs.slice(i, i + CONCURRENCY);
+      const settled = await Promise.all(batch.map(turns =>
+        digest.extractSession({ turns, llmCall, cacheDir: CACHE })
+          .then(ex => ({ ex, turns })).catch(() => null)));
+      for (const r of settled) if (r) results.push(r);
+      process.stdout.write('.'.repeat(batch.length));
+    }
+    for (const { ex } of results) {
       row.sessions++; agg.sessions++;
-      const ex = await digest.extractSession({ turns, llmCall, cacheDir: CACHE });
       if (ex.stats.extractor_call) agg.calls++;
       if (ex.stats.cache_hit) agg.cache_hits++;
       const p = ex.parsed;
@@ -94,7 +107,6 @@ async function main() {
       if (!p.identities.length && !p.instances.length && String(ex.raw || '').trim()) {
         row.parse_empty++; agg.parse_empty++;
       }
-      process.stdout.write('.');
     }
     report.push(row);
     console.log(' q=' + q.question_id + ' sessions=' + row.sessions +
