@@ -1200,7 +1200,15 @@ function _parseTimeWindow(query, referenceTs) {
             const semOrder = withCos.filter((x) => x.cos != null).sort((a, b) => b.cos - a.cos);
             const semRank = new Map(semOrder.map((x, i) => [x.c, i + 1]));
             const C = 60;
+            // Zero-lexical rows enter semantically or not at all: without a
+            // similarity floor every vaguely-related instance rides into the
+            // enumeration surface as the pool grows, and padded counts teach
+            // the user to distrust every number. Floor picked against the
+            // measured recovery case (a citrus event reachable only by
+            // similarity) with margin below typical same-topic cosines.
+            const SEM_FLOOR = 0.25;
             mounted = withCos
+              .filter((x) => lexRank.has(x.c) || (x.cos != null && x.cos >= SEM_FLOOR))
               .map((x) => ({
                 c: x.c,
                 rrf: (lexRank.has(x.c) ? 1 / (C + lexRank.get(x.c)) : 0) +
