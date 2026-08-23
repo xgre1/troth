@@ -158,6 +158,89 @@ function buildCombinedPrompt(turns) {
   ].join('\n');
 }
 
+// v2: identities carry role/specialty, instances carry distinguishing
+// attributes, and EVERY row carries a verbatim quote from the statements
+// that attest it. The quote is verified mechanically (normalized substring
+// against the session text) - an extraction that cannot show its sentence
+// is dropped at the gate, no second model call needed.
+function buildCombinedPromptV2(turns) {
+  const lines = turns.map((t, i) =>
+    '[' + i + '] (' + new Date(t.timestamp).toISOString().slice(0, 10) + ') ' +
+    String(t.user_text || '').slice(0, 600));
+  return [
+    'Extract TWO things from the user statements below.',
+    '',
+    '1. identities - people, places or organizations the user names, with the',
+    '   most SPECIFIC role or relation the statements support: a medical',
+    '   specialty ("ENT specialist", "dermatologist"), a profession, a',
+    '   kinship ("sister"). Include every way the user refers to them as',
+    '   aliases ("my sister", "the ENT", "Dr. Patel").',
+    '2. instances - one entry per real-world occurrence the user reports',
+    '   about themselves (visit, purchase, event, activity, possession).',
+    '   ONLY what the user states about their own life - never suggestions',
+    '   or hypotheticals. The same occurrence mentioned twice is ONE entry',
+    '   citing both statements. The description MUST carry the DISTINGUISHING',
+    '   attributes the statements give (size, name, model, place: "20-gallon',
+    '   community tank", not just "tank").',
+    '   status: completed | planned | recurring | cancelled - from the',
+    '   user\'s wording. date_iso: YYYY-MM-DD only when the statement pins',
+    '   it; otherwise null - NEVER guess dates. turn_idxs: the [N] indexes',
+    '   attesting the entry.',
+    '',
+    'EVERY identity and instance MUST include "quote": a verbatim snippet',
+    '(at most 160 characters) copied EXACTLY from one of the statements that',
+    'attest it. No quote, no entry.',
+    '',
+    'Return ONLY a JSON object (no prose):',
+    '{"identities":[{"name":"Dr. Patel","kind":"person","relation":"ENT specialist",',
+    '"aliases":["the ENT"],"quote":"..."}],',
+    ' "instances":[{"kind":"visit","entity":"Dr. Patel","description":"ENT follow-up for sinusitis",',
+    '"date_iso":null,"status":"completed","qualifier":"visited","quantity":null,"turn_idxs":[0],"quote":"..."}]}',
+    '',
+    'User statements:',
+    ...lines
+  ].join('\n');
+}
+
+function _normQuote(s) {
+  return String(s || '').toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+// Mechanical grounding: the quote must appear (normalized) inside the
+// session's own text. Pure string arithmetic - no model, no judgment.
+function _quoteAttested(quote, turns) {
+  const q = _normQuote(quote);
+  if (q.length < 8) return false;
+  const hay = _normQuote(turns.map((t) => t.user_text).join(' '));
+  return hay.indexOf(q) >= 0;
+}
+
+function parseCombinedExtractionV2(text, turnCount, turns) {
+  const base = parseCombinedExtraction(text, turnCount);
+  const out = { identities: [], instances: [], dropped: base.dropped, quote_fail: 0 };
+  const src = String(text || '');
+  let obj = null;
+  try { obj = JSON.parse(src.slice(src.indexOf('{'), src.lastIndexOf('}') + 1)); } catch (_) { obj = null; }
+  const idRows = (obj && Array.isArray(obj.identities)) ? obj.identities : [];
+  const instRows = (obj && Array.isArray(obj.instances)) ? obj.instances : [];
+  for (const ident of base.identities) {
+    const row = idRows.find((r) => r && String(r.name || '').trim() === ident.name);
+    if (row && _quoteAttested(row.quote, turns)) {
+      ident.quote = String(row.quote).slice(0, 200);
+      out.identities.push(ident);
+    } else { out.quote_fail++; }
+  }
+  for (const inst of base.instances) {
+    const row = instRows.find((r) => r && String(r.entity || '').trim() === inst.entity &&
+      String(r.description || '').trim() === inst.description);
+    if (row && _quoteAttested(row.quote, turns)) {
+      inst.quote = String(row.quote).slice(0, 200);
+      out.instances.push(inst);
+    } else { out.quote_fail++; }
+  }
+  return out;
+}
+
 function parseCombinedExtraction(text, turnCount) {
   const out = { identities: [], instances: [], dropped: 0 };
   const s = String(text || '');
@@ -528,7 +611,9 @@ module.exports = {
   buildPrompt,
   parseExtraction,
   buildCombinedPrompt,
+  buildCombinedPromptV2,
   parseCombinedExtraction,
+  parseCombinedExtractionV2,
   writeInstances,
   runPass,
   makeLlamacppExtractor,

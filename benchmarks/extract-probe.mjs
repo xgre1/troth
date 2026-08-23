@@ -29,6 +29,8 @@ const PER_TYPE = parseInt(argVal('--per-type', '17'), 10);
 const HOST = argVal('--host', process.env.TROTH_BENCH_EXTRACTOR_HOST || 'http://127.0.0.1:1234');
 const CACHE = argVal('--cache', process.env.TROTH_BENCH_EXTRACT_CACHE || null);
 const MOCK = argVal('--mock', '0') === '1';
+const IDS = argVal('--ids', '');
+const GREP = argVal('--grep', '');
 const DATASET_PATH = join(REPO, 'benchmarks/datasets/longmemeval/longmemeval_s_cleaned.json');
 
 function sessionTurns(q, si) {
@@ -47,7 +49,12 @@ async function main() {
   const digest = require('./digest.cjs');
   const ic = require('../shared-core/instance-consolidation.js');
   const all = JSON.parse(readFileSync(DATASET_PATH, 'utf8'));
-  const qs = all.filter(q => q.question_type === TYPE).slice(0, PER_TYPE);
+  let qs = all.filter(q => q.question_type === TYPE).slice(0, PER_TYPE);
+  if (IDS) {
+    const want = new Set(IDS.split(','));
+    qs = all.filter(q => want.has(q.question_id));
+  }
+  const grepRe = GREP ? new RegExp(GREP, 'i') : null;
   const llmCall = MOCK
     ? () => Promise.resolve(JSON.stringify({ identities: [], instances: [] }))
     : ic.makeLlamacppExtractor({ host: HOST, timeout_ms: 180000, max_tokens: 2048 });
@@ -62,6 +69,7 @@ async function main() {
     for (let si = 0; si < q.haystack_sessions.length; si++) {
       const turns = sessionTurns(q, si);
       if (!turns.length) continue;
+      if (grepRe && !turns.some(t => grepRe.test(t.user_text))) continue;
       row.sessions++; agg.sessions++;
       const ex = await digest.extractSession({ turns, llmCall, cacheDir: CACHE });
       if (ex.stats.extractor_call) agg.calls++;

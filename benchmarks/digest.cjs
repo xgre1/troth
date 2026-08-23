@@ -21,7 +21,8 @@ const identity = require('../shared-core/entity-identity.js');
 const chameleon = require('../shared-core/chameleon.js');
 const state = require('../shared-core/state.js');
 
-const PROMPT_VERSION = 'combined-v1';
+const PROMPT_V2 = process.env.TROTH_EXTRACT_PROMPT === 'v2';
+const PROMPT_VERSION = PROMPT_V2 ? 'combined-v2' : 'combined-v1';
 
 function _sessionsFromDb(agent_id) {
   const rows = state.queryActions({ type: 'tool_call', agent_id, limit: 100000, order: 'asc' }) || [];
@@ -61,11 +62,13 @@ async function extractSession(opts) {
     try { raw = fs.readFileSync(cachePath, 'utf8'); stats.cache_hit = true; } catch (_) { raw = null; }
   }
   if (raw == null) {
-    raw = await llmCall(ic.buildCombinedPrompt(turns));
+    raw = await llmCall(PROMPT_V2 ? ic.buildCombinedPromptV2(turns) : ic.buildCombinedPrompt(turns));
     stats.extractor_call = true;
     if (cachePath) { try { fs.writeFileSync(cachePath, String(raw)); } catch (_) {} }
   }
-  const parsed = ic.parseCombinedExtraction(raw, turns.length);
+  const parsed = PROMPT_V2
+    ? ic.parseCombinedExtractionV2(raw, turns.length, turns)
+    : ic.parseCombinedExtraction(raw, turns.length);
   return { raw: raw, parsed: parsed, stats: stats };
 }
 
