@@ -265,13 +265,73 @@ function parseCombinedExtraction(text, turnCount) {
   return out;
 }
 
-// ── Write ───────────────────────────────────────────────────────────────
+// ── Write ───────────────────────────────────────────────────────────────────────
+
+// Verb classes for facet accounting. Closed and tiny on purpose: the class
+// ranks commitment (a stated "played" is never demoted by a later
+// "interested in"); the raw verb is preserved so surface form never dies.
+const _VERB_CLASSES = [
+  [/^(led|lead(s)?|ran|run|organi[sz]ed|hosted|managed|founded|directed)\b/, 'agentive'],
+  [/^(played|attended|visited|went|watched|saw|took|did|completed|finished|got back|wore|made)\b/, 'experiential'],
+  [/^(worked on|joined|helped|contributed|participated)\b/, 'participatory'],
+  [/^(bought|purchased|sold|returned|exchanged|ordered|paid|got)\b/, 'transactional'],
+  [/^(planning|planned to|considering|interested in|thinking|might|want(ed)? to|hoping|going to|will|schedule)\b/, 'prospective']
+];
+
+function _verbClass(q) {
+  const s = String(q || '').trim().toLowerCase();
+  if (!s) return 'other';
+  for (const pair of _VERB_CLASSES) if (pair[0].test(s)) return pair[1];
+  return 'other';
+}
+
+function _mergeFacets(oldFacets, oldQualifier, oldRefs, newQualifier, newRefs) {
+  const facets = Array.isArray(oldFacets)
+    ? oldFacets.map((f) => ({ verb: f.verb, class: f.class, refs: (f.refs || []).slice() }))
+    : [];
+  if (!facets.length && oldQualifier) {
+    facets.push({ verb: oldQualifier, class: _verbClass(oldQualifier), refs: (oldRefs || []).slice() });
+  }
+  if (newQualifier) {
+    const hit = facets.find((f) => f.verb === newQualifier);
+    if (hit) {
+      for (const r of (newRefs || [])) if (hit.refs.indexOf(r) === -1) hit.refs.push(r);
+    } else {
+      facets.push({ verb: newQualifier, class: _verbClass(newQualifier), refs: (newRefs || []).slice() });
+    }
+  }
+  return facets;
+}
+
+// A stated commitment outranks a prospect; ties go to the earliest attested.
+function _primaryQualifier(facets, fallback) {
+  if (!Array.isArray(facets) || !facets.length) return fallback || null;
+  const solid = facets.find((f) => f.class !== 'prospective' && f.class !== 'other') ||
+    facets.find((f) => f.class !== 'prospective');
+  return (solid || facets[0]).verb;
+}
+
+// A retelling must never blank measured substance: keep whichever description
+// carries digits when only one does; otherwise the newer non-empty wins.
+function _preferDescription(oldD, newD) {
+  const o = String(oldD || '');
+  const n = String(newD || '');
+  if (!n) return o;
+  if (!o) return n;
+  if (/\d/.test(o) && !/\d/.test(n)) return o;
+  return n;
+}
 
 function _statementFor(inst) {
+  const extras = (inst.facets || [])
+    .filter((f) => f && f.verb && f.verb !== inst.qualifier)
+    .map((f) => f.verb);
   return inst.kind + ': ' +
     (inst.qualifier ? inst.qualifier + ' ' : '') +
     inst.entity + ' — ' + inst.description +
-    ' [' + inst.status + (inst.date_iso ? ', ' + inst.date_iso : '') + ']';
+    (Number.isFinite(inst.quantity) ? ' (qty ' + inst.quantity + ')' : '') +
+    ' [' + inst.status + (inst.date_iso ? ', ' + inst.date_iso : '') + ']' +
+    (extras.length ? ' (also said: ' + extras.join(', ') + ')' : '');
 }
 
 // Current instance pool — the ONE view lifecycle matching runs against.
@@ -447,6 +507,11 @@ function writeInstances(opts) {
       provenance = Array.from(new Set(oldRefs.concat(refs)));
       const changed = status !== old.status || provenance.length !== oldRefs.length;
       if (!changed) { stats.dup++; continue; }
+      // Every verb the user ever attached to this occurrence is kept as an
+      // attested facet with its own receipts — a later "interested in" adds a
+      // facet, it never overwrites a stated "played". The scalar qualifier
+      // stays the strongest commitment so the rendered line cannot lie.
+      const facets = _mergeFacets(old.facets, old.qualifier, oldRefs, inst.qualifier, refs);
       finalInst = {
         kind: inst.kind,
         // Keep the richer identity: canonical when known, else whichever
@@ -454,10 +519,11 @@ function writeInstances(opts) {
         entity: canonical || old.canonical || inst.entity,
         entity_slug: entity_slug || old.entity_slug || null,
         canonical: canonical || old.canonical || null,
-        description: inst.description || old.description,
+        description: _preferDescription(old.description, inst.description),
         date_iso: inst.date_iso || old.date_iso || null,
         status,
-        qualifier: inst.qualifier || old.qualifier || null,
+        qualifier: _primaryQualifier(facets, inst.qualifier || old.qualifier || null),
+        facets,
         quantity: Number.isFinite(inst.quantity) ? inst.quantity : (old.quantity != null ? old.quantity : null),
         session_id: opts.session_id || old.session_id || null
       };
@@ -473,6 +539,7 @@ function writeInstances(opts) {
         date_iso: inst.date_iso,
         status: inst.status,
         qualifier: inst.qualifier,
+        facets: inst.qualifier ? [{ verb: inst.qualifier, class: _verbClass(inst.qualifier), refs: refs.slice() }] : [],
         quantity: inst.quantity,
         session_id: opts.session_id || null
       };
