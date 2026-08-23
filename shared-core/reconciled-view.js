@@ -67,10 +67,11 @@ function buildReconciledView(items) {
       const lines = [];
       if (ledger.length) {
         lines.push('Consolidated ledger (each line is ONE real-world occurrence; its attestations are listed - never count an attestation separately):');
-        // The counting doctrine lives WITH the structure it explains — the
-        // product's view, not any harness prompt — so every surface that
-        // mounts this view counts the same way.
-        lines.push('When counting, match the question\'s own verb: an entry counts only when its qualifier belongs to that verb\'s class (led/leading is not planning, working on or a solo effort; attended is not wore or searched; bought is not considered).');
+        // No verb-matching prose here: a text rule that gates counting
+        // cannot tell counting occurrences from summing quantities, and it
+        // discarded quantity-bearing evidence the moment it shipped. The
+        // qualifier lives structured on every line; discrimination belongs
+        // to structure (question family + status maturation), not prose.
         // Ownership doctrine — measured: a possession's [completed] status read
         // as "done with it", and a real, still-owned tank was subtracted the
         // moment a newer one appeared. Completed acquisition means owned;

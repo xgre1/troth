@@ -245,8 +245,8 @@ function composeAnswerPrompt(q, retrieved) {
     (/\b(how many|how much|how often|total|count|number of|order of|first to last|earliest to latest)\b/i.test(q.question)
       ? 'When a Consolidated ledger is present, follow its own legends: the ' +
         'L-lines are the occurrences, the marks say what is already counted ' +
-        'and what you judge individually, and the header rules (verb match, ' +
-        'ownership, distinct people over C-lines) are the counting law. ' +
+        'and what you judge individually, and the header rules (ownership, ' +
+        'distinct people over C-lines) are the counting law. ' +
         'Otherwise work in two steps: first list every DISTINCT item or event that matches ' +
         'what the question counts (cite the statement number for each; merge ' +
         'repeated MENTIONS of the same thing; skip anything the statements do ' +
