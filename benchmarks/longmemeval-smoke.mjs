@@ -234,10 +234,13 @@ function composeAnswerPrompt(q, retrieved) {
         'of occurrences: one line per real occurrence however many times it was ' +
         'told, status-resolved, with (attested xN) counting the conversations ' +
         'that attest it. When [instance] lines cover what the question counts, ' +
-        'count THOSE lines (apply the question\'s qualifier and time window to ' +
-        'their [status, date] fields) and use the raw statements only to ' +
-        'cross-check; if the raw statements show a qualifying occurrence ' +
-        'missing from the ledger, add it and say so. ' +
+        'count the UNION of the two sources: every [instance] line that passes ' +
+        'the question\'s qualifier and time window (from its [status, date] ' +
+        'fields), PLUS every qualifying occurrence the raw statements attest ' +
+        'that has no [instance] line — the ledger can be incomplete and a raw ' +
+        'occurrence missing from it MUST still be counted. A ledger line the ' +
+        'raw statements contradict is dropped; one they merely do not repeat ' +
+        'is kept. ' +
         'Otherwise work in two steps: first list every DISTINCT item or event that matches ' +
         'what the question counts (cite the statement number for each; merge ' +
         'repeated MENTIONS of the same thing; skip anything the statements do ' +
