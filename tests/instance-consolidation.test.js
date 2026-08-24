@@ -264,6 +264,77 @@ await t('quote gate: a quote of only unverifiable short spans is rejected', () =
   assert.strictEqual(out.instances.length, 0, 'nothing verifiable, nothing kept');
 });
 
+// ── Description composition: a merge never silently discards content ─────
+// The measured damage class: two true retellings share an entity, the
+// newer overwrites the older, and a stated fact (30 hours on hard; the
+// sangria's orange and lemon) is silently gone. Composition keeps the
+// losing description as a ' · ' clause whenever it carries any content
+// token the primary lacks — bounded, and degrading to exactly today's
+// behaviour, never to a truncated clause.
+
+await t('composition: both playthroughs survive on one row (the games case)', () => {
+  const AG = 'compose-games';
+  const T = (x) => [{ id: x, user_text: 'context turn' }];
+  const mk = (desc, qual) => ({ kind: 'activity', entity: 'The Last of Us Part II', description: desc, date_iso: null, status: 'completed', qualifier: qual, quantity: null, turn_idxs: [0] });
+  ic.writeInstances({ instances: [mk('Completed the game on hard difficulty, taking 30 hours to finish', 'completed')], turns: T('cg-1'), agent_id: AG, user_id: 'default', session_id: 'cg-s1', source: 'test' });
+  ic.writeInstances({ instances: [mk('Completed the game on normal difficulty in 25 hours', 'finished')], turns: T('cg-2'), agent_id: AG, user_id: 'default', session_id: 'cg-s2', source: 'test' });
+  const rows = engram.listEngrams({ scope_prefix: 'instance:', audience: 'all', agent_id: AG, limit: 10 });
+  assert.strictEqual(rows.length, 1, 'still ONE occurrence: ' + rows.length);
+  assert.ok(/30 hours/.test(rows[0].statement), '30 hours preserved: ' + rows[0].statement);
+  assert.ok(/25 hours/.test(rows[0].statement), '25 hours present: ' + rows[0].statement);
+});
+
+await t('composition: a retelling with nothing new adds nothing', () => {
+  const AG = 'compose-para';
+  const T = (x) => [{ id: x, user_text: 'context turn' }];
+  const mk = (desc, qual) => ({ kind: 'activity', entity: 'park walk', description: desc, date_iso: null, status: 'completed', qualifier: qual, quantity: null, turn_idxs: [0] });
+  ic.writeInstances({ instances: [mk('Walked around the central park fountain', 'walked')], turns: T('cp-1'), agent_id: AG, user_id: 'default', session_id: 'cp-s1', source: 'test' });
+  ic.writeInstances({ instances: [mk('Around the central park fountain, walked', 'strolled')], turns: T('cp-2'), agent_id: AG, user_id: 'default', session_id: 'cp-s2', source: 'test' });
+  const rows = engram.listEngrams({ scope_prefix: 'instance:', audience: 'all', agent_id: AG, limit: 10 });
+  assert.strictEqual(rows.length, 1);
+  assert.ok(rows[0].statement.indexOf(' · ') === -1, 'no clause for a paraphrase: ' + rows[0].statement);
+});
+
+await t('composition: the digit-bearing primary leads, detail follows (the kits shape)', () => {
+  const AG = 'compose-kits';
+  const T = (x) => [{ id: x, user_text: 'context turn' }];
+  const mk = (desc, qual) => ({ kind: 'activity', entity: 'diorama', description: desc, date_iso: null, status: 'planned', qualifier: qual, quantity: null, turn_idxs: [0] });
+  ic.writeInstances({ instances: [mk('Working on a diorama featuring a 1/16 scale German Tiger I tank with realistic terrain', 'started')], turns: T('ck-1'), agent_id: AG, user_id: 'default', session_id: 'ck-s1', source: 'test' });
+  ic.writeInstances({ instances: [mk('Adding vegetation to the riverbank including water plants', 'adding')], turns: T('ck-2'), agent_id: AG, user_id: 'default', session_id: 'ck-s2', source: 'test' });
+  const rows = engram.listEngrams({ scope_prefix: 'instance:', audience: 'all', agent_id: AG, limit: 10 });
+  assert.strictEqual(rows.length, 1);
+  const s = rows[0].statement;
+  assert.ok(s.indexOf('Tiger I tank') !== -1 && s.indexOf('vegetation') !== -1, 'both present: ' + s);
+  assert.ok(s.indexOf('Tiger I tank') < s.indexOf('vegetation'), 'digit-bearing primary stays first: ' + s);
+});
+
+await t('composition: the clause cap holds and degradation is the primary unchanged', () => {
+  const AG = 'compose-cap';
+  const T = (x) => [{ id: x, user_text: 'context turn' }];
+  const mk = (desc, qual) => ({ kind: 'activity', entity: 'novel readthrough', description: desc, date_iso: null, status: 'recurring', qualifier: qual, quantity: null, turn_idxs: [0] });
+  const descs = ['Reading the opening chapters slowly', 'Highlighting favourite passages throughout', 'Discussing themes with the book club', 'Drafting margin annotations everywhere'];
+  descs.forEach((d, i) => ic.writeInstances({ instances: [mk(d, 'reading-' + i)], turns: T('cc-' + i), agent_id: AG, user_id: 'default', session_id: 'cc-s' + i, source: 'test' }));
+  const rows = engram.listEngrams({ scope_prefix: 'instance:', audience: 'all', agent_id: AG, limit: 10 });
+  assert.strictEqual(rows.length, 1);
+  const seps = rows[0].statement.split(' · ').length - 1;
+  assert.ok(seps <= 2, 'at most three clauses: ' + rows[0].statement);
+});
+
+await t('composition: a fused chimera keeps every wedding recoverable', () => {
+  // The S1 lesson: when the merge layer wrongly fuses distinct events, the
+  // row must still carry every ingredient — recoverable, not destroyed.
+  const AG = 'compose-chimera';
+  const T = (x) => [{ id: x, user_text: 'context turn' }];
+  const mk = (desc, qual) => ({ kind: 'activity', entity: 'wedding season', description: desc, date_iso: null, status: 'completed', qualifier: qual, quantity: null, turn_idxs: [0] });
+  ic.writeInstances({ instances: [mk("Attended college roommate's wedding in the city with a rooftop garden ceremony", 'attended')], turns: T('cw-1'), agent_id: AG, user_id: 'default', session_id: 'cw-s1', source: 'test' });
+  ic.writeInstances({ instances: [mk('Attended wedding of friend Emily and her partner Sarah', 'went')], turns: T('cw-2'), agent_id: AG, user_id: 'default', session_id: 'cw-s2', source: 'test' });
+  ic.writeInstances({ instances: [mk("Attended friend Jen's wedding at a rustic barn in the countryside", 'joined')], turns: T('cw-3'), agent_id: AG, user_id: 'default', session_id: 'cw-s3', source: 'test' });
+  const rows = engram.listEngrams({ scope_prefix: 'instance:', audience: 'all', agent_id: AG, limit: 10 });
+  assert.strictEqual(rows.length, 1);
+  const s = rows[0].statement;
+  assert.ok(/roommate/.test(s) && /Emily and her partner Sarah/.test(s) && /rustic barn/.test(s), 'all three weddings recoverable: ' + s);
+});
+
 console.log('');
 console.log('instance-consolidation: ' + pass + ' passed, ' + fail + ' failed');
 try { fs.unlinkSync(DB); fs.unlinkSync(DB + '-wal'); fs.unlinkSync(DB + '-shm'); } catch (_) {}

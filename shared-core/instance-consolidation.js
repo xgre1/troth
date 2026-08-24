@@ -341,6 +341,33 @@ function _preferDescription(oldD, newD) {
   return n;
 }
 
+// A merge keeps ONE primary description and never silently discards the
+// other: when the losing retelling carries any content token the primary
+// lacks, it survives as a ' · ' clause on the same string — so the fact a
+// user stated twice ("30 hours on hard", then "25 on normal") stays on the
+// row every surface mounts. Bounds degrade to the primary unchanged, never
+// to a truncated clause: this exists to end silent truncation, not to
+// reintroduce it. An overlap threshold cannot gate this — measured: shared
+// extractor boilerplate swamps the discriminators (games 0.667, citrus
+// 0.571 overlap, both destroyed) — so the trigger is any novel content
+// token at all.
+const _CLAUSE_SEP = ' · ';
+function _composeDescription(oldD, newD) {
+  const primary = _preferDescription(oldD, newD);
+  const o = String(oldD || ''), n = String(newD || '');
+  const discarded = primary === n ? o : n;
+  if (!discarded || discarded === primary) return primary;
+  const tok = (x) => new Set(String(x || '').toLowerCase().split(/[^\p{L}\p{N}]+/u)
+    .filter(t => t.length >= 4 || /^\d+$/.test(t)));
+  const p = tok(primary);
+  let novel = false;
+  for (const t of tok(discarded)) if (!p.has(t)) { novel = true; break; }
+  if (!novel) return primary;
+  if (primary.split(_CLAUSE_SEP).length + discarded.split(_CLAUSE_SEP).length > 3) return primary;
+  const candidate = primary + _CLAUSE_SEP + discarded;
+  return candidate.length > 400 ? primary : candidate;
+}
+
 function _statementFor(inst) {
   const extras = (inst.facets || [])
     .filter((f) => f && f.verb && f.verb !== inst.qualifier)
@@ -640,7 +667,7 @@ function writeInstances(opts) {
         entity: canonical || old.canonical || inst.entity,
         entity_slug: entity_slug || old.entity_slug || null,
         canonical: canonical || old.canonical || null,
-        description: _preferDescription(old.description, inst.description),
+        description: _composeDescription(old.description, inst.description),
         date_iso: inst.date_iso || old.date_iso || null,
         status,
         basis: (inst.basis !== 'entailed' || old.basis !== 'entailed') ? 'stated' : 'entailed',
