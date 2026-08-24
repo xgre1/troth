@@ -35,7 +35,7 @@ const identity = require('./entity-identity.js');
 const SCOPE_PREFIX = 'instance:';
 const WATERMARK_SCOPE = 'system:instance_consolidation:watermark';
 const KINDS = ['visit', 'purchase', 'event', 'activity', 'possession'];
-const STATUSES = ['completed', 'planned', 'recurring', 'cancelled'];
+const STATUSES = ['completed', 'planned', 'recurring', 'cancelled', 'owed'];
 const FIRST_RUN_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 
 function enabled() {
@@ -182,8 +182,19 @@ function buildCombinedPromptV2(turns) {
     '   citing both statements. The description MUST carry the DISTINGUISHING',
     '   attributes the statements give (size, name, model, place: "20-gallon',
     '   community tank", not just "tank").',
-    '   status: completed | planned | recurring | cancelled - from the',
-    '   user\'s wording. date_iso: YYYY-MM-DD only when the statement pins',
+    '   status: completed | planned | recurring | cancelled | owed - from the',
+    '   user\'s wording, never assumed. "owed" is an outstanding obligation',
+    '   the user has incurred and not yet discharged (still to return,',
+    '   still to pick up, still owes, must renew).',
+    '   An outstanding obligation is its OWN instance, separate from the',
+    '   purchase or exchange that created it: "I bought boots and I still',
+    '   need to return them" is TWO entries - the purchase (completed) and',
+    '   the return (owed).',
+    '   kind MUST be one of: visit, purchase, event, activity, possession.',
+    '   NEVER invent a kind. Intention and obligation live in status, never',
+    '   in kind - write kind:"activity" status:"planned", not',
+    '   "planned_activity". A trip or a stay is kind:"visit".',
+    '   date_iso: YYYY-MM-DD only when the statement pins',
     '   it; otherwise null - NEVER guess dates. turn_idxs: the [N] indexes',
     '   attesting the entry.',
     '',
