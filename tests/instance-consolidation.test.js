@@ -264,6 +264,34 @@ await t('quote gate: a quote of only unverifiable short spans is rejected', () =
   assert.strictEqual(out.instances.length, 0, 'nothing verifiable, nothing kept');
 });
 
+// ── Truncated extractions keep their complete rows ────────────────────
+// A model that hits its token ceiling mid-array leaves valid rows behind a
+// broken tail. Measured on a real corpus: 7.5% of extractions ended that
+// way, and each one lost an entire session of what the user had said.
+
+await t('a truncated extraction keeps the rows that closed before the cut', () => {
+  const turns2 = [{ user_text: 'I finished the game on normal difficulty and it took me 25 hours to complete.' }];
+  const row = '{"kind":"activity","entity":"the game","description":"Completed on normal difficulty in 25 hours","date_iso":null,"status":"completed","qualifier":"finished","quantity":null,"turn_idxs":[0],"quote":"it took me 25 hours to complete"}';
+  const cut = '{"identities":[],"instances":[' + row + ',{"kind":"activity","entity":"half a row';
+  const out = ic.parseCombinedExtractionV2(cut, 1, turns2);
+  assert.strictEqual(out.instances.length, 1, 'the complete row survives the broken tail');
+  assert.ok(/25 hours/.test(out.instances[0].description), out.instances[0].description);
+});
+
+await t('salvage never invents: unparseable text still yields nothing', () => {
+  const turns2 = [{ user_text: 'I finished the game.' }];
+  assert.strictEqual(ic.parseCombinedExtractionV2('not json at all', 1, turns2).instances.length, 0);
+  assert.strictEqual(ic.parseCombinedExtractionV2('{"instances":[{"kind":"acti', 1, turns2).instances.length, 0);
+});
+
+await t('a whole valid response takes exactly the same path as before', () => {
+  const turns2 = [{ user_text: 'I finished the game on normal difficulty and it took me 25 hours to complete.' }];
+  const whole = '{"identities":[],"instances":[{"kind":"activity","entity":"the game","description":"Completed on normal difficulty in 25 hours","date_iso":null,"status":"completed","qualifier":"finished","quantity":null,"turn_idxs":[0],"quote":"it took me 25 hours to complete"}]}';
+  const out = ic.parseCombinedExtractionV2(whole, 1, turns2);
+  assert.strictEqual(out.instances.length, 1);
+  assert.strictEqual(out.quote_fail, 0);
+});
+
 // ── Description composition: a merge never silently discards content ─────
 // The measured damage class: two true retellings share an entity, the
 // newer overwrites the older, and a stated fact (30 hours on hard; the

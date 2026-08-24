@@ -255,6 +255,7 @@ function parseCombinedExtractionV2(text, turnCount, turns) {
   const src = String(text || '');
   let obj = null;
   try { obj = JSON.parse(src.slice(src.indexOf('{'), src.lastIndexOf('}') + 1)); } catch (_) { obj = null; }
+  if (!obj) obj = { identities: _completeObjects(src, 'identities'), instances: _completeObjects(src, 'instances') };
   const idRows = (obj && Array.isArray(obj.identities)) ? obj.identities : [];
   const instRows = (obj && Array.isArray(obj.instances)) ? obj.instances : [];
   for (const ident of base.identities) {
@@ -275,6 +276,41 @@ function parseCombinedExtractionV2(text, turnCount, turns) {
   return out;
 }
 
+// A model that hits its token ceiling mid-array leaves valid rows behind a
+// broken tail. Every object that closed before the cut is complete and
+// attested; discarding the whole response loses an entire session of what
+// the user said. Walks the array by brace depth, string-aware, and keeps
+// what parsed - the truncated tail is simply where it stops.
+function _completeObjects(s, key) {
+  const out = [];
+  const at = s.indexOf('"' + key + '"');
+  if (at < 0) return out;
+  const open = s.indexOf('[', at);
+  if (open < 0) return out;
+  let depth = 0, start = -1, inStr = false, esc = false;
+  for (let i = open + 1; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') { inStr = true; continue; }
+    if (c === '{') { if (depth === 0) start = i; depth++; continue; }
+    if (c === '}') {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        try { out.push(JSON.parse(s.slice(start, i + 1))); } catch (_) {}
+        start = -1;
+      }
+      continue;
+    }
+    if (c === ']' && depth === 0) break;
+  }
+  return out;
+}
+
 function parseCombinedExtraction(text, turnCount) {
   const out = { identities: [], instances: [], dropped: 0 };
   const s = String(text || '');
@@ -282,7 +318,10 @@ function parseCombinedExtraction(text, turnCount) {
   const end = s.lastIndexOf('}');
   if (start < 0 || end <= start) return out;
   let obj;
-  try { obj = JSON.parse(s.slice(start, end + 1)); } catch (_) { return out; }
+  try { obj = JSON.parse(s.slice(start, end + 1)); } catch (_) {
+    obj = { identities: _completeObjects(s, 'identities'), instances: _completeObjects(s, 'instances') };
+    if (!obj.identities.length && !obj.instances.length) return out;
+  }
   if (!obj || typeof obj !== 'object') return out;
   for (const row of (Array.isArray(obj.identities) ? obj.identities : [])) {
     if (!row || typeof row !== 'object') { out.dropped++; continue; }
@@ -963,7 +1002,7 @@ function makeLlamacppExtractor(cfg) {
         body: JSON.stringify({
           messages: [{ role: 'user', content: prompt }],
           temperature: 0,
-          max_tokens: cfg.max_tokens || 1024,
+          max_tokens: cfg.max_tokens || 2048,
           stream: false,
           chat_template_kwargs: { enable_thinking: false }
         })
