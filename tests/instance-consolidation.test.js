@@ -154,6 +154,59 @@ await t('flag gate: enabled() follows TROTH_INSTANCE_CONSOLIDATION', () => {
   delete process.env.TROTH_INSTANCE_CONSOLIDATION;
 });
 
+// ── Self-entity guard + scoped identity census ────────────────────────
+// Measured (2026-08): 40% of all merges collapsed onto entity 'user' — a
+// self-reference names the speaker, not a thing, so it can never say two
+// rows are the same occurrence. Near-self strings name real things and
+// keep merging. The census a merge consults must be the caller's brain,
+// not the whole database — a second brain's identities must not flip
+// another brain's merge verdicts.
+
+await t('self-entity guard: distinct user-entity activities never merge', () => {
+  const AG = 'self-guard-brain';
+  const turns = [{ id: 'sg-1', user_text: 'context turn' }];
+  const mk = (desc, qual) => ({ kind: 'activity', entity: 'user', description: desc, date_iso: null, status: 'completed', qualifier: qual, quantity: null, turn_idxs: [0] });
+  ic.writeInstances({ instances: [mk('Woke up at 7 AM every day, including weekends', 'woke')], turns, agent_id: AG, user_id: 'default', session_id: 'sg-s1', source: 'test' });
+  ic.writeInstances({ instances: [mk('Hired a wedding planner in the city', 'hired')], turns, agent_id: AG, user_id: 'default', session_id: 'sg-s2', source: 'test' });
+  ic.writeInstances({ instances: [{ kind: 'activity', entity: 'User', description: 'Slept in until 10 AM on last Sunday', date_iso: null, status: 'completed', qualifier: 'slept', quantity: null, turn_idxs: [0] }], turns, agent_id: AG, user_id: 'default', session_id: 'sg-s3', source: 'test' });
+  const rows = engram.listEngrams({ scope_prefix: 'instance:', audience: 'all', agent_id: AG, limit: 20 });
+  assert.strictEqual(rows.length, 3, 'each self-entity fact stays its own occurrence: ' + rows.length);
+});
+
+await t('near-self entity is a real thing and still merges', () => {
+  const AG = 'near-self-brain';
+  const turns = [{ id: 'ns-1', user_text: 'context turn' }];
+  const mk = (qual) => ({ kind: 'activity', entity: "user's website", description: 'Redesigning the landing page hero section', date_iso: null, status: 'completed', qualifier: qual, quantity: null, turn_idxs: [0] });
+  ic.writeInstances({ instances: [mk('redesigning')], turns, agent_id: AG, user_id: 'default', session_id: 'ns-s1', source: 'test' });
+  ic.writeInstances({ instances: [mk('updating')], turns, agent_id: AG, user_id: 'default', session_id: 'ns-s2', source: 'test' });
+  const rows = engram.listEngrams({ scope_prefix: 'instance:', audience: 'all', agent_id: AG, limit: 20 });
+  assert.strictEqual(rows.length, 1, 'same real-entity occurrence retold merges: ' + rows.length);
+});
+
+await t('identity census scopes to the asking brain', () => {
+  identity.recordEntityIdentity({ agent_id: 'census-A', name: 'Emma', kind: 'person', aliases: ['the bride'] });
+  identity.recordEntityIdentity({ agent_id: 'census-B', name: 'Emma', kind: 'person', aliases: ['the bride'] });
+  identity._resetCacheForTests();
+  const scoped = identity.uniqueNameOwners({ agent_id: 'census-A' });
+  const global_ = identity.uniqueNameOwners({});
+  assert.strictEqual(scoped.get('emma'), 1, 'within one brain Emma is unique: ' + scoped.get('emma'));
+  assert.ok((global_.get('emma') || 0) >= 2, 'the cross-brain census still sees every brain: ' + global_.get('emma'));
+});
+
+await t('a second brain\'s identities cannot flip a merge verdict', () => {
+  // The Emma/mom mechanism, distilled: with an UNSCOPED census, census-B\'s
+  // Emma above makes \'Emma\' non-unique, the participant rung loses its
+  // discriminator, and two different parties join. Scoped, they stay apart.
+  const AG = 'census-A';
+  const turns = [{ id: 'cf-1', user_text: 'context turn' }];
+  const mkE = (entity, desc) => ({ kind: 'event', entity, description: desc, date_iso: null, status: 'planned', qualifier: 'planning', quantity: null, turn_idxs: [0] });
+  ic.writeInstances({ instances: [mkE('Emma', 'Surprise birthday party for the bride with a movie night theme')], turns, agent_id: AG, user_id: 'default', session_id: 'cf-s1', source: 'test' });
+  ic.writeInstances({ instances: [mkE('my mom', "Family birthday party for mom's 60th with a formal dinner")], turns, agent_id: AG, user_id: 'default', session_id: 'cf-s2', source: 'test' });
+  const events = engram.listEngrams({ scope: 'instance:event', audience: 'all', agent_id: AG, limit: 20 });
+  const parties = events.filter(r => /birthday party/i.test(r.statement));
+  assert.strictEqual(parties.length, 2, 'two different parties stay two occurrences: ' + parties.length);
+});
+
 console.log('');
 console.log('instance-consolidation: ' + pass + ' passed, ' + fail + ' failed');
 try { fs.unlinkSync(DB); fs.unlinkSync(DB + '-wal'); fs.unlinkSync(DB + '-shm'); } catch (_) {}

@@ -404,7 +404,7 @@ function _headNoun(inst) {
   return m ? m[1].toLowerCase() : null;
 }
 
-function _nameTokens(inst) {
+function _nameTokens(inst, opts) {
   const text = _eventText(inst);
   const out = new Set();
   for (const m of text.matchAll(/\b([A-Z][a-z]{2,})\b/g)) {
@@ -420,9 +420,9 @@ function _nameTokens(inst) {
   // entity resolver already uses.
   try {
     const ident = require('./entity-identity.js');
-    const hits = ident.lookupFromText(text, {}) || [];
+    const hits = ident.lookupFromText(text, { agent_id: opts && opts.agent_id }) || [];
     if (hits.length) {
-      const counts = ident.uniqueNameOwners({});
+      const counts = ident.uniqueNameOwners({ agent_id: opts && opts.agent_id });
       for (const h of hits) {
         const uniq = (h.matched || []).some((n) => counts.get(ident.normAlias(n)) === 1);
         if (uniq && h.identity && h.identity.canonical) out.add(String(h.identity.canonical).toLowerCase());
@@ -443,10 +443,18 @@ function _eventAnchors(inst) {
   return anchors;
 }
 
-function _sameEvent(e, inst) {
+// A self-referential entity names the speaker, not a thing. In a single-user
+// ledger every row is implicitly about the user, so 'user' carries zero
+// discriminating information as a merge key — two such rows are never the
+// same occurrence by name alone. The list is measured from the extraction
+// corpus: only these two strings occur; near-self entities ("my sister",
+// "user's website") name real things and keep merging normally.
+const SELF_ENTITY = new Set(['user', 'self']);
+
+function _sameEvent(e, inst, opts) {
   const h1 = _headNoun(e), h2 = _headNoun(inst);
   if (!h1 || h1 !== h2) return null; // not this arm's call
-  const n1 = _nameTokens(e), n2 = _nameTokens(inst);
+  const n1 = _nameTokens(e, opts), n2 = _nameTokens(inst, opts);
   if (n1.size && n2.size) {
     let sharedName = false;
     for (const n of n1) if (n2.has(n)) sharedName = true;
@@ -461,7 +469,7 @@ function _sameEvent(e, inst) {
   return true; // nothing separates them - the same occasion, retold
 }
 
-function _sameOccurrence(entry, inst, entity_slug) {
+function _sameOccurrence(entry, inst, entity_slug, opts) {
   const e = entry.instance;
   if (!e || e.kind !== inst.kind) return false;
   // An entailed occurrence and a stated one with DIFFERENT statuses are
@@ -469,7 +477,7 @@ function _sameOccurrence(entry, inst, entity_slug) {
   // never absorb the scheduled follow-up it was inferred from.
   if ((e.basis === 'entailed') !== (inst.basis === 'entailed') && e.status !== inst.status) return false;
   if (e.kind === 'event') {
-    const verdict = _sameEvent(e, inst);
+    const verdict = _sameEvent(e, inst, opts);
     if (verdict === false) return false;
     if (verdict === true) {
       // Two PINNED, different dates are two occurrences - never merged,
@@ -478,6 +486,7 @@ function _sameOccurrence(entry, inst, entity_slug) {
       return true;
     }
   }
+  if (SELF_ENTITY.has(_normEntity(inst.entity))) return false;
   const entityMatch = (e.entity_slug && entity_slug)
     ? e.entity_slug === entity_slug
     : _normEntity(e.entity) === _normEntity(inst.entity);
@@ -581,7 +590,7 @@ function writeInstances(opts) {
       }
     } catch (_) {}
 
-    const match = pool.find(p => _sameOccurrence(p, inst, entity_slug));
+    const match = pool.find(p => _sameOccurrence(p, inst, entity_slug, opts));
     let finalInst, supersedes = null, reason = null, provenance = refs;
     if (match) {
       const old = match.instance;

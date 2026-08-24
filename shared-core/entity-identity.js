@@ -72,7 +72,13 @@ function _mergeAliases(lists) {
 
 // ── Registry ────────────────────────────────────────────────────────────
 
-let _cache = null;       // { key, ts, identities }
+// Bounded per-scope cache: one entry per (agent_id, principal) key. The old
+// single shared slot was CORRECT (the key was checked before returning) but
+// thrashed: a scoped consolidation sweep alternating with a cross-brain
+// reader evicted each other every call, forcing a full registry reload each
+// time inside the TTL.
+const CACHE_MAX = 8;
+const _cache = new Map();   // key → { ts, identities }
 function _cacheKey(opts) {
   return [opts.agent_id || '', opts.principal === null ? '<null>' : (opts.principal || '')].join('|');
 }
@@ -84,8 +90,9 @@ function loadRegistry(opts) {
   opts = opts || {};
   const key = _cacheKey(opts);
   const now = Date.now();
-  if (!opts.fresh && _cache && _cache.key === key && (now - _cache.ts) < REGISTRY_TTL_MS) {
-    return _cache.identities;
+  const hit = _cache.get(key);
+  if (!opts.fresh && hit && (now - hit.ts) < REGISTRY_TTL_MS) {
+    return hit.identities;
   }
   let rows = [];
   try {
@@ -113,7 +120,8 @@ function loadRegistry(opts) {
       aliases: Array.isArray(ident.aliases) ? ident.aliases.map(String) : []
     });
   }
-  _cache = { key, ts: now, identities };
+  if (!_cache.has(key) && _cache.size >= CACHE_MAX) _cache.delete(_cache.keys().next().value);
+  _cache.set(key, { ts: now, identities });
   return identities;
 }
 
@@ -184,7 +192,7 @@ function recordEntityIdentity(opts) {
     extra_output
   });
   if (!id) return null;
-  _cache = null;
+  _cache.clear();
   return { id, slug, scope, aliases, updated: !!existing };
 }
 
@@ -256,7 +264,7 @@ function linkableNames(ident, opts) {
     .filter((n) => counts.get(_normAlias(n)) === 1);
 }
 
-function _resetCacheForTests() { _cache = null; }
+function _resetCacheForTests() { _cache.clear(); }
 
 module.exports = {
   slugify,
