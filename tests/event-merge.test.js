@@ -143,5 +143,29 @@ t('a possessive name in the entity survives sentence-case - sister stays hers', 
   assert.strictEqual(pool.length, 2, 'sister and Jen are different people: ' + pool.map(p => p.instance.entity).join(' | '));
 });
 
+t('the user\'s own occasion never fuses with somebody else\'s', () => {
+  const { pool } = writeAll([
+    inst('event', 'my sister', 'Sister\'s wedding where the user was maid of honor', 'my sister\'s wedding was just amazing'),
+    inst('event', "User's wedding", 'Upcoming wedding planned to be a small, intimate ceremony with around 50 guests', 'I am planning my wedding')
+  ]);
+  assert.strictEqual(pool.length, 2, 'own wedding is not the sister\'s: ' + pool.map(p => p.instance.entity).join(' | '));
+});
+
+t('an occasion keeps its identity when the extractor types it a visit', () => {
+  const { pool } = writeAll([
+    inst('visit', 'college roommate', "Attended college roommate's wedding in the city featuring a rooftop garden ceremony", 'my college roommate got married in the city'),
+    inst('visit', 'Emily', "Cousin Emily's wedding in the city at a rooftop garden", "my cousin Emily's wedding in the city")
+  ]);
+  assert.strictEqual(pool.length, 1, 'one wedding whatever the kind label: ' + pool.map(p => p.instance.entity).join(' | '));
+});
+
+t('an ordinary visit is untouched by the occasion ladder', () => {
+  const { pool } = writeAll([
+    inst('visit', 'Dr. Patel', 'ENT follow-up for sinusitis', 'I saw Dr. Patel about my sinuses'),
+    inst('visit', 'Dr. Lee', 'Dermatology mole check', 'I saw Dr. Lee for a mole check')
+  ]);
+  assert.strictEqual(pool.length, 2, 'two doctors stay two visits: ' + pool.map(p => p.instance.entity).join(' | '));
+});
+
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

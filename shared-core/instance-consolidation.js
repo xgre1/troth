@@ -604,9 +604,25 @@ function _eventAnchors(inst) {
 // "user's website") name real things and keep merging normally.
 const SELF_ENTITY = new Set(['user', 'self']);
 
+function _selfOccasion(inst, head) {
+  if (!head) return false;
+  const text = (String(inst.entity || '') + ' ' + String(inst.description || '')).toLowerCase();
+  const m = new RegExp("\\b(?:my|our|own|user'?s)\\s+((?:[a-z]+\\s+){0,2}?)" + head + "\\b").exec(text);
+  if (!m) return false;
+  const between = (m[1] || '').trim();
+  if (/['’]s\b/.test(between)) return false;
+  return !between.split(/\s+/).some((w) => _ROLE_WORDS.has(w));
+}
+
 function _sameEvent(e, inst, opts) {
   const h1 = _headNoun(e), h2 = _headNoun(inst);
   if (!h1 || h1 !== h2) return null; // not this arm's call
+  // The user's own occasion is never someone else's. "My wedding" and "my
+  // sister's wedding" share a head noun and, when neither carries names or
+  // anchors, would fall to the covenant default and fuse a planned life
+  // event into a remembered one. A possessive belonging to somebody else
+  // ("my sister's", "cousin's") is not the user's own.
+  if (_selfOccasion(e, h1) !== _selfOccasion(inst, h2)) return false;
   const n1 = _nameTokens(e, opts), n2 = _nameTokens(inst, opts);
   // A shared PROPER name joins, and outranks anchors: a unique registry
   // alias must carry a retelling through a drifting venue description.
