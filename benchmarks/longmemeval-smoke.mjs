@@ -220,7 +220,8 @@ function composeAnswerPrompt(q, retrieved) {
       statement: (Number.isFinite(it.ts) && it.source !== 'instance-pool'
         ? '[' + new Date(it.ts).toISOString().slice(0, 10) + '] ' : '') + it.statement
     });
-    mem = buildReconciledView(retrieved.map(_stamp)).render();
+    const { countNounHead } = require('../shared-core/engram.js');
+    mem = buildReconciledView(retrieved.map(_stamp), { noun_head: countNounHead(q.question) }).render();
   } else {
     mem = retrieved.map((it, i) => {
       const d = Number.isFinite(it.ts) ? '[' + new Date(it.ts).toISOString().slice(0, 10) + '] ' : '';
@@ -255,27 +256,19 @@ function composeAnswerPrompt(q, retrieved) {
         'repeated MENTIONS of the same thing; skip anything the statements do ' +
         'not support). Statements may contain a "user:" and an "asst:" half - ' +
         'the assistant restating something the user already said is not a ' +
-        'separate instance, but a DISTINCT entity (a different name, specialty ' +
-        'or type) counts even when the assistant named it first, as long as ' +
+        'separate instance, but a DISTINCT entity (a different name or type) ' +
+        'counts even when the assistant named it first, as long as ' +
         'the user\'s own messages engage with it as theirs (booked it, used ' +
         'it, visited it). ' +
-        'Count at the unit the question names: when one storyline leaves several ' +
-        'qualifying units (e.g. one item still to return AND another still to ' +
-        'pick up), count each unit separately. ' +
-        'When the question sets a time window (this year, last month, past N ' +
-        'weeks), place every candidate with the statement dates and drop the ' +
-        'ones outside the window before counting. ' +
+        'Count at the unit the question names. ' +
+        'When the question sets a time window, place every candidate with ' +
+        'the statement dates and drop the ones outside the window before ' +
+        'counting. ' +
         'One occasion described across several statements is still ONE event: ' +
         'combine statements that clearly refer to the same occasion instead ' +
         'of treating the combination as unsupported. ' +
-        'Apply the question\'s own qualifier first, judged by the statement\'s ' +
-        'own wording: an event the user participated in is not one they ' +
-        '"watched", and a project described only as "working on" in a team is ' +
-        'not one they "led" - but a SOLO project is led by its only member, ' +
-        'and doing something alone satisfies leading it. ' +
 
-        'When mentions state INCREMENTS over time (e.g. wore them twice, then ' +
-        'once more, then three more times), add the increments up for the total. ' +
+        'When mentions state INCREMENTS over time, add the increments up for the total. ' +
         'Then give the final result on its own last line as: Answer: <value>'
       : q.question_type === 'knowledge-update'
       ? 'Work in two steps: first list EVERY dated value the statements give for ' +
