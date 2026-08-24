@@ -1550,10 +1550,20 @@ function auditEngramsByAgent(opts) {
   } catch (_) { return []; }
 }
 
+// The head noun of a count-shaped question ('how many WEDDINGS have I…' →
+// 'weddings'), null when the question is not count-shaped. The same pattern
+// the count arm's counted-noun sub-query uses; exported so the reconciled
+// view can scope its cast counting clause to what is actually being counted.
+function countNounHead(query) {
+  const m = /\b(?:how many|how much|number of|order of|the (?:two|three|four|five|six|seven))\s+([a-z][a-z \-]{3,40}?)(?:\s+(?:have|has|had|did|do|does|i|we|are|is|were|was|in|from|that)\b|[?.!]|$)/i.exec(String(query || ''));
+  return m && m[1] ? m[1].trim().split(/\s+/).pop().toLowerCase() : null;
+}
+
 module.exports = {
   recordEngram,
   listEngrams,
   auditEngramsByAgent,
+  countNounHead,
   // Deprecated alias — kept for backward compat with pre- callers.
   // New code MUST use auditEngramsByAgent (intent-communicating name).
   listAgentsWithEngrams: auditEngramsByAgent,

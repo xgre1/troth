@@ -102,6 +102,34 @@ t('the ownership doctrine stays out of non-possession views', () => {
   assert.ok(v.render().indexOf('Possessions stay owned') < 0);
 });
 
+// Cast counting scope: the clause that counts over the cast is for
+// person-headed count questions only. Measured failure: a weddings count
+// read the cast's four people as four weddings.
+const withCast = [
+  { source: 'instance-pool', id: 'i1', statement: '[instance] event: attended Emily — Cousin\'s wedding in the city [completed] (attested ×1)', refs: ['dialogue.turn:r1'] },
+  { source: 'identity-cast', id: 'c1', statement: '[cast] Emily — person (cousin)', link_names: ['emily'] },
+  { source: 'identity-cast', id: 'c2', statement: '[cast] Jen — person (friend)', link_names: ['jen'] },
+  { source: 'dialogue-window', id: 'r1', statement: 'user: Emily\'s wedding was lovely.', ts: 1 }
+];
+
+t('a person-headed count keeps the cast counting clause', () => {
+  const v = buildReconciledView(withCast, { noun_head: 'doctors' });
+  assert.ok(v.render().indexOf('count over THIS list') >= 0);
+});
+
+t('an event-headed count renders the cast as a glossary, never counted', () => {
+  const v = buildReconciledView(withCast, { noun_head: 'weddings' });
+  const out = v.render();
+  assert.ok(out.indexOf('count over THIS list') < 0, 'counting clause must go');
+  assert.ok(out.indexOf('glossary for reading the evidence') >= 0, 'glossary header present');
+  assert.ok(out.indexOf('C1.') >= 0, 'the cast itself still renders');
+});
+
+t('no head supplied leaves the clause exactly as before', () => {
+  const v = buildReconciledView(withCast);
+  assert.ok(v.render().indexOf('count over THIS list') >= 0);
+});
+
 console.log('');
 console.log('reconciled-view: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

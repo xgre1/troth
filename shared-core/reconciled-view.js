@@ -15,7 +15,7 @@
 // items: the retrieval output - instance-pool items carry refs (dialogue
 // turn ids from provenance), raw dialogue items carry their own id.
 // Returns { ledger, cast, raw, render() }.
-function buildReconciledView(items) {
+function buildReconciledView(items, opts) {
   const instances = [];
   const castItems = [];
   const raws = [];
@@ -97,7 +97,17 @@ function buildReconciledView(items) {
         lines.push('');
       }
       if (cast.length) {
-        lines.push('Known people and entities here (identity registry) - when the question counts DISTINCT people or entities, count over THIS list, using ledger and statements as each one\'s evidence:');
+        // The counting clause converts "distinct people mentioned nearby"
+        // into "distinct occurrences" when the counted thing is NOT people
+        // (measured: a weddings count read the cast's four people as four
+        // weddings). Scope it: only a person-headed count question keeps the
+        // clause; anything else gets the cast as a reading glossary. No head
+        // supplied → the clause stays, exactly as before.
+        const _head = opts && opts.noun_head ? String(opts.noun_head).toLowerCase().replace(/s$/, '') : null;
+        const _PERSON_HEADS = new Set(['person', 'people', 'doctor', 'dentist', 'specialist', 'therapist', 'physician', 'friend', 'cousin', 'relative', 'sibling', 'colleague', 'neighbor', 'neighbour', 'provider', 'practitioner', 'contact', 'member', 'guest']);
+        lines.push(!_head || _PERSON_HEADS.has(_head)
+          ? 'Known people and entities here (identity registry) - when the question counts DISTINCT people or entities, count over THIS list, using ledger and statements as each one\'s evidence:'
+          : 'Known people and entities here (identity registry) - a glossary for reading the evidence; the question does not count people, so this list is never what is counted:');
         for (const c of cast) {
           lines.push('C' + c.n + '. ' + c.statement.replace(/^\[cast\]\s*/, '') +
             (c.links.length ? ' (ledger: ' + c.links.map(n => 'L' + n).join(', ') + ')' : '') +
