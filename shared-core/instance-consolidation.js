@@ -638,7 +638,12 @@ function _sameOccurrence(entry, inst, entity_slug, opts) {
   // different occurrences by construction: the derived prior visit must
   // never absorb the scheduled follow-up it was inferred from.
   if ((e.basis === 'entailed') !== (inst.basis === 'entailed') && e.status !== inst.status) return false;
-  if (e.kind === 'event') {
+  // An occasion is an occasion whatever the extractor typed it: "attended
+  // Jen's wedding" comes back an event from one pass and a visit from the
+  // next, and one wedding must never become two because a label drifted.
+  // The ladder judges rows whose head noun names an occasion and returns
+  // null for everything else, so an ordinary visit is untouched.
+  if (e.kind === 'event' || e.kind === 'visit') {
     const verdict = _sameEvent(e, inst, opts);
     if (verdict === false) return false;
     if (verdict === true) {

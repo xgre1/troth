@@ -12,7 +12,7 @@
 // sending them would only pretend a mechanism was active that is not.
 
 const HOST = process.env.TROTH_LLAMACPP_HOST || 'http://localhost:1234';
-const MAX_TOKENS = parseInt(process.env.TROTH_BENCH_LOCAL_MAX_TOKENS || '2048', 10);
+const MAX_TOKENS = parseInt(process.env.TROTH_BENCH_LOCAL_MAX_TOKENS || '6144', 10);
 const TIMEOUT_MS = parseInt(process.env.TROTH_BENCH_LOCAL_TIMEOUT_MS || '240000', 10);
 
 let input = '';

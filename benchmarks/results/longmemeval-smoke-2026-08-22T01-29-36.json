@@ -1,0 +1,81 @@
+{
+  "timestamp": 1787362176688,
+  "dataset": "benchmarks/datasets/longmemeval/longmemeval_s_cleaned.json",
+  "datasetSha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+  "offset": 0,
+  "n": 20,
+  "stratified": null,
+  "judge_provider": "local-llamacpp",
+  "judge_model": "local-temp0-thinking-off",
+  "answer_transport": "claude",
+  "answer_model": "sonnet",
+  "judge_prompts": "longmemeval-official-v1",
+  "embed_host": "http://127.0.0.1:11437",
+  "correct": 0,
+  "incorrect": 0,
+  "errors": 1,
+  "graded": 0,
+  "total": 1,
+  "accuracy": 0,
+  "total_wall_ms": 6569,
+  "retrieval_paths_seen": [
+    "semantic+lexical"
+  ],
+  "rows": [
+    {
+      "question_id": "e47becba",
+      "question_type": "single-session-user",
+      "question": "What degree did I graduate with?",
+      "gold_answer": "Business Administration",
+      "ingested_turns": 277,
+      "retrieval_path": "semantic+lexical",
+      "retrieved_count": 10,
+      "retrieved_preview": [
+        {
+          "ts": 1685467622000,
+          "s": "user: I graduated with a degree in Business Administration, which has definitely helped me in my new role. Do you have any advice on how to stay organized when "
+        },
+        {
+          "ts": 1684594980000,
+          "s": "user: I've been thinking about starting my own business and I was wondering if you could recommend some inspiring podcasts about entrepreneurship, aside from \"H"
+        },
+        {
+          "ts": 1685446020000,
+          "s": "user: I'm looking to get some advice on setting up a comfortable home workspace. I've recently converted my guest room into a home office, and I'm trying to mak"
+        },
+        {
+          "ts": 1685388603000,
+          "s": "user: great thanks. can you use a different word than \"own\" / asst: Sure, here's a haiku for your cover letter:\n\nAnimation skills I wield,\nDash's team I wish to"
+        },
+        {
+          "ts": 1684709282000,
+          "s": "user: I think I'm leaning towards the Italy option, probably the Tuscany and Umbria food and wine adventure. I've always been fascinated by the rolling hills an"
+        },
+        {
+          "ts": 1685141220000,
+          "s": "user: Hey my friend is just getting out of a long sentence for charges, they went to federal hands. He is getting out but his electronic communication will be m"
+        },
+        {
+          "ts": 1684615620000,
+          "s": "user: I'm looking for some recommendations on pet grooming tools. I've been using a Furminator brush on Luna, but I'm wondering if there are other products that"
+        },
+        {
+          "ts": 1685388601000,
+          "s": "user: ok fine. he's not drunk. just very pirate'y / asst: Aye, I understand. Here's a version of the cover letter in a more pirate-inspired language:\n\nTo the Hi"
+        },
+        {
+          "ts": 1684551424000,
+          "s": "user: I'm also experimenting with essential oils for stress relief, and I recently got a new diffuser on March 22nd. It's been a game-changer for unwinding befo"
+        },
+        {
+          "ts": 1684594981000,
+          "s": "user: That's a great list! I'll definitely check some of those out. I'm particularly interested in \"The Tim Ferriss Show\" since I've already been listening to i"
+        }
+      ],
+      "our_answer": null,
+      "verdict": "ERROR",
+      "judge_reason": "claude -p exit 1: ",
+      "wall_ms": 6569
+    }
+  ]
+}
