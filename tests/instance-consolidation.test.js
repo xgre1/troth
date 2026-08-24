@@ -207,6 +207,63 @@ await t('a second brain\'s identities cannot flip a merge verdict', () => {
   assert.strictEqual(parties.length, 2, 'two different parties stay two occurrences: ' + parties.length);
 });
 
+// ── Quote grounding: ellipsis-spliced quotes ───────────────────────────
+// A model that quotes across turns with an ellipsis did the right thing;
+// requiring one contiguous span destroyed perfectly-grounded rows (measured:
+// 15/15 quote-gate deaths in the corpus carried an ellipsis). Every elided
+// span long enough to verify must be present — inside the turns the row
+// itself cites, so true spans from unrelated turns cannot be stitched into
+// a false claim. Single-span quotes take exactly the original path.
+
+await t('quote gate: single-span behavior unchanged', () => {
+  const turns2 = [{ user_text: 'I visited the little bakery on Elm Street this morning and bought sourdough.' }];
+  const mkText = (quote) => JSON.stringify({ identities: [], instances: [
+    { kind: 'visit', entity: 'bakery', description: 'Morning sourdough run', date_iso: null, status: 'completed', qualifier: 'visited', quantity: null, turn_idxs: [0], quote }
+  ]});
+  const ok = ic.parseCombinedExtractionV2(mkText('visited the little bakery on Elm Street'), 1, turns2);
+  assert.strictEqual(ok.instances.length, 1, 'verbatim quote survives');
+  const bad = ic.parseCombinedExtractionV2(mkText('completely absent words here'), 1, turns2);
+  assert.strictEqual(bad.instances.length, 0, 'absent quote still dies');
+  assert.strictEqual(bad.quote_fail, 1);
+});
+
+await t('quote gate: an ellipsis-spliced quote passes when every span lives in its cited turns', () => {
+  const turns2 = [
+    { user_text: 'I just got back from a friend\'s wedding last weekend, it was lovely.' },
+    { user_text: 'It was at a rustic barn in the countryside with fairy lights.' }
+  ];
+  const text = JSON.stringify({ identities: [], instances: [
+    { kind: 'event', entity: "Jen's wedding", description: 'Wedding at a rustic barn', date_iso: null, status: 'completed', qualifier: 'attended', quantity: null, turn_idxs: [0, 1],
+      quote: "I just got back from a friend's wedding last weekend... It was at a rustic barn in the countryside" }
+  ]});
+  const out = ic.parseCombinedExtractionV2(text, 2, turns2);
+  assert.strictEqual(out.instances.length, 1, 'spliced-but-grounded survives: fails=' + out.quote_fail);
+});
+
+await t('quote gate: spans stitched from turns the row does not cite are rejected', () => {
+  const turns2 = [
+    { user_text: 'The weather was stormy all through October here.' },
+    { user_text: 'My brother finally paid off his car loan in full.' },
+    { user_text: 'Nothing else happened today, quiet afternoon overall.' }
+  ];
+  const text = JSON.stringify({ identities: [], instances: [
+    { kind: 'activity', entity: 'brother', description: 'Storm-driven loan payoff', date_iso: null, status: 'completed', qualifier: 'did', quantity: null, turn_idxs: [2],
+      quote: 'The weather was stormy... paid off his car loan' }
+  ]});
+  const out = ic.parseCombinedExtractionV2(text, 3, turns2);
+  assert.strictEqual(out.instances.length, 0, 'stitched spans outside cited turns must fail');
+  assert.strictEqual(out.quote_fail, 1);
+});
+
+await t('quote gate: a quote of only unverifiable short spans is rejected', () => {
+  const turns2 = [{ user_text: 'I went to the gym.' }];
+  const text = JSON.stringify({ identities: [], instances: [
+    { kind: 'activity', entity: 'gym', description: 'Gym visit', date_iso: null, status: 'completed', qualifier: 'went', quantity: null, turn_idxs: [0], quote: 'gym... to' }
+  ]});
+  const out = ic.parseCombinedExtractionV2(text, 1, turns2);
+  assert.strictEqual(out.instances.length, 0, 'nothing verifiable, nothing kept');
+});
+
 console.log('');
 console.log('instance-consolidation: ' + pass + ' passed, ' + fail + ' failed');
 try { fs.unlinkSync(DB); fs.unlinkSync(DB + '-wal'); fs.unlinkSync(DB + '-shm'); } catch (_) {}

@@ -208,11 +208,30 @@ function _normQuote(s) {
 
 // Mechanical grounding: the quote must appear (normalized) inside the
 // session's own text. Pure string arithmetic - no model, no judgment.
-function _quoteAttested(quote, turns) {
-  const q = _normQuote(quote);
-  if (q.length < 8) return false;
-  const hay = _normQuote(turns.map((t) => t.user_text).join(' '));
-  return hay.indexOf(q) >= 0;
+// A quote may splice turns with an ellipsis; each elided span is then
+// required separately — of the spans long enough to verify (≥8 normalized
+// chars) every one must be present, and for instances the haystack narrows
+// to the turns the row itself cites, so two true spans from unrelated
+// turns cannot be stitched into one false claim. Single-span quotes take
+// exactly the original path.
+function _quoteAttested(quote, turns, idxs) {
+  const raw = String(quote || '');
+  const parts = raw.split(/\s*(?:\[\s*(?:\.\.\.|…)\s*\]|\.\.\.|…)\s*/).filter(Boolean);
+  if (parts.length <= 1) {
+    const q = _normQuote(raw);
+    if (q.length < 8) return false;
+    const hay = _normQuote(turns.map((t) => t.user_text).join(' '));
+    return hay.indexOf(q) >= 0;
+  }
+  let pool = turns;
+  if (Array.isArray(idxs) && idxs.length) {
+    const within = idxs.filter((i) => Number.isInteger(i) && i >= 0 && i < turns.length);
+    if (within.length) pool = within.map((i) => turns[i]);
+  }
+  const hay = _normQuote(pool.map((t) => t.user_text).join(' '));
+  const spans = parts.map(_normQuote).filter((s) => s.length >= 8);
+  if (!spans.length) return false;
+  return spans.every((s) => hay.indexOf(s) >= 0);
 }
 
 function parseCombinedExtractionV2(text, turnCount, turns) {
@@ -233,7 +252,7 @@ function parseCombinedExtractionV2(text, turnCount, turns) {
   for (const inst of base.instances) {
     const row = instRows.find((r) => r && String(r.entity || '').trim() === inst.entity &&
       String(r.description || '').trim() === inst.description);
-    if (row && _quoteAttested(row.quote, turns)) {
+    if (row && _quoteAttested(row.quote, turns, inst.turn_idxs)) {
       inst.quote = String(row.quote).slice(0, 200);
       out.instances.push(inst);
     } else { out.quote_fail++; }
