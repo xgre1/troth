@@ -47,6 +47,14 @@ function defaultProfileDir() {
   return path.join(process.env.HOME || os.homedir(), '.troth', 'agent-browser-profile');
 }
 
+// The pre-hardening SHARED directory (agent and operator opt-in both used it,
+// usually on port 9222). Nothing launches it anymore; the reaper needs its
+// name to recognise an orphan of an older install — same single-source rule
+// as above. See browser-reap.js for the rule it feeds.
+function legacyProfileDir() {
+  return path.join(process.env.HOME || os.homedir(), '.troth', 'chrome-profile');
+}
+
 // Chromium-family browsers, in preference order. CDP is identical across them.
 const CANDIDATES = [
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
@@ -179,4 +187,4 @@ async function ensure(opts) {
   return _spawning;
 }
 
-module.exports = { ensure, alive, aliveHost, findBrowser, DEFAULT_PORT, defaultProfileDir };
+module.exports = { ensure, alive, aliveHost, findBrowser, DEFAULT_PORT, defaultProfileDir, legacyProfileDir };

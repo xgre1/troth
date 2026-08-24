@@ -103,4 +103,51 @@ test('REAP-9: a browser with no profile of ours on the line is left alone', () =
   });
   assert.strictEqual(v.reap, false, 'unknown ownership is not permission: ' + v.reason);
 });
+
+const LEGACY = '/somewhere/.troth/chrome-profile';
+const legacyLines = ['4714 /Applications/Chrome --no-startup-window --remote-debugging-port=9222 --restart --user-data-dir=' + LEGACY];
+
+test('REAP-10: the legacy shared profile is an orphan, and 9222 does not shield it', () => {
+  // The nine-day zombie: a pre-hardening install left its browser on 9222
+  // wearing ~/.troth/chrome-profile, and every link the system opened landed
+  // in it. Ownership comes from the directory, and that directory is ours —
+  // no current opt-in tells anyone to launch with it.
+  const v = mayReapBrowser({
+    port: 9222, now: NOW, idleMs: 2 * HOUR, agentProfile: PROFILE,
+    legacyProfile: LEGACY, lastUse: NOW - 48 * HOUR, procLines: legacyLines
+  });
+  assert.strictEqual(v.reap, true, 'the zombie case: ' + v.reason);
+});
+
+test('REAP-11: even the legacy orphan waits for a stamp', () => {
+  // The sweep writes a discovery stamp on first sighting; the rule itself
+  // still refuses to collect what it cannot date.
+  const v = mayReapBrowser({
+    port: 9222, now: NOW, idleMs: 2 * HOUR, agentProfile: PROFILE,
+    legacyProfile: LEGACY, lastUse: 0, procLines: legacyLines
+  });
+  assert.strictEqual(v.reap, false, v.reason);
+  assert.ok(/cannot know/.test(v.reason), v.reason);
+});
+
+test('REAP-12: an operator profile on 9222 stays untouchable with the legacy rule live', () => {
+  const v = mayReapBrowser({
+    port: 9222, now: NOW, idleMs: 2 * HOUR, agentProfile: PROFILE,
+    legacyProfile: LEGACY, lastUse: NOW - 48 * HOUR,
+    procLines: ['4715 /Applications/Chrome --remote-debugging-port=9222 --user-data-dir=/somewhere/Library/Chrome']
+  });
+  assert.strictEqual(v.reap, false, v.reason);
+  assert.ok(/operator/.test(v.reason), 'and it says why: ' + v.reason);
+});
+
+test('REAP-13: launcher and reaper name the legacy directory once (source pin)', () => {
+  const daemon = require(path.join(ROOT, 'shared-core', 'perception', 'chromium-daemon.js'));
+  assert.strictEqual(typeof daemon.legacyProfileDir, 'function',
+    'the daemon that owned the old path is the one that names it');
+  assert.ok(/chrome-profile$/.test(daemon.legacyProfileDir()), daemon.legacyProfileDir());
+  const fs = require('fs');
+  const src = fs.readFileSync(path.join(ROOT, 'proxy', 'server.js'), 'utf8');
+  assert.ok(/legacyProfileDir\(\)/.test(src), 'the sweep asks the daemon rather than rebuilding the path');
+  assert.ok(/legacyProfile: _LEGACY_PROFILE/.test(src), 'and hands it to the verdict');
+});
 };

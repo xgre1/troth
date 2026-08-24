@@ -6385,6 +6385,8 @@ server.listen(listenPort, BIND_HOST, () => {
         // browser belongs to troth.
         var _AGENT_PROFILE = '';
         try { _AGENT_PROFILE = require('../shared-core/perception/chromium-daemon.js').defaultProfileDir(); } catch (_) {}
+        var _LEGACY_PROFILE = '';
+        try { _LEGACY_PROFILE = require('../shared-core/perception/chromium-daemon.js').legacyProfileDir(); } catch (_) {}
         // EVERY long-lived child the product can leave behind, not just the
         // two the operator happened to catch. A customer cannot diagnose a
         // hung daemon and has no reason to know these exist, so nothing may
@@ -6424,7 +6426,8 @@ server.listen(listenPort, BIND_HOST, () => {
               now: Date.now(),
               idleMs: _idleMin * 60000 * (t.mult || 1),
               procLines: _lines,
-              agentProfile: _AGENT_PROFILE
+              agentProfile: _AGENT_PROFILE,
+              legacyProfile: _LEGACY_PROFILE
             });
             if (!_verdict.reap) return;
           } else {
@@ -6448,6 +6451,57 @@ server.listen(listenPort, BIND_HOST, () => {
             log('reaped idle ' + t.what + ' on :' + t.port + ' (idle ' + Math.round(idleMs / 60000) + 'm) — respawns on next use');
           } catch (_) {}
         });
+
+        // Orphan sweep — a browser wearing OUR profile directory on a port the
+        // lane above does not watch. Two ways one exists: a pre-hardening
+        // install left its shared-profile browser on 9222 (measured: nine days
+        // resident, catching every link the system opened), or the operator
+        // changed TROTH_BROWSER_CDP_PORT and the old daemon stayed behind.
+        // First sighting writes a discovery stamp, so "no stamp is never a
+        // reap" holds: collection happens a full browser-leash later.
+        try {
+          var _cfgPort = parseInt(process.env.TROTH_BROWSER_CDP_PORT || '18222', 10);
+          var _wearsOurs = function (l) {
+            return (!!_AGENT_PROFILE && l.indexOf('--user-data-dir=' + _AGENT_PROFILE) !== -1) ||
+                   (!!_LEGACY_PROFILE && l.indexOf('--user-data-dir=' + _LEGACY_PROFILE) !== -1);
+          };
+          var _orphans = {};
+          _cp.execSync('pgrep -fl "remote-debugging-port=" || true', { encoding: 'utf8' })
+            .split('\n').filter(function (l) { return !!l && _wearsOurs(l); })
+            .forEach(function (l) {
+              var m = /remote-debugging-port=(\d+)/.exec(l);
+              var p = m ? parseInt(m[1], 10) : 0;
+              if (!p || p === _cfgPort) return;
+              (_orphans[p] = _orphans[p] || []).push(l);
+            });
+          Object.keys(_orphans).forEach(function (pk) {
+            var p = parseInt(pk, 10);
+            var stamp = _pathI.join(_os.homedir(), '.troth', 'lastuse-' + p + '.txt');
+            var lastO = 0;
+            try { lastO = parseInt(_fs.readFileSync(stamp, 'utf8'), 10) || 0; } catch (_) { lastO = 0; }
+            if (!lastO) { try { _fs.writeFileSync(stamp, String(Date.now())); } catch (_) {} return; }
+            var v = require('../shared-core/browser-reap.js').mayReapBrowser({
+              port: p, lastUse: lastO, now: Date.now(),
+              idleMs: _idleMin * 60000 * 4,
+              procLines: _orphans[pk],
+              agentProfile: _AGENT_PROFILE,
+              legacyProfile: _LEGACY_PROFILE
+            });
+            if (!v.reap) return;
+            _orphans[pk].forEach(function (l) {
+              var pid = parseInt(l, 10);
+              if (pid) { try { process.kill(pid, 'SIGTERM'); } catch (_) {} }
+            });
+            setTimeout(function () {
+              try {
+                _cp.execSync('pgrep -fl "remote-debugging-port=' + p + '" || true', { encoding: 'utf8' })
+                  .split('\n').filter(function (l) { return !!l && _wearsOurs(l); })
+                  .forEach(function (l) { var pid = parseInt(l, 10); if (pid) { try { process.kill(pid, 'SIGKILL'); } catch (_) {} } });
+              } catch (_) {}
+            }, 4000).unref();
+            log('reaped orphan troth browser on :' + p + ' (' + v.reason + ') — legacy; nothing respawns it');
+          });
+        } catch (_) { /* orphan sweep is housekeeping, never a request blocker */ }
       } catch (_) { /* reaping is housekeeping, never a request blocker */ }
     }, 5 * 60 * 1000).unref();
   }

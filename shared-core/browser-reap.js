@@ -9,6 +9,10 @@
 //
 //   The operator's own debug session is never ours to kill. Port 9222 is
 //   their real browser, offered on purpose, and the agent is a guest in it.
+//   One narrow exception: a browser wearing the LEGACY shared directory
+//   (~/.troth/chrome-profile). No current opt-in launches with it, so on any
+//   port it is an orphan of an older troth install — measured: one sat on
+//   9222 for nine days, catching every link the operator's system opened.
 //
 //   No stamp is never a reap. A browser nobody has ever asked troth to drive
 //   is not troth's to collect.
@@ -38,17 +42,20 @@
  * @param {number} o.idleMs        how long counts as idle for this candidate
  * @param {string[]} o.procLines   `pgrep -fl` lines for the matching processes
  * @param {string} o.agentProfile  the agent browser's own user-data-dir
+ * @param {string} o.legacyProfile  the pre-hardening shared user-data-dir; wearing it is reapable on any port
  * @returns {{reap: boolean, reason: string}}
  */
 function mayReapBrowser(o) {
   const opts = o || {};
   const lines = (opts.procLines || []).filter(Boolean);
   if (!lines.length) return { reap: false, reason: 'not running' };
-  if (opts.port === 9222) return { reap: false, reason: "the operator's own browser" };
+  const legacy = String(opts.legacyProfile || '');
+  const wearsLegacy = !!legacy && lines.some((l) => l.indexOf('--user-data-dir=' + legacy) !== -1);
+  if (opts.port === 9222 && !wearsLegacy) return { reap: false, reason: "the operator's own browser" };
   if (!opts.lastUse) return { reap: false, reason: 'never stamped — cannot know it is idle' };
 
   const profile = String(opts.agentProfile || '');
-  const ours = !!profile && lines.some((l) => l.indexOf(profile) !== -1);
+  const ours = wearsLegacy || (!!profile && lines.some((l) => l.indexOf(profile) !== -1));
   const headed = lines.some((l) => l.indexOf('headless') === -1);
   if (headed && !ours) return { reap: false, reason: 'headed, and not ours' };
 
