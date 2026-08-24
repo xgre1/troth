@@ -465,31 +465,84 @@ function _headNoun(inst) {
   return m ? m[1].toLowerCase() : null;
 }
 
+// Role words are WEAK names: they mark that someone is named, but a shared
+// role never joins two occasions on its own - two different cousins have
+// two different weddings. Proper names stay strong.
+const _ROLE_WORDS = new Set(['cousin', 'sister', 'brother', 'mother', 'father', 'mom', 'dad',
+  'aunt', 'uncle', 'niece', 'nephew', 'grandma', 'grandpa', 'grandmother', 'grandfather',
+  'roommate', 'friend', 'partner', 'neighbor', 'neighbour', 'colleague', 'boss', 'wife',
+  'husband', 'spouse', 'bride', 'groom', 'sibling', 'parent', 'child', 'son', 'daughter',
+  'family', 'buddy', 'classmate', 'coworker']);
+
+// Identities per role word within the caller's brain: when TWO known people
+// are cousins, the bare alias "my cousin" names neither of them uniquely.
+function _roleOwnerCounts(opts) {
+  const map = new Map();
+  try {
+    const ident = require('./entity-identity.js');
+    const regs = ident.loadRegistry({ agent_id: opts && opts.agent_id }) || [];
+    for (const r of regs) {
+      const rel = String(r.relation || '').toLowerCase();
+      for (const w of rel.split(/[^a-z]+/)) if (_ROLE_WORDS.has(w)) map.set(w, (map.get(w) || 0) + 1);
+    }
+  } catch (_) {}
+  return map;
+}
+
 function _nameTokens(inst, opts) {
   const text = _eventText(inst);
+  const desc = String(inst.description || '');
+  const ent = String(inst.entity || '');
   const out = new Set();
+  const weak = new Set();
+  const dOpenM = /^\s*([A-Z][a-z]{2,})\b/.exec(desc);
+  const dOpen = dOpenM ? dOpenM[1] : null;
+  const isPossessive = (w) => new RegExp('\\b' + w + "['’]s\\b").test(desc);
+  const lcOnlyInEntity = (w) => new RegExp('\\b' + w.toLowerCase() + '\\b').test(ent) &&
+    !new RegExp('\\b' + w.toLowerCase() + '\\b').test(desc + ' ' + String(inst.quote || ''));
   for (const m of text.matchAll(/\b([A-Z][a-z]{2,})\b/g)) {
     if (_NAME_STOP.has(m[1])) continue;
     // A real name is capitalized EVERYWHERE it appears; a word that also
-    // shows up lowercase in the same text is sentence-case, not a person.
-    if (new RegExp('\\b' + m[1].toLowerCase() + '\\b').test(text)) continue;
+    // shows up lowercase in the same text is sentence-case, not a person -
+    // unless the lowercase lives only in the ENTITY while the description
+    // holds it as a POSSESSIVE ("sister's wedding" + "Sister's wedding
+    // where..."): that is a name.
+    if (new RegExp('\\b' + m[1].toLowerCase() + '\\b').test(text) && !(isPossessive(m[1]) && lcOnlyInEntity(m[1]))) continue;
+    // A capitalized description OPENER is a sentence start, not a person -
+    // unless possessive, or echoed by the entity itself.
+    if (dOpen && m[1] === dOpen && !isPossessive(m[1]) && !new RegExp('\\b' + m[1] + '\\b', 'i').test(ent)) continue;
+    if (_ROLE_WORDS.has(m[1].toLowerCase())) { weak.add(m[1].toLowerCase()); continue; }
     out.add(m[1].toLowerCase());
+  }
+  // A lowercase POSSESSIVE role names a person relationally ("mom's 60th",
+  // "my cousin's wedding") - weak, like its capitalized form.
+  for (const m of (desc + ' ' + ent).matchAll(/\b([a-z]{2,})['’]s\b/g)) {
+    if (_ROLE_WORDS.has(m[1])) weak.add(m[1]);
   }
   // The registry speaks for role-only references: "the bride's wedding"
   // carries Jen into the participant rung when exactly one identity owns
-  // that alias — a shared alias stays silent, same hits-of-one idiom the
-  // entity resolver already uses.
+  // that alias - a shared alias stays silent, same hits-of-one idiom the
+  // entity resolver already uses. A bare-role alias whose role two known
+  // people hold names neither; a canonical that is itself a role stays weak.
   try {
     const ident = require('./entity-identity.js');
     const hits = ident.lookupFromText(text, { agent_id: opts && opts.agent_id }) || [];
     if (hits.length) {
       const counts = ident.uniqueNameOwners({ agent_id: opts && opts.agent_id });
+      const roleOwners = _roleOwnerCounts(opts);
+      const roleAmbiguous = (n) => {
+        const bare = String(n || '').replace(/^(?:my|the|our)\s+/i, '').trim().toLowerCase();
+        return _ROLE_WORDS.has(bare) && (roleOwners.get(bare) || 0) > 1;
+      };
       for (const h of hits) {
-        const uniq = (h.matched || []).some((n) => counts.get(ident.normAlias(n)) === 1);
-        if (uniq && h.identity && h.identity.canonical) out.add(String(h.identity.canonical).toLowerCase());
+        const uniq = (h.matched || []).some((n) => counts.get(ident.normAlias(n)) === 1 && !roleAmbiguous(n));
+        if (!uniq || !h.identity || !h.identity.canonical) continue;
+        const c = String(h.identity.canonical).toLowerCase();
+        if (c.split(/\s+/).some((w) => _ROLE_WORDS.has(w))) weak.add(c); else out.add(c);
       }
     }
-  } catch (_) { /* registry absent — surface names alone */ }
+  } catch (_) { /* registry absent - surface names alone */ }
+  out._weak = weak;
   return out;
 }
 
@@ -516,17 +569,26 @@ function _sameEvent(e, inst, opts) {
   const h1 = _headNoun(e), h2 = _headNoun(inst);
   if (!h1 || h1 !== h2) return null; // not this arm's call
   const n1 = _nameTokens(e, opts), n2 = _nameTokens(inst, opts);
-  if (n1.size && n2.size) {
-    let sharedName = false;
-    for (const n of n1) if (n2.has(n)) sharedName = true;
-    if (sharedName) return true;
-    return false; // both name people, none in common - different occasions
-  }
+  // A shared PROPER name joins, and outranks anchors: a unique registry
+  // alias must carry a retelling through a drifting venue description.
+  for (const n of n1) if (n2.has(n)) return true;
   const a1 = _eventAnchors(e), a2 = _eventAnchors(inst);
   const axis = (s, p) => [...s].some((x) => x.startsWith(p));
   const axisShared = (p) => [...a1].some((x) => x.startsWith(p) && a2.has(x));
+  // Same axis on both sides with nothing shared is two occasions.
   if (axis(a1, 't:') && axis(a2, 't:') && !axisShared('t:')) return false;
   if (axis(a1, 'p:') && axis(a2, 'p:') && !axisShared('p:')) return false;
+  // A shared anchor is positive evidence of the same occasion even when
+  // the human labels drift (roommate / cousin / friend).
+  if (axisShared('t:') || axisShared('p:')) return true;
+  // Both sides name someone - proper or role - and share nobody: two
+  // occasions. A shared role alone falls through to the covenant default.
+  const w1 = n1._weak || new Set(), w2 = n2._weak || new Set();
+  if ((n1.size + w1.size) && (n2.size + w2.size)) {
+    let anyShared = false;
+    for (const w of w1) if (w2.has(w)) anyShared = true;
+    if (!anyShared) return false;
+  }
   return true; // nothing separates them - the same occasion, retold
 }
 

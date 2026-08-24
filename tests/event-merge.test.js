@@ -106,5 +106,42 @@ t('a shared alias stays silent - conflicting anchors split as before', () => {
   assert.strictEqual(r.written, 2, JSON.stringify(r));
 });
 
+// The order-independence ladder: names are tiered (proper strong, role
+// weak), a description-opening verb is never a participant, anchors veto
+// before the covenant default, and a shared anchor carries a retelling
+// whose human label drifts.
+
+t('a description-opening verb is not a participant - barn and city split', () => {
+  const { r, pool } = writeAll([
+    inst('event', "college roommate's wedding", "Attended college roommate's wedding in the city featuring a rooftop garden ceremony", "my college roommate's wedding in the city"),
+    inst('event', "Jen's wedding", "Attended friend Jen's wedding at a rustic barn in the countryside", "the rustic barn where my friend Jen got married")
+  ]);
+  assert.strictEqual(pool.length, 2, 'two venues, two weddings: ' + pool.map(p => p.instance.entity).join(' | '));
+});
+
+t('a shared role never joins - two cousins, two weddings', () => {
+  const { r, pool } = writeAll([
+    inst('event', 'Rachel', "Cousin's wedding at a vineyard in August", "my cousin's wedding at a vineyard in August"),
+    inst('event', 'Emily', "Cousin's wedding in the city at a rooftop garden", "My cousin Emily's wedding in the city")
+  ]);
+  assert.strictEqual(pool.length, 2, 'conflicting anchors split: ' + pool.map(p => p.instance.entity).join(' | '));
+});
+
+t('a shared anchor carries the retelling through a drifting label', () => {
+  const { r, pool } = writeAll([
+    inst('event', "college roommate's wedding", "Wedding in the city featuring a rooftop garden ceremony overlooking the skyline", "my college roommate's wedding in the city"),
+    inst('event', 'Emily', "Cousin's wedding in the city at a rooftop garden and trendy restaurant", "My cousin Emily's wedding in the city")
+  ]);
+  assert.strictEqual(pool.length, 1, 'same city rooftop, same wedding: ' + pool.map(p => p.instance.entity).join(' | '));
+});
+
+t('a possessive name in the entity survives sentence-case - sister stays hers', () => {
+  const { r, pool } = writeAll([
+    inst('event', "sister's wedding", "Sister's wedding where the user served as maid of honor", "my sister's wedding was just amazing"),
+    inst('event', "Jen's wedding", "Attended friend Jen's wedding at a rustic barn", "my friend Jen got married")
+  ]);
+  assert.strictEqual(pool.length, 2, 'sister and Jen are different people: ' + pool.map(p => p.instance.entity).join(' | '));
+});
+
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
