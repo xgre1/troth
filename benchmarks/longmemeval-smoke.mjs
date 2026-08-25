@@ -508,8 +508,12 @@ async function main() {
     // An answer cut off before its final line is an instrument failure, not
     // a memory verdict: the model ran out of output budget mid-deliberation
     // and never named a value. Grading that as INCORRECT blames recall for
-    // a ceiling the harness owns.
-    const _unfinished = !judgeError && ourAnswer && !/^\s*Answer:/mi.test(String(ourAnswer));
+    // a ceiling the harness owns. The check applies ONLY where the prompt
+    // actually demanded that final line - the preference and default
+    // families are told to answer in a sentence with no preamble, and a
+    // blind check would mark every one of them an error.
+    const _demandedAnswerLine = !!answerPrompt && answerPrompt.indexOf('Answer: <value>') !== -1;
+    const _unfinished = !judgeError && ourAnswer && _demandedAnswerLine && !/^\s*Answer:/mi.test(String(ourAnswer));
     const verdict = judgeError ? 'ERROR' : (_unfinished ? 'ERROR' : judgeResult.verdict);
     if (_unfinished) judgeError = 'answer truncated before its Answer: line (' + String(ourAnswer).length + ' chars) - raise TROTH_BENCH_LOCAL_MAX_TOKENS';
     console.log(
