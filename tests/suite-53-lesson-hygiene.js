@@ -132,7 +132,11 @@ test('LSN-8: prose that merely mentions errors is not classified as a failure', 
   const prose = [
     'presented as an organ toward that destination ... the repo exists and is private',
     'This destination is operator-only by policy; the file exists.',
-    'the search found nothing and no file was written'
+    'the search found nothing and no file was written',
+    // "timeout" is a word in ordinary output, not a verdict
+    'spawnSync(cmd, { timeout: 1500 })',
+    'timeout 90 ssh build-host ls',
+    '// proxies do not time out idle connections'
   ];
   for (const p of prose) {
     assert.strictEqual(et.diagnose(p), null, 'prose must not classify: ' + JSON.stringify(p.slice(0, 48)));
@@ -141,6 +145,8 @@ test('LSN-8: prose that merely mentions errors is not classified as a failure', 
   assert.strictEqual(et.diagnose("fatal: destination path 'x' already exists").class, 'file_already_exists');
   assert.strictEqual(et.diagnose('EEXIST: file already exists, mkdir').class, 'file_already_exists');
   assert.strictEqual(et.diagnose('ENOENT: no such file or directory').class, 'file_not_found');
+  assert.strictEqual(et.diagnose('Command timed out after 120s').class, 'timeout');
+  assert.strictEqual(et.diagnose('killed by SIGTERM').class, 'timeout');
 });
 
 test('LSN-9: a succeeded call is read only on its error channel (source pin)', () => {

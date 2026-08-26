@@ -52,7 +52,11 @@ function classify(text) {
   // exists", prose says "that destination ... the repo exists" and means
   // nothing of the kind.
   if (/file already exists|destination[^\n]{0,60}already exists|EEXIST/i.test(t)) return 'file_already_exists';
-  if (/\btimed? ?out\b|SIGTERM|operation timeout/i.test(t)) return 'timeout';
+  // "timeout" is a WORD in ordinary output — `timeout: 5000` in a config, a
+  // `timeout 90 ssh` in a command, a comment about idle connections. A timed
+  // out call says so in the past tense, or by signal, or by errno. Measured
+  // on 100 archived tool outputs: the loose form flagged 11, this flags 4.
+  if (/\btimed out\b|\bSIGTERM\b|operation timed? ?out|ETIMEDOUT|timeout exceeded|timeout after/i.test(t)) return 'timeout';
   if (/ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ENETUNREACH|DNS|getaddrinfo/i.test(t)) return 'network';
   if (/mcp server[^\n]{0,40}error|jsonrpc[^\n]{0,40}error|mcp: unknown tool/i.test(lower)) return 'mcp_error';
   if (/\bexit code [1-9]|\bexit: [1-9]|non-zero exit/i.test(t)) return 'nonzero_exit';

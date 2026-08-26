@@ -1,0 +1,451 @@
+{
+  "generated_at": "2026-08-25T17:02:00.805Z",
+  "db": "probe-state.db",
+  "budget_ms": 3500,
+  "prompts": 30,
+  "blocks": {
+    "p50": 3,
+    "p95": 3,
+    "max": 3
+  },
+  "chars": {
+    "p50": 1178,
+    "p95": 2050,
+    "max": 2050
+  },
+  "latency_ms": {
+    "p50": 5224,
+    "p95": 7184,
+    "over_budget": 28
+  },
+  "silent_turns": 0,
+  "recall": {
+    "considered": 115,
+    "offered": 17,
+    "held_back": 68,
+    "timeouts": 7,
+    "traced_turns": 30,
+    "ms": {
+      "p50": 4335,
+      "p95": 6082,
+      "over_budget": 26,
+      "n": 30
+    }
+  },
+  "by_kind": {
+    "recall": 19,
+    "context": 30,
+    "identity": 30
+  },
+  "rows": [
+    {
+      "i": 0,
+      "prompt_sha": "751cdb06",
+      "prompt_len": 488,
+      "ms": 6506,
+      "chars": 2050,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 5,
+      "stderr_len": 0
+    },
+    {
+      "i": 1,
+      "prompt_sha": "1cd78b5c",
+      "prompt_len": 181,
+      "ms": 5947,
+      "chars": 467,
+      "kinds": [
+        "context",
+        "identity"
+      ],
+      "recallLines": 0,
+      "stderr_len": 0
+    },
+    {
+      "i": 2,
+      "prompt_sha": "7310c589",
+      "prompt_len": 32,
+      "ms": 4378,
+      "chars": 1740,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 5,
+      "stderr_len": 0
+    },
+    {
+      "i": 3,
+      "prompt_sha": "ca196e1e",
+      "prompt_len": 105,
+      "ms": 7121,
+      "chars": 1396,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 2,
+      "stderr_len": 0
+    },
+    {
+      "i": 4,
+      "prompt_sha": "12f1da37",
+      "prompt_len": 152,
+      "ms": 5005,
+      "chars": 1178,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 1,
+      "stderr_len": 0
+    },
+    {
+      "i": 5,
+      "prompt_sha": "6947d5f4",
+      "prompt_len": 155,
+      "ms": 5090,
+      "chars": 1178,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 1,
+      "stderr_len": 0
+    },
+    {
+      "i": 6,
+      "prompt_sha": "9aaa6a12",
+      "prompt_len": 133,
+      "ms": 4607,
+      "chars": 467,
+      "kinds": [
+        "context",
+        "identity"
+      ],
+      "recallLines": 0,
+      "stderr_len": 0
+    },
+    {
+      "i": 7,
+      "prompt_sha": "0a1bbb67",
+      "prompt_len": 48,
+      "ms": 3309,
+      "chars": 1178,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 1,
+      "stderr_len": 0
+    },
+    {
+      "i": 8,
+      "prompt_sha": "8de6afe1",
+      "prompt_len": 125,
+      "ms": 4941,
+      "chars": 1178,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 1,
+      "stderr_len": 0
+    },
+    {
+      "i": 9,
+      "prompt_sha": "451d1217",
+      "prompt_len": 80,
+      "ms": 5512,
+      "chars": 1614,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 3,
+      "stderr_len": 0
+    },
+    {
+      "i": 10,
+      "prompt_sha": "fad9fd15",
+      "prompt_len": 171,
+      "ms": 5319,
+      "chars": 467,
+      "kinds": [
+        "context",
+        "identity"
+      ],
+      "recallLines": 0,
+      "stderr_len": 0
+    },
+    {
+      "i": 11,
+      "prompt_sha": "4ea51720",
+      "prompt_len": 58,
+      "ms": 6190,
+      "chars": 1320,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 2,
+      "stderr_len": 0
+    },
+    {
+      "i": 12,
+      "prompt_sha": "64258d45",
+      "prompt_len": 57,
+      "ms": 4489,
+      "chars": 1396,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 2,
+      "stderr_len": 0
+    },
+    {
+      "i": 13,
+      "prompt_sha": "fe57f50e",
+      "prompt_len": 67,
+      "ms": 5983,
+      "chars": 1178,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 1,
+      "stderr_len": 0
+    },
+    {
+      "i": 14,
+      "prompt_sha": "23e46ebd",
+      "prompt_len": 393,
+      "ms": 5722,
+      "chars": 467,
+      "kinds": [
+        "context",
+        "identity"
+      ],
+      "recallLines": 0,
+      "stderr_len": 0
+    },
+    {
+      "i": 15,
+      "prompt_sha": "84b74e0c",
+      "prompt_len": 211,
+      "ms": 6191,
+      "chars": 1846,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 5,
+      "stderr_len": 0
+    },
+    {
+      "i": 16,
+      "prompt_sha": "a5e0391a",
+      "prompt_len": 39,
+      "ms": 4380,
+      "chars": 1177,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 5,
+      "stderr_len": 0
+    },
+    {
+      "i": 17,
+      "prompt_sha": "f2afa67f",
+      "prompt_len": 161,
+      "ms": 5176,
+      "chars": 263,
+      "kinds": [
+        "context",
+        "identity"
+      ],
+      "recallLines": 0,
+      "stderr_len": 0
+    },
+    {
+      "i": 18,
+      "prompt_sha": "56a7e220",
+      "prompt_len": 191,
+      "ms": 5117,
+      "chars": 263,
+      "kinds": [
+        "context",
+        "identity"
+      ],
+      "recallLines": 0,
+      "stderr_len": 0
+    },
+    {
+      "i": 19,
+      "prompt_sha": "59a34781",
+      "prompt_len": 556,
+      "ms": 3205,
+      "chars": 1846,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 5,
+      "stderr_len": 0
+    },
+    {
+      "i": 20,
+      "prompt_sha": "ad85310f",
+      "prompt_len": 218,
+      "ms": 5167,
+      "chars": 263,
+      "kinds": [
+        "context",
+        "identity"
+      ],
+      "recallLines": 0,
+      "stderr_len": 0
+    },
+    {
+      "i": 21,
+      "prompt_sha": "3d34183d",
+      "prompt_len": 200,
+      "ms": 4725,
+      "chars": 467,
+      "kinds": [
+        "context",
+        "identity"
+      ],
+      "recallLines": 0,
+      "stderr_len": 0
+    },
+    {
+      "i": 22,
+      "prompt_sha": "35bf12e2",
+      "prompt_len": 129,
+      "ms": 4351,
+      "chars": 263,
+      "kinds": [
+        "context",
+        "identity"
+      ],
+      "recallLines": 0,
+      "stderr_len": 0
+    },
+    {
+      "i": 23,
+      "prompt_sha": "96364088",
+      "prompt_len": 234,
+      "ms": 5876,
+      "chars": 467,
+      "kinds": [
+        "context",
+        "identity"
+      ],
+      "recallLines": 0,
+      "stderr_len": 0
+    },
+    {
+      "i": 24,
+      "prompt_sha": "e8f1ead1",
+      "prompt_len": 228,
+      "ms": 5165,
+      "chars": 1178,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 1,
+      "stderr_len": 0
+    },
+    {
+      "i": 25,
+      "prompt_sha": "f22190eb",
+      "prompt_len": 149,
+      "ms": 6614,
+      "chars": 1178,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 1,
+      "stderr_len": 0
+    },
+    {
+      "i": 26,
+      "prompt_sha": "00abb9b7",
+      "prompt_len": 162,
+      "ms": 5925,
+      "chars": 1178,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 1,
+      "stderr_len": 0
+    },
+    {
+      "i": 27,
+      "prompt_sha": "8e251b79",
+      "prompt_len": 361,
+      "ms": 7202,
+      "chars": 2050,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 5,
+      "stderr_len": 0
+    },
+    {
+      "i": 28,
+      "prompt_sha": "1f60afba",
+      "prompt_len": 229,
+      "ms": 7184,
+      "chars": 604,
+      "kinds": [
+        "recall",
+        "context",
+        "identity"
+      ],
+      "recallLines": 0,
+      "stderr_len": 0
+    },
+    {
+      "i": 29,
+      "prompt_sha": "5d1a5df8",
+      "prompt_len": 272,
+      "ms": 5224,
+      "chars": 467,
+      "kinds": [
+        "context",
+        "identity"
+      ],
+      "recallLines": 0,
+      "stderr_len": 0
+    }
+  ]
+}
