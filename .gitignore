@@ -106,3 +106,4 @@ vmm/
 /trace_*.js
 /extract_*.mjs
 /queries.json
+benchmarks/fixtures/
