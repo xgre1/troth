@@ -38,45 +38,16 @@ const KINDS = ['visit', 'purchase', 'event', 'activity', 'possession'];
 const STATUSES = ['completed', 'planned', 'recurring', 'cancelled', 'owed'];
 const FIRST_RUN_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 
+// The distillation pass is part of the substrate, not an experiment: it runs
+// unless the operator turns it off. Where no extractor answers, the pass
+// keeps its window and retries on the next cadence, so a machine without a
+// local model pays a failed connection every ten minutes and loses nothing.
 function enabled() {
-  return process.env.TROTH_INSTANCE_CONSOLIDATION === '1';
+  return process.env.TROTH_INSTANCE_CONSOLIDATION !== '0';
 }
 
 // ── Extraction prompt ───────────────────────────────────────────────────
 
-// User-half only: instances record what the USER did/has/attended. The
-// assistant's suggestions are the mirror-pollution class — never instances.
-function buildPrompt(turns) {
-  const lines = turns.map((t, i) =>
-    '[' + i + '] (' + new Date(t.timestamp).toISOString().slice(0, 10) + ') ' +
-    String(t.user_text || '').slice(0, 600));
-  return [
-    'Extract first-person INSTANCES from the user statements below.',
-    'An instance is one real-world occurrence the user reports about themselves:',
-    'a visit they made, a purchase, an event they attended, an activity they did,',
-    'a possession they have.',
-    '',
-    'Rules:',
-    '- ONLY what the user states about their own life. Never suggestions,',
-    '  hypotheticals, or other people\'s actions.',
-    '- One instance per real-world occurrence. The same occurrence mentioned',
-    '  twice is ONE instance citing both statements.',
-    '- status: completed | planned | recurring | cancelled — from the user\'s',
-    '  wording, not assumed.',
-    '- date_iso: YYYY-MM-DD only when the statement pins it; otherwise null.',
-    '  NEVER guess dates.',
-    '- turn_idxs: the [N] indexes attesting the instance. Mandatory.',
-    '',
-    'Return ONLY a JSON array (no prose):',
-    '[{"kind":"visit|purchase|event|activity|possession","entity":"who/what",',
-    '"description":"one line","date_iso":"YYYY-MM-DD or null",',
-    '"status":"completed","qualifier":"verb from the user (visited/bought/attended/led/...)",',
-    '"quantity":null,"turn_idxs":[0]}]',
-    '',
-    'User statements:',
-    ...lines
-  ].join('\n');
-}
 
 // ── Parse + validate ────────────────────────────────────────────────────
 
@@ -110,18 +81,6 @@ function _validateInstanceRows(arr, turnCount, out) {
   return out;
 }
 
-// Tolerant of fences and prose margins; intolerant of schema violations.
-function parseExtraction(text, turnCount) {
-  const out = { instances: [], dropped: 0 };
-  const s = String(text || '');
-  const start = s.indexOf('[');
-  const end = s.lastIndexOf(']');
-  if (start < 0 || end <= start) return out;
-  let arr;
-  try { arr = JSON.parse(s.slice(start, end + 1)); } catch (_) { return out; }
-  if (!Array.isArray(arr)) return out;
-  return _validateInstanceRows(arr, turnCount, out);
-}
 
 // Combined extraction: identities AND instances in ONE model call per
 // session window. Identity comes first in the schema on purpose — instance
@@ -966,11 +925,11 @@ async function runPass(opts) {
     bySession.get(k).push(t);
   }
 
-  const stats = { processed: turns.length, written: 0, dup: 0, no_provenance: 0, dropped: 0, transitions: 0, strengthened: 0 };
+  const stats = { processed: turns.length, written: 0, dup: 0, no_provenance: 0, dropped: 0, transitions: 0, strengthened: 0, identities: 0 };
   const pool = _loadPool(opts);
   let latestTs = since;
   for (const [sessionId, sessTurns] of bySession) {
-    const prompt = buildPrompt(sessTurns);
+    const prompt = buildCombinedPromptV2(sessTurns);
     let raw;
     try {
       raw = await opts.llmCall(prompt);
@@ -978,8 +937,28 @@ async function runPass(opts) {
       // Extractor down — retain the whole window for the next pass.
       return Object.assign(stats, { watermark: since, advanced: false, transport_error: String(e && e.message || e) });
     }
-    const parsed = parseExtraction(raw, sessTurns.length);
+    const parsed = parseCombinedExtractionV2(raw, sessTurns.length, sessTurns);
     stats.dropped += parsed.dropped;
+
+    // Identities land FIRST: a merge keys on the registry's slug, so the
+    // people named in this session must be resolvable before its occurrences
+    // are written. An identity that will not write is not a reason to lose
+    // the instances that came with it.
+    for (const ident of parsed.identities || []) {
+      try {
+        const w = identity.recordEntityIdentity({
+          agent_id: opts.agent_id,
+          user_id: opts.user_id,
+          name: ident.name, kind: ident.kind, relation: ident.relation,
+          aliases: ident.aliases,
+          provenance_ref: sessTurns.slice(0, 1).map((t) => 'dialogue.turn:' + t.id)
+        });
+        // `updated` says whether an existing row was refreshed, so it is false
+        // for a first sighting: the count is of identities that reached the
+        // registry, new ones included.
+        if (w && w.id) stats.identities++;
+      } catch (_) { /* the registry is an aid to merging, never a gate on it */ }
+    }
     const w = writeInstances({
       instances: parsed.instances,
       turns: sessTurns,
@@ -1041,8 +1020,6 @@ function makeLlamacppExtractor(cfg) {
 module.exports = {
   enabled,
   entailmentEnabled,
-  buildPrompt,
-  parseExtraction,
   buildCombinedPrompt,
   buildCombinedPromptV2,
   parseCombinedExtraction,

@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The substrate distils what it understood. A pass at worker cadence reads new
+  dialogue through one extraction charter — the people first so occurrences can
+  key on them, every row quoting the turn that attests it, provenance
+  mandatory — and writes typed instances: one row per real-world occurrence,
+  with its status, and obligations kept open until the operator says otherwise.
+  Conversational recall never mounts them; a counting question lifts them
+  deliberately. Where no extractor answers, the pass keeps its window and
+  retries on the next cadence, so nothing is dropped and nothing is invented.
+  `TROTH_INSTANCE_CONSOLIDATION=0` turns the pass off.
+
 - Every engine reports how much of its context window a turn used. Token
   usage from every lane — Anthropic, ChatGPT-subscription, Ollama,
   llama.cpp and the router itself — carries a `context_used` figure, and

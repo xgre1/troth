@@ -956,7 +956,7 @@ const taskInstanceConsolidation = {
   run: async function (view) {
     const ic = require('./instance-consolidation.js');
     if (!ic.enabled()) {
-      return { events: [], notes: ['instance_consolidation: disabled (TROTH_INSTANCE_CONSOLIDATION!=1)'] };
+      return { events: [], notes: ['instance_consolidation: off (TROTH_INSTANCE_CONSOLIDATION=0)'] };
     }
     const ctx = (view && view.substrate_ctx) || {};
     let stats;
@@ -1271,12 +1271,10 @@ const taskCarriedFreeze = {
       }
     } catch (_) { /* audit is best-effort */ }
     // Rows whose primary evidence burned before the freeze system existed
-    // froze at a zero floor nobody believes. The same population, measured
-    // while its evidence was alive, averaged ~223 stayed-out turns (operator
-    // dashboard captures, 2026-08-19 live read 224 and 2026-08-22 screen 223).
-    // Those rows carry the measured era average, marked estimated — applied
-    // once, only where no timeline source ever existed, never over a real
-    // measurement.
+    // freeze at a zero floor nobody believes. The same population, measured
+    // while its evidence was alive, averaged ~223 stayed-out turns, and those
+    // rows carry that era average, marked estimated — applied once, only where
+    // no timeline source ever existed, never over a real measurement.
     const FREEZE_BIRTH_TS = 1787443200000; // freeze system ships; older zero-frozen rows are evidence-less
     const ERA_AVG_TURNS = 223;
     let estimated = 0;

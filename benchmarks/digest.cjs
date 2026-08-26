@@ -106,7 +106,9 @@ async function digestHaystack(opts) {
         aliases: ident.aliases,
         provenance_ref: turns.slice(0, 1).map(function (t) { return 'dialogue.turn:' + t.id; })
       });
-      if (w && w.id && w.updated !== false) stats.identities++;
+      // `updated` marks a refresh of an existing row, so it is false on a
+      // first sighting: count every identity that reached the registry.
+      if (w && w.id) stats.identities++;
     }
 
     const w = ic.writeInstances({

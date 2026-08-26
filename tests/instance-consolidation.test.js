@@ -33,22 +33,45 @@ const BRAIN = 'test-brain';
 (async function main() {
 console.log('\n=== instance-consolidation (typed distillation) ===\n');
 
-await t('parseExtraction: fenced JSON accepted, schema violations dropped', () => {
-  const raw = 'Sure, here you go:\n```json\n' + JSON.stringify([
-    { kind: 'visit', entity: 'Dr. Lee', description: 'dermatologist, mole check', date_iso: '2023-05-12', status: 'completed', qualifier: 'visited', quantity: null, turn_idxs: [0] },
-    { kind: 'teleport', entity: 'x', description: 'bad kind', turn_idxs: [0] },
-    { kind: 'visit', entity: 'Dr. Ghost', description: 'NO provenance', turn_idxs: [] },
-    { kind: 'visit', entity: 'Dr. Range', description: 'idx out of range', turn_idxs: [99] }
-  ]) + '\n```';
-  const out = ic.parseExtraction(raw, 2);
+// One charter, one parser: the product and the bench read the extractor
+// through the same door, so the schema discipline below is the discipline the
+// operator's own memory is written under.
+await t('extraction: fenced JSON accepted, schema violations dropped', () => {
+  const turns = [
+    { user_text: 'I saw Dr. Lee for a mole check on May 12.' },
+    { user_text: 'Nothing else to report today.' }
+  ];
+  const raw = 'Sure, here you go:\n```json\n' + JSON.stringify({
+    identities: [],
+    instances: [
+      { kind: 'visit', entity: 'Dr. Lee', description: 'dermatologist, mole check', date_iso: '2023-05-12', status: 'completed', qualifier: 'visited', quantity: null, turn_idxs: [0], quote: 'I saw Dr. Lee for a mole check' },
+      { kind: 'teleport', entity: 'x', description: 'bad kind', turn_idxs: [0], quote: 'I saw Dr. Lee' },
+      { kind: 'visit', entity: 'Dr. Ghost', description: 'NO provenance', turn_idxs: [], quote: 'I saw Dr. Lee' },
+      { kind: 'visit', entity: 'Dr. Range', description: 'idx out of range', turn_idxs: [99], quote: 'I saw Dr. Lee' }
+    ]
+  }) + '\n```';
+  const out = ic.parseCombinedExtractionV2(raw, 2, turns);
   assert.strictEqual(out.instances.length, 1, 'only the valid row survives');
   assert.strictEqual(out.dropped, 3);
   assert.strictEqual(out.instances[0].entity, 'Dr. Lee');
 });
 
-await t('parseExtraction: garbage in, empty out', () => {
-  assert.strictEqual(ic.parseExtraction('no json here', 5).instances.length, 0);
-  assert.strictEqual(ic.parseExtraction('{"not":"array"}', 5).instances.length, 0);
+await t('extraction: a row whose quote is not in the turns does not survive', () => {
+  const turns = [{ user_text: 'I saw Dr. Lee for a mole check on May 12.' }];
+  const raw = JSON.stringify({
+    identities: [],
+    instances: [
+      { kind: 'visit', entity: 'Dr. Nobody', description: 'never said', date_iso: null, status: 'completed', qualifier: 'visited', quantity: null, turn_idxs: [0], quote: 'I saw Dr. Nobody last Tuesday' }
+    ]
+  });
+  const out = ic.parseCombinedExtractionV2(raw, 1, turns);
+  assert.strictEqual(out.instances.length, 0, 'an unattested quote is not provenance');
+  assert.strictEqual(out.quote_fail, 1);
+});
+
+await t('extraction: garbage in, empty out', () => {
+  assert.strictEqual(ic.parseCombinedExtractionV2('no json here', 5, []).instances.length, 0);
+  assert.strictEqual(ic.parseCombinedExtractionV2('{"not":"array"}', 5, []).instances.length, 0);
 });
 
 // Seed real turns through the real write path.
@@ -67,15 +90,19 @@ assert.ok(dialogueMemory.recordTurn({
 // Identity from item 1: the mind knows who "my sister" is.
 identity.recordEntityIdentity({ agent_id: BRAIN, name: 'Jen', kind: 'person', aliases: ['my sister'] });
 
-// Deterministic extractor fixture: returns instances tied to turn order.
+// Deterministic extractor fixture: the combined charter the product asks for
+// — identities and instances in one answer, every row quoting the turn that
+// attests it.
 function fixtureExtractor(prompt) {
-  const out = [
-    { kind: 'visit', entity: 'Dr. Lee', description: 'dermatologist biopsy follow-up (benign)', date_iso: null, status: 'completed', qualifier: 'visited', quantity: null, turn_idxs: [0] }
+  const identities = [];
+  const instances = [
+    { kind: 'visit', entity: 'Dr. Lee', description: 'dermatologist biopsy follow-up (benign)', date_iso: null, status: 'completed', qualifier: 'visited', quantity: null, turn_idxs: [0], quote: 'I visited Dr. Lee the dermatologist' }
   ];
   if (prompt.indexOf('wedding') >= 0) {
-    out.push({ kind: 'event', entity: 'my sister', description: 'wedding at the rooftop garden, maid of honor', date_iso: null, status: 'completed', qualifier: 'attended', quantity: null, turn_idxs: [1] });
+    identities.push({ name: 'Jen', kind: 'person', relation: 'sister', aliases: ['my sister'], quote: "My sister's wedding was last June" });
+    instances.push({ kind: 'event', entity: 'my sister', description: 'wedding at the rooftop garden, maid of honor', date_iso: null, status: 'completed', qualifier: 'attended', quantity: null, turn_idxs: [1], quote: "My sister's wedding was last June" });
   }
-  return Promise.resolve(JSON.stringify(out));
+  return Promise.resolve(JSON.stringify({ identities: identities, instances: instances }));
 }
 
 let firstStats = null;
@@ -131,9 +158,12 @@ await t('queue-on-unavailable: extractor down ⇒ watermark NOT advanced, retry 
   assert.strictEqual(down.written, 0);
   const retry = await ic.runPass({
     agent_id: BRAIN, user_id: 'default',
-    llmCall: () => Promise.resolve(JSON.stringify([
-      { kind: 'purchase', entity: 'tennis racket', description: 'from the sports store downtown', date_iso: null, status: 'completed', qualifier: 'bought', quantity: null, turn_idxs: [0] }
-    ]))
+    llmCall: () => Promise.resolve(JSON.stringify({
+      identities: [],
+      instances: [
+        { kind: 'purchase', entity: 'tennis racket', description: 'from the sports store downtown', date_iso: null, status: 'completed', qualifier: 'bought', quantity: null, turn_idxs: [0], quote: 'I bought a new tennis racket from the sports store downtown' }
+      ]
+    }))
   });
   assert.strictEqual(retry.written, 1, 'retained window must distill on retry: ' + JSON.stringify(retry));
 });
@@ -146,16 +176,18 @@ await t('poisoning-safe by construction: instances invisible to model_visible re
   assert.ok(lifted.length >= 3, 'the count reader lifts them explicitly (audience:all): got ' + lifted.length);
 });
 
-await t('flag gate: enabled() follows TROTH_INSTANCE_CONSOLIDATION', () => {
+await t('the pass runs by default and the operator can turn it off', () => {
   delete process.env.TROTH_INSTANCE_CONSOLIDATION;
-  assert.strictEqual(ic.enabled(), false, 'default OFF until the live gate');
+  assert.strictEqual(ic.enabled(), true, 'distillation is part of the substrate');
+  process.env.TROTH_INSTANCE_CONSOLIDATION = '0';
+  assert.strictEqual(ic.enabled(), false, 'and one variable turns it off');
   process.env.TROTH_INSTANCE_CONSOLIDATION = '1';
   assert.strictEqual(ic.enabled(), true);
   delete process.env.TROTH_INSTANCE_CONSOLIDATION;
 });
 
 // ── Self-entity guard + scoped identity census ────────────────────────
-// Measured (2026-08): 40% of all merges collapsed onto entity 'user' — a
+// Unguarded, the entity 'user' becomes the target of two merges in five — a
 // self-reference names the speaker, not a thing, so it can never say two
 // rows are the same occurrence. Near-self strings name real things and
 // keep merging. The census a merge consults must be the caller's brain,
@@ -266,8 +298,8 @@ await t('quote gate: a quote of only unverifiable short spans is rejected', () =
 
 // ── Truncated extractions keep their complete rows ────────────────────
 // A model that hits its token ceiling mid-array leaves valid rows behind a
-// broken tail. Measured on a real corpus: 7.5% of extractions ended that
-// way, and each one lost an entire session of what the user had said.
+// broken tail. Roughly one extraction in thirteen ends that way, and without
+// salvage each one costs an entire session of what the user said.
 
 await t('a truncated extraction keeps the rows that closed before the cut', () => {
   const turns2 = [{ user_text: 'I finished the game on normal difficulty and it took me 25 hours to complete.' }];
