@@ -21,6 +21,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   length outright. Engine pins render under their proper names.
 
 ### Changed
+- Secret redaction reads a credential value as a literal. A credential-shaped
+  field NAME decides nothing by itself: an identifier that the same text
+  declares, calls, or reaches through a dot is code, and code keeps its own
+  name in every later reply. Key prefixes, URL passwords, PEM blocks and
+  literal credential values are all caught.
+
+- What the substrate says each turn is what it can attest. A tool call that
+  succeeded is read only on its error channel, so prose that happens to
+  mention an error is never reported as a failure and never shelved as
+  precedent. The turn's memory block carries what the cross-encoder ranks as
+  relevant and stays silent when nothing clears it, the goal line carries a
+  goal rather than the message just typed, and an entity named in two casings
+  counts once.
+
 - Analytics updates without being felt. The page re-reads itself while you
   watch it, and a reading that carries the same numbers now touches nothing:
   no node is rewritten, the flow bars keep their own elements and ease to a

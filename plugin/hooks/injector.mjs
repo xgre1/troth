@@ -196,7 +196,17 @@ try {
         }
       }
     } catch (_) { /* trace must never break recall */ }
-    if (Array.isArray(hits) && hits.length) {
+    // Unsolicited memory has to earn its place. A cross-encoder score below
+    // zero is the reranker saying "not relevant"; measured on a real product
+    // question, five hits came back at +3.90, -1.19, -2.25, -2.89, -3.12 and
+    // all five were injected as GROUND TRUTH — four of them month-old messages
+    // about other work. When the reranker ran, only what it scored above zero
+    // is offered, and when nothing clears, the block is not written at all.
+    const scored = Array.isArray(hits) && hits.some(h => Number.isFinite(h._rerank));
+    const relevant = scored
+      ? hits.filter(h => !Number.isFinite(h._rerank) || h._rerank > 0)
+      : (Array.isArray(hits) ? hits : []);
+    if (relevant.length) {
       // Split by WHOSE words these are before framing any of them as truth.
       //
       // This block tells the model to treat what follows as GROUND TRUTH. That
@@ -210,8 +220,8 @@ try {
       // here instead: same recall, different frame, and the page it came from
       // is named so the model can weigh it.
       const fmt = (h) => '  • ' + (Number.isFinite(h.ts) ? '[' + new Date(h.ts).toISOString().slice(0, 10) + '] ' : '') + String(h.statement || '').replace(/\s+/g, ' ').trim().slice(0, 200);
-      const mine = hits.filter(h => h.provenance_tier !== 'external');
-      const outside = hits.filter(h => h.provenance_tier === 'external');
+      const mine = relevant.filter(h => h.provenance_tier !== 'external');
+      const outside = relevant.filter(h => h.provenance_tier === 'external');
       const lines = mine.map(fmt).filter(l => l.length > 6);
       if (lines.length) {
         pieces.push(
@@ -267,7 +277,15 @@ try {
       const row = intentRows[0];
       let inp; try { inp = JSON.parse(row.input); } catch (_) { inp = null; }
       const oneLine = (s) => String(s || '').replace(/\s+/g, ' ').trim();
-      const goal       = inp && inp.goal       ? oneLine(inp.goal).slice(0, 140)       : '';
+      // A fallback intent IS the prompt, lower-cased: intent-extract.js keeps
+      // language-agnostic capture by using the cleaned message as the goal when
+      // the English verb/object pass finds nothing. Worth recording, worthless
+      // to say back — on the current turn it renders as "Working on: <what you
+      // just typed>". A goal recorded deliberately (/goal, cmd-record-intent,
+      // or a verb+object extraction) still speaks — only the auto-fallback is
+      // silent.
+      const echoed = inp && inp.extraction === 'fallback_no_verb';
+      const goal       = inp && inp.goal && !echoed ? oneLine(inp.goal).slice(0, 140)   : '';
       const constraint = inp && inp.constraint ? oneLine(inp.constraint).slice(0, 80)  : '';
       if (goal) {
         goalBlock = '[troth/goal] Working on: ' + goal +
@@ -504,7 +522,16 @@ let entityRecallBlock = '';
 try {
   if (codeRelevant && prompt.length >= 30 && hookTimeLeft()) {
     const entityAxis = require(pluginRoot + '/../shared-core/entity-axis.js');
-    const entities = entityAxis.extractEntities(prompt);
+    // Case-folded: "MCP" and "mcp" are one entity, and listing both as
+    // separate hits ("mentioning MCP (5), llama (6), mcp (5)") reads like the
+    // substrate holds twice what it holds.
+    const _seenEnt = new Set();
+    const entities = entityAxis.extractEntities(prompt).filter((e) => {
+      const k = String(e || '').toLowerCase();
+      if (!k || _seenEnt.has(k)) return false;
+      _seenEnt.add(k);
+      return true;
+    });
     if (entities.length) {
       const top = [];
       // Cap at 6 candidates to bound FTS calls per turn.

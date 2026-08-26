@@ -117,4 +117,41 @@ test('LSN-7: the hook has one lesson writer, and it asks the policy (source pin)
   assert.ok(/session_lessons[\s\S]{0,120}fingerprint = \?/.test(src),
     'precedent reads the delivery queue, which the sweep keeps for a week');
 });
+
+// ── A lesson must be true ────────────────────────────────────────────
+//
+// Live find: a SUCCEEDED troth_recall returned a paragraph containing the
+// words "destination" and "exists". The hook read the success content for
+// error markers, the taxonomy's unbounded "destination.*exists" matched
+// across the one-line JSON, and the model was told "the recall call failed
+// (file_already_exists)" — a durable class, so the lie came back as
+// precedent in later prompts. Prose is not a failure report.
+
+test('LSN-8: prose that merely mentions errors is not classified as a failure', () => {
+  const et = require(path.join(ROOT, 'shared-core', 'errortax-hook.js'));
+  const prose = [
+    'presented as an organ toward that destination ... the repo exists and is private',
+    'This destination is operator-only by policy; the file exists.',
+    'the search found nothing and no file was written'
+  ];
+  for (const p of prose) {
+    assert.strictEqual(et.diagnose(p), null, 'prose must not classify: ' + JSON.stringify(p.slice(0, 48)));
+  }
+  // and the real messages still do
+  assert.strictEqual(et.diagnose("fatal: destination path 'x' already exists").class, 'file_already_exists');
+  assert.strictEqual(et.diagnose('EEXIST: file already exists, mkdir').class, 'file_already_exists');
+  assert.strictEqual(et.diagnose('ENOENT: no such file or directory').class, 'file_not_found');
+});
+
+test('LSN-9: a succeeded call is read only on its error channel (source pin)', () => {
+  const fs = require('fs');
+  const src = fs.readFileSync(path.join(ROOT, 'plugin', 'hooks', 'errortax.mjs'), 'utf8');
+  const marker = 'A call that SUCCEEDED';
+  const i = src.indexOf(marker);
+  assert.ok(i > 0, 'the success path is marked in the source');
+  assert.ok(!/r\.content/.test(src.slice(i)),
+    'past that marker the hook never reads a successful result’s content');
+  assert.ok(/const err = typeof r\.stderr === 'string'/.test(src),
+    'the success path reads stderr, the one channel that carries failures');
+});
 };

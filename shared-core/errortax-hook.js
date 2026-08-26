@@ -43,11 +43,18 @@ function classify(text) {
   if (/\beacces\b|permission denied|operation not permitted/i.test(t)) return 'permission_denied';
   if (/\benoent\b|no such file or directory|not a directory/i.test(t)) return 'file_not_found';
   if (/command not found|not found in \$?path|: command not found|\bnot installed\b/i.test(t)) return 'command_not_found';
-  if (/string(?: to replace)? not found|old_string.*not.*found|does not appear in the file/i.test(t)) return 'string_not_found';
-  if (/file already exists|destination.*exists|EEXIST/i.test(t)) return 'file_already_exists';
+  // Distances are BOUNDED on purpose. An unbounded `.*` spans a whole line,
+  // and a tool result is often one line of JSON: "destination.*exists" then
+  // matched a recalled paragraph that happened to contain both words and
+  // reported a successful call as a failed Write.
+  if (/string(?: to replace)? not found|old_string[^\n]{0,80}not[^\n]{0,40}found|does not appear in the file/i.test(t)) return 'string_not_found';
+  // "already exists" is required: git says "destination path 'x' already
+  // exists", prose says "that destination ... the repo exists" and means
+  // nothing of the kind.
+  if (/file already exists|destination[^\n]{0,60}already exists|EEXIST/i.test(t)) return 'file_already_exists';
   if (/\btimed? ?out\b|SIGTERM|operation timeout/i.test(t)) return 'timeout';
   if (/ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ENETUNREACH|DNS|getaddrinfo/i.test(t)) return 'network';
-  if (/mcp server.*error|jsonrpc.*error|mcp: unknown tool/i.test(lower)) return 'mcp_error';
+  if (/mcp server[^\n]{0,40}error|jsonrpc[^\n]{0,40}error|mcp: unknown tool/i.test(lower)) return 'mcp_error';
   if (/\bexit code [1-9]|\bexit: [1-9]|non-zero exit/i.test(t)) return 'nonzero_exit';
   return 'unknown';
 }

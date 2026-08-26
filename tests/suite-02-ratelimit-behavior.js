@@ -534,6 +534,40 @@ console.log('\nCritic ↔ Reflexion loop (behavior):');
       'lesson mentions the errortax recovery hint');
   });
 
+  // A hook that speaks every turn must only say true things. Live find: a
+  // SUCCEEDED troth_recall returned a paragraph containing "destination" and
+  // "exists"; the hook read a successful result's content for error markers
+  // and told the model the call had failed — in a DURABLE class, so the lie
+  // came back as precedent for days.
+  test('errortax stays silent when the call succeeded and only the prose sounds bad', () => {
+    const out = runHook('errortax.mjs', {
+      session_id: 'errortax-truth-1',
+      cwd: REPO,
+      tool_name: 'mcp__troth-substrate__troth_recall',
+      tool_input: { query: 'open repo' },
+      tool_response: {
+        content: 'every component presented as an organ toward that destination; the repo exists and is private'
+      }
+    });
+    const ctx = (out.hookSpecificOutput && out.hookSpecificOutput.additionalContext) || '';
+    assert.ok(!ctx.includes('[troth/errortax]'),
+      'a successful call must never be reported as failed; got ' + JSON.stringify(ctx.slice(0, 160)));
+  });
+
+  // The goal line exists to carry an EARLIER commitment forward. When intent
+  // capture falls back to the prompt itself (language-agnostic capture), the
+  // line renders as "Working on: <what you just typed>" — noise the model
+  // already has, at the top of every turn.
+  test('the goal line is not the prompt echoed back', () => {
+    const session_id = 'goal-echo-1';
+    const prompt = 'bro prepei na doume pos tha ftiaxoume ta issues sto proion xoris malakies';
+    runHook('intent-capture.mjs', { session_id, cwd: REPO, user_prompt: prompt });
+    const injOut = runHook('injector.mjs', { session_id, cwd: REPO, user_prompt: prompt });
+    const ctx = (injOut.hookSpecificOutput && injOut.hookSpecificOutput.additionalContext) || '';
+    assert.ok(!ctx.includes('[troth/goal] Working on: ' + prompt.slice(0, 40)),
+      'the fallback goal must not be spoken back; got ' + JSON.stringify(ctx.slice(0, 200)));
+  });
+
   test('loopbreaker block records a lesson, next injector surfaces it', () => {
     const session_id = 'loop-lb-1';
     const call = { session_id, tool_name: 'Bash', tool_input: { command: 'false' } };
