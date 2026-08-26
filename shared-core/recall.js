@@ -71,6 +71,24 @@ function buildFtsQuery(query) {
   return tokens.map(t => '"' + t.replace(/"/g, '') + '"').join(' OR ');
 }
 
+const _PROFILE = process.env.TROTH_RECALL_PROFILE === '1';
+let _phases = null;
+function _phase(name, fn) {
+  if (!_PROFILE) return fn();
+  const t = Date.now();
+  try { return fn(); } finally { if (_phases) _phases.push(name + ':' + (Date.now() - t)); }
+}
+async function _phaseAsync(name, fn) {
+  if (!_PROFILE) return await fn();
+  const t = Date.now();
+  try { return await fn(); } finally { if (_phases) _phases.push(name + ':' + (Date.now() - t)); }
+}
+
+function _envNum(name, dflt) {
+  const v = parseFloat(process.env[name]);
+  return Number.isFinite(v) ? v : dflt;
+}
+
 function stemLight(t) {
   if (t.length <= 3 || /[^a-z]/.test(t)) return t;
   if (t.length > 5 && t.endsWith('ies')) return t.slice(0, -3) + 'y';
@@ -744,6 +762,8 @@ async function recall(opts) {
   const subOpts = { query: q, audience, limit, cwd: opts.cwd || null, topicTokens,
     include_superseded: !!opts.include_superseded,
     include_flagged:    !!opts.include_flagged };
+  const _t0 = Date.now();
+  if (_PROFILE) _phases = [];
 
   // Candidate POOL is wider than the final `limit` so the semantic rerank
   // below can RESCUE a genuinely-relevant engram that lexical/recency
@@ -809,9 +829,9 @@ async function recall(opts) {
     // outranked genuinely-relevant semantic/procedural hits with higher cosine.
     // Drop it from query-driven 'all'; the entity still surfaces identity via the
     // envelope, and explicit class:'identity' callers are unaffected.
-    pull(recallProcedural({ ...subOpts, limit: poolLimit }));
-    pull(recallSemantic({ ...subOpts, limit: poolLimit }));
-    pull(recallEpisodic({ ...subOpts, limit: poolLimit }));
+    pull(_phase('procedural', () => recallProcedural({ ...subOpts, limit: poolLimit })));
+    pull(_phase('semantic', () => recallSemantic({ ...subOpts, limit: poolLimit })));
+    pull(_phase('episodic', () => recallEpisodic({ ...subOpts, limit: poolLimit })));
     fused.sort((a, b) => b.score - a.score);
     results = fused.slice(0, poolLimit);
   }
@@ -843,8 +863,8 @@ async function recall(opts) {
   // Graceful degrade: embedder down / query unembeddable → keep the lexical pool
   // order (sliced to limit). Dense-ONLY hits below COS_FLOOR are dropped as noise;
   // lexical hits are always kept (they matched keywords).
-  const W_COS = 0.60, W_BASE = 0.40;
-  const COS_FLOOR = 0.35;
+  const W_COS = _envNum('TROTH_RECALL_W_COS', 0.60), W_BASE = 1 - W_COS;
+  const COS_FLOOR = _envNum('TROTH_RECALL_COS_FLOOR', 0.35);
   // NOT gated on results.length. Running the dense arm only when the lexical
   // arm has already found something makes a query sharing no words with any
   // memory return NOTHING — the exact case this arm exists to serve, and the
@@ -855,13 +875,14 @@ async function recall(opts) {
   if (q && q.length >= 3 && opts.skip_embedding_rerank !== true) {
     try {
       const localEmbedder = require('./local-embedder.js');
-      const qVec = await localEmbedder.embed(q, { role: 'query' }).catch(() => null);
+      const qVec = await _phaseAsync('embed', () => localEmbedder.embed(q, { role: 'query' }).catch(() => null));
       if (qVec && Array.isArray(qVec) && qVec.length) {
         const qNorm = Math.sqrt(qVec.reduce((a, v) => a + v * v, 0)) || 1;
         const lexIds = new Set(results.map(r => r.id));
         // DENSE ARM as candidate SOURCE — bring in semantically-similar engrams
         // the lexical FTS gate excluded (this is what enables pure-semantic recall).
-        const denseHits = denseArm(qVec, qNorm, audience, poolLimit);
+        const denseWindow = Math.max(poolLimit, _envNum('TROTH_RECALL_DENSE_WINDOW', poolLimit));
+        const denseHits = denseArm(qVec, qNorm, audience, denseWindow);
         const cosById = new Map(denseHits.map(h => [h.id, h.cos]));
         const denseOnly = denseHits.filter(h => !lexIds.has(h.id));
         if (denseOnly.length) {
@@ -994,7 +1015,7 @@ async function recall(opts) {
   if (opts.rerank && results.length > 1 && q && q.length >= 3) {
     try {
       const reranker = require('./local-reranker.js');
-      const scores = await reranker.rerank(q, results.map(r => String(r.statement || '').slice(0, 1200)));
+      const scores = await _phaseAsync('rerank', () => reranker.rerank(q, results.map(r => String(r.statement || '').slice(0, 1200))));
       if (Array.isArray(scores)) {
         for (let i = 0; i < results.length; i++) {
           if (typeof scores[i] === 'number') results[i]._rerank = Number(scores[i].toFixed(4));
@@ -1083,6 +1104,7 @@ async function recall(opts) {
   // to 3 labeled hits AFTER the curated results: depth on request, never
   // flood. Additive + fail-open — losing the arm costs depth, not recall.
   if (q && (cls === 'all' || cls === 'semantic')) {
+    await _phaseAsync('archive', async () => {
     try {
       const scopes = state._dbForQuery().prepare(
         "SELECT DISTINCT json_extract(output,'$.scope') AS s FROM action_records WHERE json_extract(output,'$.scope') LIKE 'docs:chats:%'").all()
@@ -1101,6 +1123,7 @@ async function recall(opts) {
         }
       }
     } catch (_) { /* additive arm; see above */ }
+    });
   }
   // bump retrieval counter on returned hits.
   // Fire-and-forget; bumpRetrievalBatch is wrapped in try/catch so a
@@ -1111,6 +1134,13 @@ async function recall(opts) {
       const ids = results.map(r => r.id).filter(Boolean);
       if (ids.length) state.bumpRetrievalBatch(ids);
     } catch (_) { /* never block recall on stats write */ }
+  }
+  if (_PROFILE && _phases) {
+    try {
+      process.stderr.write('[recall-profile] total:' + (Date.now() - _t0) +
+        ' ' + _phases.join(' ') + ' n:' + results.length + '\n');
+    } catch (_) { /* a profile line never breaks a recall */ }
+    _phases = null;
   }
   return results;
 }
