@@ -191,7 +191,10 @@ try {
             latency_ms: Date.now() - _t0, n: Array.isArray(hits) ? hits.length : 0,
             top: (Array.isArray(hits) ? hits : []).slice(0, 5).map(h => ({
               s: String(h.statement || '').replace(/\s+/g, ' ').trim().slice(0, 120),
-              score: h.score, cos: h.cos, base: h.base, cls: h.memory_class })) };
+              score: h.score, cos: h.cos, base: h.base, cls: h.memory_class,
+              // The cross-encoder verdict decides what is offered, so the
+              // trace carries it: kept vs dropped is readable afterwards.
+              rr: Number.isFinite(h._rerank) ? h._rerank : null })) };
           _fs.appendFileSync(_fp, JSON.stringify(_rec) + '\n');
         }
       }
