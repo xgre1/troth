@@ -995,6 +995,12 @@ recordAction({
   }
 });
 
+try {
+  const _standing = require(pluginRoot + '/../shared-core/standing-rules.js');
+  const _blk = _standing.renderStandingRules(state, { cwd });
+  if (_blk) pieces.push(_blk.text);
+} catch (_) { /* additive: a turn without them is exactly the old behaviour */ }
+
 // Active operator constraints ride LAST. End-of-context placement is the
 // measured winner for standing instructions (both-ends beats either alone,
 // GPT-4.1 prompting guide; omission constraints decay hardest,

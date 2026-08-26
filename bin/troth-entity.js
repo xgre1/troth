@@ -864,6 +864,12 @@ function main() {
         if (block) { lines.push(block); lines.push(''); }
       } catch (_) { /* identity read failure → silently skip; daemon stays up */ }
 
+      try {
+        const _standing = require('../shared-core/standing-rules.js');
+        const _srBlk = _standing.renderStandingRules(require('../shared-core/state.js'), { cwd: CWD });
+        if (_srBlk) { lines.push(_srBlk.text); lines.push(''); }
+      } catch (_) { /* additive: the surface degrades to its previous behaviour */ }
+
       // thesis content rides inside
       // <memory_identity> via operator_confirmed authority ranking; we do
       // NOT add separate scope categories for it. But three substrate

@@ -674,6 +674,12 @@ function buildInjection(bodyStr, repoMap) {
     if (cfg.routing && cfg.routing.planning) targetModel = cfg.routing.planning;
   } catch (e) {}
 
+  try {
+    var _standing = require('../../shared-core/standing-rules.js');
+    var _srBlk = _standing.renderStandingRules(require('../../shared-core/state.js'), {});
+    if (_srBlk) staticParts.push(_srBlk.text);
+  } catch (e) { /* additive: without it this surface is exactly as before */ }
+
   var staticPrompt = adaptForModel(staticParts.join('\n\n'), targetModel);
   var dynamicPrompt = adaptForModel(dynamicParts.join('\n\n'), targetModel);
 
