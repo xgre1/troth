@@ -60,6 +60,33 @@ module.exports = function run({ test }) {
     assert.strictEqual(redactor.redact(echo), echo, 'benign literals must pass untouched');
   });
 
+  // Live find: reading ordinary source through a tool taught the store that
+  // "parseInt", "qLow.split" and "MAX_TOKENS" were secrets — the pair matcher
+  // saw a credential-named constant on the left of an `=`. Every later
+  // mention came back as the withheld marker, inside code the model then read
+  // as if it were the file. A credential value is a literal, never an
+  // identifier this same text declares, calls, or reaches through a dot.
+  test('REDACT-7: PRECISION - code that assigns to credential-NAMED constants harvests nothing', () => {
+    redactor._resetForTests();
+    const code = [
+      "const MAX_TOKENS = parseInt(process.env.TROTH_BENCH_LOCAL_MAX_TOKENS || '6144', 10);",
+      'const qTokens = qLow.split(/[^a-z]+/u);',
+      'body: JSON.stringify({ max_tokens: MAX_TOKENS, temperature: 0 })',
+      'const apiKey = resolveCredential(name);'
+    ].join('\n');
+    assert.strictEqual(redactor.harvest(code), 0, 'ordinary code carries no secrets');
+    const echo = 'MAX_TOKENS was raised, parseInt is used, qLow.split tokenises, resolveCredential resolves';
+    assert.strictEqual(redactor.redact(echo), echo, 'and none of those words may ever be masked');
+  });
+
+  test('REDACT-8: a real credential beside that code is still caught', () => {
+    redactor._resetForTests();
+    redactor.harvest("const MAX_TOKENS = parseInt(x, 10);\nAPI_KEY=verysecretvalue123\n");
+    assert(redactor.redact('key is verysecretvalue123').indexOf('verysecretvalue123') === -1,
+      'the literal credential is still harvested when code sits beside it');
+    assert.strictEqual(redactor.redact('parseInt is fine'), 'parseInt is fine');
+  });
+
   test('REDACT-5: PEM private-key block is masked whole', () => {
     redactor._resetForTests();
     const pem = '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqh\nAAOCAQ8AMIIBCgKC\n-----END PRIVATE KEY-----';

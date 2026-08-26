@@ -67,6 +67,28 @@ const CRED_NAME_RE = /secret|token|passwd|password|api[_-]?key|apikey|service_ro
 // (booleans, placeholders, vault references).
 const VALUE_ALLOW_RE = /^(?:true|false|null|none|redacted|placeholder|changeme|<[^>]*>|\$vault[:.].*|\$\{[^}]*\})$/i;
 
+// A credential VALUE is a literal. Ordinary code assigns identifiers to
+// credential-NAMED constants and the pair matcher cannot tell them apart:
+// `const MAX_TOKENS = parseInt(...)` harvested "parseInt", `const qTokens =
+// qLow.split(...)` harvested "qLow.split", `max_tokens: MAX_TOKENS` harvested
+// "MAX_TOKENS" — and from then on, for the lifetime of the process, every
+// later mention of those ordinary words came back masked inside code the
+// model read as if it were the file. The four shapes below are never
+// literals; everything else still falls through to _add.
+const DOTTED_IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+$/;
+const IDENT_RE        = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+const CONST_NAME_RE   = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;
+
+function _isCodeToken(text, value, endIdx) {
+  if (DOTTED_IDENT_RE.test(value)) return true;   // a.b — property access
+  if (text.charAt(endIdx) === '(') return true;   // parseInt( — a call
+  if (CONST_NAME_RE.test(value)) return true;     // SCREAMING_SNAKE — a name
+  if (!IDENT_RE.test(value)) return false;        // literals fall through
+  // Declared as an identifier in this same text: code, not a credential.
+  const safe = value.replace(/\$/g, '\\$');
+  return new RegExp('(?:const|let|var|function|class)\\s+' + safe + '\\b').test(text);
+}
+
 function _add(v) {
   if (typeof v !== 'string') return;
   const s = v.trim();
@@ -90,7 +112,11 @@ function harvest(text) {
   PEM_RE.lastIndex = 0;
   while ((m = PEM_RE.exec(text)) !== null) _add(m[0]);
   FIELD_PAIR_RE.lastIndex = 0;
-  while ((m = FIELD_PAIR_RE.exec(text)) !== null) { if (CRED_NAME_RE.test(m[1])) _add(m[2]); }
+  while ((m = FIELD_PAIR_RE.exec(text)) !== null) {
+    if (!CRED_NAME_RE.test(m[1])) continue;
+    if (_isCodeToken(text, m[2], m.index + m[0].length)) continue;
+    _add(m[2]);
+  }
   return _fifo.length - before;
 }
 
