@@ -388,18 +388,75 @@ function generateRunId(task) {
   return ts + '-' + (slug || 'task') + '-' + rand;
 }
 
+// A run id NAMES a directory troth created under RUNS_DIR. It is not a path.
+// generateRunId above emits a timestamp, a slug and four random characters,
+// so a legitimate id carries letters, digits, dot, dash and underscore and
+// nothing else — no separator, no parent segment, no drive, no leading dash.
+// Every filesystem address in this file is built from runDirFor(), which
+// refuses anything else and then confirms, after resolving symlinks, that the
+// directory is still inside RUNS_DIR. It throws rather than returning a
+// fallback: a caller that forgets to check must fail loudly, not read on.
+const RUN_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+function isValidRunId(runId) {
+  return typeof runId === 'string' && RUN_ID_RE.test(runId);
+}
+
+function runDirFor(runId) {
+  if (!isValidRunId(runId)) throw new Error('invalid run id');
+  const dir = path.join(RUNS_DIR, runId);
+  let root;
+  try { root = fs.realpathSync(RUNS_DIR); } catch (e) { root = path.resolve(RUNS_DIR); }
+  let real;
+  try { real = fs.realpathSync(dir); } catch (e) { real = path.resolve(dir); }
+  if (real !== root && real.indexOf(root + path.sep) !== 0) {
+    throw new Error('run id resolves outside the runs directory');
+  }
+  return dir;
+}
+
+// The run's own files, and the only ones any run-keyed read or delete may
+// reach. `within` answers whether a path handed to us by a meta file is one
+// of them — a meta file is data, and data does not get to name a delete
+// target outside the run that wrote it.
+function runFile(runId, name) {
+  return path.join(runDirFor(runId), name);
+}
+
+function within(runId, target) {
+  if (!target || typeof target !== 'string') return false;
+  let dir, real;
+  try { dir = fs.realpathSync(runDirFor(runId)); } catch (e) { return false; }
+  try { real = fs.realpathSync(target); } catch (e) { return false; }
+  return real === dir || real.indexOf(dir + path.sep) === 0;
+}
+
+// The pair every git call needs from a run: the workspace, which is the run's
+// own directory, and the parent ref, which is a ref name. A meta file naming
+// anything else yields null, and the caller reports a run it cannot read
+// rather than running git against a stranger's directory or handing it an
+// option (`--output=…` writes a file) dressed as a branch.
+const REF_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
+
+function runRefs(runId, meta) {
+  if (!meta || !within(runId, meta.worktree)) return null;
+  const ref = String(meta.parent_branch || '');
+  if (!REF_RE.test(ref)) return null;
+  return { worktree: meta.worktree, ref: ref };
+}
+
 function loadMeta(runId) {
   try {
-    return JSON.parse(fs.readFileSync(path.join(RUNS_DIR, runId, 'meta.json'), 'utf8'));
+    return JSON.parse(fs.readFileSync(runFile(runId, 'meta.json'), 'utf8'));
   } catch (e) {
     return null;
   }
 }
 
 function saveMeta(runId, meta) {
-  fs.mkdirSync(path.join(RUNS_DIR, runId), { recursive: true });
+  fs.mkdirSync(runDirFor(runId), { recursive: true });
   fs.writeFileSync(
-    path.join(RUNS_DIR, runId, 'meta.json'),
+    runFile(runId, 'meta.json'),
     JSON.stringify(meta, null, 2) + '\n'
   );
 }
@@ -421,7 +478,7 @@ function runState(runId) {
   const meta = loadMeta(runId);
   if (!meta) return 'unknown';
 
-  const exitFile = path.join(RUNS_DIR, runId, 'exit-code');
+  const exitFile = runFile(runId, 'exit-code');
   if (fs.existsSync(exitFile)) {
     const code = parseInt(fs.readFileSync(exitFile, 'utf8').trim(), 10);
     if (code === 0) return 'done';
@@ -430,7 +487,7 @@ function runState(runId) {
   }
 
   // Check for subprocess-mode run (PID file)
-  const pidFile = path.join(RUNS_DIR, runId, 'pid');
+  const pidFile = runFile(runId, 'pid');
   if (fs.existsSync(pidFile)) {
     const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
     if (pid) {
@@ -446,7 +503,7 @@ function runState(runId) {
   }
 
   // Check for Docker-mode run (container-id file)
-  const containerIdFile = path.join(RUNS_DIR, runId, 'container-id');
+  const containerIdFile = runFile(runId, 'container-id');
   if (fs.existsSync(containerIdFile)) {
     const containerId = fs.readFileSync(containerIdFile, 'utf8').trim();
     if (containerId) {
@@ -475,7 +532,7 @@ function runState(runId) {
 // Container metadata recovery: pull number of tool calls and last
 // activity from the captured log file. Best-effort, used by `status`.
 function logSummary(runId) {
-  const logFile = path.join(RUNS_DIR, runId, 'log.txt');
+  const logFile = runFile(runId, 'log.txt');
   if (!fs.existsSync(logFile)) return { lines: 0, lastLine: '' };
   try {
     const content = fs.readFileSync(logFile, 'utf8');
@@ -495,7 +552,7 @@ function logTail(runId, opts) {
   opts = opts || {};
   const maxLines = Math.max(1, Math.min(200, opts.maxLines || 40));
   const maxBytes = Math.max(1024, opts.maxBytes || 16384);
-  const logFile = path.join(RUNS_DIR, runId, 'log.txt');
+  const logFile = runFile(runId, 'log.txt');
   if (!fs.existsSync(logFile)) return { tail: '', tail_lines: 0, total_bytes: 0, truncated: false };
   try {
     const size = fs.statSync(logFile).size;
@@ -539,7 +596,7 @@ function cmdRun(task, opts) {
   const repoRoot = gitRepoRoot();
   const parentBranch = gitCurrentBranch();
   const runId = generateRunId(task);
-  const runDir = path.join(RUNS_DIR, runId);
+  const runDir = runDirFor(runId);
   const worktreePath = path.join(runDir, 'workspace');
   const branchName = 'troth/' + runId;
 
@@ -658,7 +715,7 @@ function cmdLogs(runId, follow) {
     return 1;
   }
 
-  const containerIdFile = path.join(RUNS_DIR, runId, 'container-id');
+  const containerIdFile = runFile(runId, 'container-id');
   if (fs.existsSync(containerIdFile)) {
     const containerId = fs.readFileSync(containerIdFile, 'utf8').trim();
     const args = follow ? ['logs', '-f', containerId] : ['logs', containerId];
@@ -667,7 +724,7 @@ function cmdLogs(runId, follow) {
   }
 
   // Fallback: just dump the captured log file
-  const logFile = path.join(RUNS_DIR, runId, 'log.txt');
+  const logFile = runFile(runId, 'log.txt');
   if (fs.existsSync(logFile)) {
     process.stdout.write(fs.readFileSync(logFile, 'utf8'));
   } else {
@@ -686,9 +743,14 @@ function cmdDiff(runId) {
     console.error(COLOR_RED + 'Run not found: ' + runId + COLOR_RESET);
     return 1;
   }
+  const refs = runRefs(runId, meta);
+  if (!refs) {
+    console.error(COLOR_RED + 'Run has no readable workspace: ' + runId + COLOR_RESET);
+    return 1;
+  }
   const result = spawnSync('git', [
-    '-C', meta.worktree,
-    'diff', meta.parent_branch + '...HEAD',
+    '-C', refs.worktree,
+    'diff', refs.ref + '...HEAD',
   ], { stdio: 'inherit' });
   return result.status || 0;
 }
@@ -705,11 +767,16 @@ function cmdMerge(runId) {
   }
 
   // Find the commits the worker added on top of parent_branch.
+  const mrefs = runRefs(runId, meta);
+  if (!mrefs) {
+    console.error(COLOR_RED + 'Run has no readable workspace: ' + runId + COLOR_RESET);
+    return 1;
+  }
   let revs;
   try {
     revs = execFileSync('git', [
-      '-C', meta.worktree,
-      'rev-list', '--reverse', meta.parent_branch + '..HEAD',
+      '-C', mrefs.worktree,
+      'rev-list', '--reverse', mrefs.ref + '..HEAD',
     ], { stdio: 'pipe' }).toString().trim().split('\n').filter(Boolean);
   } catch (e) {
     console.error(COLOR_RED + 'Failed to read worktree commits:' + COLOR_RESET, (e.stderr || e.message || '').toString());
@@ -740,7 +807,7 @@ function cmdMerge(runId) {
 function killWorker(runId) {
   var killed = false;
   // Try PID kill (subprocess mode)
-  var pidFile = path.join(RUNS_DIR, runId, 'pid');
+  var pidFile = runFile(runId, 'pid');
   if (fs.existsSync(pidFile)) {
     var pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
     if (pid) {
@@ -752,7 +819,7 @@ function killWorker(runId) {
     }
   }
   // Try Docker kill (container mode)
-  var containerIdFile = path.join(RUNS_DIR, runId, 'container-id');
+  var containerIdFile = runFile(runId, 'container-id');
   if (fs.existsSync(containerIdFile)) {
     var containerId = fs.readFileSync(containerIdFile, 'utf8').trim();
     if (containerId) {
@@ -761,7 +828,7 @@ function killWorker(runId) {
     }
   }
   if (killed) {
-    fs.writeFileSync(path.join(RUNS_DIR, runId, 'exit-code'), '137\n');
+    fs.writeFileSync(runFile(runId, 'exit-code'), '137\n');
   }
   return killed;
 }
@@ -795,7 +862,7 @@ function cleanOne(runId) {
   // SIGKILL because clean destroys the run's world anyway.
   try { killWorker(runId); } catch (e) {}
   try {
-    const pidFileK = path.join(RUNS_DIR, runId, 'pid');
+    const pidFileK = runFile(runId, 'pid');
     if (fs.existsSync(pidFileK)) {
       const pidK = parseInt(fs.readFileSync(pidFileK, 'utf8').trim(), 10);
       if (pidK) {
@@ -805,29 +872,38 @@ function cleanOne(runId) {
   } catch (e) {}
 
   // Stop and remove container if it exists.
-  const containerIdFile = path.join(RUNS_DIR, runId, 'container-id');
+  const containerIdFile = runFile(runId, 'container-id');
   if (fs.existsSync(containerIdFile)) {
     const containerId = fs.readFileSync(containerIdFile, 'utf8').trim();
     try { execFileSync('docker', ['rm', '-f', containerId], { stdio: 'pipe' }); } catch (e) {}
   }
 
   // Remove the git worktree (which also deletes the on-disk dir).
-  if (meta.worktree && fs.existsSync(meta.worktree)) {
+  //
+  // A meta file is DATA. The worktree troth creates lives inside the run's own
+  // directory, so that is the only shape honoured here: a path naming anything
+  // else is left untouched, and the branch is left with it, because a branch
+  // delete belongs to the run that owned the workspace.
+  if (meta.worktree && within(runId, meta.worktree) && fs.existsSync(meta.worktree)) {
     try {
       execFileSync('git', ['worktree', 'remove', '--force', meta.worktree], { cwd: meta.repo_root, stdio: 'pipe' });
     } catch (e) {
       // Worktree might already be unregistered; just rmdir directly
       try { fs.rmSync(meta.worktree, { recursive: true, force: true }); } catch (e2) {}
     }
+
+    // Delete the troth branch (it lived only inside the worktree). A ref name
+    // is a ref name: never an option, never a path escape.
+    const branch = String(meta.branch || '');
+    if (/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(branch)) {
+      try {
+        execFileSync('git', ['branch', '-D', branch], { cwd: meta.repo_root, stdio: 'pipe' });
+      } catch (e) {}
+    }
   }
 
-  // Delete the troth branch (it lived only inside the worktree).
-  try {
-    execFileSync('git', ['branch', '-D', meta.branch], { cwd: meta.repo_root, stdio: 'pipe' });
-  } catch (e) {}
-
   // Remove the metadata directory.
-  const runDir = path.join(RUNS_DIR, runId);
+  const runDir = runDirFor(runId);
   try { fs.rmSync(runDir, { recursive: true, force: true }); } catch (e) {}
 
   return true;
@@ -1257,7 +1333,7 @@ function apiCreateRun(task, opts) {
   }
 
   const runId = generateRunId(task);
-  const runDir = path.join(RUNS_DIR, runId);
+  const runDir = runDirFor(runId);
   const worktreePath = path.join(runDir, 'workspace');
   const branchName = 'troth/' + runId;
 
@@ -1311,7 +1387,7 @@ function apiGetRun(runId) {
 function apiGetRunLogs(runId, tailBytes) {
   const meta = loadMeta(runId);
   if (!meta) return { ok: false, error: 'run not found' };
-  const logFile = path.join(RUNS_DIR, runId, 'log.txt');
+  const logFile = runFile(runId, 'log.txt');
   if (!fs.existsSync(logFile)) return { ok: true, logs: '' };
   try {
     const content = fs.readFileSync(logFile, 'utf8');
@@ -1327,10 +1403,12 @@ function apiGetRunLogs(runId, tailBytes) {
 function apiGetRunDiff(runId) {
   const meta = loadMeta(runId);
   if (!meta) return { ok: false, error: 'run not found' };
+  const refs = runRefs(runId, meta);
+  if (!refs) return { ok: false, error: 'run has no readable workspace' };
   try {
     const out = execFileSync('git', [
-      '-C', meta.worktree,
-      'diff', meta.parent_branch + '...HEAD',
+      '-C', refs.worktree,
+      'diff', refs.ref + '...HEAD',
     ], { stdio: 'pipe' }).toString();
     return { ok: true, diff: out };
   } catch (e) {
@@ -1387,7 +1465,7 @@ function cmdRace(task, opts) {
   for (const provider of providers) {
     const providerTask = '[' + provider + '] ' + task;
     const runId = generateRunId(providerTask);
-    const runDir = path.join(RUNS_DIR, runId);
+    const runDir = runDirFor(runId);
     const worktreePath = path.join(runDir, 'workspace');
     const branchName = 'troth/race-' + provider + '-' + path.basename(runId).slice(-8);
 
