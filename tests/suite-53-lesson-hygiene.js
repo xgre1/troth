@@ -120,12 +120,10 @@ test('LSN-7: the hook has one lesson writer, and it asks the policy (source pin)
 
 // ── A lesson must be true ────────────────────────────────────────────
 //
-// Live find: a SUCCEEDED troth_recall returned a paragraph containing the
-// words "destination" and "exists". The hook read the success content for
-// error markers, the taxonomy's unbounded "destination.*exists" matched
-// across the one-line JSON, and the model was told "the recall call failed
-// (file_already_exists)" — a durable class, so the lie came back as
-// precedent in later prompts. Prose is not a failure report.
+// A tool result that succeeded carries answer text — a memory, a page, a
+// file — and answer text may discuss errors without being one. Classified as
+// a failure it becomes a lesson, and a lesson in a durable class returns as
+// precedent for a week. Prose is not a failure report.
 
 test('LSN-8: prose that merely mentions errors is not classified as a failure', () => {
   const et = require(path.join(ROOT, 'shared-core', 'errortax-hook.js'));

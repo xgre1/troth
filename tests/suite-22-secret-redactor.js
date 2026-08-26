@@ -60,11 +60,10 @@ module.exports = function run({ test }) {
     assert.strictEqual(redactor.redact(echo), echo, 'benign literals must pass untouched');
   });
 
-  // Live find: reading ordinary source through a tool taught the store that
-  // "parseInt", "qLow.split" and "MAX_TOKENS" were secrets — the pair matcher
-  // saw a credential-named constant on the left of an `=`. Every later
-  // mention came back as the withheld marker, inside code the model then read
-  // as if it were the file. A credential value is a literal, never an
+  // Source code assigns identifiers to credential-NAMED constants, and the
+  // pair matcher sees the same shape as a config line. Masking one would blank
+  // an ordinary word everywhere for the life of the process, inside code read
+  // back as if it were the file. A credential value is a literal, never an
   // identifier this same text declares, calls, or reaches through a dot.
   test('REDACT-7: PRECISION - code that assigns to credential-NAMED constants harvests nothing', () => {
     redactor._resetForTests();

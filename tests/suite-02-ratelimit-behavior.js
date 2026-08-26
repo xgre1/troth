@@ -534,11 +534,10 @@ console.log('\nCritic ↔ Reflexion loop (behavior):');
       'lesson mentions the errortax recovery hint');
   });
 
-  // A hook that speaks every turn must only say true things. Live find: a
-  // SUCCEEDED troth_recall returned a paragraph containing "destination" and
-  // "exists"; the hook read a successful result's content for error markers
-  // and told the model the call had failed — in a DURABLE class, so the lie
-  // came back as precedent for days.
+  // A hook that speaks every turn only says what it can attest. A recall
+  // result is answer text and may contain the vocabulary of failure without
+  // being one; reported as a failed call it becomes precedent the model
+  // carries for days.
   test('errortax stays silent when the call succeeded and only the prose sounds bad', () => {
     const out = runHook('errortax.mjs', {
       session_id: 'errortax-truth-1',

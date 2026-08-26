@@ -199,12 +199,11 @@ try {
         }
       }
     } catch (_) { /* trace must never break recall */ }
-    // Unsolicited memory has to earn its place. A cross-encoder score below
-    // zero is the reranker saying "not relevant"; measured on a real product
-    // question, five hits came back at +3.90, -1.19, -2.25, -2.89, -3.12 and
-    // all five were injected as GROUND TRUTH — four of them month-old messages
-    // about other work. When the reranker ran, only what it scored above zero
-    // is offered, and when nothing clears, the block is not written at all.
+    // Unsolicited memory earns its place. A cross-encoder score at or below
+    // zero is the reranker's verdict that the memory does not answer this
+    // prompt, and a block headed GROUND TRUTH is the wrong place for one.
+    // Where the reranker ran, only what it scored above zero is offered; when
+    // nothing clears, the block is not written at all.
     const scored = Array.isArray(hits) && hits.some(h => Number.isFinite(h._rerank));
     const relevant = scored
       ? hits.filter(h => !Number.isFinite(h._rerank) || h._rerank > 0)

@@ -43,19 +43,16 @@ function classify(text) {
   if (/\beacces\b|permission denied|operation not permitted/i.test(t)) return 'permission_denied';
   if (/\benoent\b|no such file or directory|not a directory/i.test(t)) return 'file_not_found';
   if (/command not found|not found in \$?path|: command not found|\bnot installed\b/i.test(t)) return 'command_not_found';
-  // Distances are BOUNDED on purpose. An unbounded `.*` spans a whole line,
-  // and a tool result is often one line of JSON: "destination.*exists" then
-  // matched a recalled paragraph that happened to contain both words and
-  // reported a successful call as a failed Write.
+  // Distances are BOUNDED on purpose. A tool result is often a single line of
+  // JSON, so an unbounded `.*` reaches across the whole document and joins
+  // two words that never belonged to the same sentence.
   if (/string(?: to replace)? not found|old_string[^\n]{0,80}not[^\n]{0,40}found|does not appear in the file/i.test(t)) return 'string_not_found';
-  // "already exists" is required: git says "destination path 'x' already
-  // exists", prose says "that destination ... the repo exists" and means
-  // nothing of the kind.
+  // "already exists" is what the failure says: git reports "destination path
+  // 'x' already exists". Prose that merely contains both words does not.
   if (/file already exists|destination[^\n]{0,60}already exists|EEXIST/i.test(t)) return 'file_already_exists';
-  // "timeout" is a WORD in ordinary output — `timeout: 5000` in a config, a
-  // `timeout 90 ssh` in a command, a comment about idle connections. A timed
-  // out call says so in the past tense, or by signal, or by errno. Measured
-  // on 100 archived tool outputs: the loose form flagged 11, this flags 4.
+  // "timeout" is an ordinary word: `timeout: 5000` in a config, `timeout 90`
+  // in a command, a comment about idle connections. A call that timed out
+  // says so in the past tense, or by signal, or by errno.
   if (/\btimed out\b|\bSIGTERM\b|operation timed? ?out|ETIMEDOUT|timeout exceeded|timeout after/i.test(t)) return 'timeout';
   if (/ECONNREFUSED|ETIMEDOUT|ENOTFOUND|ENETUNREACH|DNS|getaddrinfo/i.test(t)) return 'network';
   if (/mcp server[^\n]{0,40}error|jsonrpc[^\n]{0,40}error|mcp: unknown tool/i.test(lower)) return 'mcp_error';

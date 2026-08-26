@@ -67,14 +67,13 @@ const CRED_NAME_RE = /secret|token|passwd|password|api[_-]?key|apikey|service_ro
 // (booleans, placeholders, vault references).
 const VALUE_ALLOW_RE = /^(?:true|false|null|none|redacted|placeholder|changeme|<[^>]*>|\$vault[:.].*|\$\{[^}]*\})$/i;
 
-// A credential VALUE is a literal. Ordinary code assigns identifiers to
-// credential-NAMED constants and the pair matcher cannot tell them apart:
-// `const MAX_TOKENS = parseInt(...)` harvested "parseInt", `const qTokens =
-// qLow.split(...)` harvested "qLow.split", `max_tokens: MAX_TOKENS` harvested
-// "MAX_TOKENS" — and from then on, for the lifetime of the process, every
-// later mention of those ordinary words came back masked inside code the
-// model read as if it were the file. The four shapes below are never
-// literals; everything else still falls through to _add.
+// A credential VALUE is a literal. Source code assigns identifiers to
+// credential-NAMED constants all day — `MAX_TOKENS = parseInt(...)`,
+// `qTokens = qLow.split(...)`, `max_tokens: MAX_TOKENS` — and the pair
+// matcher sees the same shape as a config line. Masking an identifier would
+// blank an ordinary word everywhere for the life of the process, including
+// inside code read back as if it were the file. The four shapes below are
+// never literals; everything else still falls through to _add.
 const DOTTED_IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+$/;
 const IDENT_RE        = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 const CONST_NAME_RE   = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;

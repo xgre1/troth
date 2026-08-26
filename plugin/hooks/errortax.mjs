@@ -33,11 +33,11 @@ function extractErrorText(payload) {
     if (typeof r.output === 'string') return r.output;
     if (Array.isArray(r.content)) return r.content.map(c => c && (c.text || c.content)).filter(Boolean).join('\n');
   }
-  // A call that SUCCEEDED is not an error report. Reading its content for the
-  // word "error" classified recalled prose — "...toward that destination ...
-  // the repo exists..." — as a failed Write, minted a DURABLE lesson, and fed
-  // that lie back into every later prompt as precedent. Only stderr is read
-  // on success, and only for markers a shell actually emits.
+  // A call that SUCCEEDED is not an error report, and its content is answer
+  // text: a memory, a page, a file — material that may discuss errors without
+  // being one. Classifying it would tell the model its own tool failed and
+  // shelve that as precedent. On success only stderr is read, and only for
+  // markers a shell actually emits.
   const err = typeof r.stderr === 'string' ? r.stderr : '';
   if (/\bENOENT\b|\bEACCES\b|command not found|permission denied|no such file or directory/i.test(err)) return err;
   return '';
