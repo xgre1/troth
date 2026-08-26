@@ -575,6 +575,7 @@ function migrate(d) {
     CREATE INDEX IF NOT EXISTS idx_ar_type        ON action_records(type);
     CREATE INDEX IF NOT EXISTS idx_ar_session     ON action_records(session_id, timestamp);
     CREATE INDEX IF NOT EXISTS idx_ar_cwd         ON action_records(cwd, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_ar_output_scope ON action_records(json_extract(output, '$.scope'));
     CREATE INDEX IF NOT EXISTS idx_ar_agent       ON action_records(agent_id, timestamp);
     CREATE INDEX IF NOT EXISTS idx_ar_parent      ON action_records(parent_id);
     CREATE INDEX IF NOT EXISTS idx_ar_type_sess   ON action_records(type, session_id, timestamp);
@@ -1495,8 +1496,9 @@ function recordOperatorLesson(opts) {
   opts = opts || {};
   const text = String(opts.lesson || opts.text || '').trim();
   if (!text) return null;
-  const scope = opts.scope === 'project' ? 'project' : 'global';
-  const cwd = scope === 'project' ? (opts.cwd || null) : null;
+  let scope = opts.scope === 'project' ? 'project' : 'global';
+  if (scope === 'project' && !opts.cwd) scope = 'global';
+  const cwd = scope === 'project' ? opts.cwd : null;
   // Fingerprint on the normalised text: restating the same rule in the same
   // words is a no-op, restating it differently is a new rule the operator
   // meant to add.
@@ -1549,7 +1551,7 @@ function listOperatorLessons(opts) {
     `).all(limit) || [];
     if (!opts.cwd) return rows;
     // Global rules always apply; project rules only in their own project.
-    return rows.filter((r) => r.scope !== 'project' || r.cwd === opts.cwd);
+    return rows.filter((r) => r.scope !== 'project' || !r.cwd || r.cwd === opts.cwd);
   } catch (_) { return []; }
 }
 
