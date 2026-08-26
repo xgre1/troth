@@ -31,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   length outright. Engine pins render under their proper names.
 
 ### Changed
+- The read policy stands on every road. A retrieval tool judges its target
+  before opening it, so key material, credential files and the substrate
+  database are refused exactly as the shell refuses them; a search withholds
+  matches that come from refused files and says how many it withheld; and the
+  hash-anchored editor reads under the same wall it writes under.
+
 - Secret redaction reads a credential value as a literal. A credential-shaped
   field NAME decides nothing by itself: an identifier that the same text
   declares, calls, or reaches through a dot is code, and code keeps its own

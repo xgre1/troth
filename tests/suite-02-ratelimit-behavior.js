@@ -413,6 +413,76 @@ console.log('\nPlugin hooks (behavior):');
     assert.strictEqual(msg.error.code, -32602);
   });
 
+  // ── The read wall stands on every road ───────────────────────────────
+  //
+  // path-policy decides what may be read: key material, credential files,
+  // the substrate database. A retrieval tool that skips it is a way around
+  // the wall, and these two are the tools the servers tell the model to
+  // PREFER over the native Read.
+  function driveMcp(serverRel, call) {
+    const McpFile = pathMod2.join(PLUGIN, 'mcp-servers', serverRel, 'server.mjs');
+    const script = [
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+      { jsonrpc: '2.0', id: 2, method: 'tools/call', params: call }
+    ].map(m => JSON.stringify(m)).join('\n') + '\n';
+    const out = childProcess.execFileSync('node', [McpFile], {
+      input: script,
+      env: Object.assign({}, process.env, { CLAUDE_PLUGIN_ROOT: PLUGIN, CLAUDE_PLUGIN_DATA: TMP_DATA }),
+      encoding: 'utf8', timeout: 8000,
+    });
+    return out.trim().split('\n').map(l => { try { return JSON.parse(l); } catch (_) { return null; } })
+      .filter(Boolean).find(m => m.id === 2);
+  }
+
+  test('WALL-1: cached_read refuses a credential file and says why', () => {
+    const dir = pathMod2.join(TMP_DATA, 'wall-' + process.pid);
+    fsMod2.mkdirSync(dir, { recursive: true });
+    const secretish = pathMod2.join(dir, '.env');
+    fsMod2.writeFileSync(secretish, 'DECOY_TOKEN=not-a-real-secret\n');
+    const msg = driveMcp('troth-cache', { name: 'cached_read', arguments: { file_path: secretish } });
+    assert.ok(msg && msg.error, 'a refused read is an error, not content');
+    assert.ok(/blocked_secret_read/.test(JSON.stringify(msg.error)), JSON.stringify(msg.error).slice(0, 160));
+    assert.ok(!/not-a-real-secret/.test(JSON.stringify(msg)), 'the value must not appear anywhere in the reply');
+    try { fsMod2.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+  });
+
+  test('WALL-2: cached_grep withholds matches from files the policy refuses', () => {
+    const dir = pathMod2.join(TMP_DATA, 'wall2-' + process.pid);
+    fsMod2.mkdirSync(dir, { recursive: true });
+    fsMod2.writeFileSync(pathMod2.join(dir, '.env'), 'DECOY_TOKEN=not-a-real-secret\n');
+    fsMod2.writeFileSync(pathMod2.join(dir, 'normal.txt'), 'ordinary line mentioning DECOY_TOKEN\n');
+    const msg = driveMcp('troth-cache', { name: 'cached_grep', arguments: { pattern: 'DECOY_TOKEN', path: dir } });
+    const blob = JSON.stringify(msg);
+    assert.ok(!/not-a-real-secret/.test(blob), 'the credential line must be withheld');
+    assert.ok(/ordinary line mentioning/.test(blob), 'the ordinary match still comes back');
+    assert.ok(/withheld/.test(blob), 'and the withholding is stated, not silent');
+    try { fsMod2.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+  });
+
+  test('WALL-3: hashline_read refuses a credential file', () => {
+    const dir = pathMod2.join(TMP_DATA, 'wall3-' + process.pid);
+    fsMod2.mkdirSync(dir, { recursive: true });
+    const secretish = pathMod2.join(dir, '.env');
+    fsMod2.writeFileSync(secretish, 'DECOY_TOKEN=not-a-real-secret\n');
+    const msg = driveMcp('troth-hashline', { name: 'hashline_read', arguments: { file_path: secretish } });
+    const blob = JSON.stringify(msg);
+    assert.ok(/blocked_secret_read/.test(blob), blob.slice(0, 200));
+    assert.ok(!/not-a-real-secret/.test(blob), 'the value must not appear anywhere in the reply');
+    try { fsMod2.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+  });
+
+  test('WALL-4: an ordinary file still reads through both roads', () => {
+    const dir = pathMod2.join(TMP_DATA, 'wall4-' + process.pid);
+    fsMod2.mkdirSync(dir, { recursive: true });
+    const ok = pathMod2.join(dir, 'notes.txt');
+    fsMod2.writeFileSync(ok, 'plain content\n');
+    const a = driveMcp('troth-cache', { name: 'cached_read', arguments: { file_path: ok } });
+    const b = driveMcp('troth-hashline', { name: 'hashline_read', arguments: { file_path: ok } });
+    assert.ok(/plain content/.test(JSON.stringify(a)), 'cached_read still serves ordinary files');
+    assert.ok(/plain content/.test(JSON.stringify(b)), 'hashline_read still serves ordinary files');
+    try { fsMod2.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+  });
+
   test('cache-populate: skips uncacheable Edit tool entirely', () => {
     const out = runHook('cache-populate.mjs', {
       session_id: 'cache-f-4', tool_name: 'Edit',

@@ -109,6 +109,17 @@ function handleRead(args) {
   const fp = args.file_path;
   if (!fp) return errorReply({ error: 'missing_file_path' });
   const abs = resolve(fp);
+
+  // Source policy, before the file is opened or its existence reported. The
+  // edit road below refuses destinations the partner has no business writing;
+  // the same wall decides what it has no business reading — key material,
+  // credential files, the substrate database — or an editor becomes the way
+  // around it.
+  const src = pathPolicy.isReadablePath(abs, {});
+  if (!src.allowed) {
+    return errorReply({ error: 'refused', reason: src.reason, detail: src.detail || null, path: abs });
+  }
+
   if (!existsSync(abs)) return errorReply({ error: 'not_found', path: abs });
 
   let content;

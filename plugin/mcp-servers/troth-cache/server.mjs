@@ -37,6 +37,47 @@ const require = createRequire(import.meta.url);
 const _greet = require(fileURLToPath(new URL('../../../shared-core/mcp-greeting.js', import.meta.url))).makeGreeter();
 const serverDir = fileURLToPath(new URL('.', import.meta.url));
 const gc = require(serverDir + '../../../proxy/modules/troth-cache.js');
+// The read wall (Wall 6). A retrieval tool is a read tool: what the shell
+// road refuses — key material, credential files, the substrate database — is
+// refused here too, or the policy is only a policy on one road. Required
+// unconditionally like every other dependency: an install missing the wall
+// must fail to start, not start without it.
+const pathPolicy = require(serverDir + '../../../shared-core/tools/path-policy.js');
+
+// Verdicts are memoised per absolute path: a search result names the same
+// file on every matching line, and the policy resolves symlinks to judge.
+const _readable = new Map();
+function readVerdict(abs) {
+  let v = _readable.get(abs);
+  if (v === undefined) {
+    try { v = pathPolicy.isReadablePath(abs, {}); }
+    catch (_) { v = { allowed: false, reason: 'policy_unavailable' }; }
+    if (_readable.size > 4096) _readable.clear();
+    _readable.set(abs, v);
+  }
+  return v;
+}
+function refusal(v, what) {
+  return rpcError(-32602, 'refused: ' + what + ' is not readable (' + v.reason + ')' +
+    (v.detail ? ' — ' + v.detail : ''));
+}
+// Every line of a search result names the file it came from. A file the
+// policy refuses is dropped here even when the search root was allowed, so a
+// wide search cannot become a credential read by another name.
+const _MATCH_LINE_RE = /^(.*?):(\d+):/;
+function withheldFiltered(out) {
+  if (!out) return out;
+  const kept = [];
+  let withheld = 0;
+  for (const line of String(out).split('\n')) {
+    const m = _MATCH_LINE_RE.exec(line);
+    if (!m) { kept.push(line); continue; }
+    if (readVerdict(resolvePath(m[1])).allowed) kept.push(line);
+    else withheld++;
+  }
+  if (withheld) kept.push('…(' + withheld + ' line(s) withheld: the read policy refuses those files)');
+  return kept.join('\n');
+}
 // Substrate write path. Loaded lazily-ish; if it's missing (e.g. tests),
 // instrumentation degrades to a no-op rather than failing the tool call.
 let _state = null;
@@ -159,6 +200,11 @@ function doCachedRead(args) {
   const rel = args.file_path;
   if (!rel) return rpcError(-32602, 'missing file_path');
   const abs = resolvePath(cwd, rel);
+  // Judged before the file is touched, before the cache is consulted, and
+  // before existence is confirmed: a refusal must not report whether a
+  // credential file is there.
+  const v = readVerdict(abs);
+  if (!v.allowed) return refusal(v, abs);
 
   if (!existsSync(abs)) return rpcError(-32602, 'file not found: ' + abs);
   const st = statSync(abs);
@@ -200,6 +246,11 @@ function doCachedGrep(args) {
   if (!pattern) return rpcError(-32602, 'missing pattern');
   const cwd = resolveCwd(args);
   const searchPath = args.path ? resolvePath(cwd, args.path) : cwd;
+  // A search is a read of every file it matches. The root is judged here;
+  // each matching file is judged again on the way out, because a permitted
+  // root can still contain a credential file.
+  const rootV = readVerdict(searchPath);
+  if (!rootV.allowed) return refusal(rootV, searchPath);
 
   // For grep, we do NOT hash every file in the tree — too expensive. Rely
   // on TTL (30 min per design §4). Key includes pattern+path+glob.
@@ -214,7 +265,9 @@ function doCachedGrep(args) {
     return wrapContent({
       cached: true,
       key_prefix: r.key.slice(0, 8),
-      output: typeof r.value === 'string' ? r.value : (r.value.output || ''),
+      // Filtered on the way out as well as on the way in: an entry stored
+      // before the wall stood must not serve past it now.
+      output: withheldFiltered(typeof r.value === 'string' ? r.value : (r.value.output || '')),
       source: 'troth-cache',
     });
   }
@@ -236,7 +289,7 @@ function doCachedGrep(args) {
     if (res.missing) return rpcError(-32603, 'neither ripgrep nor grep is available on PATH');
   }
   if (res.error) return rpcError(-32603, 'search failed (exit ' + res.status + '): ' + res.error.trim().slice(0, 400));
-  output = res.output;
+  output = withheldFiltered(res.output);
   if (output.length > 512 * 1024) output = output.slice(0, 512 * 1024) + '\n…(truncated at 512 KB)';
 
   const key = gc.computeKey(cacheInput);
