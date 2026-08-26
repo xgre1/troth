@@ -95,6 +95,7 @@ const argVal = (k, def) => {
 const N = parseInt(argVal('--n', '20'), 10);
 const OFFSET = parseInt(argVal('--offset', '0'), 10);
 const STRATIFIED = parseInt(argVal('--stratified', '0'), 10);
+const SLICE_EXPLICIT = args.indexOf('--n') >= 0 || args.indexOf('--offset') >= 0;
 const ONLY = argVal('--only', '');
 const WORKER_TIMEOUT_MS = parseInt(argVal('--worker-timeout-ms', '120000'), 10);
 const JUDGE_TIMEOUT_MS = parseInt(argVal('--judge-timeout-ms', '60000'), 10);
@@ -142,7 +143,12 @@ function loadSlice() {
       const bucket = byType.get(t);
       if (bucket.length < STRATIFIED) bucket.push(q);
     }
-    return [...byType.values()].flat();
+    const buckets = [...byType.values()];
+    const woven = [];
+    for (let _i = 0; _i < STRATIFIED; _i++) {
+      for (const _b of buckets) if (_b[_i]) woven.push(_b[_i]);
+    }
+    return SLICE_EXPLICIT ? woven.slice(OFFSET, OFFSET + N) : woven;
   }
   return all.slice(OFFSET, OFFSET + N);
 }
