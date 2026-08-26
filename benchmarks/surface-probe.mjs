@@ -1,30 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
-// surface-probe — what the substrate SAYS into a turn, measured on real prompts.
-//
-// longmemeval-smoke measures what recall can FIND. This measures the other
-// half, the half the operator actually lives with: what the hooks INJECT into
-// every turn, whether it is relevant, whether it is true, and what it costs.
-//
-// Method — the same discipline as the memory bench:
-//   * the REAL hook runs (plugin/hooks/injector.mjs as a child process, one
-//     spawn per prompt, exactly as Claude Code invokes it), never a
-//     reimplementation of what it "would" say;
-//   * against the REAL corpus, through a THROWAWAY DB (STATE_DB_PATH), so the
-//     probe's own telemetry writes never land in the operator's substrate —
-//     make the copy from a substrate backup bundle, not from the live file;
-//   * HOME is redirected too, which is what turns the recall trace on: the
-//     injector writes one line per turn under $HOME/.troth, and that line
-//     carries the cross-encoder verdict for every memory it considered.
-//
 // Usage:
 //   node benchmarks/surface-probe.mjs --db /tmp/copy-of-a-backup.db [--n 30]
-//        [--cwd /path/to/project] [--prompts file.txt]
-//
-// Reads per turn: how many [troth/*] blocks were injected and of what kind,
-// how many characters they cost, how long the hook took against its own
-// 3500ms budget, how many memories were considered and how many survived the
-// relevance floor.
 
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -53,8 +30,6 @@ if (!DB || !existsSync(DB)) {
   process.exit(2);
 }
 
-// One throwaway HOME for the whole run: the recall trace lands inside it, and
-// so does anything else a hook decides to write beside the DB.
 const HOME = mkdtempSync(join(tmpdir(), 'surface-probe-'));
 mkdirSync(join(HOME, '.troth'), { recursive: true });
 writeFileSync(join(HOME, '.troth', 'recall-trace.enabled'), '');
@@ -71,10 +46,6 @@ const childEnv = {
   TROTH_NO_MODEL_FETCH: '1'
 };
 
-// ── The prompts ──────────────────────────────────────────────────────────
-// Real operator messages, read from the same dialogue archive the product
-// records after every turn. A synthetic prompt list would measure a surface
-// nobody talks to.
 function loadPrompts() {
   if (PROMPTS_FILE) {
     return readFileSync(PROMPTS_FILE, 'utf8').split('\n').map(s => s.trim()).filter(s => s.length >= 30).slice(0, N);
@@ -98,15 +69,12 @@ function loadPrompts() {
   }
   let all = [];
   try { all = JSON.parse(r.stdout || '[]'); } catch (_) { all = []; }
-  // Newest first, de-duplicated: the archive repeats a message when a turn
-  // was retried, and one prompt measured twice is one measurement.
   const seen = new Set();
   const uniq = [];
   for (const p of all.reverse()) { const k = p.slice(0, 120); if (seen.has(k)) continue; seen.add(k); uniq.push(p); }
   return uniq.slice(0, N);
 }
 
-// ── One turn ─────────────────────────────────────────────────────────────
 const BLOCK_RE = /\[troth\/([a-z_-]+)\]/g;
 
 function runTurn(prompt, i) {
@@ -127,17 +95,12 @@ function runTurn(prompt, i) {
   BLOCK_RE.lastIndex = 0;
   while ((m = BLOCK_RE.exec(ctx)) !== null) kinds.push(m[1]);
   const recallLines = (ctx.match(/^ {2}• /gm) || []).length;
-  // The report is a file in a repo that publishes. It carries the SHAPE of a
-  // turn — how long the prompt was, how much came back, how long it took —
-  // and never the operator's words: benchmarks/results/ is versioned, and a
-  // measurement is not a reason to put someone's messages in it.
   const fp = createHash('sha1').update(prompt).digest('hex').slice(0, 8);
   return { i, prompt_sha: fp, prompt_len: prompt.length, ms, chars: ctx.length, kinds, recallLines,
            stderr_len: String(r.stderr || '').length,
            _prompt_local: prompt.slice(0, 90) };
 }
 
-// ── Run ──────────────────────────────────────────────────────────────────
 const prompts = loadPrompts();
 if (!prompts.length) { console.error('surface-probe: no prompts found.'); process.exit(4); }
 
@@ -159,9 +122,6 @@ for (let i = 0; i < prompts.length; i++) {
     '"' + row._prompt_local.slice(0, 46) + '"\n');
 }
 
-// ── The recall trace: considered vs offered ──────────────────────────────
-// The hook's wall time carries a node boot and a cold DB open; the trace
-// carries recall's own clock, which is the one the 3500ms budget races.
 let considered = 0, kept = 0, dropped = 0, tracedTurns = 0, timeouts = 0;
 const recallMs = [];
 if (existsSync(TRACE)) {

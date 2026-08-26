@@ -10,11 +10,6 @@ const MCP = path.join(ROOT, 'bin', 'mcp-server.js');
 
 console.log('\nRun-id containment (RID):');
 
-// A run id names a directory troth created. It is not a path, and the files a
-// run's own meta.json points at are the only ones a run-keyed tool may read,
-// kill or delete. These tests drive the real MCP server over its real stdio
-// transport, so what they prove is what a calling agent can actually do.
-
 function sandbox() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rid-'));
   fs.mkdirSync(path.join(root, 'runs'), { recursive: true });
@@ -41,7 +36,6 @@ function callTool(root, name, args) {
   return line || {};
 }
 
-// A run the way troth writes one: the workspace lives inside the run dir.
 function plantRealRun(root) {
   const id = '2026-01-02T03-04-05-a-task-zzzz';
   const dir = path.join(root, 'runs', id);
@@ -58,8 +52,6 @@ function plantRealRun(root) {
   return { id, dir, wt };
 }
 
-// A directory outside RUNS_DIR carrying a meta.json that names someone else's
-// files — the shape a traversal needs to become a delete.
 function plantDecoy(root) {
   const evil = path.join(root, 'evil');
   const victim = path.join(root, 'victim');
@@ -93,7 +85,6 @@ test('RID-1: a traversing run id reaches no tool, and the directory it names sur
 test('RID-2: a meta file cannot name a delete target outside its own run', () => {
   const root = sandbox();
   const { victim } = plantDecoy(root);
-  // Same decoy, but reachable under a VALID id: the id is fine, the meta lies.
   const id = '2026-01-02T03-04-05-liar-yyyy';
   const dir = path.join(root, 'runs', id);
   fs.mkdirSync(dir, { recursive: true });

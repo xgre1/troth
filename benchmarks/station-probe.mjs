@@ -1,33 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
-// station-probe — WHERE the pipe broke, not which question failed.
-//
-// A wrong answer is not a fact about a question; it is a fact about a station
-// on the way from what the operator said to what the partner replies:
-//
-//   1 unwritten     the thing was never recorded
-//   2 distorted     recorded, but the meaning did not survive the writing
-//   3 unretrieved   recorded intact, never fetched for this question
-//   4 late          fetched, but past the turn's budget, or cut on the way out
-//   5 composed      present in front of the answerer, and the framing led it wrong
-//   6 reasoned      everything present and clean, the model still answered wrong
-//
-// Fixing a question moves one number. Fixing a station moves every question
-// that breaks the same way, including the ones nobody has asked yet. This
-// probe attributes, it does not grade: it says where the mass sits.
-//
-// Method: the REAL worker runs (same ingest, same digest, same retrieval the
-// bench and the product share), then attribution is computed from the dataset
-// alone — LongMemEval names the sessions that hold each answer, so "was the
-// right evidence in front of the answerer" is decidable without a model.
-//
 // Usage:
 //   node benchmarks/station-probe.mjs [--only id,id] [--n 17]
-//        [--verdicts benchmarks/results/longmemeval-smoke-<ts>.json]
-//
-// --verdicts joins a previous smoke run so stations 5 and 6 can be separated:
-// without it a question whose evidence WAS retrieved is reported as
-// "present — outcome unknown", which is honest rather than assumed.
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
@@ -61,11 +35,6 @@ if (VERDICTS && existsSync(VERDICTS)) {
   } catch (_) { /* a missing join is a missing column, not a failure */ }
 }
 
-// ── Ground truth: the words that hold the answer ──────────────────────────
-// The dataset names the sessions; their user turns are the evidence. A
-// retrieved row counts as carrying evidence when a whole sentence of it
-// appears in one of those turns, which is strict enough that a coincidental
-// word overlap does not pass.
 function goldSentences(q) {
   const ids = new Set(q.answer_session_ids || []);
   const hIds = q.haystack_session_ids || [];
@@ -90,7 +59,6 @@ function carriesEvidence(retrieved, sentences) {
   return hits;
 }
 
-// ── One question through the real worker ──────────────────────────────────
 function runWorker(q) {
   const home = mkdtempSync(join(tmpdir(), 'station-'));
   mkdirSync(join(home, '.troth'), { recursive: true });
@@ -119,7 +87,6 @@ function runWorker(q) {
   return { out, wall };
 }
 
-// ── Attribution ───────────────────────────────────────────────────────────
 function attribute(q, out, prior) {
   if (out.error) return { station: '0 worker-error', detail: out.error.slice(0, 80) };
   const sentences = goldSentences(q);
@@ -130,8 +97,6 @@ function attribute(q, out, prior) {
   if (!sentences.length) return { station: 'n/a no-gold-sessions', hits: 0, ledger };
   if (hits === 0) return { station: '3 unretrieved', hits, ledger, of: sentences.length };
 
-  // Evidence was in front of the answerer. What happened after is stations 4-6,
-  // and only a graded answer can separate them.
   if (!prior) return { station: '≥4 present-outcome-unknown', hits, ledger, of: sentences.length };
   if (prior.verdict === 'CORRECT') return { station: 'ok', hits, ledger, of: sentences.length };
   const unfinished = prior.answer && !/^\s*Answer:/mi.test(prior.answer);
@@ -139,7 +104,6 @@ function attribute(q, out, prior) {
   return { station: '5 composed', hits, ledger, of: sentences.length };
 }
 
-// ── Run ───────────────────────────────────────────────────────────────────
 console.log('═ station probe ═');
 console.log('  questions: ' + pool.length + (VERDICTS ? '   joined with: ' + VERDICTS.split('/').pop() : '   (no verdict join)'));
 console.log('  live budget: ' + LIVE_BUDGET_MS + 'ms\n');
