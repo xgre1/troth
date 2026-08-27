@@ -131,4 +131,42 @@ test('RID-4: a real run still reports, and still cleans itself', () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('RID-5: a meta file cannot name the repository git acts in', () => {
+  const root = sandbox();
+
+  // The repository that really owns the run, and a stranger's repository
+  // holding work the operator cares about.
+  const owner = path.join(root, 'owner-repo');
+  fs.mkdirSync(owner, { recursive: true });
+  cp.spawnSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: owner });
+  cp.spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'base'], { cwd: owner });
+
+  const foreign = path.join(root, 'someone-elses-repo');
+  fs.mkdirSync(foreign, { recursive: true });
+  cp.spawnSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: foreign });
+  cp.spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'base'], { cwd: foreign });
+  cp.spawnSync('git', ['branch', 'precious-work'], { cwd: foreign });
+
+  // A valid id and a workspace genuinely inside the run: every earlier gate
+  // is satisfied. Only repo_root points at the stranger.
+  const id = '2026-01-02T03-04-05-owned-wwww';
+  const dir = path.join(root, 'runs', id);
+  const wt = path.join(dir, 'workspace');
+  fs.mkdirSync(dir, { recursive: true });
+  cp.spawnSync('git', ['worktree', 'add', '-q', '-b', 'troth/' + id, wt], { cwd: owner });
+  fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({
+    id, task: 't', branch: 'precious-work', parent_branch: 'main',
+    worktree: wt, repo_root: foreign
+  }));
+
+  callTool(root, 'troth_clean', { run_id: id });
+
+  const branches = cp.execFileSync('git', ['branch', '--format=%(refname:short)'], { cwd: foreign })
+    .toString().trim().split('\n');
+  assert.ok(branches.indexOf('precious-work') !== -1,
+    'a branch in a repository the run does not own must survive: ' + JSON.stringify(branches));
+  assert.ok(!fs.existsSync(dir), "the run's own directory is still removed");
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 };

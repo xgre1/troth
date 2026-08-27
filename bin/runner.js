@@ -445,6 +445,26 @@ function runRefs(runId, meta) {
   return { worktree: meta.worktree, ref: ref };
 }
 
+// The repository a run's workspace belongs to. Asked of the workspace itself —
+// `worktree list` names the main worktree first, for an ordinary owner and a
+// bare one alike — and never read from the meta file: repo_root is data too,
+// and data does not get to choose the repository git deletes a branch in.
+// Null when the workspace is no longer a worktree, and the caller then does
+// only the part that needs no repository. Ask BEFORE removing the worktree:
+// once it is gone the question has no answer.
+function ownerRepo(worktree) {
+  try {
+    const out = execFileSync('git', [
+      '-C', worktree, 'worktree', 'list', '--porcelain',
+    ], { stdio: 'pipe' }).toString();
+    const first = (out.split('\n')[0] || '').trim();
+    const dir = first.indexOf('worktree ') === 0 ? first.slice(9).trim() : '';
+    return dir && path.isAbsolute(dir) ? dir : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 function loadMeta(runId) {
   try {
     return JSON.parse(fs.readFileSync(runFile(runId, 'meta.json'), 'utf8'));
@@ -788,9 +808,15 @@ function cmdMerge(runId) {
     return 0;
   }
 
+  const target = ownerRepo(mrefs.worktree);
+  if (!target) {
+    console.error(COLOR_RED + 'Run has no owning repository: ' + runId + COLOR_RESET);
+    return 1;
+  }
+
   console.log('Cherry-picking ' + revs.length + ' commit(s) from ' + meta.branch + '...');
   for (const rev of revs) {
-    const result = spawnSync('git', ['cherry-pick', rev], { cwd: meta.repo_root, stdio: 'inherit' });
+    const result = spawnSync('git', ['cherry-pick', rev], { cwd: target, stdio: 'inherit' });
     if (result.status !== 0) {
       console.error(COLOR_RED + 'Cherry-pick failed at ' + rev.slice(0, 7) + '. Resolve conflicts manually then `git cherry-pick --continue`.' + COLOR_RESET);
       return 1;
@@ -885,19 +911,26 @@ function cleanOne(runId) {
   // else is left untouched, and the branch is left with it, because a branch
   // delete belongs to the run that owned the workspace.
   if (meta.worktree && within(runId, meta.worktree) && fs.existsSync(meta.worktree)) {
-    try {
-      execFileSync('git', ['worktree', 'remove', '--force', meta.worktree], { cwd: meta.repo_root, stdio: 'pipe' });
-    } catch (e) {
-      // Worktree might already be unregistered; just rmdir directly
+    const owner = ownerRepo(meta.worktree);
+    let removed = false;
+    if (owner) {
+      try {
+        execFileSync('git', ['worktree', 'remove', '--force', meta.worktree], { cwd: owner, stdio: 'pipe' });
+        removed = true;
+      } catch (e) {}
+    }
+    // Worktree already unregistered, or no repository owns it any more; the
+    // directory is inside the run either way, so remove it directly.
+    if (!removed) {
       try { fs.rmSync(meta.worktree, { recursive: true, force: true }); } catch (e2) {}
     }
 
     // Delete the troth branch (it lived only inside the worktree). A ref name
     // is a ref name: never an option, never a path escape.
     const branch = String(meta.branch || '');
-    if (/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(branch)) {
+    if (owner && REF_RE.test(branch)) {
       try {
-        execFileSync('git', ['branch', '-D', branch], { cwd: meta.repo_root, stdio: 'pipe' });
+        execFileSync('git', ['branch', '-D', branch], { cwd: owner, stdio: 'pipe' });
       } catch (e) {}
     }
   }

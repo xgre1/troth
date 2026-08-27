@@ -35,8 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reads, kills or removes is built inside the runs directory and confirmed to
   still be there after symlinks resolve; a run's own metadata may name only
   that run's workspace, so what it says is never a licence to delete
-  elsewhere; and a value it carries reaches git as a ref, never as an option.
-  The MCP tools, the CLI and the HTTP surface enter through the same
+  elsewhere; a value it carries reaches git as a ref, never as an option; and
+  the repository git acts in is asked of the workspace itself, so a run can
+  neither delete a branch in nor apply commits to a repository it does not
+  own. The MCP tools, the CLI and the HTTP surface enter through the same
   functions, so the same gate stands on all three.
 
 - The read policy stands on every road. A retrieval tool judges its target
