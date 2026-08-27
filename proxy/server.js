@@ -3023,13 +3023,15 @@ const server = http.createServer((req, res) => {
 
   // ===== API: Open run folder in Finder =====
   if (req.method === 'POST' && url.match(/^\/api\/runs\/[^/]+\/open$/)) {
-    var openRunId = url.split('/')[3];
+    var openRunId = decodeURIComponent(url.split('/')[3]);
     var openRunner = getRunner();
     if (openRunner) {
-      var openResult = openRunner.apiGetRun(openRunId);
-      if (openResult.ok && openResult.meta.worktree) {
+      // The workspace comes from the runner's gate, not from the meta file:
+      // whatever path is handed to `open` is launched.
+      var openResult = openRunner.apiRunWorkspace(openRunId);
+      if (openResult.ok) {
         try {
-          require('child_process').spawn('open', [openResult.meta.worktree], { detached: true, stdio: 'ignore' }).unref();
+          require('child_process').spawn('open', [openResult.worktree], { detached: true, stdio: 'ignore' }).unref();
           jsonResponse(res, 200, { ok: true });
         } catch (e) {
           jsonResponse(res, 500, { error: e.message });

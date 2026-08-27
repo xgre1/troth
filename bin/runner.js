@@ -1461,6 +1461,20 @@ function apiRemoveRun(runId) {
   return { ok: false, error: 'run not found' };
 }
 
+// The run's workspace as a path a caller may hand to the desktop. The meta
+// file names it, so it is checked like any other meta path: a run opens its
+// own directory or nothing. Callers outside this file take the workspace
+// from here, never from the meta they read alongside it — `open` on a path
+// of someone else's choosing launches whatever sits there.
+function apiRunWorkspace(runId) {
+  const meta = loadMeta(runId);
+  if (!meta) return { ok: false, error: 'run not found' };
+  if (!within(runId, meta.worktree)) {
+    return { ok: false, error: 'run has no readable workspace' };
+  }
+  return { ok: true, worktree: meta.worktree };
+}
+
 // ────────────────────────────────────────────────────────────────────
 // `troth race "task" --providers qwen,opus,deepseek` — AgentMarket
 // integration. Spawns one run per provider in parallel, each in its
@@ -1712,4 +1726,8 @@ module.exports = {
   apiGetRunDiff,
   apiKillRun,
   apiRemoveRun,
+  apiRunWorkspace,
+  // The one gate, exported so every module that addresses a run by id builds
+  // its paths the same way instead of joining onto the runs directory itself.
+  runDirFor,
 };

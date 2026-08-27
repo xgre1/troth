@@ -39,7 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the repository git acts in is asked of the workspace itself, so a run can
   neither delete a branch in nor apply commits to a repository it does not
   own. The MCP tools, the CLI and the HTTP surface enter through the same
-  functions, so the same gate stands on all three.
+  functions, so the same gate stands on all three; opening a run's folder on
+  the desktop takes the workspace from that gate rather than from the file it
+  is described in; and an orchestrated worker's directory is addressed through
+  it too, so a role name a project supplies stays a name.
 
 - The read policy stands on every road. A retrieval tool judges its target
   before opening it, so key material, credential files and the substrate

@@ -169,4 +169,46 @@ test('RID-5: a meta file cannot name the repository git acts in', () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+// The proxy hands this path to macOS `open`, which launches whatever it
+// names, so the workspace must come from the gate and not from the meta file
+// the caller reads alongside it.
+test('RID-6: the workspace a run hands out is its own, or none', () => {
+  const root = sandbox();
+  const runner = path.join(ROOT, 'bin', 'runner.js');
+
+  const honest = plantRealRun(root);
+
+  const id = '2026-01-02T03-04-05-pointer-vvvv';
+  const dir = path.join(root, 'runs', id);
+  const elsewhere = path.join(root, 'Somewhere.app');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(elsewhere, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({
+    id, task: 't', branch: 'troth/t', parent_branch: 'main',
+    worktree: elsewhere, repo_root: elsewhere
+  }));
+
+  const probe = 'const r = require(' + JSON.stringify(runner) + ');' +
+    'console.log(JSON.stringify({' +
+    'honest: r.apiRunWorkspace(' + JSON.stringify(honest.id) + '),' +
+    'pointer: r.apiRunWorkspace(' + JSON.stringify(id) + '),' +
+    'traversing: r.apiRunWorkspace("../evil")' +
+    '}));';
+  const out = cp.spawnSync('node', ['-e', probe], {
+    env: Object.assign({}, process.env, {
+      HOME: path.join(root, 'home'),
+      TROTH_RUNS_DIR: path.join(root, 'runs')
+    }),
+    encoding: 'utf8', timeout: 20000
+  });
+  const got = JSON.parse(String(out.stdout || '{}').trim());
+
+  assert.strictEqual(got.honest.ok, true, 'a real run still yields its workspace');
+  assert.strictEqual(got.honest.worktree, honest.wt, 'and it is the run\'s own');
+  assert.strictEqual(got.pointer.ok, false,
+    'a meta file pointing outside the run yields nothing: ' + JSON.stringify(got.pointer));
+  assert.strictEqual(got.traversing.ok, false, 'a traversing id yields nothing');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 };
