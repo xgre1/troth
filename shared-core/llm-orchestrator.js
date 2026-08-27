@@ -439,6 +439,7 @@ function makeOrchestrator(opts) {
     let lastNarration = '';
     let toolCallsMade = false;
     let forcedAnswer = false;
+    let repairs = 0;
     let aborted = false;
     let abortReason = null;
     // Guarantee a non-empty reply when the partner actually DID something.
@@ -460,6 +461,31 @@ function makeOrchestrator(opts) {
     // say the answer was cut. Set from the completed turn below.
     let lastTurnFinish = null;
     const TRUNCATING_FINISH = new Set(['length', 'max_tokens', 'model_length', 'content_filter']);
+    const RESUMABLE_FINISH = new Set(['length', 'max_tokens', 'model_length']);
+    const REPAIRABLE_ABORT = /^transport_(http_error|stream_error|request_error|router_error|http_5\d\d|http_429|stream_ended_without_completion|stream_ended_without_finish)$/;
+    const MAX_REPAIRS = parseInt(process.env.TROTH_LLM_MAX_REPAIRS || '3', 10) || 0;
+    const TRANSPORT_CAUSE = {
+      auth_expired: 'the engine session expired — sign in again in Settings',
+      cli_auth: 'the engine is not signed in — sign in again in Settings',
+      cli_spawn: 'the engine command is not installed on this machine',
+      cli_empty: 'the engine returned nothing',
+      http_429: 'the engine refused for rate/usage limits',
+      http_error: 'the engine answered with an error',
+      request_error: 'the engine could not be reached — check the endpoint in Settings',
+      router_error: 'no configured engine could serve this turn',
+      stream_error: 'the connection to the engine broke mid-answer',
+      stream_ended_without_completion: 'the engine stopped mid-answer',
+      stream_ended_without_finish: 'the engine stopped mid-answer',
+      empty_turn: 'the engine returned nothing'
+    };
+    const transportCause = (r) => {
+      const key = String(r || '').replace(/^transport_/, '');
+      if (TRANSPORT_CAUSE[key]) return TRANSPORT_CAUSE[key];
+      const m = key.match(/^(cli_exit|cli_result|http_status|http_5)/);
+      if (m) return 'the engine failed (' + key + ')';
+      return 'the engine stopped (' + key + ')';
+    };
+    const RESUME_NOTE = 'Your previous message was cut off before it finished. Continue from exactly where it stopped. Do not repeat what you already said, and do not redo work that already succeeded.';
     // Staple unresolved action failures AND a truncation note to whatever text
     // we return. One wrapper so every return site is honest by construction.
     const withFailureNote = (text) => {
@@ -770,6 +796,20 @@ function makeOrchestrator(opts) {
         break; // success, or a non-transient abort — stop retrying
       }
       if (fatalReturn) return fatalReturn;
+      if (aborted && REPAIRABLE_ABORT.test(String(abortReason || '')) &&
+          repairs < MAX_REPAIRS && !cancelHit()) {
+        repairs++;
+        trace.push({ iter, repair: abortReason, attempt: repairs });
+        if (turnText) {
+          if (pendingToolCalls && pendingToolCalls.length) lastNarration = turnText;
+          else finalText += turnText;
+          messages.push({ role: 'assistant', content: turnText });
+        }
+        messages.push({ role: 'user', content: RESUME_NOTE });
+        pendingToolCalls = null;
+        aborted = false; abortReason = null;
+        continue;
+      }
       if (aborted) break;
 
       // Text-format tool-call rescue: local/open models (e.g. Qwen) emit calls as
@@ -1067,6 +1107,14 @@ function makeOrchestrator(opts) {
           usage: _usageOut()
         };
       }
+      if (RESUMABLE_FINISH.has(finishReason) && repairs < MAX_REPAIRS && !cancelHit()) {
+        repairs++;
+        trace.push({ iter, repair: 'finish_' + finishReason, attempt: repairs });
+        messages.push({ role: 'assistant', content: turnText });
+        messages.push({ role: 'user', content: RESUME_NOTE });
+        lastTurnFinish = null;
+        continue;
+      }
       // Text-only turn (or already forced) — we're done. Final text passes the
       // structural secret wall: any tool-result secret the model echoed is
       // masked here regardless of stream behavior.
@@ -1083,7 +1131,7 @@ function makeOrchestrator(opts) {
         : (abortReason === 'timeout'
             ? '(Stopped — the model took too long to finish. Try again, or break the task into smaller steps.)'
             : (abortReason && abortReason.indexOf('transport_') === 0)
-                ? '(Could not reach the language-model endpoint — it looks offline. If you set a Custom endpoint, make sure that machine is reachable; otherwise switch to the Automatic/local model in Settings.)'
+                ? '(Stopped — ' + transportCause(abortReason) + '.)'
                 : '(Stopped before finishing.)');
     } else {
       // Iteration budget exhausted MID-WORK: a genuine completion returns as
@@ -1142,6 +1190,8 @@ function _honestStartFailure(facultyLabel, err) {
     + '. Check its key or settings, or switch engines in Settings.)';
 }
 
+const FAIL_SHAPE = /unknown downstream server|not logged in|unauthorized|permission denied|command not found|no such file|ENOENT|traceback \(most recent|refused|intent_refused/i;
+
 function _toolErrorReason(content) {
   // Short failure reason if a tool result signals an error, else null.
   const s = String(content || '');
@@ -1174,13 +1224,13 @@ function _toolErrorReason(content) {
       if (obj.interrupted === true) return 'interrupted before completion';
       if (obj.signal) return ('killed by signal ' + obj.signal).slice(0, 140);
       if (obj.exitCode === 0) return null;
-      // Nonzero exit falls through to the text shapes below on purpose:
-      // a grep miss exits 1 and is not a failure; a real failure usually
-      // says why in stderr and matches a shape.
+      const errLines = String(obj.stderr || '').split('\n').map((x) => x.trim()).filter(Boolean);
+      if (!errLines.length || !FAIL_SHAPE.test(errLines.join(' '))) return null;
+      return ('exit ' + obj.exitCode + ': ' + errLines[errLines.length - 1]).slice(0, 140);
     }
   }
   // Plain-text failure shapes that side-effecting tools emit.
-  if (/unknown downstream server|not logged in|unauthorized|permission denied|command not found|no such file|ENOENT|traceback \(most recent|refused|intent_refused/i.test(s)) {
+  if (FAIL_SHAPE.test(s)) {
     return s.replace(/\s+/g, ' ').trim().slice(0, 140);
   }
   return null;

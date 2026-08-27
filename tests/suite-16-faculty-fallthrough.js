@@ -359,6 +359,118 @@ module.exports = ({ test, skip }) => {
     assert.ok(/interrupted before completion/.test(res.text), 'names the interruption');
   });
 
+  test('LARP-12: a failed Bash names its error line, it never pastes its own JSON result', async () => {
+    let iter = 0;
+    const transport = {
+      stream: async function* () {
+        iter++;
+        if (iter === 1) {
+          yield { tool_calls: [{ id: 'b1', type: 'function', function: {
+            name: 'Bash', arguments: JSON.stringify({ command: 'bash race.sh 140 abc' })
+          } }] };
+        } else {
+          yield { delta: 'Extracted the pubkey.' };
+        }
+        yield { done: true };
+      },
+      abort() {}
+    };
+    const orch = makeOrchestrator({ transport, timeout_ms: 5000 });
+    const res = await orch.composeAgentic({ prompt: 'run it', options: {} }, {
+      tool_runner: async () => JSON.stringify({
+        stdout: '00000000000000000000d43c4dde17a574c1d718cc392914583d7a0967bf8552\n',
+        stderr: 'Traceback (most recent call last):\n  File "<string>", line 31, in <module>\nNameError: name rd_varint is not defined\n',
+        interrupted: false, exitCode: 1, signal: null
+      })
+    });
+    assert.strictEqual(res.status, 'ok');
+    assert.ok(/did NOT complete/.test(res.text), 'a real failure is still stapled: ' + res.text);
+    assert.ok(/NameError: name rd_varint is not defined/.test(res.text), 'the error line reaches the operator: ' + res.text);
+    assert.ok(!/"stdout"/.test(res.text), 'the raw tool JSON must never be pasted: ' + res.text);
+    assert.ok(!/d43c4dde17a574c1d718cc392914583d7a0967bf8552/.test(res.text), 'stdout must not leak into the note: ' + res.text);
+  });
+
+  test('RESUME-1: a stream that dies mid-turn is repaired — the turn finishes and no tool re-runs', async () => {
+    let iter = 0;
+    let toolRuns = 0;
+    const transport = {
+      stream: async function* () {
+        iter++;
+        if (iter === 1) {
+          yield { tool_calls: [{ id: 't1', type: 'function', function: {
+            name: 'Bash', arguments: JSON.stringify({ command: 'ls' })
+          } }] };
+          yield { done: true };
+        } else if (iter === 2) {
+          yield { delta: 'The first half of the answer. ' };
+          yield { done: true, _abort_reason: 'stream_ended_without_completion' };
+        } else {
+          yield { delta: 'The second half of the answer.' };
+          yield { done: true };
+        }
+      },
+      abort() {}
+    };
+    const orch = makeOrchestrator({ transport, timeout_ms: 5000 });
+    const res = await orch.composeAgentic({ prompt: 'do it', options: {} }, {
+      tool_runner: async () => { toolRuns++; return JSON.stringify({ stdout: 'a b c', stderr: '', exitCode: 0 }); }
+    });
+    assert.strictEqual(res.status, 'ok', 'a dead stream must not end the turn: ' + res.reason);
+    assert.strictEqual(toolRuns, 1, 'the tool ran once and was never re-executed');
+    assert.ok(/first half/.test(res.text), 'the partial text survived: ' + res.text);
+    assert.ok(/second half/.test(res.text), 'the continuation landed: ' + res.text);
+  });
+
+  test('RESUME-2: a turn cut at the length limit continues itself instead of asking the operator to say "continue"', async () => {
+    let iter = 0;
+    const transport = {
+      stream: async function* () {
+        iter++;
+        if (iter === 1) {
+          yield { delta: 'Part one. ' };
+          yield { finish_reason: 'length' };
+          yield { done: true };
+        } else {
+          yield { delta: 'Part two.' };
+          yield { done: true };
+        }
+      },
+      abort() {}
+    };
+    const orch = makeOrchestrator({ transport, timeout_ms: 5000 });
+    const res = await orch.composeAgentic({ prompt: 'write it', options: {} }, { tool_runner: async () => '{}' });
+    assert.strictEqual(res.status, 'ok');
+    assert.ok(/Part one/.test(res.text) && /Part two/.test(res.text), 'both halves present: ' + res.text);
+    assert.ok(!/Say "continue"/.test(res.text), 'no hand-back note once it continued itself: ' + res.text);
+  });
+
+  test('RESUME-3: a permanently broken stream stops at the repair budget, names the real reason, and keeps what it produced', async () => {
+    const transport = {
+      stream: async function* () {
+        yield { delta: 'partial words ' };
+        yield { done: true, _abort_reason: 'stream_error' };
+      },
+      abort() {}
+    };
+    const orch = makeOrchestrator({ transport, timeout_ms: 5000 });
+    const res = await orch.composeAgentic({ prompt: 'do it', options: {} }, { tool_runner: async () => '{}' });
+    assert.strictEqual(res.status, 'aborted', 'it does give up eventually');
+    assert.ok(/stream_error/.test(String(res.reason)), 'the real reason is named: ' + res.reason);
+    assert.ok(/partial words/.test(res.text), 'what it produced is not eaten: ' + res.text);
+  });
+
+  test('RESUME-4: an expired session is named as such, never as an unreachable endpoint', async () => {
+    const transport = {
+      stream: async function* () { yield { done: true, _abort_reason: 'auth_expired' }; },
+      abort() {}
+    };
+    const orch = makeOrchestrator({ transport, timeout_ms: 5000 });
+    const res = await orch.composeAgentic({ prompt: 'hi', options: {} }, { tool_runner: async () => '{}' });
+    assert.strictEqual(res.status, 'aborted');
+    assert.ok(/session expired/.test(res.text), 'the cause is named: ' + res.text);
+    assert.ok(!/looks offline/.test(res.text), 'an auth failure is not a network failure: ' + res.text);
+  });
+
   test('LP-7: the SAME command re-run against a CHANGING world executes every time (git status / npm test)', async () => {
     // fix -> test -> fix -> test is normal verification work. The dedup may
     // only refuse a repeat whose previous runs returned the identical result.
