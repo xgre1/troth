@@ -337,6 +337,25 @@ module.exports = function run({ test, skip }) {
   }
 
   // ── MCPH-1: workspace-layered registry ───────────────────────────────────
+  test('CANCEL-1: a running command dies the moment the operator cancels, not at its timeout', async () => {
+    const bash = require('../shared-core/tools/bash.js');
+    let cancelled = false;
+    setTimeout(() => { cancelled = true; }, 200);
+    const t0 = Date.now();
+    const r = await bash.run({ command: 'sleep 30' }, { shouldCancel: () => cancelled });
+    const ms = Date.now() - t0;
+    assert.ok(ms < 3000, 'cancel must land in well under the 120s timeout, took ' + ms + 'ms');
+    assert.strictEqual(r.interrupted, true, 'the result is marked interrupted');
+  });
+
+  test('CANCEL-2: with no cancel channel a command runs to completion unchanged', async () => {
+    const bash = require('../shared-core/tools/bash.js');
+    const r = await bash.run({ command: 'echo hello' }, {});
+    assert.strictEqual(String(r.stdout).trim(), 'hello');
+    assert.strictEqual(r.interrupted, false);
+    assert.strictEqual(r.exitCode, 0);
+  });
+
   test('MCPH-1: loadDownstream merges global + project .mcp.json (project wins collisions; absent files fine)', () => {
     // Absent-both: no global path, no workspace → {} (never throws).
     assert.deepStrictEqual(mcpClient.loadDownstream('/no/such/global.json', '/no/such/workspace'), {},

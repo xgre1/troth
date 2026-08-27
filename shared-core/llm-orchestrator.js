@@ -914,6 +914,9 @@ function makeOrchestrator(opts) {
           content: turnText ? turnText : null,
           tool_calls: pendingToolCalls
         });
+        if (ctx && typeof ctx === 'object' && typeof ctx.shouldCancel !== 'function') {
+          try { ctx.shouldCancel = cancelHit; } catch (_) {}
+        }
         for (const tc of pendingToolCalls) {
           // Cancel between tool executions: already-run tools stand (their
           // effects are real); the remaining calls in this batch are skipped
