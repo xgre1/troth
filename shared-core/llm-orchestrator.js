@@ -440,6 +440,7 @@ function makeOrchestrator(opts) {
     let toolCallsMade = false;
     let forcedAnswer = false;
     let repairs = 0;
+    let abortDetail = '';
     let aborted = false;
     let abortReason = null;
     // Guarantee a non-empty reply when the partner actually DID something.
@@ -464,6 +465,30 @@ function makeOrchestrator(opts) {
     const RESUMABLE_FINISH = new Set(['length', 'max_tokens', 'model_length']);
     const REPAIRABLE_ABORT = /^transport_(http_error|stream_error|request_error|router_error|http_5\d\d|http_429|stream_ended_without_completion|stream_ended_without_finish)$/;
     const MAX_REPAIRS = parseInt(process.env.TROTH_LLM_MAX_REPAIRS || '3', 10) || 0;
+    const overflowOf = (detail) => {
+      try {
+        const j = JSON.parse(String(detail || ''));
+        const e = j && j.error;
+        if (e && e.type === 'exceed_context_size_error') {
+          return { n_ctx: e.n_ctx || 0, n_prompt: e.n_prompt_tokens || 0 };
+        }
+      } catch (_) {}
+      return null;
+    };
+    const compactToolResults = (msgs, targetChars) => {
+      let total = msgs.reduce((n, m) => n + String((m && m.content) || '').length, 0);
+      let dropped = 0;
+      for (let i = 0; i < msgs.length && total > targetChars; i++) {
+        const m = msgs[i];
+        if (!m || m.role !== 'tool') continue;
+        const was = String(m.content || '').length;
+        if (was <= 80) continue;
+        m.content = '[earlier tool output dropped to fit the engine context]';
+        total -= (was - m.content.length);
+        dropped++;
+      }
+      return dropped;
+    };
     const TRANSPORT_CAUSE = {
       auth_expired: 'the engine session expired — sign in again in Settings',
       cli_auth: 'the engine is not signed in — sign in again in Settings',
@@ -480,6 +505,9 @@ function makeOrchestrator(opts) {
     };
     const transportCause = (r) => {
       const key = String(r || '').replace(/^transport_/, '');
+      const om = key.match(/^http_400$/) ? overflowOf(abortDetail) : null;
+      if (om) return 'the turn outgrew the engine context (' + om.n_prompt.toLocaleString() +
+        ' tokens against a ' + om.n_ctx.toLocaleString() + '-token window) — raise the context in the engine settings';
       if (TRANSPORT_CAUSE[key]) return TRANSPORT_CAUSE[key];
       const m = key.match(/^(cli_exit|cli_result|http_status|http_5)/);
       if (m) return 'the engine failed (' + key + ')';
@@ -688,11 +716,14 @@ function makeOrchestrator(opts) {
             // transient AND nothing was committed yet AND we have retries left,
             // re-issue the SAME request; otherwise surface it as an ABORT.
             if (chunk && chunk._abort_reason) {
-              if (isTransient(chunk._abort_reason) && !turnText && !pendingToolCalls && attempt < MAX_TRANSIENT_RETRIES) {
+              let _r = chunk._abort_reason;
+              if (_r === 'http_error' && chunk._status) _r = 'http_' + chunk._status;
+              if (isTransient(_r) && !turnText && !pendingToolCalls && attempt < MAX_TRANSIENT_RETRIES) {
                 retryThis = true; maybeAbort(transport, stream); break;
               }
               aborted = true;
-              abortReason = 'transport_' + chunk._abort_reason;
+              abortReason = 'transport_' + _r;
+              abortDetail = String(chunk._detail || '');
               break;
             }
             // Visibility-only tool signal — e.g. an agent-faculty (claude_cli)
@@ -796,6 +827,20 @@ function makeOrchestrator(opts) {
         break; // success, or a non-transient abort — stop retrying
       }
       if (fatalReturn) return fatalReturn;
+      const _overflow = aborted ? overflowOf(abortDetail) : null;
+      if (_overflow && repairs < MAX_REPAIRS && !cancelHit()) {
+        repairs++;
+        const _chars = messages.reduce((n, m) => n + String((m && m.content) || '').length, 0);
+        const _ratio = _overflow.n_prompt > 0 ? (_overflow.n_ctx * 0.7) / _overflow.n_prompt : 0.5;
+        const dropped = compactToolResults(messages, Math.max(2000, Math.floor(_chars * _ratio)));
+        trace.push({ iter, repair: 'compact', dropped, n_ctx: _overflow.n_ctx, n_prompt: _overflow.n_prompt, attempt: repairs });
+        if (!dropped) { aborted = true; }
+        else {
+          aborted = false; abortReason = null; abortDetail = '';
+          pendingToolCalls = null;
+          continue;
+        }
+      }
       if (aborted && REPAIRABLE_ABORT.test(String(abortReason || '')) &&
           repairs < MAX_REPAIRS && !cancelHit()) {
         repairs++;

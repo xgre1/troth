@@ -323,7 +323,7 @@ function makeLlamaCppTransport(opts) {
             error = new Error('llamacpp http ' + res.statusCode + ': ' + chunks.slice(0, 500));
             error.code = 'http_status';
             ended = true;
-            while (waiters.length) waiters.shift()({ done: true, _abort_reason: 'http_error' });
+            while (waiters.length) waiters.shift()({ done: true, _abort_reason: 'http_error', _status: res.statusCode, _detail: String(chunks).slice(0, 400) });
           });
           return;
         }

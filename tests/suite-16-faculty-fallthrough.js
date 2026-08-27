@@ -471,6 +471,60 @@ module.exports = ({ test, skip }) => {
     assert.ok(!/looks offline/.test(res.text), 'an auth failure is not a network failure: ' + res.text);
   });
 
+  test('CTX-1: a turn that outgrows the engine window is compacted and finishes, without re-running its tools', async () => {
+    const overflow = JSON.stringify({ error: {
+      code: 400, type: 'exceed_context_size_error',
+      message: 'request (300052 tokens) exceeds the available context size (65536 tokens)',
+      n_prompt_tokens: 300052, n_ctx: 65536
+    } });
+    let iter = 0, toolRuns = 0;
+    const transport = {
+      stream: async function* () {
+        iter++;
+        if (iter === 1) {
+          yield { tool_calls: [{ id: 't1', type: 'function', function: {
+            name: 'Bash', arguments: JSON.stringify({ command: 'ls' })
+          } }] };
+          yield { done: true };
+        } else if (iter === 2) {
+          yield { done: true, _abort_reason: 'http_error', _status: 400, _detail: overflow };
+        } else {
+          yield { delta: 'Answer after compaction.' };
+          yield { done: true };
+        }
+      },
+      abort() {}
+    };
+    const orch = makeOrchestrator({ transport, timeout_ms: 5000 });
+    const res = await orch.composeAgentic({ prompt: 'go', options: {} }, {
+      tool_runner: async () => { toolRuns++; return 'X'.repeat(50000); }
+    });
+    assert.strictEqual(res.status, 'ok', 'the turn recovers: ' + res.reason);
+    assert.strictEqual(toolRuns, 1, 'compaction never re-runs a tool');
+    const compactions = (res.trace || []).filter((t) => t.repair === 'compact');
+    assert.strictEqual(compactions.length, 1, 'exactly one compaction');
+    assert.ok(compactions[0].dropped >= 1, 'it actually shed tool output');
+    assert.ok(/Answer after compaction/.test(res.text), 'the answer arrives: ' + res.text);
+  });
+
+  test('CTX-2: a 400 that is not an overflow is not retried, and the reply names the status', async () => {
+    let iter = 0;
+    const transport = {
+      stream: async function* () {
+        iter++;
+        yield { done: true, _abort_reason: 'http_error', _status: 400,
+                _detail: JSON.stringify({ error: { code: 400, type: 'invalid_request_error' } }) };
+      },
+      abort() {}
+    };
+    const orch = makeOrchestrator({ transport, timeout_ms: 5000 });
+    const res = await orch.composeAgentic({ prompt: 'go', options: {} }, { tool_runner: async () => '{}' });
+    assert.strictEqual(res.status, 'aborted');
+    assert.ok(/http_400/.test(String(res.reason)), 'the status rides in the reason: ' + res.reason);
+    assert.ok(iter <= 2, 'a non-repairable 400 is not retried in a loop, streams opened: ' + iter);
+    assert.ok(!/looks offline/.test(res.text), 'never presented as a network failure: ' + res.text);
+  });
+
   test('LP-7: the SAME command re-run against a CHANGING world executes every time (git status / npm test)', async () => {
     // fix -> test -> fix -> test is normal verification work. The dedup may
     // only refuse a repeat whose previous runs returned the identical result.
