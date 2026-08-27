@@ -1207,7 +1207,8 @@ const REGISTRY = {
       const turns = dialogueMemory.recentTurns({
         cwd:      ctx.cwd,
         same_cwd: !args.all_projects,
-        limit:    args.n || 20
+        limit:    args.n || 20,
+        conversation_id: args.all_projects ? null : (ctx.conversation_id || null)
       });
       return {
         turns: turns.map(t => ({

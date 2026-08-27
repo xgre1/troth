@@ -4276,6 +4276,35 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
     assert.ok(/sycophancy|tunnel|repetition|length/i.test(lines[0]),
       'drift line names a known signal kind');
   });
+
+  test('ENT-99: two panes in one project read their OWN thread, not each other\'s', async () => {
+    const dm = require('../shared-core/dialogue-memory.js');
+    const tools = require('../shared-core/substrate-tools.js');
+    const cwd = '/tmp/thread-scope-' + Date.now();
+    const A = 'pane-A-' + Date.now();
+    const B = 'pane-B-' + Date.now();
+    const put = (cid, u) => dm.recordTurn({
+      agent_id: 'thread-probe', user_id: 'default', cwd,
+      conversation_id: cid, user_text: u, assistant_text: 'noted'
+    });
+    put(A, 'the deploy uses blue-green with a manual cutover');
+    put(A, 'the cutover needs two approvals');
+    put(B, 'the invoice template is missing the VAT line');
+    put(B, 'the VAT line goes under the subtotal');
+
+    const tool = tools.REGISTRY.dialogue_recent;
+    const leaks = (r) => (JSON.stringify(r).match(/VAT|invoice/g) || []).length;
+
+    const scoped = await tool.run({}, { cwd, conversation_id: A });
+    assert.strictEqual(scoped.turns.length, 2, 'the thread returns its own two turns');
+    assert.strictEqual(leaks(scoped), 0, "the other pane's turns must not appear");
+
+    const unscoped = await tool.run({}, { cwd });
+    assert.strictEqual(unscoped.turns.length, 4, 'a surface with no thread is unchanged');
+
+    const cross = await tool.run({ all_projects: true }, { cwd, conversation_id: A });
+    assert.ok(cross.turns.length >= 4, 'an explicit cross-read still crosses');
+  });
 })();
 
 };

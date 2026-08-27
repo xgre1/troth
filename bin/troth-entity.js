@@ -1823,7 +1823,8 @@ function main() {
         const baseRunner = toolRunner.makeRunner({
           agent_id: AGENT_ID,
           cwd:      TURN_CWD,
-          user_id:  USER_ID
+          user_id:  USER_ID,
+          conversation_id: (action.options && action.options.conversation_id) || null
         });
         // Mode A safety: wrap with permission gate so write/exec tools
         // need TROTH_ENTITY_AUTO_WRITE=1 OR action.options.auto_write
