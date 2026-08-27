@@ -525,6 +525,38 @@ module.exports = ({ test, skip }) => {
     assert.ok(!/looks offline/.test(res.text), 'never presented as a network failure: ' + res.text);
   });
 
+  test('SLEEP-1: a turn frozen mid-stream resumes instead of blaming the model for being slow', async () => {
+    let iter = 0;
+    const transport = {
+      stream: async function* () {
+        iter++;
+        if (iter === 1) {
+          const until = Date.now() + 400;
+          while (Date.now() < until) { /* freeze the loop: the suspend signature */ }
+          await new Promise(() => {});
+        }
+        yield { delta: 'Answer after the machine came back.' };
+        yield { done: true };
+      },
+      abort() {}
+    };
+    const orch = makeOrchestrator({ transport, timeout_ms: 50 });
+    const res = await orch.composeAgentic({ prompt: 'go', options: {} }, { tool_runner: async () => '{}' });
+    assert.strictEqual(res.status, 'ok', 'a frozen turn resumes: ' + res.reason);
+    assert.ok(/came back/.test(res.text), 'the answer arrives: ' + res.text);
+    assert.ok(!/break the task into smaller steps/.test(res.text), 'never blames the model for a freeze: ' + res.text);
+    const repairs = (res.trace || []).filter((t) => t.repair === 'suspended');
+    assert.ok(repairs.length >= 1, 'the resume is recorded in the trace');
+  });
+
+  test('SLEEP-2: a genuinely slow model is still reported as slow, not as a freeze', async () => {
+    const { wasSuspended } = require('../shared-core/llm-orchestrator.js');
+    assert.strictEqual(wasSuspended(240000, 240000), false, 'on-time expiry is slowness');
+    assert.strictEqual(wasSuspended(245000, 240000), false, 'a small overshoot is slowness');
+    assert.strictEqual(wasSuspended(2400000, 240000), true, 'a huge overshoot is a freeze');
+    assert.strictEqual(wasSuspended(null, 240000), false, 'garbage never claims a freeze');
+  });
+
   test('LP-7: the SAME command re-run against a CHANGING world executes every time (git status / npm test)', async () => {
     // fix -> test -> fix -> test is normal verification work. The dedup may
     // only refuse a repeat whose previous runs returned the identical result.

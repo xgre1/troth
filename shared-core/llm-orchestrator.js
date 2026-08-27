@@ -200,9 +200,12 @@ function makeOrchestrator(opts) {
   // timer alive regardless of stream state, so the orchestrator must self-bound.
   const pullWithIdle = async (iterator, idleMs) => {
     let timer;
+    const armedAt = Date.now();
     const nextP = Promise.resolve(iterator.next());
     nextP.catch(() => {});  // we may abandon this on idle — never let it throw unhandled
-    const idleP = new Promise((resolve) => { timer = setTimeout(() => resolve({ __idle: true }), idleMs); });
+    const idleP = new Promise((resolve) => {
+      timer = setTimeout(() => resolve({ __idle: true, wall_ms: Date.now() - armedAt, idle_ms: idleMs }), idleMs);
+    });
     try { return await Promise.race([ nextP, idleP ]); }
     finally { clearTimeout(timer); }
   };
@@ -700,8 +703,9 @@ function makeOrchestrator(opts) {
               maybeAbort(transport, stream);
               break;
             }
-            if (step && step.__idle) {
-              aborted = true; abortReason = 'timeout';
+                    if (step && step.__idle) {
+          aborted = true;
+          abortReason = wasSuspended(step.wall_ms, step.idle_ms) ? 'suspended' : 'timeout';
               maybeAbort(transport, stream);
               break;
             }
@@ -841,7 +845,7 @@ function makeOrchestrator(opts) {
           continue;
         }
       }
-      if (aborted && REPAIRABLE_ABORT.test(String(abortReason || '')) &&
+      if (aborted && (abortReason === 'suspended' || REPAIRABLE_ABORT.test(String(abortReason || ''))) &&
           repairs < MAX_REPAIRS && !cancelHit()) {
         repairs++;
         trace.push({ iter, repair: abortReason, attempt: repairs });
@@ -1176,7 +1180,9 @@ function makeOrchestrator(opts) {
     if (aborted) {
       tailText = (finalText && finalText.trim())
         ? finalText
-        : (abortReason === 'timeout'
+        : (abortReason === 'suspended'
+            ? '(Stopped — the machine slept for longer than this turn could be held open.)'
+            : abortReason === 'timeout'
             ? '(Stopped — the model took too long to finish. Try again, or break the task into smaller steps.)'
             : (abortReason && abortReason.indexOf('transport_') === 0)
                 ? '(Stopped — ' + transportCause(abortReason) + '.)'
@@ -1240,6 +1246,14 @@ function _honestStartFailure(facultyLabel, err) {
 
 const FAIL_SHAPE = /unknown downstream server|not logged in|unauthorized|permission denied|command not found|no such file|ENOENT|traceback \(most recent|refused|intent_refused/i;
 
+const SUSPEND_FACTOR = parseFloat(process.env.TROTH_LLM_SUSPEND_FACTOR || '1.5') || 1.5;
+
+function wasSuspended(wallMs, idleMs) {
+  const w = Number(wallMs), i = Number(idleMs);
+  if (!Number.isFinite(w) || !Number.isFinite(i) || i <= 0) return false;
+  return w > i * SUSPEND_FACTOR;
+}
+
 function _toolErrorReason(content) {
   // Short failure reason if a tool result signals an error, else null.
   const s = String(content || '');
@@ -1302,4 +1316,4 @@ function looksComplete(text) {
   return /[\.\!\?\u3002\uFF01\uFF1F]\s*$/.test(text);
 }
 
-module.exports = { makeOrchestrator, parseTextToolCalls, _honestStartFailure, _sanitizeStartError };
+module.exports = { makeOrchestrator, parseTextToolCalls, _honestStartFailure, _sanitizeStartError, wasSuspended };
