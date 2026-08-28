@@ -11,7 +11,7 @@ const assert = require('assert');
 const fs   = require('fs');
 const os   = require('os');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const sb = require(path.join(__dirname, '..', 'shared-core', 'tools', 'sandbox-seatbelt.js'));
 const SERVER = path.join(__dirname, '..', 'plugin', 'mcp-servers', 'troth-bash', 'server.mjs');
@@ -260,24 +260,33 @@ test('GW-9: the shapes a real checkout actually takes still work end to end', as
     assert.strictEqual((await c.run('git init -q .', main)).exit, 0);
     assert.strictEqual((await c.run(
       'echo x > a.txt && git add -A && git -c user.email=a@b -c user.name=n commit -qm init', main)).exit, 0);
+    // The tree is created OUTSIDE the walls, the way the operator creates one
+    // in their own shell. Creating it through the walls writes a sibling
+    // directory and is refused, which silently skipped every assertion below
+    // it and left this whole road untested.
     const tree = path.join(code, 'wtside');
-    const added = await c.run('git worktree add -q -b side ' + JSON.stringify(tree), main);
-    if (added.exit === 0) {
-      assert.strictEqual(fs.statSync(path.join(tree, '.git')).isFile(), true,
-        'this case only means anything while a linked tree keeps its repository elsewhere');
-      assert.strictEqual((await c.run('git status --porcelain >/dev/null', tree)).exit, 0);
-      assert.strictEqual((await c.run(
-        'echo y > b.txt && git add -A && git -c user.email=a@b -c user.name=n commit -qm w', tree)).exit, 0,
-        'committing from a linked working tree was refused');
-    }
+    const added = spawnSync('git', ['worktree', 'add', '-q', '-b', 'side', tree],
+                            { cwd: main, encoding: 'utf8', timeout: 60000 });
+    assert.strictEqual(added.status, 0, 'could not create a linked working tree: ' + added.stderr);
+    assert.strictEqual(fs.statSync(path.join(tree, '.git')).isFile(), true,
+      'this case only means anything while a linked tree keeps its repository elsewhere');
+    assert.strictEqual((await c.run('git status --porcelain >/dev/null', tree)).exit, 0);
+    assert.strictEqual((await c.run(
+      'echo y > b.txt && git add -A && git -c user.email=a@b -c user.name=n commit -qm w', tree)).exit, 0,
+      'committing from a linked working tree was refused');
 
     const sup = path.join(code, 'super');
     const inner = path.join(sup, 'vendor', 'lib');
     fs.mkdirSync(inner, { recursive: true });
     assert.strictEqual((await c.run('git init -q .', sup)).exit, 0);
     assert.strictEqual((await c.run('git init -q .', inner)).exit, 0);
-    assert.strictEqual((await c.run('echo x > ../../top.txt', inner)).exit, 0,
-      'a vendored tree could not reach the project it sits in');
+    // The scope is the nearest repository, so a vendored tree does not reach
+    // the project it sits in. That is the price of not letting one stray
+    // repository high in a tree join unrelated checkouts together.
+    assert.notStrictEqual((await c.run('echo x > ../../top.txt', inner)).exit, 0,
+      'a vendored tree reached the project above it');
+    assert.strictEqual((await c.run('echo x > own.txt', inner)).exit, 0,
+      'work inside the vendored tree was refused');
   } finally { c.kill(); }
 });
 };

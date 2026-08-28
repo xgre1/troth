@@ -7,7 +7,7 @@ const path = require('path');
 
 const gp = require(path.join(__dirname, '..', 'shared-core', 'tools', 'ground-policy.js'));
 
-console.log('\nGround policy (GP-1..13):');
+console.log('\nGround policy (GP-1..14):');
 
 function withHome(fn) {
   const savedHome = process.env.HOME;
@@ -256,26 +256,44 @@ test('GP-12: the repository is the unit, so a manifest at every level does not n
     fs.writeFileSync(path.join(loose, 'package.json'), '{}\n');
     assert.strictEqual(gp.classifyGround(path.join(loose)).root, loose);
 
-    // A repository inside a repository still answers with the outer one: a
-    // change in a vendored tree is usually committed from the project above.
+    // A repository inside a repository answers with the INNER one. Taking the
+    // outer one instead widened the scope sideways: one forgotten init in a
+    // directory of unrelated checkouts made all of them one project, and work
+    // in any of them could write into the others.
     const sup = mk(home, 'super'); mk(sup, '.git');
     const inner = mk(sup, 'vendor', 'lib'); mk(inner, '.git');
-    assert.strictEqual(gp.classifyGround(inner).root, sup);
+    assert.strictEqual(gp.classifyGround(inner).root, inner);
+
+    const stray = mk(home, 'checkouts'); mk(stray, '.git');
+    const clientA = mk(stray, 'clientA'); mk(clientA, '.git');
+    const clientB = mk(stray, 'clientB');
+    assert.strictEqual(gp.classifyGround(clientA).root, clientA,
+      'a stray repository above a checkout widened the scope to its neighbours');
+    assert.strictEqual(gp.classifyGround(clientB).root, stray,
+      'a directory with no repository of its own still answers with the one above it');
   });
 });
 
-test('GP-13: a working tree whose repository lives elsewhere names that repository too', () => {
+test('GP-13: a working tree names its repository only when the repository agrees', () => {
   // In a linked working tree .git is a FILE pointing into the main
   // repository, and committing writes there. Scoping to the tree alone
   // refuses every commit, naming a path the operator never mentioned.
+  //
+  // But that file lives inside the tree being scoped, so on its own it is the
+  // scoped process describing its own scope. It is honoured only when the
+  // repository points back, which cannot be arranged without the access being
+  // asked for.
   withHome((home) => {
     mk(home, '.troth');
     const main = mk(home, 'main');
     const repoDir = mk(main, '.git');
-    mk(repoDir, 'worktrees', 'side');
+    const entry = mk(repoDir, 'worktrees', 'side');
+    fs.writeFileSync(path.join(repoDir, 'HEAD'), 'ref: refs/heads/main\n');
+    mk(repoDir, 'objects');
     const tree = mk(home, 'side');
     fs.writeFileSync(path.join(tree, '.git'),
-      'gitdir: ' + path.join(repoDir, 'worktrees', 'side') + '\n');
+      'gitdir: ' + entry + '\n');
+    fs.writeFileSync(path.join(entry, 'gitdir'), path.join(tree, '.git') + '\n');
 
     const c = gp.classifyGround(tree);
     assert.strictEqual(c.root, tree, 'the working tree is still the scope');
@@ -286,6 +304,52 @@ test('GP-13: a working tree whose repository lives elsewhere names that reposito
     // needs nothing extra.
     const plain = mk(home, 'plain'); mk(plain, '.git');
     assert.deepStrictEqual(gp.classifyGround(plain).alsoWritable, []);
+  });
+});
+
+test('GP-14: a claim about where a repository lives buys nothing on its own', () => {
+  // Every case here is a file INSIDE the directory being scoped, which is
+  // where a fetched project arrives carrying whatever it likes. None of them
+  // may widen anything.
+  withHome((home) => {
+    const troth = mk(home, '.troth');
+    fs.writeFileSync(path.join(troth, 'credentials.json'), 'decoy\n');
+    const keys = mk(home, '.ssh');
+    const elsewhere = mk(home, 'elsewhere');
+
+    // A real repository, so the only thing missing is the agreement.
+    const main = mk(home, 'main');
+    const repoDir = mk(main, '.git');
+    const entry = mk(repoDir, 'worktrees', 'side');
+    fs.writeFileSync(path.join(repoDir, 'HEAD'), 'ref: refs/heads/main\n');
+    mk(repoDir, 'objects');
+
+    const cases = [
+      ['names a credential directory',      keys],
+      ['names the substrate directory',     troth],
+      ['names an ordinary directory',       elsewhere],
+      ['names a repository directly',       repoDir],
+      ['names a worktree entry, one-way',   entry]
+    ];
+    for (const [label, target] of cases) {
+      const project = mk(home, 'p-' + label.replace(/[^a-z]+/gi, '-'));
+      fs.writeFileSync(path.join(project, '.git'), 'gitdir: ' + target + '\n');
+      assert.deepStrictEqual(gp.classifyGround(project).alsoWritable, [],
+        'a one-way claim widened the scope: ' + label);
+    }
+
+    // A relative claim resolves like any other and is refused the same way.
+    const rel = mk(home, 'p-relative');
+    fs.writeFileSync(path.join(rel, '.git'), 'gitdir: ../.ssh\n');
+    assert.deepStrictEqual(gp.classifyGround(rel).alsoWritable, []);
+
+    // And once the repository agrees, the same shape is honoured — proof the
+    // refusals above come from the missing agreement and not from the walk
+    // failing to work at all.
+    const good = mk(home, 'p-agreed');
+    fs.writeFileSync(path.join(good, '.git'), 'gitdir: ' + entry + '\n');
+    fs.writeFileSync(path.join(entry, 'gitdir'), path.join(good, '.git') + '\n');
+    assert.deepStrictEqual(gp.classifyGround(good).alsoWritable, [repoDir]);
   });
 });
 };

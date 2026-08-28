@@ -631,6 +631,14 @@ function _groundProfile(kind, jewelCount, policyCount, persistCount, cacheCount,
   for (let i = 0; i < (persistCount || 0); i++) {
     lines.push('(deny file-write* (subpath (param "PERSIST' + i + '")))');
   }
+  // The credential stores are read-denied above, near the top. They are
+  // denied for WRITING here, at the end, because a deny that sits before the
+  // write allowances is only inert while no allowance overlaps it — and an
+  // allowance is a path computed at runtime. Unreadable but overwritable is
+  // not a state worth leaving reachable.
+  for (let i = 0; i < jewelCount; i++) {
+    lines.push('(deny file-write* (subpath (param "JEWEL' + i + '")))');
+  }
   lines.push(HOOK_DIR_RULE);
   return lines.join('\n') + '\n';
 }

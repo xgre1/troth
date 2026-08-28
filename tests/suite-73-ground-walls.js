@@ -69,18 +69,49 @@ test('SBG-3: paths reach the profile as parameters, never as text', () => {
   // A directory whose name carries a quote must not be able to rewrite the
   // policy, so the profile body names parameters only.
   for (const kind of ['thin', 'confine', 'home']) {
-    const body = sb._groundProfile(kind, 4, 5);
+    const body = sb._groundProfile(kind, 4, 5, 6, 7, 2);
     assert.ok(!/[/](Users|home|tmp|private)/.test(body), kind + ' profile embeds a path: ' + body);
     assert.ok(/\(param "WORKSPACE"\)/.test(body), kind + ' profile does not deny partner ground');
   }
-  const confined = sb._groundProfile('confine', 1, 1);
-  const denyAll = confined.indexOf('(deny file-write*)');
-  const allowWork = confined.indexOf('(param "WORK")');
-  const policyLast = confined.lastIndexOf('(deny file-write* (subpath (param "POLICY0")))');
-  assert.ok(denyAll > -1 && allowWork > denyAll, 'the work allowance must come after the blanket deny');
-  assert.ok(policyLast > allowWork, 'policy denies must come last or a writable tree reopens them');
-  assert.ok(sb._groundProfile('home', 1, 1).indexOf('(param "WORK")') === -1,
+
+  // Every count is passed, because the rules that matter most are the ones
+  // emitted LAST and an assertion that never asks for them cannot see their
+  // order. Later rules win here, so each of these must come after every
+  // allowance that could otherwise reopen it.
+  const confined = sb._groundProfile('confine', 2, 2, 2, 2, 2);
+  const at = (needle) => confined.indexOf(needle);
+  const denyAll    = at('(deny file-write*)');
+  const allowScr   = at('(allow file-write* (subpath (param "SCRATCH")))');
+  const allowWork  = at('(allow file-write* (subpath (param "WORK")))');
+  const allowExtra = at('(allow file-write* (subpath (param "EXTRA0")))');
+  const allowCache = at('(allow file-write* (subpath (param "CACHE0")))');
+  const denyPolicy = at('(deny file-write* (subpath (param "POLICY0")))');
+  const denyPersist= at('(deny file-write* (subpath (param "PERSIST0")))');
+  const denyJewelW = at('(deny file-write* (subpath (param "JEWEL0")))');
+  const denyJewelR = at('(deny file-read* (subpath (param "JEWEL0")))');
+  const hooks      = at('(deny file-write* (regex');
+
+  for (const [name, idx] of [['blanket write deny', denyAll], ['scratch allow', allowScr],
+                            ['work allow', allowWork], ['extra allow', allowExtra],
+                            ['cache allow', allowCache], ['policy deny', denyPolicy],
+                            ['persist deny', denyPersist], ['jewel write deny', denyJewelW],
+                            ['jewel read deny', denyJewelR], ['hook rule', hooks]]) {
+    assert.ok(idx > -1, 'the profile does not emit the ' + name + ' at all');
+  }
+  const lastAllow = Math.max(allowScr, allowWork, allowExtra, allowCache);
+  assert.ok(lastAllow > denyAll, 'an allowance came before the blanket deny and does nothing');
+  for (const [name, idx] of [['policy deny', denyPolicy], ['persist deny', denyPersist],
+                            ['jewel write deny', denyJewelW], ['hook rule', hooks]]) {
+    assert.ok(idx > lastAllow, name + ' is reopened by a later allowance');
+  }
+  // The read deny may sit early: only write allowances follow it, and they
+  // are a different operation class.
+  assert.ok(denyJewelR < denyAll, 'the read deny moved into the write section');
+
+  assert.ok(sb._groundProfile('home', 1, 1, 1, 1, 0).indexOf('(param "WORK")') === -1,
     'home ground must have no writable work directory');
+  assert.ok(sb._groundProfile('thin', 1, 1, 1, 1, 1).indexOf('(param "EXTRA0")') === -1,
+    'ground that is not confined has nothing to reopen and must name no extra tree');
 });
 
 test('SBG-4: thin ground leaves the operator their own machine', () => {

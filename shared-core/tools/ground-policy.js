@@ -96,32 +96,48 @@ function hasAny(dir, markers) {
 
 // Walks up, stopping before it can reach ground that holds the substrate — a
 // marker dropped in a home directory must not turn the whole home into one
-// project. Returns the outermost repository seen, else the nearest manifest,
+// project. Returns the NEAREST repository seen, else the nearest manifest,
 // else null for a directory that is not part of anything.
+//
+// Nearest rather than outermost, and the difference is the whole scope. A
+// monorepo has one repository at the top and manifests below it, so nearest
+// already answers the top — that case never needed the wider rule. What the
+// wider rule did need was one stray repository high in a tree of unrelated
+// checkouts: a forgotten init in a directory of client projects made the
+// scope that whole directory, and work in one client could then write into
+// another. A repository inside a repository answers with the inner one for
+// the same reason.
 function projectRootOf(dir, troth) {
   let p = dir;
-  let outermostRepo = null;
   let nearestManifest = null;
   for (let hops = 0; hops < 40; hops++) {
     if (under(p, troth) || under(troth, p)) break;
-    if (hasAny(p, VCS_MARKERS)) outermostRepo = p;
+    if (hasAny(p, VCS_MARKERS)) return p;
     if (nearestManifest === null && hasAny(p, MANIFEST_MARKERS)) nearestManifest = p;
     const parent = path.dirname(p);
     if (parent === p) break;
     p = parent;
   }
-  return outermostRepo || nearestManifest;
+  return nearestManifest;
 }
 
 // A linked working tree keeps its repository somewhere else: its .git is a
 // FILE naming a directory under the main repository, and committing writes
 // there — refs, index, objects. Scoping to the tree alone leaves every commit
-// refused with a message about a path nobody asked for. The whole repository
-// directory is returned so it can be made writable alongside the tree.
+// refused with a message about a path nobody asked for.
 //
-// An ordinary repository needs nothing: its .git is a directory inside the
-// root already.
-function linkedRepoDirOf(root) {
+// That file lives INSIDE the tree being scoped, so on its own it is the
+// scoped process describing its own scope: a file naming any directory at all
+// would hand that directory over, and a project fetched from anywhere arrives
+// carrying one. So the claim is only honoured when the repository AGREES:
+// git records a pointer back to this tree inside the worktree entry, and
+// writing that back-pointer already requires access to the repository. A
+// one-way claim is refused, and so is a target that is not shaped like a
+// repository, or that lies in the ground holding the substrate.
+//
+// An ordinary repository needs nothing from this: its .git is a directory
+// inside the root already.
+function linkedRepoDirOf(root, troth) {
   const dotgit = path.join(root, '.git');
   let text;
   try {
@@ -131,14 +147,35 @@ function linkedRepoDirOf(root) {
   const named = /^gitdir:\s*(.+?)\s*$/m.exec(text);
   if (!named) return null;
   const raw = named[1];
-  const abs = path.isAbsolute(raw) ? path.normalize(raw) : path.resolve(root, raw);
-  // <main>/.git/worktrees/<name> is a leaf of the repository directory, and
-  // a commit touches the parts beside it, so the repository directory is the
-  // unit rather than the leaf.
+  const claimed = path.isAbsolute(raw) ? path.normalize(raw) : path.resolve(root, raw);
+  const entry = realOrNull(claimed);
+  if (entry === null) return null;
+
+  // Only a worktree entry can widen anything. A file naming a repository
+  // directly, or naming an ordinary directory, names nothing here.
   const marker = path.sep + 'worktrees' + path.sep;
-  const cut = abs.indexOf(marker);
-  const repoDir = cut === -1 ? abs : abs.slice(0, cut);
-  return realOrNull(repoDir) || repoDir;
+  const cut = entry.indexOf(marker);
+  if (cut === -1) return null;
+  const repoDir = realOrNull(entry.slice(0, cut));
+  if (repoDir === null) return null;
+
+  // The repository must point back at this tree. Forging this requires
+  // already being able to write inside the repository, which is the access
+  // the claim is asking for.
+  let back;
+  try { back = String(fs.readFileSync(path.join(entry, 'gitdir'), 'utf8')).trim(); }
+  catch (_) { return null; }
+  const backReal = realOrNull(back) || path.normalize(back);
+  const hereReal = realOrNull(dotgit) || path.normalize(dotgit);
+  if (backReal !== hereReal) return null;
+
+  // Shaped like a repository, not merely a directory with the right name.
+  for (const part of ['HEAD', 'objects']) {
+    try { if (!fs.existsSync(path.join(repoDir, part))) return null; } catch (_) { return null; }
+  }
+  // And never the ground holding the substrate, whatever the file says.
+  if (under(repoDir, troth) || under(troth, repoDir)) return null;
+  return repoDir;
 }
 
 // Entries may be a bare path or an object carrying the path plus bookkeeping.
@@ -240,7 +277,7 @@ function classifyGround(cwd, opts) {
   }
 
   const root = projectRootOf(real, troth) || real;
-  const linked = linkedRepoDirOf(root);
+  const linked = linkedRepoDirOf(root, troth);
   return { ground: 'unopened', root, cwd: real,
            alsoWritable: linked ? [linked] : [] };
 }
