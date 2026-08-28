@@ -76,6 +76,18 @@ try {
   redactor = require(serverDir + '../../../shared-core/secret-redactor.js');
 } catch (e) { /* fall back to no archival or danger check */ }
 
+// The egress listener: an install jail's only network road leads here, and
+// the allowlist lives in this process, where the jail cannot reach it. It
+// binds loopback on an ephemeral port, starts with the server and dies with
+// it. A failed start degrades the install jail to direct network with
+// loopback denied — announced on each interception, never silent.
+let egress = null;
+try {
+  const serverDir = fileURLToPath(new URL('.', import.meta.url));
+  const eg = require(serverDir + '../../../shared-core/tools/egress-proxy.js');
+  eg.startEgressProxy({}).then((p) => { egress = p; }).catch(() => {});
+} catch (_) { /* module missing from this install: direct-network fallback */ }
+
 // Normalize + validate a directory: expand a leading ~, resolve, and require
 // an EXISTING directory. Returns null otherwise. A stale cwd (deleted
 // worktree, ~-prefixed input) used to surface as "spawn /bin/bash ENOENT" —
@@ -297,11 +309,16 @@ function runCommand(command, timeoutMs, overrideCwd) {
     // moves into the OS jail, scoped to the nearest project. Announced every
     // time — it is a mode switch, and its failure modes differ from the
     // ground's — like the workspace jail above, not like the quiet walls.
-    const iw = installWrapFor(command, wrap, effectiveCwd);
+    const cmdStart = Date.now();
+    const iw = installWrapFor(command, wrap, effectiveCwd,
+                              { proxyPort: egress ? egress.port : null });
     if (iw) {
       cwdNote += '[troth-bash] install jail (' + iw.manager + '): writes scoped to '
-        + iw.root + ', home invisible; global/user-target installs are not'
-        + ' intercepted and keep their ground\n';
+        + iw.root + ', home invisible, '
+        + (iw.egress === 'proxy'
+            ? 'network reaches the package registries only'
+            : 'direct network (egress proxy unavailable)')
+        + '; global/user-target installs are not intercepted and keep their ground\n';
     }
     const active = iw || wrap;
     // Confined ground and the substrate tree say nothing in advance. A
@@ -388,6 +405,17 @@ function runCommand(command, timeoutMs, overrideCwd) {
             : 'writes here are scoped to ' + active.root + ', so a path outside it is'
               + ' refused. If that is wrong, `troth open ' + active.root + '` and it'
               + ' runs with your own environment.') + '\n';
+        }
+      }
+      // What the egress proxy turned away while this command ran, named on
+      // the result it explains. Best-effort attribution: concurrent installs
+      // share the listener, so a refusal may land on a neighbour's note.
+      if (iw && iw.egress === 'proxy' && egress) {
+        const refused = Array.from(new Set(egress.refusalsSince(cmdStart)));
+        if (refused.length) {
+          stderrOut += '\n[troth-bash] egress refused during this install: '
+            + refused.slice(0, 8).join(', ')
+            + ' — an install jail reaches the package registries only.\n';
         }
       }
       resolve({

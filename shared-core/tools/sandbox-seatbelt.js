@@ -162,6 +162,14 @@ function _profile(network) {
     lines.push('(allow network*)');
     lines.push('(allow system-socket)');
     lines.push('(deny network* (remote ip "localhost:*"))');
+  } else if (network === 'proxy') {
+    // One loopback port and nothing else — the egress proxy's. Measured
+    // both ways with a live listener one port over: the grant connects,
+    // the neighbour refuses, and the parameter form carries the port so
+    // one profile file serves every proxy instance. The child needs no
+    // resolver: its proxy environment names the address as an IP literal,
+    // and name resolution happens in the host process on the far side.
+    lines.push('(allow network-outbound (remote tcp (param "PROXYADDR")))');
   }
   return lines.join('\n') + '\n';
 }
@@ -337,7 +345,11 @@ function jailSpawnSpec(opts) {
   opts = opts || {};
   const avail = module.exports.isAvailable();
   if (!avail.available) return { ok: false, error: avail.error || 'sandbox-exec not usable' };
-  const network = opts.network === 'full' ? 'full' : 'none';
+  const network = opts.network === 'full' ? 'full'
+    : opts.network === 'proxy' ? 'proxy' : 'none';
+  if (network === 'proxy' && !(Number.isInteger(opts.proxyPort) && opts.proxyPort > 0)) {
+    return { ok: false, error: 'proxy network mode requires proxyPort' };
+  }
   let work;
   try {
     work = fs.realpathSync(opts.cwd);   // symlink-resolved: subpath match is on real paths
@@ -370,11 +382,13 @@ function jailSpawnSpec(opts) {
   } catch (e) {
     return { ok: false, error: 'jail_setup_failed: ' + (e && e.message || e) };
   }
+  const args = ['-f', profilePath, '-D', 'WORK=' + work,
+                '-D', 'TOOLROOT=' + toolRoot, '-D', 'SCRATCH=' + scratch];
+  if (network === 'proxy') args.push('-D', 'PROXYADDR=localhost:' + opts.proxyPort);
   return {
     ok:   true,
     exec: SANDBOX_EXEC,
-    args: ['-f', profilePath, '-D', 'WORK=' + work,
-           '-D', 'TOOLROOT=' + toolRoot, '-D', 'SCRATCH=' + scratch],
+    args,
     env:  _buildEnv(jailHome, jailTmp, path.join(toolRoot, 'bin'), opts.env),
     work
   };

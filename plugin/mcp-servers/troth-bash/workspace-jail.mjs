@@ -272,7 +272,7 @@ function intercept() {
 //
 // Returns { kind:'install-jail', exec, args, env, ground, root, manager }
 // or null when the command is not an intercepted install.
-export function installWrapFor(command, wrap, cwd) {
+export function installWrapFor(command, wrap, cwd, opts) {
   if (!wrap || (wrap.kind !== 'thin' && wrap.kind !== 'confine')) return null;
   const ic = intercept();
   if (!ic) return null;
@@ -285,8 +285,25 @@ export function installWrapFor(command, wrap, cwd) {
   try { work = (gp && typeof gp.projectRoot === 'function') ? gp.projectRoot(cwd) : null; }
   catch { work = null; }
   work = work || wrap.root || cwd;
-  const spec = sb.jailSpawnSpec({ cwd: work, network: 'full' });
+  // With an egress port the jail's only road out is the proxy, and the
+  // child is told to use it in the one dialect every package manager
+  // speaks. The address is an IP literal so no resolver is needed inside.
+  // Without a port (the listener failed to start), the jail falls back to
+  // direct network with loopback denied — the filesystem walls hold either
+  // way, and the note says which road the install ran on.
+  const proxyPort = opts && Number.isInteger(opts.proxyPort) && opts.proxyPort > 0
+    ? opts.proxyPort : null;
+  const spec = proxyPort
+    ? sb.jailSpawnSpec({ cwd: work, network: 'proxy', proxyPort, env: {
+        HTTP_PROXY: 'http://127.0.0.1:' + proxyPort,
+        HTTPS_PROXY: 'http://127.0.0.1:' + proxyPort,
+        http_proxy: 'http://127.0.0.1:' + proxyPort,
+        https_proxy: 'http://127.0.0.1:' + proxyPort,
+        NO_PROXY: '', no_proxy: ''
+      } })
+    : sb.jailSpawnSpec({ cwd: work, network: 'full' });
   if (!spec.ok) return null;
   return { kind: 'install-jail', exec: spec.exec, args: spec.args, env: spec.env,
-           ground: wrap.ground, root: spec.work, manager: c.manager };
+           ground: wrap.ground, root: spec.work, manager: c.manager,
+           egress: proxyPort ? 'proxy' : 'direct' };
 }
