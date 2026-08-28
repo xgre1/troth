@@ -40,6 +40,14 @@ const BARE_INSTALLS = new Set(['yarn', 'pnpm']);
 // A segment of glue that may accompany install segments without disarming
 // the interception: repositioning only, nothing executed.
 const GLUE = new Set(['cd', 'true', ':']);
+// Output consumers: the everyday tail of an install command — an agent
+// pipes installs through tail/grep to keep the output short, and treating
+// that spelling as "mixed work" would route the COMMON install around the
+// jail. These read the stream and execute nothing of their own; inside the
+// jail they behave exactly as outside, and tee's file lands in the project
+// like any other write.
+const CONSUMERS = new Set(['tail', 'head', 'cat', 'grep', 'egrep', 'fgrep',
+                           'wc', 'sort', 'uniq', 'cut', 'tee', 'tr']);
 
 // Split on unquoted && || ; | — enough shell to see a command list. Quoted
 // operators stay inside their argument; anything the split misreads fails
@@ -89,6 +97,7 @@ function _classifySegment(segment) {
   if (!argv.length) return 'other';
   const cmd = _base(argv[0]);
   if (GLUE.has(cmd)) return segment.indexOf('>') === -1 ? 'glue' : 'other';
+  if (CONSUMERS.has(cmd)) return 'glue';
   if (ALWAYS.has(cmd)) return 'install';
   const verbs = MANAGER_VERBS[cmd];
   if (!verbs) return 'other';
@@ -103,9 +112,9 @@ function _classifySegment(segment) {
 }
 
 // classifyInstall(command) → { install: boolean, manager?: string }
-// True only when every segment is an install (or repositioning glue) — a
-// mixed command would drag ordinary work into the jail's different failure
-// modes, so it keeps its ground and the miss is the documented fail-open.
+// True only when every segment is an install, repositioning glue, or an
+// output consumer — a command that goes on to EXECUTE something else keeps
+// its ground, and the miss is the documented fail-open.
 function classifyInstall(command) {
   if (typeof command !== 'string' || !command.trim()) return { install: false };
   const segs = _segments(command);

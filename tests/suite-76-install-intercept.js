@@ -28,7 +28,12 @@ test('II-1: the classifier catches project-scoped installs and leaves everything
     'yarn add react', 'bun add zod', 'npx cowsay hi', 'bunx prettier .',
     'uv add requests', 'uv sync', 'cargo add serde', 'cargo update',
     'composer require monolog/monolog', 'composer create-project x/y',
-    'cd api && npm install', 'cd api && npm ci && cd ../web && npm ci'
+    'cd api && npm install', 'cd api && npm ci && cd ../web && npm ci',
+    // output consumers ride along: this is how an agent actually spells an
+    // install, and 'mixed' here would route the COMMON case around the jail
+    'npm install left-pad --no-audit 2>&1 | tail -3',
+    'npm install | tee log.txt', 'npm ci | grep -v deprecated | wc -l',
+    'cd api && npm install 2>&1 | tail -5'
   ];
   for (const c of yes) {
     assert.strictEqual(ic.classifyInstall(c).install, true, 'missed: ' + c);
@@ -42,9 +47,9 @@ test('II-1: the classifier catches project-scoped installs and leaves everything
     'pip install requests', 'pip3 install --user x', 'pipx install poetry',
     'cargo install ripgrep', 'gem install rails', 'bundle install',
     'go install golang.org/x/tools/gopls@latest', 'brew install jq',
-    // mixed with ordinary work: the ground keeps it
+    // mixed with work that EXECUTES something: the ground keeps it
     'npm install && node server.js', 'npm ci; ./run.sh',
-    'echo hi && npm install', 'npm install | tee log.txt',
+    'echo hi && npm install', 'npm install | sh', 'npm install | xargs rm',
     // glue that redirects is not glue
     'cd api > f && npm install'
   ];
