@@ -402,6 +402,16 @@ function closeFolder(dir) {
   }
 }
 
+// The nearest project of a directory, by the same walk the classifier uses
+// (nearest repository, else nearest manifest, bounded away from the
+// substrate tree). Null when nothing above the directory marks a project.
+function projectRoot(dir) {
+  const real = realOrNull(dir);
+  if (real === null) return null;
+  const troth = realOrNull(trothDir()) || trothDir();
+  return projectRootOf(real, troth);
+}
+
 module.exports = {
   classifyGround,
   openedFolders,
@@ -410,5 +420,6 @@ module.exports = {
   registryPath,
   workspaceRoot,
   trothDir,
+  projectRoot,
   _readForWrite: readForWrite
 };

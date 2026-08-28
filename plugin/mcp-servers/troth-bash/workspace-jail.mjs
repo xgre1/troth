@@ -247,3 +247,46 @@ export function wrapFor(cwd, opts) {
   return { kind: jailed ? 'jail' : spec.kind, exec: spec.exec, args: spec.args,
            env: spec.env, ground: c.ground, root };
 }
+
+let _intercept = null;
+function intercept() {
+  if (_intercept === null) {
+    try {
+      const serverDir = fileURLToPath(new URL('.', import.meta.url));
+      _intercept = require(serverDir + '../../../shared-core/tools/install-intercept.js');
+    } catch { _intercept = false; }
+  }
+  return _intercept || null;
+}
+
+// installWrapFor(command, wrap, cwd) — the second look a command gets after
+// the ground decision: a package installation on the operator's own ground
+// (thin or confined) moves into the OS jail, scoped to the nearest project,
+// because an install script runs with the reach of the ground it stands on
+// and the everyday "add package X to my repo" stands on the widest one.
+//
+// Grounds already jailed keep their jail; home ground keeps its scratch-only
+// treatment, which is STRICTER than a jail whose WORK would be the home
+// itself; walls-off stays walls-off — the operator's switch outranks this
+// layer the same way it outranks every other.
+//
+// Returns { kind:'install-jail', exec, args, env, ground, root, manager }
+// or null when the command is not an intercepted install.
+export function installWrapFor(command, wrap, cwd) {
+  if (!wrap || (wrap.kind !== 'thin' && wrap.kind !== 'confine')) return null;
+  const ic = intercept();
+  if (!ic) return null;
+  const c = ic.classifyInstall(command);
+  if (!c.install) return null;
+  const sb = seatbelt();
+  const gp = groundPolicy();
+  if (!sb || typeof sb.jailSpawnSpec !== 'function') return null;
+  let work = null;
+  try { work = (gp && typeof gp.projectRoot === 'function') ? gp.projectRoot(cwd) : null; }
+  catch { work = null; }
+  work = work || wrap.root || cwd;
+  const spec = sb.jailSpawnSpec({ cwd: work, network: 'full' });
+  if (!spec.ok) return null;
+  return { kind: 'install-jail', exec: spec.exec, args: spec.args, env: spec.env,
+           ground: wrap.ground, root: spec.work, manager: c.manager };
+}

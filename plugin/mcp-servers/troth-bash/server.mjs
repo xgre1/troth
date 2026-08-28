@@ -30,7 +30,7 @@ import { resolve as pathResolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
 import { compressCommandOutput } from './compress.mjs';
-import { jailFor, wrapFor } from './workspace-jail.mjs';
+import { jailFor, wrapFor, installWrapFor } from './workspace-jail.mjs';
 
 const require = createRequire(import.meta.url);
 const _greet = require(fileURLToPath(new URL('../../../shared-core/mcp-greeting.js', import.meta.url))).makeGreeter();
@@ -293,6 +293,17 @@ function runCommand(command, timeoutMs, overrideCwd) {
             ? ' (the workspace root: this command can see every project — cd into one for real work)'
             : '') + '\n';
     }
+    // The second look: a package installation on thin or confined ground
+    // moves into the OS jail, scoped to the nearest project. Announced every
+    // time — it is a mode switch, and its failure modes differ from the
+    // ground's — like the workspace jail above, not like the quiet walls.
+    const iw = installWrapFor(command, wrap, effectiveCwd);
+    if (iw) {
+      cwdNote += '[troth-bash] install jail (' + iw.manager + '): writes scoped to '
+        + iw.root + ', home invisible; global/user-target installs are not'
+        + ' intercepted and keep their ground\n';
+    }
+    const active = iw || wrap;
     // Confined ground and the substrate tree say nothing in advance. A
     // warning printed before anything has gone wrong is a line on every
     // result that the reader learns to skip, and it arrives when there is
@@ -302,7 +313,7 @@ function runCommand(command, timeoutMs, overrideCwd) {
     // as it always has, and a note on every command there means nothing.
     //
     // An off-by-config wrap carries no argv, so it spawns bare below.
-    const wrapped = wrap && wrap.exec ? wrap : null;
+    const wrapped = active && active.exec ? active : null;
     // detached puts the command in its OWN process group so a kill can take
     // the whole tree. Seatbelt scopes signals to one sandbox-exec
     // invocation, so a background server started inside a jail is
@@ -359,19 +370,23 @@ function runCommand(command, timeoutMs, overrideCwd) {
       // Case-insensitive: the shell spells it "Operation not permitted", an
       // interpreter error spells it lower-case, and the kernel wall is the
       // only road an interpreter-carried write ever meets.
-      if (wrap && wrap.kind && code !== 0 && /operation not permitted|permission denied/i.test(errBuf.get())) {
+      if (active && active.kind && code !== 0 && /operation not permitted|permission denied/i.test(errBuf.get())) {
         const walled = seatbelt ? seatbelt._persistencePaths().find((p) => errBuf.get().includes(p)) : null;
         if (walled) {
           stderrOut += '\n[troth-bash] ' + walled + ' is a file this machine executes or obeys'
             + ' (shell startup, agent host, or the next git/ssh/npm/docker operation), so no'
             + ' ground writes it. Per-project configuration stays open: .git/config in the'
             + ' repo, a project-local .npmrc.\n';
-        } else if (wrap.kind === 'confine' || wrap.kind === 'home') {
-          stderrOut += '\n[troth-bash] ' + (wrap.kind === 'home'
+        } else if (active.kind === 'install-jail') {
+          stderrOut += '\n[troth-bash] the install ran jailed: writes land only in ' + active.root
+            + ' and the home is not visible. A dependency that needs a path outside the'
+            + ' project is the thing this jail exists to catch — check what asked for it.\n';
+        } else if (active.kind === 'confine' || active.kind === 'home') {
+          stderrOut += '\n[troth-bash] ' + (active.kind === 'home'
             ? 'this directory holds the substrate: writes land in scratch, not here.'
               + ' cd into a project to work.'
-            : 'writes here are scoped to ' + wrap.root + ', so a path outside it is'
-              + ' refused. If that is wrong, `troth open ' + wrap.root + '` and it'
+            : 'writes here are scoped to ' + active.root + ', so a path outside it is'
+              + ' refused. If that is wrong, `troth open ' + active.root + '` and it'
               + ' runs with your own environment.') + '\n';
         }
       }

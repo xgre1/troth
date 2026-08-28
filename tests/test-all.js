@@ -80,6 +80,7 @@ require('./suite-72-ground-policy.js')({ test, skip });
 require('./suite-73-ground-walls.js')({ test, skip });
 require('./suite-74-ground-wiring.js')({ test, skip });
 require('./suite-75-env-door.js')({ test, skip });
+require('./suite-76-install-intercept.js')({ test, skip });
 
 // --- SUMMARY ---
 flushAsyncTests().then(() => {
