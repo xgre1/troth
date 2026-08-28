@@ -660,6 +660,8 @@ if (command === "help" || args.indexOf("-h") !== -1 || args.indexOf("--help") !=
     "Setup & health",
     "  troth setup               guided setup   troth doctor           environment checks",
     "  troth codex login         sign in with your own ChatGPT subscription",
+    "  troth open [dir]          work in that folder with your own environment (default: here)",
+    "  troth opened              list them        troth close [dir]      withdraw one",
     "  troth start / restart     proxy control  troth tail             follow proxy logs",
     "  troth service [install]   start at login (launchd on macOS, systemd on Linux)",
     "",
@@ -809,6 +811,8 @@ if (command === "lock") {
   }
   process.exit(0);
 }
+
+require('./cmd-ground.js')(__cliCtx);
 
 require('./cmd-drafts.js')(__cliCtx);
 

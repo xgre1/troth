@@ -8,6 +8,9 @@
 module.exports = [
   "setup", "init", "doctor", "accounts", "start", "restart", "tail", "reset",
   "service",
+  // Ground registry: which of the operator's own folders the partner may
+  // work in with the operator's environment. The only writer of that file.
+  "open", "close", "opened",
   "version", "help", "ui", "app",
   // `troth classic` as an explicit subcommand: force Claude-Code-through-proxy
   // for ONE run without flipping default_command (the gate below honors it).
