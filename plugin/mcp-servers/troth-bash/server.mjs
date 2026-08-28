@@ -57,6 +57,7 @@ let safety = null;
 let constraintLedger = null;
 let redactor = null;
 let seatbelt = null;
+let envdoor = null;
 try {
   const serverDir = fileURLToPath(new URL('.', import.meta.url));
   // plugin/mcp-servers/troth-bash/ → repo/shared-core/state.js
@@ -65,6 +66,7 @@ try {
   danger = require(serverDir + '../../../shared-core/danger.js');
   safety = require(serverDir + '../../../shared-core/tools/bash-safety.js');
   seatbelt = require(serverDir + '../../../shared-core/tools/sandbox-seatbelt.js');
+  envdoor = require(serverDir + '../../../shared-core/tools/env-door.js');
   // The same harvest+redact store the outbound reply path uses. Raw stdout
   // used to flow to the model AND into tool_output_archive untouched, which
   // is how 550 credential literals ended up full-text searchable on disk:
@@ -148,6 +150,42 @@ const TOOLS = [
         host: { type: 'string', description: 'CDP host (default 127.0.0.1).' },
         port: { type: 'integer', description: 'CDP port. Omit to use the troth browser (started if needed on 18222). Explicit ports are attach-only; 9222 is the operator\'s own debug browser.' }
       }
+    }
+  },
+  {
+    name: 'env_set',
+    description: 'Write keys into a dotenv file (.env, .env.*) WITHOUT the values transiting the conversation: secrets are named from the vault and resolved host-side; replies carry key NAMES only. Literals are for non-secret configuration — a credential-shaped literal is refused (put it in the vault first). Reading .env stays refused everywhere; verify configuration by running the app.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'Target dotenv file, absolute or relative to the persistent cwd.' },
+        entries: {
+          type: 'array',
+          description: 'Each entry sets one key: {key, from_vault: "<vault entry name>"} for secrets, {key, value: "<literal>"} for non-secret config. All-or-nothing: the whole batch is refused if any entry cannot resolve.',
+          items: {
+            type: 'object',
+            properties: {
+              key: { type: 'string', description: 'Env var name ([A-Za-z_][A-Za-z0-9_]*).' },
+              value: { type: 'string', description: 'Literal value — non-secret configuration only.' },
+              from_vault: { type: 'string', description: 'Vault entry name to resolve host-side; the value never enters the conversation.' }
+            },
+            required: ['key']
+          }
+        },
+        overwrite: { type: 'boolean', description: 'Required true to replace keys that already exist — their current values are not readable from here, so replacing them is destructive.' }
+      },
+      required: ['file', 'entries']
+    }
+  },
+  {
+    name: 'env_keys',
+    description: 'List the key NAMES present in a dotenv file and whether a vault entry of the same name is usable for this project. Never returns values.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'Dotenv file, absolute or relative to the persistent cwd.' }
+      },
+      required: ['file']
     }
   }
 ];
@@ -461,6 +499,22 @@ async function handleTool(name, args) {
     }
     cwd = dir;
     return { content: [{ type: 'text', text: 'cwd → ' + cwd }] };
+  }
+  if (name === 'env_set' || name === 'env_keys') {
+    if (!envdoor) {
+      return { isError: true, content: [{ type: 'text', text: 'env door unavailable: shared-core not found from this install' }] };
+    }
+    if (name === 'env_keys') {
+      const r = envdoor.envKeys({ file: args.file, cwd });
+      if (!r.ok) return { isError: true, content: [{ type: 'text', text: 'REFUSED ' + r.error + '. ' + (r.detail || '') }] };
+      const names = r.keys.map((k) => k.name + (k.vault_usable ? ' (vault)' : '')).join(', ');
+      return { content: [{ type: 'text', text: r.keys.length + ' key(s) in ' + r.file + (r.keys.length ? ': ' + names : '') + (r.vault === 'locked' ? ' — vault locked, vault-usable flags unavailable' : '') }] };
+    }
+    const r = envdoor.envSet({ file: args.file, entries: args.entries, overwrite: args.overwrite === true, cwd });
+    if (!r.ok) {
+      return { isError: true, content: [{ type: 'text', text: 'REFUSED ' + r.error + '. ' + (r.detail || '') }] };
+    }
+    return { content: [{ type: 'text', text: 'wrote ' + r.count + ' key(s) to ' + r.file + ': ' + r.written.join(', ') + (r.from_vault.length ? ' (' + r.from_vault.join(', ') + ' from vault)' : '') }] };
   }
   if (name === 'run') {
     // Two pre-flight gates, and the difference between them is whether an

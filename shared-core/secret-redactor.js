@@ -134,7 +134,30 @@ function redact(text) {
 /** True when at least one harvested secret is being tracked. */
 function active() { return _fifo.length > 0; }
 
+/** Register a value KNOWN to be a secret (e.g. one the env door resolved
+ *  from the vault) so any later surfacing leaves masked. Same store and
+ *  bounds as harvest; below-minimum or allow-listed values are ignored. */
+function addKnown(v) { _add(v); }
+
+/** Judge one name/value pair for the env door: the known token prefixes and
+ *  PEM blocks are secrets whatever the name says; otherwise a
+ *  credential-worded name marks the value. Deliberately STRICTER than
+ *  harvest's in-text judgement: harvest must not mask identifiers that code
+ *  assigns to credential-named constants, but a literal handed to a dotenv
+ *  write under a credential-worded key has no such reading — real passwords
+ *  are exactly the identifier-shaped strings that exemption would wave
+ *  through. Placeholders stay allowed via VALUE_ALLOW_RE. */
+function looksSecret(name, value) {
+  if (typeof value !== 'string') return false;
+  const v = value.trim();
+  if (v.length < MIN_LEN || VALUE_ALLOW_RE.test(v)) return false;
+  PREFIX_RE.lastIndex = 0;
+  if (PREFIX_RE.test(v)) return true;
+  if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(v)) return true;
+  return typeof name === 'string' && CRED_NAME_RE.test(name);
+}
+
 // Test hook: reset the store (hermetic suites only).
 function _resetForTests() { _fifo.length = 0; _set.clear(); }
 
-module.exports = { harvest, redact, active, MARKER, _resetForTests };
+module.exports = { harvest, redact, active, addKnown, looksSecret, MARKER, _resetForTests };
