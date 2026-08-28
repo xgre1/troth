@@ -15,7 +15,7 @@ const { spawnSync } = require('child_process');
 
 const sb = require(path.join(__dirname, '..', 'shared-core', 'tools', 'sandbox-seatbelt.js'));
 
-console.log('\nGround walls (SBG-1..13):');
+console.log('\nGround walls (SBG-1..14):');
 
 function withTrothDir(fn) {
   const saved = process.env.TROTH_CONFIG_DIR;
@@ -296,7 +296,12 @@ test('SBG-11: every startup file walled here is also walled on the tool road', (
   // measures when a module was required rather than what it covers.
   const blocked = policy.BLOCKED_PREFIXES.map((e) => e.prefix.replace(/\/$/, ''));
   for (const rel of sb.PERSISTENCE_RELATIVE) {
-    assert.ok(blocked.some((p) => p.endsWith(path.sep + rel)),
+    // A covering entry may name the file itself or a directory above it —
+    // ~/.ssh/ already refuses every write beneath it, and a second spelling
+    // of the same refusal would only give the two roads a reason to drift.
+    const chain = [];
+    for (let r = rel; r && r !== '.'; r = path.dirname(r)) chain.push(r);
+    assert.ok(chain.some((c) => blocked.some((p) => p.endsWith(path.sep + c))),
       'the tool road does not refuse a startup file the kernel rule covers: ' + rel);
   }
   assert.ok(/\.git\/hooks/.test(sb.HOOK_DIR_RULE), 'the repository hook rule lost its target');
@@ -364,6 +369,76 @@ test('SBG-13: confined ground can still write the caches a toolchain writes with
           'mkdir -p ' + JSON.stringify(path.dirname(target)) + ' && echo x > ' + JSON.stringify(target), proj), 0,
           'the cache allowance reached a tree that is not a cache: ~/' + rel);
       }
+    });
+  } finally {
+    if (savedHome === undefined) delete process.env.HOME; else process.env.HOME = savedHome;
+  }
+});
+
+test('SBG-14: what the next tool operation obeys is not writable either, and the everyday files beside it are', () => {
+  if (!sb.isAvailable().available) return skip('sandbox-exec unavailable');
+  const savedHome = process.env.HOME;
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'sbgt-')));
+  process.env.HOME = home;
+  try {
+    withTrothDir(() => {
+      // ~/.ssh as a LINK is the common dotfile shape, and the hard case: the
+      // walled file does not exist yet, so an unresolved parameter would name
+      // a path no syscall reports and the wall would miss the write.
+      const dotfiles = path.join(home, 'dotfiles', 'ssh');
+      fs.mkdirSync(dotfiles, { recursive: true });
+      fs.symlinkSync(dotfiles, path.join(home, '.ssh'));
+      fs.writeFileSync(path.join(dotfiles, 'known_hosts'), 'original\n');
+      fs.writeFileSync(path.join(home, '.gitconfig'), 'original\n');
+      fs.mkdirSync(path.join(home, '.docker'), { recursive: true });
+      fs.mkdirSync(path.join(home, '.config', 'git'), { recursive: true });
+      const proj = path.join(home, 'proj');
+      fs.mkdirSync(proj, { recursive: true });
+
+      const spec = sb.groundSpawnSpec({ kind: 'thin' });
+      assert.ok(spec.ok, 'thin spec failed: ' + spec.error);
+
+      const refused = [
+        ['~/.gitconfig',           'echo x >> ' + JSON.stringify(path.join(home, '.gitconfig'))],
+        ['~/.config/git/config',   'echo x > '  + JSON.stringify(path.join(home, '.config', 'git', 'config'))],
+        ['~/.npmrc',               'echo x > '  + JSON.stringify(path.join(home, '.npmrc'))],
+        ['~/.docker/config.json',  'echo x > '  + JSON.stringify(path.join(home, '.docker', 'config.json'))],
+        ['~/.bash_logout',         'echo x > '  + JSON.stringify(path.join(home, '.bash_logout'))],
+        ['~/.zlogout',             'echo x > '  + JSON.stringify(path.join(home, '.zlogout'))],
+        // through the link and at its real target: two spellings of one file
+        ['~/.ssh/config',          'echo x > '  + JSON.stringify(path.join(home, '.ssh', 'config'))],
+        ['~/.ssh/config (real)',   'echo x > '  + JSON.stringify(path.join(dotfiles, 'config'))],
+        ['~/.ssh/rc',              'echo x > '  + JSON.stringify(path.join(home, '.ssh', 'rc'))],
+        ['~/.ssh/authorized_keys', 'echo x >> ' + JSON.stringify(path.join(home, '.ssh', 'authorized_keys'))],
+        // a wall a rename can lift is no wall: moving the file aside is a
+        // write to the protected path
+        ['~/.gitconfig (rename)',  'mv ' + JSON.stringify(path.join(home, '.gitconfig')) + ' ' + JSON.stringify(path.join(home, 'aside'))]
+      ];
+      for (const [name, cmd] of refused) {
+        assert.notStrictEqual(runUnder(spec, cmd, proj), 0, name + ' was writable on thin ground');
+      }
+      assert.strictEqual(fs.readFileSync(path.join(home, '.gitconfig'), 'utf8').trim(), 'original',
+        'the global git config changed on disk');
+      assert.ok(!fs.existsSync(path.join(dotfiles, 'config')), 'an ssh client config landed at the real target');
+
+      // The everyday files beside the walled ones stay open, or the operator
+      // routes around the wall: known_hosts takes a write on every first
+      // connection, and per-repo configuration is the sanctioned road.
+      assert.strictEqual(runUnder(spec, 'echo x >> ' + JSON.stringify(path.join(home, '.ssh', 'known_hosts')), proj), 0,
+        'the everyday ssh file beside the walled ones was refused');
+      assert.strictEqual(runUnder(spec, 'echo x > ' + JSON.stringify(path.join(home, '.config', 'git', 'attributes')), proj), 0,
+        'an inert sibling of the walled git config was refused');
+      assert.strictEqual(runUnder(spec, 'git init -q r && cd r && git config user.name n', proj), 0,
+        'the per-repo road must stay open');
+      assert.notStrictEqual(runUnder(spec, 'git config --global user.name n', proj), 0,
+        'the global road stayed open');
+
+      // Confined ground: the same file is refused by the LAST-emitted deny,
+      // not merely by a blanket deny an allowance could reopen.
+      const cspec = sb.groundSpawnSpec({ kind: 'confine', cwd: proj });
+      assert.ok(cspec.ok, 'confine spec failed: ' + cspec.error);
+      assert.notStrictEqual(runUnder(cspec, 'echo x >> ' + JSON.stringify(path.join(home, '.gitconfig')), proj), 0,
+        'confine: the global git config was writable');
     });
   } finally {
     if (savedHome === undefined) delete process.env.HOME; else process.env.HOME = savedHome;

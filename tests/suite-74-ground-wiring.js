@@ -16,7 +16,7 @@ const { spawn, spawnSync } = require('child_process');
 const sb = require(path.join(__dirname, '..', 'shared-core', 'tools', 'sandbox-seatbelt.js'));
 const SERVER = path.join(__dirname, '..', 'plugin', 'mcp-servers', 'troth-bash', 'server.mjs');
 
-console.log('\nGround wiring (GW-1..9):');
+console.log('\nGround wiring (GW-1..10):');
 
 // A throwaway machine: substrate directory, partner project ground with two
 // projects, one folder the operator opened and one nobody declared.
@@ -287,6 +287,33 @@ test('GW-9: the shapes a real checkout actually takes still work end to end', as
       'a vendored tree reached the project above it');
     assert.strictEqual((await c.run('echo x > own.txt', inner)).exit, 0,
       'work inside the vendored tree was refused');
+  } finally { c.kill(); }
+});
+
+test('GW-10: a refusal caused by a machine-executed file explains that ground is not the reason', async () => {
+  if (!live) return skip('sandbox-exec unavailable');
+  const m = makeHome();
+  const c = client(m.home, m.troth);
+  try {
+    await c.init();
+    // The interpreter road: the plain shell spelling is already refused by
+    // the text road with its own explanation, so the kernel — and this note
+    // — is what a filesystem call carried inside an interpreter argument
+    // meets. On opened ground the wall is thin, and `troth open` would not
+    // lift this refusal.
+    const gitcfg = path.join(m.home, '.gitconfig');
+    const viaNode = 'node -e ' + JSON.stringify(
+      'require("fs").appendFileSync(' + JSON.stringify(gitcfg) + ', "x")');
+    const out = await c.run(viaNode, m.opened);
+    assert.notStrictEqual(out.exit, 0, 'a machine-executed file was writable from opened ground');
+    assert.ok(out.note.includes(gitcfg), 'the refusal does not name the file: ' + out.note);
+    assert.ok(!/troth open/.test(out.note), 'the note promises a lift that never comes: ' + out.note);
+    // From undeclared ground the same cause gets the same explanation, not
+    // the scope note whose remedy would change nothing.
+    const out2 = await c.run(viaNode, m.stranger);
+    assert.notStrictEqual(out2.exit, 0);
+    assert.ok(out2.note.includes(gitcfg) && !/troth open/.test(out2.note),
+      'undeclared ground blamed the scope for a wall that holds everywhere: ' + out2.note);
   } finally { c.kill(); }
 });
 };

@@ -553,16 +553,27 @@ function _policyPaths() {
 // The suite pins that every name here is also refused by that policy, so the
 // two cannot drift apart unnoticed.
 //
-// Deliberately NOT here: the credential directories the operator's own tools
-// read and write (ssh known_hosts, cloud CLI caches). Denying those breaks
-// their everyday git push on their own ground, and a wall people route
-// around protects nothing.
+// Two families sit here. Shell and host startup files are executed on the
+// next shell or agent start. The second family is obeyed by the next TOOL
+// operation instead: the global git configs and the ssh client config can
+// name a command that operation runs, the global npm config redirects every
+// later install, the docker client config names credential-helper
+// executables, authorized_keys grants a login, and the logout files are
+// sourced at shell exit exactly as the rc files are at start.
+//
+// The DIRECTORIES holding the second family stay writable on purpose:
+// ~/.ssh/known_hosts takes a write on every first connection, and a wall
+// that breaks the operator's everyday git push is a wall people route
+// around. Only the named files are refused — and each has a sanctioned
+// road that stays open: per-repo .git/config, a project-local .npmrc.
 const PERSISTENCE_RELATIVE = [
-  '.bashrc', '.bash_profile', '.bash_login', '.profile',
-  '.zshrc', '.zshenv', '.zprofile', '.zlogin',
+  '.bashrc', '.bash_profile', '.bash_login', '.bash_logout', '.profile',
+  '.zshrc', '.zshenv', '.zprofile', '.zlogin', '.zlogout',
   '.claude/settings.json', '.claude/settings.local.json',
   '.claude/hooks', '.claude/agents', '.claude/plugins',
-  '.config/fish', 'Library/LaunchAgents'
+  '.config/fish', 'Library/LaunchAgents',
+  '.gitconfig', '.config/git/config', '.npmrc', '.docker/config.json',
+  '.ssh/config', '.ssh/rc', '.ssh/authorized_keys'
 ];
 
 function _persistencePaths() {
@@ -643,8 +654,26 @@ function _groundProfile(kind, jewelCount, policyCount, persistCount, cacheCount,
   return lines.join('\n') + '\n';
 }
 
+// Resolve through links even when the path does not exist yet: most of the
+// walled files are absent on a given machine, but the directory that will
+// hold them exists and is what dotfile setups commonly link elsewhere. A
+// parameter built from the unresolved spelling would then name a path no
+// syscall ever reports, and the wall would miss exactly the write it is
+// for. Resolve the deepest ancestor that exists and rejoin the rest.
 function _realOr(p) {
-  try { return fs.realpathSync(p); } catch (_) { return p; }
+  let head = p;
+  const tail = [];
+  for (;;) {
+    try {
+      const real = fs.realpathSync(head);
+      return tail.length ? path.join(real, ...tail) : real;
+    } catch (_) {
+      const parent = path.dirname(head);
+      if (parent === head) return p;
+      tail.unshift(path.basename(head));
+      head = parent;
+    }
+  }
 }
 
 // groundSpawnSpec({ kind, cwd, env }) →

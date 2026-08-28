@@ -130,7 +130,22 @@ const BLOCKED_PREFIXES = Object.freeze([
   // at fish startup (we ship a conf.d drop-in ourselves — same reachability
   // proof as .zshenv).
   { name: 'fish_config_dir',    prefix: _expandHome('~/.config/fish/'), why: 'fish startup tree (config.fish + conf.d auto-sourced) — persistence-implant anchor' },
-  { name: 'shell_envrc',        prefix: _expandHome('~/.env'),        why: 'env-var init — secret-leak vector' }
+  { name: 'shell_envrc',        prefix: _expandHome('~/.env'),        why: 'env-var init — secret-leak vector' },
+  // Files a LATER tool operation obeys rather than the next shell start: the
+  // global git configs and npm config decide what the next git or install
+  // run does anywhere on the machine, the docker client config names
+  // credential-helper executables that run on the next docker command, and
+  // the logout files are sourced at shell exit exactly as the rc files above
+  // are at start. Each has a per-project road that stays open (.git/config
+  // in the repo, a project-local .npmrc), so refusing the global file costs
+  // no workflow. The ssh siblings (~/.ssh/config, rc, authorized_keys) are
+  // already covered by the ssh_dir entry above.
+  { name: 'git_config_global',  prefix: _expandHome('~/.gitconfig'),  why: 'global git config — a setting here names a command the next git operation runs; per-repo .git/config stays writable' },
+  { name: 'git_config_xdg',     prefix: _expandHome('~/.config/git/config'), why: 'global git config (XDG spelling) — same reach as ~/.gitconfig' },
+  { name: 'npm_config_global',  prefix: _expandHome('~/.npmrc'),      why: 'global npm config — redirects every later install on the machine; a project-local .npmrc stays writable' },
+  { name: 'docker_config_write', prefix: _expandHome('~/.docker/config.json'), why: 'docker client config — names credential-helper executables the next docker command runs' },
+  { name: 'shell_bash_logout',  prefix: _expandHome('~/.bash_logout'), why: 'shell exit hook — sourced at logout exactly as the rc files are at start' },
+  { name: 'shell_zlogout',      prefix: _expandHome('~/.zlogout'),    why: 'shell exit hook (zsh) — sourced at logout' }
 ]);
 
 // Strict-taint switch (default OFF). See the Layer-2 comment in isWritablePath.

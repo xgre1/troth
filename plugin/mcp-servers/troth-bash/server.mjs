@@ -56,6 +56,7 @@ let danger = null;
 let safety = null;
 let constraintLedger = null;
 let redactor = null;
+let seatbelt = null;
 try {
   const serverDir = fileURLToPath(new URL('.', import.meta.url));
   // plugin/mcp-servers/troth-bash/ → repo/shared-core/state.js
@@ -63,6 +64,7 @@ try {
   constraintLedger = require(serverDir + '../../../shared-core/constraint-ledger.js');
   danger = require(serverDir + '../../../shared-core/danger.js');
   safety = require(serverDir + '../../../shared-core/tools/bash-safety.js');
+  seatbelt = require(serverDir + '../../../shared-core/tools/sandbox-seatbelt.js');
   // The same harvest+redact store the outbound reply path uses. Raw stdout
   // used to flow to the model AND into tool_output_archive untouched, which
   // is how 550 credential literals ended up full-text searchable on disk:
@@ -312,15 +314,28 @@ function runCommand(command, timeoutMs, overrideCwd) {
       // A write refused by the ground wall reads as an unexplained permission
       // error, and the next thing tried is usually a workaround for a bug that
       // is not there. Explain it here, where it is the answer to something the
-      // reader is looking at, and name the one command that lifts it.
-      if (wrap && (wrap.kind === 'confine' || wrap.kind === 'home')
-          && code !== 0 && /Operation not permitted|Permission denied/.test(errBuf.get())) {
-        stderrOut += '\n[troth-bash] ' + (wrap.kind === 'home'
-          ? 'this directory holds the substrate: writes land in scratch, not here.'
-            + ' cd into a project to work.'
-          : 'writes here are scoped to ' + wrap.root + ', so a path outside it is'
-            + ' refused. If that is wrong, `troth open ' + wrap.root + '` and it'
-            + ' runs with your own environment.') + '\n';
+      // reader is looking at — and name the road that is actually open, which
+      // differs by cause: a startup or tool-config file is refused on EVERY
+      // ground, so pointing at `troth open` for one would promise a lift that
+      // never comes.
+      // Case-insensitive: the shell spells it "Operation not permitted", an
+      // interpreter error spells it lower-case, and the kernel wall is the
+      // only road an interpreter-carried write ever meets.
+      if (wrap && wrap.kind && code !== 0 && /operation not permitted|permission denied/i.test(errBuf.get())) {
+        const walled = seatbelt ? seatbelt._persistencePaths().find((p) => errBuf.get().includes(p)) : null;
+        if (walled) {
+          stderrOut += '\n[troth-bash] ' + walled + ' is a file this machine executes or obeys'
+            + ' (shell startup, agent host, or the next git/ssh/npm/docker operation), so no'
+            + ' ground writes it. Per-project configuration stays open: .git/config in the'
+            + ' repo, a project-local .npmrc.\n';
+        } else if (wrap.kind === 'confine' || wrap.kind === 'home') {
+          stderrOut += '\n[troth-bash] ' + (wrap.kind === 'home'
+            ? 'this directory holds the substrate: writes land in scratch, not here.'
+              + ' cd into a project to work.'
+            : 'writes here are scoped to ' + wrap.root + ', so a path outside it is'
+              + ' refused. If that is wrong, `troth open ' + wrap.root + '` and it'
+              + ' runs with your own environment.') + '\n';
+        }
       }
       resolve({
         stdout: outBuf.get(),
