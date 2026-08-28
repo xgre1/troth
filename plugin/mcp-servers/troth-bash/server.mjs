@@ -309,9 +309,7 @@ function runCommand(command, timeoutMs, overrideCwd) {
     // moves into the OS jail, scoped to the nearest project. Announced every
     // time — it is a mode switch, and its failure modes differ from the
     // ground's — like the workspace jail above, not like the quiet walls.
-    const cmdStart = Date.now();
-    const iw = installWrapFor(command, wrap, effectiveCwd,
-                              { proxyPort: egress ? egress.port : null });
+    const iw = installWrapFor(command, wrap, effectiveCwd, { egress });
     if (iw) {
       cwdNote += '[troth-bash] install jail (' + iw.manager + '): writes scoped to '
         + iw.root + ', home invisible, '
@@ -408,15 +406,18 @@ function runCommand(command, timeoutMs, overrideCwd) {
         }
       }
       // What the egress proxy turned away while this command ran, named on
-      // the result it explains. Best-effort attribution: concurrent installs
-      // share the listener, so a refusal may land on a neighbour's note.
-      if (iw && iw.egress === 'proxy' && egress) {
-        const refused = Array.from(new Set(egress.refusalsSince(cmdStart)));
+      // the result it explains, and the token retired with it. Attribution
+      // is exact: the token was issued for this command alone.
+      if (iw && iw.token && egress) {
+        const refused = Array.from(new Set(egress.refusalsFor(iw.token)));
         if (refused.length) {
           stderrOut += '\n[troth-bash] egress refused during this install: '
             + refused.slice(0, 8).join(', ')
-            + ' — an install jail reaches the package registries only.\n';
+            + ' — an install jail reaches the package registries only.'
+            + ' If this project genuinely needs one of these, `troth net-allow <host>`'
+            + ' from the project adds it for that project alone.\n';
         }
+        try { egress.revoke(iw.token); } catch (_) {}
       }
       resolve({
         stdout: outBuf.get(),

@@ -79,18 +79,45 @@ function _writeRefusal(socket) {
 }
 
 // startEgressProxy({ allow, allowLoopbackTargets, onRefusal })
-//   → Promise<{ port, close(), refusalsSince(ts) }>
-// The listener binds loopback on an ephemeral port. Refusals are kept in a
-// bounded ring with timestamps so a caller can attach "what was refused
-// while this command ran" to the command's own result.
+//   → Promise<{ port, close(), refusalsSince(ts),
+//               grant(allowList) → token, revoke(token), refusalsFor(token) }>
+//
+// One listener serves every jailed command, and a command identifies itself
+// with a token carried in the proxy URL's userinfo — which every package
+// manager forwards as proxy credentials. The token names WHICH allowlist
+// applies, so one project's extra registry is not silently lent to another
+// project's install, and refusals attribute to the command that caused them
+// instead of to whoever happened to be running at the time.
+//
+// A request arriving with no usable token gets the default registry list:
+// clients that drop proxy credentials still install from the public
+// registries, and the only thing a missing token costs is the per-project
+// additions. Widening never happens by omission.
 function startEgressProxy(opts) {
   opts = opts || {};
   const allow = Array.isArray(opts.allow) ? opts.allow.slice() : DEFAULT_REGISTRY_HOSTS.slice();
+  const grants = new Map();
+  let seq = 0;
   const refusals = [];
-  const note = (host) => {
-    refusals.push({ host: String(host).slice(0, 200), ts: Date.now() });
+  const note = (host, token) => {
+    refusals.push({ host: String(host).slice(0, 200), ts: Date.now(), token: token || null });
     if (refusals.length > 200) refusals.shift();
     if (typeof opts.onRefusal === 'function') { try { opts.onRefusal(host); } catch (_) {} }
+  };
+
+  // Proxy-Authorization: Basic base64(token:) — the shape curl, npm, pip and
+  // cargo all produce from a proxy URL carrying userinfo. Unparseable or
+  // unknown tokens fall back to the default list rather than refusing: a
+  // client that speaks proxies but not credentials is a compatibility
+  // problem, not an escalation.
+  const allowForHead = (headText) => {
+    const m = /^proxy-authorization:\s*basic\s+(\S+)/im.exec(headText);
+    if (!m) return { list: allow, token: null };
+    let decoded = '';
+    try { decoded = Buffer.from(m[1], 'base64').toString('utf8'); } catch (_) { decoded = ''; }
+    const token = decoded.split(':')[0];
+    const granted = token && grants.get(token);
+    return granted ? { list: granted, token } : { list: allow, token: null };
   };
 
   // A name is not a place. The allowlist admits the NAME; every resolved
@@ -98,8 +125,8 @@ function startEgressProxy(opts) {
   // only — never back through the resolver, which would reopen the window
   // between the check and the connect. Dual-stack names answer on either
   // family, so the vetted addresses are tried in turn, IPv4 first.
-  const admit = (host, port, cb) => {
-    if (!hostAllowed(host, port, allow)) return cb(false);
+  const admit = (host, port, list, cb) => {
+    if (!hostAllowed(host, port, list)) return cb(false);
     dns.lookup(host, { all: true }, (err, addrs) => {
       if (err || !Array.isArray(addrs) || !addrs.length) return cb(false);
       const vetted = addrs
@@ -139,13 +166,15 @@ function startEgressProxy(opts) {
       const m = /^(\S+)\s+(\S+)\s+HTTP\/1\.[01]$/.exec(lines[0] || '');
       if (!m) { client.destroy(); return; }
       const method = m[1].toUpperCase();
+      const headText = head.slice(0, end).toString('latin1');
+      const grant = allowForHead(headText);
 
       if (method === 'CONNECT') {
         const t = /^([^:\s]+):(\d+)$/.exec(m[2]);
         if (!t) { _writeRefusal(client); return; }
         const host = t[1], port = Number(t[2]);
-        admit(host, port, (ok, addresses) => {
-          if (!ok) { note(host + ':' + port); _writeRefusal(client); return; }
+        admit(host, port, grant.list, (ok, addresses) => {
+          if (!ok) { note(host + ':' + port, grant.token); _writeRefusal(client); return; }
           connectVetted(addresses, port, (up) => {
             client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
             if (rest.length) up.write(rest);
@@ -164,8 +193,8 @@ function startEgressProxy(opts) {
       const u = /^http:\/\/([^:\/\s]+)(?::(\d+))?(\/|$)/i.exec(m[2]);
       if (!u) { _writeRefusal(client); return; }
       const host = u[1], port = u[2] ? Number(u[2]) : 80;
-      admit(host, port, (ok, addresses) => {
-        if (!ok) { note(host + ':' + port); _writeRefusal(client); return; }
+      admit(host, port, grant.list, (ok, addresses) => {
+        if (!ok) { note(host + ':' + port, grant.token); _writeRefusal(client); return; }
         connectVetted(addresses, port, (up) => {
           up.write(head.slice(0, end + 4));
           if (rest.length) up.write(rest);
@@ -185,6 +214,16 @@ function startEgressProxy(opts) {
       resolve({
         port,
         close: () => { try { server.close(); } catch (_) {} },
+        // A command's own allowlist, handed back as the token that names it.
+        // Revoked when the command ends, so a token cannot outlive the work
+        // it was issued for.
+        grant: (list) => {
+          const token = 'g' + (++seq) + '-' + Math.random().toString(36).slice(2, 10);
+          grants.set(token, Array.isArray(list) && list.length ? list.slice() : allow.slice());
+          return token;
+        },
+        revoke: (token) => { grants.delete(token); },
+        refusalsFor: (token) => refusals.filter((r) => r.token === token).map((r) => r.host),
         refusalsSince: (ts) => refusals.filter((r) => r.ts >= ts).map((r) => r.host)
       });
     });

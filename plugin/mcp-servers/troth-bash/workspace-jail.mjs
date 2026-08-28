@@ -285,25 +285,41 @@ export function installWrapFor(command, wrap, cwd, opts) {
   try { work = (gp && typeof gp.projectRoot === 'function') ? gp.projectRoot(cwd) : null; }
   catch { work = null; }
   work = work || wrap.root || cwd;
-  // With an egress port the jail's only road out is the proxy, and the
+  // With an egress listener the jail's only road out is the proxy, and the
   // child is told to use it in the one dialect every package manager
-  // speaks. The address is an IP literal so no resolver is needed inside.
-  // Without a port (the listener failed to start), the jail falls back to
-  // direct network with loopback denied — the filesystem walls hold either
-  // way, and the note says which road the install ran on.
-  const proxyPort = opts && Number.isInteger(opts.proxyPort) && opts.proxyPort > 0
-    ? opts.proxyPort : null;
-  const spec = proxyPort
-    ? sb.jailSpawnSpec({ cwd: work, network: 'proxy', proxyPort, env: {
-        HTTP_PROXY: 'http://127.0.0.1:' + proxyPort,
-        HTTPS_PROXY: 'http://127.0.0.1:' + proxyPort,
-        http_proxy: 'http://127.0.0.1:' + proxyPort,
-        https_proxy: 'http://127.0.0.1:' + proxyPort,
+  // speaks. The address is an IP literal so no resolver is needed inside,
+  // and the userinfo carries a token naming THIS project's allowlist —
+  // package managers forward it as proxy credentials, so one project's
+  // extra registry is never lent to another project's install.
+  //
+  // Without a listener the jail falls back to direct network with loopback
+  // denied — the filesystem walls hold either way, and the note says which
+  // road the install ran on.
+  const egress = opts && opts.egress && Number.isInteger(opts.egress.port) ? opts.egress : null;
+  let token = null;
+  if (egress) {
+    let allow = null;
+    try {
+      const serverDir = fileURLToPath(new URL('.', import.meta.url));
+      const na = require(serverDir + '../../../shared-core/tools/net-allowlist.js');
+      allow = na.allowFor(work);
+    } catch { allow = null; }
+    try { token = egress.grant(allow); } catch { token = null; }
+  }
+  const url = egress
+    ? 'http://' + (token ? encodeURIComponent(token) + ':@' : '') + '127.0.0.1:' + egress.port
+    : null;
+  const spec = egress
+    ? sb.jailSpawnSpec({ cwd: work, network: 'proxy', proxyPort: egress.port, env: {
+        HTTP_PROXY: url, HTTPS_PROXY: url, http_proxy: url, https_proxy: url,
         NO_PROXY: '', no_proxy: ''
       } })
     : sb.jailSpawnSpec({ cwd: work, network: 'full' });
-  if (!spec.ok) return null;
+  if (!spec.ok) {
+    if (egress && token) { try { egress.revoke(token); } catch {} }
+    return null;
+  }
   return { kind: 'install-jail', exec: spec.exec, args: spec.args, env: spec.env,
            ground: wrap.ground, root: spec.work, manager: c.manager,
-           egress: proxyPort ? 'proxy' : 'direct' };
+           egress: egress ? 'proxy' : 'direct', token };
 }

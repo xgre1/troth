@@ -96,6 +96,12 @@ const BLOCKED_PREFIXES = Object.freeze([
   // through the CLI, never the partner through a tool.
   { name: 'opened_folders',     prefix: _expandHome('~/.troth/opened-folders.json'), why: 'ground registry — an entry here decides where the partner runs unconfined; operator-only' },
   { name: 'opened_folders_tmp', prefix: _expandHome('~/.troth/opened-folders.json.tmp'), why: 'ground registry temp file (atomic-write target)' },
+  // Which hosts a jailed install may reach. An entry here widens the one
+  // road out of the jail, so it belongs beside the other policy files:
+  // the operator adds a host through the CLI, never the partner through a
+  // tool or a shell redirect.
+  { name: 'net_allowlists',     prefix: _expandHome('~/.troth/net-allowlists.json'), why: 'egress allowlist — an entry decides where a jailed install may connect; operator-only' },
+  { name: 'net_allowlists_tmp', prefix: _expandHome('~/.troth/net-allowlists.json.tmp'), why: 'egress allowlist temp file (atomic-write target)' },
   // The substrate database. It was absent from this list while every OTHER
   // ~/.troth registry was on it, so the one file holding the partner's whole
   // memory was the one file a shell could rewrite. The prefix also covers the

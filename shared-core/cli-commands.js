@@ -11,6 +11,9 @@ module.exports = [
   // Ground registry: which of the operator's own folders the partner may
   // work in with the operator's environment. The only writer of that file.
   "open", "close", "opened",
+  // Egress allowlist: which hosts a jailed install may reach. Same rule —
+  // the only writer of that file.
+  "net-allow", "net-allowed",
   "version", "help", "ui", "app",
   // `troth classic` as an explicit subcommand: force Claude-Code-through-proxy
   // for ONE run without flipping default_command (the gate below honors it).

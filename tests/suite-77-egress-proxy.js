@@ -20,7 +20,7 @@ const { spawn } = require('child_process');
 const eg = require(path.join(__dirname, '..', 'shared-core', 'tools', 'egress-proxy.js'));
 const sb = require(path.join(__dirname, '..', 'shared-core', 'tools', 'sandbox-seatbelt.js'));
 
-console.log('\nEgress proxy (EG-1..6):');
+console.log('\nEgress proxy (EG-1..9):');
 
 test('EG-1: the host matcher honors exact names, label boundaries and pinned ports', () => {
   const allow = ['registry.npmjs.org', '*.pythonhosted.org', 'mirror.example:8443'];
@@ -171,5 +171,80 @@ test('EG-6: a jailed child reaches its target through the proxy while its direct
     assert.strictEqual(sb.jailSpawnSpec({ cwd: proj, network: 'proxy' }).ok, false,
       'proxy mode without a port must refuse, not silently widen');
   } finally { proxy.close(); server.close(); }
+});
+
+test('EG-7: a token carries one project’s allowlist, and a command without one gets the defaults', async () => {
+  const server = http.createServer((req, res) => { res.end('extra-host-body'); });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const originPort = server.address().port;
+  // The default list does NOT carry this host; only the grant does.
+  const proxy = await eg.startEgressProxy({ allow: [], allowLoopbackTargets: true });
+  try {
+    const token = proxy.grant(['localhost:' + originPort]);
+    const auth = 'Proxy-Authorization: Basic ' + Buffer.from(token + ':').toString('base64');
+    const withToken = await rawThrough(proxy.port,
+      'GET http://localhost:' + originPort + '/x HTTP/1.1\r\nHost: localhost\r\n' + auth + '\r\nConnection: close\r\n\r\n');
+    assert.ok(withToken.indexOf('extra-host-body') !== -1,
+      'the granted host must be reachable with the token: ' + withToken.slice(0, 80));
+    const without = await rawThrough(proxy.port,
+      'GET http://localhost:' + originPort + '/x HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n');
+    assert.ok(/^HTTP\/1\.1 403/.test(without), 'a command without the token must not inherit it: ' + without.slice(0, 80));
+    const stale = 'Proxy-Authorization: Basic ' + Buffer.from('g999-nosuch:').toString('base64');
+    const unknown = await rawThrough(proxy.port,
+      'GET http://localhost:' + originPort + '/x HTTP/1.1\r\nHost: localhost\r\n' + stale + '\r\nConnection: close\r\n\r\n');
+    assert.ok(/^HTTP\/1\.1 403/.test(unknown), 'an unknown token must fall back to the defaults, not to a grant');
+    // A host outside this grant is refused AND charged to the command that
+    // asked for it, which is what makes the note on that command's result
+    // true rather than merely plausible.
+    const off = await rawThrough(proxy.port,
+      'CONNECT stranger.example:443 HTTP/1.1\r\nHost: stranger.example\r\n' + auth + '\r\n\r\n');
+    assert.ok(/^HTTP\/1\.1 403/.test(off), 'a host outside the grant must be refused');
+    assert.deepStrictEqual(proxy.refusalsFor(token), ['stranger.example:443'],
+      'the refusal must be charged to the command that caused it');
+    proxy.revoke(token);
+    const revoked = await rawThrough(proxy.port,
+      'GET http://localhost:' + originPort + '/x HTTP/1.1\r\nHost: localhost\r\n' + auth + '\r\nConnection: close\r\n\r\n');
+    assert.ok(/^HTTP\/1\.1 403/.test(revoked), 'a revoked token must stop working: ' + revoked.slice(0, 80));
+    assert.deepStrictEqual(proxy.refusalsFor(token), ['stranger.example:443'],
+      'a revoked token collects nothing further — its command is over');
+  } finally { proxy.close(); server.close(); }
+});
+
+test('EG-8: the per-project list adds hosts for that project only, and a broken file falls back to the defaults', () => {
+  const na = require(path.join(__dirname, '..', 'shared-core', 'tools', 'net-allowlist.js'));
+  const saved = process.env.TROTH_CONFIG_DIR;
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'nal-')));
+  process.env.TROTH_CONFIG_DIR = path.join(root, '.troth');
+  fs.mkdirSync(process.env.TROTH_CONFIG_DIR, { recursive: true });
+  try {
+    const projA = path.join(root, 'a'); const projB = path.join(root, 'b');
+    fs.mkdirSync(projA); fs.mkdirSync(projB);
+    assert.ok(na.allowFor(projA).indexOf('registry.npmjs.org') !== -1, 'the defaults always apply');
+    assert.strictEqual(na.addHost('npm.example.com', projA).ok, true);
+    assert.strictEqual(na.addHost('codeload.example', null).ok, true);
+    assert.ok(na.allowFor(projA).indexOf('npm.example.com') !== -1, 'the project entry must apply to its project');
+    assert.strictEqual(na.allowFor(projB).indexOf('npm.example.com'), -1,
+      'one project’s registry must not be lent to another');
+    assert.ok(na.allowFor(projB).indexOf('codeload.example') !== -1, 'an every-project entry applies everywhere');
+    assert.strictEqual(na.addHost('http://npm.example.com/path', projA).ok, false, 'a URL is not a host');
+    assert.strictEqual(fs.statSync(na.allowlistPath()).mode & 0o777, 0o600, 'the list is owner-only');
+    // Fail closed, and never overwrite what the operator wrote.
+    fs.writeFileSync(na.allowlistPath(), '{ not json');
+    assert.deepStrictEqual(na.allowFor(projA), eg.DEFAULT_REGISTRY_HOSTS.slice(),
+      'an unreadable list must fall back to the defaults, never to everything');
+    assert.strictEqual(na.addHost('x.example', projA).ok, false, 'a corrupt list refuses the write');
+  } finally {
+    if (saved === undefined) delete process.env.TROTH_CONFIG_DIR; else process.env.TROTH_CONFIG_DIR = saved;
+  }
+});
+
+test('EG-9: the allowlist file is refused on the tool road and by the kernel rules', () => {
+  const policy = require(path.join(__dirname, '..', 'shared-core', 'tools', 'path-policy.js'));
+  const entry = policy.BLOCKED_PREFIXES.find((e) => e.name === 'net_allowlists');
+  assert.ok(entry, 'the tool road does not name the egress allowlist');
+  assert.strictEqual(policy.isWritablePath(entry.prefix, {}).allowed, false,
+    'the partner could widen its own egress through the tool road');
+  assert.ok(sb._policyPaths().some((p) => path.basename(p) === 'net-allowlists.json'),
+    'the kernel rules do not cover the egress allowlist');
 });
 };
