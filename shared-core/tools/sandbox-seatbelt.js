@@ -160,7 +160,17 @@ function isAvailable(opts) {
     result = { available: false, error: SANDBOX_EXEC + ' not present' };
   } else {
     try {
-      const r = spawnSync(SANDBOX_EXEC, ['-p', '(version 1)(allow default)', '/usr/bin/true'], {
+      // The probe must carry a RESTRICTION, not just launch a profile. A
+      // profile that restricts nothing applies even inside an existing
+      // sandbox, where every real profile — jail, thin or confine — is
+      // refused by the kernel with sandbox_apply: Operation not permitted.
+      // Probing with an unrestricted profile therefore reports a usable
+      // sandbox in the one environment that has none. The denied path is
+      // deliberately one that cannot exist, so the probe measures whether a
+      // restriction can be APPLIED and nothing else.
+      const r = spawnSync(SANDBOX_EXEC, ['-p',
+        '(version 1)(allow default)(deny file-read* (literal "/.troth-sandbox-probe"))',
+        '/usr/bin/true'], {
         timeout: 3000, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8'
       });
       result = (r.status === 0)
@@ -435,15 +445,187 @@ function runInSandbox(command, opts) {
   });
 }
 
+// ── Ground profiles: the walls for ground that is NOT a deny-default jail ──
+//
+// The jail above is for partner project ground, where nothing is allowed
+// until it is named. These two are for ground the operator owns, where the
+// opposite is true: everything works as it did, and a short list of denies
+// is carved out. They exist because a check made before a command runs can
+// be raced or side-stepped by the command itself, while a kernel rule cannot.
+//
+//   thin     the operator's own opened folder. Their environment, their
+//            tools, their credentials for their own git and cloud work.
+//            Denied: reading partner project ground, reading the credential
+//            stores, writing the files that decide what the partner may do.
+//   confine  ground nobody declared. Same denies, plus writes limited to
+//            that folder and a scratch directory. Reads stay open, so
+//            exploring an unfamiliar tree is untouched.
+//   home     the tree holding the substrate. Confine with no writable work
+//            directory at all — scratch only.
+//
+// Reading partner project ground is denied rather than merely executing it,
+// because an interpreter defeats an exec-only rule: the interpreter is the
+// binary that runs, and the staged file is only read. The same rule closes
+// the unreviewed copy-out, since a shell can no longer move a file from
+// partner ground onto operator ground.
+//
+// Paths never enter the profile TEXT. They are passed as -D parameters, so a
+// directory whose name contains a quote cannot rewrite the policy.
+
+// Lowering switches never cross into a partner shell on any ground. The
+// substrate honours this variable on every write it records, so a partner
+// shell that sets it is the judged turning off the judge.
+const PARTNER_ENV_STRIP = ['TROTH_STVC_BYPASS'];
+
+function operatorEnv(extra) {
+  const env = Object.assign({}, process.env);
+  for (const k of PARTNER_ENV_STRIP) delete env[k];
+  if (extra && typeof extra === 'object') {
+    for (const k of Object.keys(extra)) {
+      if (typeof extra[k] === 'string' || typeof extra[k] === 'number') env[k] = String(extra[k]);
+    }
+  }
+  return env;
+}
+
+function _trothDir() {
+  return process.env.TROTH_CONFIG_DIR
+      || path.join(process.env.HOME || os.homedir(), '.troth');
+}
+
+// Read-denied: files whose CONTENTS are the credential.
+//
+// The substrate database is deliberately absent. Its contents are already
+// refused on the tool road and the shell road, each naming the sanctioned
+// way in, and partner project ground cannot reach this directory at all —
+// a jail never allows it. A third rule here would instead break the
+// operator running the substrate's own tooling from their own checkout.
+function _jewelPaths() {
+  const t = _trothDir();
+  return [path.join(t, 'credentials.json'),
+          path.join(t, 'codex-token.json'),
+          path.join(t, '.env'),
+          path.join(t, 'audit-keys')];
+}
+
+// Write-denied: files that decide what the partner is allowed to do. A
+// partner that can edit these widens its own walls, so they are refused by
+// the kernel and not only by the tool that would normally write them.
+function _policyPaths() {
+  const t = _trothDir();
+  return [path.join(t, 'config.json'),
+          path.join(t, 'web-allowlist.json'),
+          path.join(t, 'opened-folders.json'),
+          path.join(t, 'mcp-clients.json'),
+          path.join(t, 'router.json')];
+}
+
+// Later rules win in SBPL, so order carries meaning: the blanket write deny
+// comes first, the work and scratch allowances reopen exactly two subtrees,
+// and the policy denies come LAST so they still hold when a policy file
+// happens to sit inside a writable one.
+function _groundProfile(kind, jewelCount, policyCount) {
+  const confined = (kind === 'confine' || kind === 'home');
+  const lines = ['(version 1)', '(allow default)',
+                 '(deny file-read* (subpath (param "WORKSPACE")))'];
+  for (let i = 0; i < jewelCount; i++) {
+    lines.push('(deny file-read* (subpath (param "JEWEL' + i + '")))');
+  }
+  if (confined) {
+    lines.push('(deny file-write*)');
+    lines.push('(allow file-write* (subpath (param "SCRATCH")))');
+    if (kind === 'confine') lines.push('(allow file-write* (subpath (param "WORK")))');
+    lines.push('(allow file-write-data (literal "/dev/null") (literal "/dev/tty"))');
+  }
+  for (let i = 0; i < policyCount; i++) {
+    lines.push('(deny file-write* (subpath (param "POLICY' + i + '")))');
+  }
+  return lines.join('\n') + '\n';
+}
+
+function _realOr(p) {
+  try { return fs.realpathSync(p); } catch (_) { return p; }
+}
+
+// groundSpawnSpec({ kind, cwd, env }) →
+//   { ok:true, exec, args, env, kind, work?, scratch? } | { ok:false, error }
+//
+// The caller spawns exec + args.concat([command...]) exactly as it does for
+// a jail, so one spawn site serves every ground.
+function groundSpawnSpec(opts) {
+  opts = opts || {};
+  const kind = opts.kind;
+  if (kind !== 'thin' && kind !== 'confine' && kind !== 'home') {
+    return { ok: false, error: 'unknown ground kind: ' + String(kind) };
+  }
+  const avail = module.exports.isAvailable();
+  if (!avail.available) return { ok: false, error: avail.error || 'sandbox-exec not usable' };
+
+  let work = null;
+  if (kind === 'confine') {
+    // Subpath matching is on resolved paths: on macOS the temp and user roots
+    // are themselves links, so an unresolved work directory matches nothing
+    // and every write inside it is refused.
+    try { work = fs.realpathSync(opts.cwd); }
+    catch (e) { return { ok: false, error: 'cwd unusable: ' + (e && e.message || e) }; }
+  }
+
+  const jewels   = _jewelPaths();
+  const policies = _policyPaths();
+  const profilePath = path.join(PROFILE_DIR,
+    'ground-' + kind + '-' + jewels.length + '-' + policies.length + '.sb');
+
+  let scratch = _scratchDirFor(work || (opts.cwd || _trothDir()));
+  const args = [];
+  try {
+    fs.mkdirSync(PROFILE_DIR, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(profilePath, _groundProfile(kind, jewels.length, policies.length), { mode: 0o600 });
+    fs.mkdirSync(path.join(scratch, 'tmp'), { recursive: true, mode: 0o700 });
+    scratch = fs.realpathSync(scratch);
+    args.push('-f', profilePath);
+    args.push('-D', 'WORKSPACE=' + _realOr(path.join(_trothDir(), 'workspace')));
+    jewels.forEach((p, i)   => args.push('-D', 'JEWEL' + i + '=' + _realOr(p)));
+    policies.forEach((p, i) => args.push('-D', 'POLICY' + i + '=' + _realOr(p)));
+    if (kind === 'confine' || kind === 'home') args.push('-D', 'SCRATCH=' + scratch);
+    if (kind === 'confine') args.push('-D', 'WORK=' + work);
+  } catch (e) {
+    return { ok: false, error: 'ground_setup_failed: ' + (e && e.message || e) };
+  }
+
+  // Confined ground keeps the operator's environment — that is what makes it
+  // ordinary to work in — but the caches every toolchain writes without
+  // asking are pointed at scratch, so a build does not die on the write deny.
+  const extra = (kind === 'thin') ? null : Object.assign({
+    TMPDIR: path.join(scratch, 'tmp'),
+    npm_config_cache: path.join(scratch, 'npm')
+  }, opts.env || {});
+
+  return {
+    ok: true,
+    exec: SANDBOX_EXEC,
+    args,
+    env: operatorEnv(kind === 'thin' ? (opts.env || null) : extra),
+    kind,
+    work,
+    scratch
+  };
+}
+
 module.exports = {
   isAvailable,
   runInSandbox,
   jailSpawnSpec,
+  groundSpawnSpec,
+  operatorEnv,
   DEFAULT_TIMEOUT_MS,
   AVAILABILITY_TTL_MS,
   // exposed for tests
   _resetAvailabilityCache,
   _profile,
+  _groundProfile,
+  _jewelPaths,
+  _policyPaths,
+  PARTNER_ENV_STRIP,
   _scratchDirFor,
   PROFILE_DIR,
   JAIL_SCRATCH_ROOT,
