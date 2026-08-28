@@ -16,7 +16,7 @@ const { spawn } = require('child_process');
 const sb = require(path.join(__dirname, '..', 'shared-core', 'tools', 'sandbox-seatbelt.js'));
 const SERVER = path.join(__dirname, '..', 'plugin', 'mcp-servers', 'troth-bash', 'server.mjs');
 
-console.log('\nGround wiring (GW-1..7):');
+console.log('\nGround wiring (GW-1..9):');
 
 // A throwaway machine: substrate directory, partner project ground with two
 // projects, one folder the operator opened and one nobody declared.
@@ -107,7 +107,7 @@ test('GW-2: opened ground cannot read partner project ground, so the interpreter
   } finally { c.kill(); }
 });
 
-test('GW-3: undeclared ground scopes writes to the folder, keeps reads open, and says so once', async () => {
+test('GW-3: undeclared ground scopes writes to the project, keeps reads open, and stays quiet until a write is actually refused', async () => {
   if (!live) return skip('sandbox-exec unavailable');
   const m = makeHome();
   const c = client(m.home, m.troth);
@@ -115,18 +115,54 @@ test('GW-3: undeclared ground scopes writes to the folder, keeps reads open, and
     await c.init();
     const inside = await c.run('echo x > inside.txt && echo done', m.stranger);
     assert.strictEqual(inside.exit, 0, 'work inside the folder must run: ' + inside.text.slice(0, 200));
-    assert.ok(/writes are scoped/.test(inside.note), 'the wall must announce itself once: ' + inside.note);
+    // Nothing is said while nothing has gone wrong. A warning on every result
+    // is one the reader learns to skip, and it arrives with nothing to act on.
+    assert.strictEqual(inside.note, '', 'a wall announced itself before it did anything: ' + inside.note);
 
     const escaped = path.join(m.home, 'escaped.txt');
     const out = await c.run('echo x > ' + JSON.stringify(escaped), m.stranger);
     assert.notStrictEqual(out.exit, 0, 'a write escaped the folder');
     assert.strictEqual(fs.existsSync(escaped), false, 'and it must not have landed');
+    // Here it is worth saying, because it is the answer to the error above.
+    assert.ok(/writes here are scoped/.test(out.note),
+      'the refusal was left looking like an unexplained permission error: ' + out.note);
+    assert.ok(/troth open/.test(out.note), 'the refusal does not name the way through: ' + out.note);
 
     const readOut = await c.run('ls ' + JSON.stringify(m.home) + ' >/dev/null && echo done', m.stranger);
     assert.strictEqual(readOut.exit, 0, 'reads must stay open or exploring breaks');
 
     const again = await c.run('echo again', m.stranger);
-    assert.strictEqual(again.note, '', 'the note repeated: ' + again.note);
+    assert.strictEqual(again.note, '', 'a later ordinary command carried a note: ' + again.note);
+  } finally { c.kill(); }
+});
+
+test('GW-8: confinement follows the project, not the current directory', async () => {
+  if (!live) return skip('sandbox-exec unavailable');
+  // A repository is navigated. A wall that moves with every cd refuses a test
+  // written from the source directory and staging from anywhere but the top,
+  // which is the ordinary shape of working in a project rather than the
+  // accident this layer exists to catch.
+  const m = makeHome();
+  const repo = path.join(m.home, 'code', 'navrepo');
+  fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
+  fs.mkdirSync(path.join(repo, 'tests'), { recursive: true });
+  const c = client(m.home, m.troth);
+  try {
+    await c.init();
+    assert.strictEqual((await c.run('git init -q .', repo)).exit, 0, 'creating the repository failed');
+    const src = path.join(repo, 'src');
+    assert.strictEqual((await c.run('echo x > a.js', src)).exit, 0, 'writing in the current directory failed');
+    assert.strictEqual((await c.run('echo x > ../tests/a.test.js', src)).exit, 0,
+      'a sibling directory of the same project was refused');
+    assert.strictEqual((await c.run('echo {} > ../package.json', src)).exit, 0,
+      'the project manifest was refused from a subdirectory');
+    assert.strictEqual((await c.run('git add -A', src)).exit, 0,
+      'staging from a subdirectory was refused');
+    // The backstop still holds at the project boundary.
+    const outside = path.join(m.home, 'code', 'not-mine.txt');
+    assert.notStrictEqual((await c.run('echo x > ' + JSON.stringify(outside), src)).exit, 0,
+      'a write left the project');
+    assert.strictEqual(fs.existsSync(outside), false);
   } finally { c.kill(); }
 });
 
@@ -191,6 +227,57 @@ test('GW-7: the directory a session starts in is opened ground, and nothing is w
     assert.notStrictEqual(read.exit, 0, 'the starting directory ran with no wall at all');
     assert.strictEqual(fs.readFileSync(registry, 'utf8'), before,
       'a session grant was persisted to the operator registry');
+  } finally { c.kill(); }
+});
+
+test('GW-9: the shapes a real checkout actually takes still work end to end', async () => {
+  if (!live) return skip('sandbox-exec unavailable');
+  // Every case here was found by running real work rather than by reading the
+  // design: a monorepo, a linked working tree, a repository inside a
+  // repository. Each one refused something ordinary before it was pinned.
+  const m = makeHome();
+  const c = client(m.home, m.troth);
+  const code = path.join(m.home, 'code');
+  try {
+    await c.init();
+
+    const mono = path.join(code, 'mono');
+    fs.mkdirSync(path.join(mono, 'packages', 'a', 'src'), { recursive: true });
+    fs.mkdirSync(path.join(mono, 'packages', 'b'), { recursive: true });
+    fs.writeFileSync(path.join(mono, 'package.json'), '{}\n');
+    fs.writeFileSync(path.join(mono, 'packages', 'a', 'package.json'), '{}\n');
+    assert.strictEqual((await c.run('git init -q .', mono)).exit, 0);
+    const deep = path.join(mono, 'packages', 'a', 'src');
+    assert.strictEqual((await c.run('echo x > ../../b/f.txt', deep)).exit, 0,
+      'a sibling package was refused');
+    assert.strictEqual((await c.run('echo {} > ../../../package.json', deep)).exit, 0,
+      'the top-level manifest was refused');
+    assert.strictEqual((await c.run('git add -A', deep)).exit, 0,
+      'staging from deep inside the repository was refused');
+
+    const main = path.join(code, 'wtmain');
+    fs.mkdirSync(main, { recursive: true });
+    assert.strictEqual((await c.run('git init -q .', main)).exit, 0);
+    assert.strictEqual((await c.run(
+      'echo x > a.txt && git add -A && git -c user.email=a@b -c user.name=n commit -qm init', main)).exit, 0);
+    const tree = path.join(code, 'wtside');
+    const added = await c.run('git worktree add -q -b side ' + JSON.stringify(tree), main);
+    if (added.exit === 0) {
+      assert.strictEqual(fs.statSync(path.join(tree, '.git')).isFile(), true,
+        'this case only means anything while a linked tree keeps its repository elsewhere');
+      assert.strictEqual((await c.run('git status --porcelain >/dev/null', tree)).exit, 0);
+      assert.strictEqual((await c.run(
+        'echo y > b.txt && git add -A && git -c user.email=a@b -c user.name=n commit -qm w', tree)).exit, 0,
+        'committing from a linked working tree was refused');
+    }
+
+    const sup = path.join(code, 'super');
+    const inner = path.join(sup, 'vendor', 'lib');
+    fs.mkdirSync(inner, { recursive: true });
+    assert.strictEqual((await c.run('git init -q .', sup)).exit, 0);
+    assert.strictEqual((await c.run('git init -q .', inner)).exit, 0);
+    assert.strictEqual((await c.run('echo x > ../../top.txt', inner)).exit, 0,
+      'a vendored tree could not reach the project it sits in');
   } finally { c.kill(); }
 });
 };

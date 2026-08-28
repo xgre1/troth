@@ -69,6 +69,78 @@ function realOrNull(p) {
   try { return fs.realpathSync(p); } catch (_) { return null; }
 }
 
+// What makes a directory the root of a piece of work. Confinement is scoped
+// to this, never to the current directory: a repository is navigated, and a
+// wall that moves with every cd refuses a test file written from the source
+// directory, a manifest edited from a subdirectory, and staging from anywhere
+// but the top. Those are the ordinary shape of working in a project, not the
+// accident this layer exists to catch.
+//
+// Two kinds of marker, and the difference decides the answer. A repository is
+// the unit of work and it is the OUTERMOST one that counts: a package
+// manifest sits at every level of a monorepo, and a build step drops one
+// wherever it is run, so taking the nearest marker narrows the scope to a
+// subdirectory and refuses the sibling package, the top-level manifest and
+// staging. A manifest only decides the root when there is no repository
+// above it at all.
+const VCS_MARKERS      = ['.git', '.hg', '.svn'];
+const MANIFEST_MARKERS = ['package.json', 'Cargo.toml', 'go.mod',
+                          'pyproject.toml', 'pom.xml', 'Gemfile'];
+
+function hasAny(dir, markers) {
+  for (const marker of markers) {
+    try { if (fs.existsSync(path.join(dir, marker))) return true; } catch (_) {}
+  }
+  return false;
+}
+
+// Walks up, stopping before it can reach ground that holds the substrate — a
+// marker dropped in a home directory must not turn the whole home into one
+// project. Returns the outermost repository seen, else the nearest manifest,
+// else null for a directory that is not part of anything.
+function projectRootOf(dir, troth) {
+  let p = dir;
+  let outermostRepo = null;
+  let nearestManifest = null;
+  for (let hops = 0; hops < 40; hops++) {
+    if (under(p, troth) || under(troth, p)) break;
+    if (hasAny(p, VCS_MARKERS)) outermostRepo = p;
+    if (nearestManifest === null && hasAny(p, MANIFEST_MARKERS)) nearestManifest = p;
+    const parent = path.dirname(p);
+    if (parent === p) break;
+    p = parent;
+  }
+  return outermostRepo || nearestManifest;
+}
+
+// A linked working tree keeps its repository somewhere else: its .git is a
+// FILE naming a directory under the main repository, and committing writes
+// there — refs, index, objects. Scoping to the tree alone leaves every commit
+// refused with a message about a path nobody asked for. The whole repository
+// directory is returned so it can be made writable alongside the tree.
+//
+// An ordinary repository needs nothing: its .git is a directory inside the
+// root already.
+function linkedRepoDirOf(root) {
+  const dotgit = path.join(root, '.git');
+  let text;
+  try {
+    if (!fs.lstatSync(dotgit).isFile()) return null;
+    text = fs.readFileSync(dotgit, 'utf8');
+  } catch (_) { return null; }
+  const named = /^gitdir:\s*(.+?)\s*$/m.exec(text);
+  if (!named) return null;
+  const raw = named[1];
+  const abs = path.isAbsolute(raw) ? path.normalize(raw) : path.resolve(root, raw);
+  // <main>/.git/worktrees/<name> is a leaf of the repository directory, and
+  // a commit touches the parts beside it, so the repository directory is the
+  // unit rather than the leaf.
+  const marker = path.sep + 'worktrees' + path.sep;
+  const cut = abs.indexOf(marker);
+  const repoDir = cut === -1 ? abs : abs.slice(0, cut);
+  return realOrNull(repoDir) || repoDir;
+}
+
 // Entries may be a bare path or an object carrying the path plus bookkeeping.
 // A relative entry is dropped rather than resolved: resolving it would make
 // the grant depend on whatever directory happened to be current.
@@ -167,7 +239,10 @@ function classifyGround(cwd, opts) {
     }
   }
 
-  return { ground: 'unopened', root: real };
+  const root = projectRootOf(real, troth) || real;
+  const linked = linkedRepoDirOf(root);
+  return { ground: 'unopened', root, cwd: real,
+           alsoWritable: linked ? [linked] : [] };
 }
 
 // Writer side: strict, mirroring the config file's single-writer rules. A

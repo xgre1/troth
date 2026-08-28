@@ -7,7 +7,7 @@ const path = require('path');
 
 const gp = require(path.join(__dirname, '..', 'shared-core', 'tools', 'ground-policy.js'));
 
-console.log('\nGround policy (GP-1..10):');
+console.log('\nGround policy (GP-1..13):');
 
 function withHome(fn) {
   const savedHome = process.env.HOME;
@@ -204,6 +204,88 @@ test('GP-10: the session directory grants ground without writing anything to dis
     assert.strictEqual(gp.classifyGround(home, { sessionRoot: home }).ground, 'home',
       'starting in a home-class directory must not open it');
     assert.strictEqual(gp.classifyGround(path.join(home, '.troth'), { sessionRoot: home }).ground, 'home');
+  });
+});
+
+test('GP-11: undeclared ground is scoped to the project, not to the directory you happen to stand in', () => {
+  withHome((home) => {
+    mk(home, '.troth');
+    const repo = mk(home, 'code', 'app');
+    const deep = mk(repo, 'src', 'lib');
+    fs.writeFileSync(path.join(repo, 'package.json'), '{}\n');
+
+    const c = gp.classifyGround(deep);
+    assert.strictEqual(c.ground, 'unopened');
+    assert.strictEqual(c.root, repo, 'the scope must be the project, or navigating it breaks');
+    assert.strictEqual(c.cwd, deep, 'the directory actually stood in is still reported');
+
+    // Nothing marks a project: the directory itself is the scope, which is
+    // the right answer for a folder that is not one.
+    const loose = mk(home, 'loose', 'folder');
+    assert.strictEqual(gp.classifyGround(loose).root, loose);
+
+    // The walk stops before it can swallow the ground holding the substrate:
+    // a marker dropped in a home directory must not make the whole home one
+    // project.
+    fs.writeFileSync(path.join(home, 'package.json'), '{}\n');
+    const orphan = mk(home, 'elsewhere');
+    assert.strictEqual(gp.classifyGround(orphan).root, orphan,
+      'the project walk climbed into home-class ground');
+  });
+});
+
+test('GP-12: the repository is the unit, so a manifest at every level does not narrow the scope', () => {
+  // A package manifest sits at every level of a monorepo, and a build step
+  // drops one wherever it is run. Taking the nearest marker scopes the work
+  // to a subdirectory and then refuses the sibling package, the top-level
+  // manifest, and staging — the ordinary shape of working in a repository.
+  withHome((home) => {
+    mk(home, '.troth');
+    const mono = mk(home, 'mono');
+    const pkg  = mk(mono, 'packages', 'a');
+    const deep = mk(pkg, 'src');
+    mk(mono, '.git');
+    fs.writeFileSync(path.join(mono, 'package.json'), '{}\n');
+    fs.writeFileSync(path.join(pkg, 'package.json'), '{}\n');
+
+    assert.strictEqual(gp.classifyGround(deep).root, mono,
+      'the scope narrowed to a package instead of the repository');
+
+    // A manifest decides the root only when no repository stands above it.
+    const loose = mk(home, 'loose', 'tool');
+    fs.writeFileSync(path.join(loose, 'package.json'), '{}\n');
+    assert.strictEqual(gp.classifyGround(path.join(loose)).root, loose);
+
+    // A repository inside a repository still answers with the outer one: a
+    // change in a vendored tree is usually committed from the project above.
+    const sup = mk(home, 'super'); mk(sup, '.git');
+    const inner = mk(sup, 'vendor', 'lib'); mk(inner, '.git');
+    assert.strictEqual(gp.classifyGround(inner).root, sup);
+  });
+});
+
+test('GP-13: a working tree whose repository lives elsewhere names that repository too', () => {
+  // In a linked working tree .git is a FILE pointing into the main
+  // repository, and committing writes there. Scoping to the tree alone
+  // refuses every commit, naming a path the operator never mentioned.
+  withHome((home) => {
+    mk(home, '.troth');
+    const main = mk(home, 'main');
+    const repoDir = mk(main, '.git');
+    mk(repoDir, 'worktrees', 'side');
+    const tree = mk(home, 'side');
+    fs.writeFileSync(path.join(tree, '.git'),
+      'gitdir: ' + path.join(repoDir, 'worktrees', 'side') + '\n');
+
+    const c = gp.classifyGround(tree);
+    assert.strictEqual(c.root, tree, 'the working tree is still the scope');
+    assert.deepStrictEqual(c.alsoWritable, [repoDir],
+      'the repository directory must be named, and as the directory rather than the leaf inside it');
+
+    // An ordinary repository keeps its objects inside the root already and
+    // needs nothing extra.
+    const plain = mk(home, 'plain'); mk(plain, '.git');
+    assert.deepStrictEqual(gp.classifyGround(plain).alsoWritable, []);
   });
 });
 };

@@ -570,10 +570,35 @@ function _persistencePaths() {
   return PERSISTENCE_RELATIVE.map((rel) => path.join(home, rel));
 }
 
+// Writable on confined ground: the per-user caches a toolchain writes without
+// being asked. Redirecting them one environment variable at a time means
+// enumerating every build system that will ever exist and re-downloading the
+// world per folder; allowing the roots costs nothing worth protecting,
+// because a cache is derived data by definition.
+//
+// Deliberately absent: the local binary and configuration trees. One holds
+// executables that are on PATH, the other holds several tools' credentials,
+// and neither is a cache.
+const CACHE_RELATIVE = [
+  'Library/Caches', '.cache', '.npm', '.cargo', '.rustup', 'go',
+  '.gradle', '.m2', '.bun', '.deno', '.nvm', '.pnpm-store', '.yarn'
+];
+
+function _cachePaths() {
+  const home = process.env.HOME || os.homedir();
+  // The system temp root is deliberately NOT here. Temporary files already
+  // have a home: the environment points them at scratch, which is writable.
+  // Opening the whole user temp tree would hand confined ground a large area
+  // outside the project for nothing measured — no command class needed it —
+  // and would leave the confinement untestable, since a test's own throwaway
+  // directories live there.
+  return CACHE_RELATIVE.map((rel) => path.join(home, rel));
+}
+
 // Later rules win in SBPL, so order carries meaning: the blanket write deny
 // comes first, the work and scratch allowances reopen exactly two subtrees,
 // and the denies that must survive a writable tree come LAST.
-function _groundProfile(kind, jewelCount, policyCount, persistCount) {
+function _groundProfile(kind, jewelCount, policyCount, persistCount, cacheCount, extraCount) {
   const confined = (kind === 'confine' || kind === 'home');
   const lines = ['(version 1)', '(allow default)',
                  '(deny file-read* (subpath (param "WORKSPACE")))'];
@@ -584,6 +609,15 @@ function _groundProfile(kind, jewelCount, policyCount, persistCount) {
     lines.push('(deny file-write*)');
     lines.push('(allow file-write* (subpath (param "SCRATCH")))');
     if (kind === 'confine') lines.push('(allow file-write* (subpath (param "WORK")))');
+    // A working tree whose repository lives elsewhere needs that repository
+    // writable too, or every commit is refused for a path the operator never
+    // named. Declared by the caller, never guessed here.
+    for (let i = 0; i < (extraCount || 0); i++) {
+      lines.push('(allow file-write* (subpath (param "EXTRA' + i + '")))');
+    }
+    for (let i = 0; i < (cacheCount || 0); i++) {
+      lines.push('(allow file-write* (subpath (param "CACHE' + i + '")))');
+    }
     lines.push('(allow file-write-data (literal "/dev/null") (literal "/dev/tty"))');
   }
   for (let i = 0; i < policyCount; i++) {
@@ -631,15 +665,22 @@ function groundSpawnSpec(opts) {
   const jewels   = _jewelPaths();
   const policies = _policyPaths();
   const persist  = _persistencePaths();
+  const caches   = (kind === 'confine' || kind === 'home') ? _cachePaths() : [];
+  const extraWritable = (kind === 'confine' && Array.isArray(opts.alsoWritable))
+    ? opts.alsoWritable.filter((p) => typeof p === 'string' && p).map(_realOr)
+    : [];
   const profilePath = path.join(PROFILE_DIR,
-    'ground-' + kind + '-' + jewels.length + '-' + policies.length + '-' + persist.length + '.sb');
+    'ground-' + kind + '-' + jewels.length + '-' + policies.length
+    + '-' + persist.length + '-' + caches.length + '-' + extraWritable.length + '.sb');
 
   let scratch = _scratchDirFor(work || (opts.cwd || _trothDir()));
   const args = [];
   try {
     fs.mkdirSync(PROFILE_DIR, { recursive: true, mode: 0o700 });
     fs.writeFileSync(profilePath,
-      _groundProfile(kind, jewels.length, policies.length, persist.length), { mode: 0o600 });
+      _groundProfile(kind, jewels.length, policies.length, persist.length,
+                     caches.length, extraWritable.length),
+      { mode: 0o600 });
     fs.mkdirSync(path.join(scratch, 'tmp'), { recursive: true, mode: 0o700 });
     scratch = fs.realpathSync(scratch);
     args.push('-f', profilePath);
@@ -647,8 +688,10 @@ function groundSpawnSpec(opts) {
     jewels.forEach((p, i)   => args.push('-D', 'JEWEL' + i + '=' + _realOr(p)));
     policies.forEach((p, i) => args.push('-D', 'POLICY' + i + '=' + _realOr(p)));
     persist.forEach((p, i)  => args.push('-D', 'PERSIST' + i + '=' + _realOr(p)));
+    caches.forEach((p, i)   => args.push('-D', 'CACHE' + i + '=' + _realOr(p)));
     if (kind === 'confine' || kind === 'home') args.push('-D', 'SCRATCH=' + scratch);
     if (kind === 'confine') args.push('-D', 'WORK=' + work);
+    extraWritable.forEach((p, i) => args.push('-D', 'EXTRA' + i + '=' + p));
   } catch (e) {
     return { ok: false, error: 'ground_setup_failed: ' + (e && e.message || e) };
   }
@@ -686,6 +729,8 @@ module.exports = {
   _groundProfile,
   _jewelPaths,
   _policyPaths,
+  _cachePaths,
+  CACHE_RELATIVE,
   _persistencePaths,
   PERSISTENCE_RELATIVE,
   HOOK_DIR_RULE,

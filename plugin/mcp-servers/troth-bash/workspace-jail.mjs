@@ -237,7 +237,8 @@ export function wrapFor(cwd, opts) {
     ? sb.jailSpawnSpec({ cwd: root, network: 'full' })
     : sb.groundSpawnSpec({
         kind: c.ground === 'opened' ? 'thin' : (c.ground === 'home' ? 'home' : 'confine'),
-        cwd:  root
+        cwd:  root,
+        alsoWritable: c.alsoWritable
       });
   if (!spec.ok) {
     return { off: 'unavailable', ground: c.ground, root, env: bareEnv(),

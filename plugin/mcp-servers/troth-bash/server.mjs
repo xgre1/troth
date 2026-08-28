@@ -252,15 +252,12 @@ function runCommand(command, timeoutMs, overrideCwd) {
         + (wrap.ground === 'workspace'
             ? ' (the workspace root: this command can see every project — cd into one for real work)'
             : '') + '\n';
-    } else if (wrap && wrap.kind === 'confine') {
-      cwdNote += noteOnce('confine:' + wrap.root,
-        '[troth-bash] undeclared ground: writes are scoped to ' + wrap.root
-        + ' (reads stay open). `troth open` this folder to work in it normally.\n');
-    } else if (wrap && wrap.kind === 'home') {
-      cwdNote += noteOnce('home:' + wrap.root,
-        '[troth-bash] this directory holds the substrate: writes land in scratch,'
-        + ' not here. cd into a project to work.\n');
     }
+    // Confined ground and the substrate tree say nothing in advance. A
+    // warning printed before anything has gone wrong is a line on every
+    // result that the reader learns to skip, and it arrives when there is
+    // nothing to act on. The explanation is attached to the refusal instead,
+    // at the moment it explains something — see the exit handler below.
     // Opened ground says nothing: it is the operator's own machine behaving
     // as it always has, and a note on every command there means nothing.
     //
@@ -311,6 +308,19 @@ function runCommand(command, timeoutMs, overrideCwd) {
       let stderrOut = cwdNote + errBuf.get();
       if (killedByOverflow) {
         stderrOut += '\n[troth-bash] HARD KILL: output exceeded ' + HARD_KILL_BYTES + ' bytes total';
+      }
+      // A write refused by the ground wall reads as an unexplained permission
+      // error, and the next thing tried is usually a workaround for a bug that
+      // is not there. Explain it here, where it is the answer to something the
+      // reader is looking at, and name the one command that lifts it.
+      if (wrap && (wrap.kind === 'confine' || wrap.kind === 'home')
+          && code !== 0 && /Operation not permitted|Permission denied/.test(errBuf.get())) {
+        stderrOut += '\n[troth-bash] ' + (wrap.kind === 'home'
+          ? 'this directory holds the substrate: writes land in scratch, not here.'
+            + ' cd into a project to work.'
+          : 'writes here are scoped to ' + wrap.root + ', so a path outside it is'
+            + ' refused. If that is wrong, `troth open ' + wrap.root + '` and it'
+            + ' runs with your own environment.') + '\n';
       }
       resolve({
         stdout: outBuf.get(),

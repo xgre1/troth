@@ -15,7 +15,7 @@ const { spawnSync } = require('child_process');
 
 const sb = require(path.join(__dirname, '..', 'shared-core', 'tools', 'sandbox-seatbelt.js'));
 
-console.log('\nGround walls (SBG-1..8):');
+console.log('\nGround walls (SBG-1..13):');
 
 function withTrothDir(fn) {
   const saved = process.env.TROTH_CONFIG_DIR;
@@ -298,5 +298,44 @@ test('SBG-12: creating a repository still works on every ground, and a hook that
         kind + ': something other than a template landed in the hook directory: ' + hooks.join(', '));
     }
   });
+});
+
+test('SBG-13: confined ground can still write the caches a toolchain writes without being asked', () => {
+  if (!sb.isAvailable().available) return skip('sandbox-exec unavailable');
+  // Redirecting these one environment variable at a time means enumerating
+  // every build system that will ever exist. A cache is derived data, so the
+  // roots are allowed instead — but the trees that are not caches stay shut.
+  const savedHome = process.env.HOME;
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'sbgc-')));
+  process.env.HOME = home;
+  try {
+    withTrothDir(() => {
+      const proj = path.join(home, 'proj');
+      fs.mkdirSync(proj, { recursive: true });
+      const spec = sb.groundSpawnSpec({ kind: 'confine', cwd: proj });
+      assert.ok(spec.ok, 'confine spec failed: ' + spec.error);
+      // The cache roots themselves exist on any machine that has run the
+      // toolchain once, and only the roots are allowed — not the trees above
+      // them, which is why a nested cache root is created here rather than
+      // from inside the walls.
+      for (const rel of sb.CACHE_RELATIVE) {
+        fs.mkdirSync(path.join(home, rel), { recursive: true });
+        const target = path.join(home, rel, 'nested', 'probe');
+        assert.strictEqual(runUnder(spec,
+          'mkdir -p ' + JSON.stringify(path.dirname(target)) + ' && echo x > ' + JSON.stringify(target), proj), 0,
+          'a toolchain cache was refused: ~/' + rel);
+      }
+      // Neither of these is a cache: one holds executables that sit on PATH,
+      // the other holds several tools' credentials.
+      for (const rel of ['.local/bin', '.config/gh']) {
+        const target = path.join(home, rel, 'probe');
+        assert.notStrictEqual(runUnder(spec,
+          'mkdir -p ' + JSON.stringify(path.dirname(target)) + ' && echo x > ' + JSON.stringify(target), proj), 0,
+          'the cache allowance reached a tree that is not a cache: ~/' + rel);
+      }
+    });
+  } finally {
+    if (savedHome === undefined) delete process.env.HOME; else process.env.HOME = savedHome;
+  }
 });
 };
