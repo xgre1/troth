@@ -78,6 +78,7 @@ require('./suite-70-field-contract.js')({ test, skip });
 require('./suite-71-run-id-containment.js')({ test, skip });
 require('./suite-72-ground-policy.js')({ test, skip });
 require('./suite-73-ground-walls.js')({ test, skip });
+require('./suite-74-ground-wiring.js')({ test, skip });
 
 // --- SUMMARY ---
 flushAsyncTests().then(() => {

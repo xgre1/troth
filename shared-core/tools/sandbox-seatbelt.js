@@ -80,6 +80,22 @@ function _clip(s) {
   return s.slice(0, MAX_STREAM_BYTES) + '\n…(stream truncated at ' + MAX_STREAM_BYTES + ' bytes)';
 }
 
+// A repository hook directory cannot be named as a parameter: it exists once
+// per repository, anywhere under whatever ground is writable, so the rule has
+// to be a pattern. Every profile ends with it.
+//
+// The template files a repository creation copies in are the exception, and
+// they have to be: creating a repository writes fourteen of them and fails
+// hard when refused. Every one ends in .sample, and that suffix is precisely
+// what stops the hook running — the tooling executes a hook by exact name and
+// never a sample. So the suffix is allowed back and nothing executable is:
+// a file staged as a sample still cannot be renamed into place, because the
+// rename is a write to the executable name.
+const HOOK_DIR_RULE = [
+  '(deny file-write* (regex #"/\\.git/hooks/"))',
+  '(allow file-write* (regex #"/\\.git/hooks/[^/]*\\.sample$"))'
+].join('\n');
+
 // The profile is a constant with -D parameters, never string-concatenated
 // paths: a path with a quote in it must not be able to rewrite the policy.
 //   WORK     — the jail (read+write+exec)
@@ -125,7 +141,13 @@ function _profile(network) {
     '(allow file-read-metadata)',
     // The jail is the only writable ground, plus the terminal devices.
     '(allow file-write* (subpath (param "WORK")) (subpath (param "SCRATCH")))',
-    '(allow file-write-data (literal "/dev/null") (literal "/dev/tty"))'
+    '(allow file-write-data (literal "/dev/null") (literal "/dev/tty"))',
+    // A repository hook is a script the operator's own next git command
+    // runs, so a package that drops one inside the writable project has
+    // bought execution outside these walls. Denied last, and by pattern
+    // rather than by path, because the writable ground IS the project and
+    // every repository under it carries the same directory.
+    HOOK_DIR_RULE
   ];
   if (network === 'full') {
     // SBPL cannot express "these hosts only", so outbound is all-or-nothing
@@ -520,11 +542,38 @@ function _policyPaths() {
           path.join(t, 'router.json')];
 }
 
+// Write-denied on operator ground: files the shell or the agent host EXECUTES
+// on its next start. A single write to any of them buys execution outside
+// every wall here, which is why they are refused by the kernel and not only
+// by the two roads that judge command text.
+//
+// Spelled relative to HOME and resolved per call rather than borrowed from
+// the path policy's list, which freezes HOME at load: a wall whose target
+// depends on when a module happened to be required is a wall that moves.
+// The suite pins that every name here is also refused by that policy, so the
+// two cannot drift apart unnoticed.
+//
+// Deliberately NOT here: the credential directories the operator's own tools
+// read and write (ssh known_hosts, cloud CLI caches). Denying those breaks
+// their everyday git push on their own ground, and a wall people route
+// around protects nothing.
+const PERSISTENCE_RELATIVE = [
+  '.bashrc', '.bash_profile', '.bash_login', '.profile',
+  '.zshrc', '.zshenv', '.zprofile', '.zlogin',
+  '.claude/settings.json', '.claude/settings.local.json',
+  '.claude/hooks', '.claude/agents', '.claude/plugins',
+  '.config/fish', 'Library/LaunchAgents'
+];
+
+function _persistencePaths() {
+  const home = process.env.HOME || os.homedir();
+  return PERSISTENCE_RELATIVE.map((rel) => path.join(home, rel));
+}
+
 // Later rules win in SBPL, so order carries meaning: the blanket write deny
 // comes first, the work and scratch allowances reopen exactly two subtrees,
-// and the policy denies come LAST so they still hold when a policy file
-// happens to sit inside a writable one.
-function _groundProfile(kind, jewelCount, policyCount) {
+// and the denies that must survive a writable tree come LAST.
+function _groundProfile(kind, jewelCount, policyCount, persistCount) {
   const confined = (kind === 'confine' || kind === 'home');
   const lines = ['(version 1)', '(allow default)',
                  '(deny file-read* (subpath (param "WORKSPACE")))'];
@@ -540,6 +589,15 @@ function _groundProfile(kind, jewelCount, policyCount) {
   for (let i = 0; i < policyCount; i++) {
     lines.push('(deny file-write* (subpath (param "POLICY' + i + '")))');
   }
+  // Files the operator's shell or agent host executes on their next start.
+  // The tool road and the shell road already refuse these, but both judge
+  // text: a filesystem call carried inside an interpreter argument is not
+  // shell syntax and no pre-execution scan parses it. A kernel rule does not
+  // care how the write was spelled.
+  for (let i = 0; i < (persistCount || 0); i++) {
+    lines.push('(deny file-write* (subpath (param "PERSIST' + i + '")))');
+  }
+  lines.push(HOOK_DIR_RULE);
   return lines.join('\n') + '\n';
 }
 
@@ -572,20 +630,23 @@ function groundSpawnSpec(opts) {
 
   const jewels   = _jewelPaths();
   const policies = _policyPaths();
+  const persist  = _persistencePaths();
   const profilePath = path.join(PROFILE_DIR,
-    'ground-' + kind + '-' + jewels.length + '-' + policies.length + '.sb');
+    'ground-' + kind + '-' + jewels.length + '-' + policies.length + '-' + persist.length + '.sb');
 
   let scratch = _scratchDirFor(work || (opts.cwd || _trothDir()));
   const args = [];
   try {
     fs.mkdirSync(PROFILE_DIR, { recursive: true, mode: 0o700 });
-    fs.writeFileSync(profilePath, _groundProfile(kind, jewels.length, policies.length), { mode: 0o600 });
+    fs.writeFileSync(profilePath,
+      _groundProfile(kind, jewels.length, policies.length, persist.length), { mode: 0o600 });
     fs.mkdirSync(path.join(scratch, 'tmp'), { recursive: true, mode: 0o700 });
     scratch = fs.realpathSync(scratch);
     args.push('-f', profilePath);
     args.push('-D', 'WORKSPACE=' + _realOr(path.join(_trothDir(), 'workspace')));
     jewels.forEach((p, i)   => args.push('-D', 'JEWEL' + i + '=' + _realOr(p)));
     policies.forEach((p, i) => args.push('-D', 'POLICY' + i + '=' + _realOr(p)));
+    persist.forEach((p, i)  => args.push('-D', 'PERSIST' + i + '=' + _realOr(p)));
     if (kind === 'confine' || kind === 'home') args.push('-D', 'SCRATCH=' + scratch);
     if (kind === 'confine') args.push('-D', 'WORK=' + work);
   } catch (e) {
@@ -625,6 +686,9 @@ module.exports = {
   _groundProfile,
   _jewelPaths,
   _policyPaths,
+  _persistencePaths,
+  PERSISTENCE_RELATIVE,
+  HOOK_DIR_RULE,
   PARTNER_ENV_STRIP,
   _scratchDirFor,
   PROFILE_DIR,

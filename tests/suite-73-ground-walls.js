@@ -196,4 +196,107 @@ test('SBG-9: the substrate database is walled on the tool and shell roads, not b
   assert.strictEqual(policy.isReadablePath(entry.prefix, {}).allowed, false,
     'the tool road must still refuse it');
 });
+
+test('SBG-10: what the shell and the agent host execute at startup is not writable, however the write is spelled', () => {
+  if (!sb.isAvailable().available) return skip('sandbox-exec unavailable');
+  const savedHome = process.env.HOME;
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'sbgp-')));
+  process.env.HOME = home;
+  try {
+    withTrothDir(() => {
+      fs.writeFileSync(path.join(home, '.zshrc'), 'original\n');
+      fs.mkdirSync(path.join(home, '.claude', 'hooks'), { recursive: true });
+      const proj = path.join(home, 'work', 'repo');
+      fs.mkdirSync(path.join(proj, '.git', 'hooks'), { recursive: true });
+
+      for (const kind of ['thin', 'confine']) {
+        const spec = sb.groundSpawnSpec({ kind, cwd: proj });
+        assert.ok(spec.ok, kind + ' spec failed: ' + spec.error);
+        const rc = path.join(home, '.zshrc');
+
+        assert.notStrictEqual(runUnder(spec, 'echo evil >> ' + JSON.stringify(rc), proj), 0,
+          kind + ': a shell startup file was writable');
+        // The roads that judge command text cannot parse a filesystem call
+        // carried inside an interpreter argument. A kernel rule does not read
+        // the command at all.
+        assert.notStrictEqual(runUnder(spec,
+          'node -e ' + JSON.stringify('require("fs").appendFileSync(' + JSON.stringify(rc) + ', "x")'), proj), 0,
+          kind + ': the interpreter road to a startup file is open');
+        assert.notStrictEqual(runUnder(spec, 'echo x > ' + JSON.stringify(path.join(home, '.claude', 'hooks', 'h.sh')), proj), 0,
+          kind + ': an agent-host hook was writable');
+        assert.notStrictEqual(runUnder(spec, 'echo x > .git/hooks/pre-commit', proj), 0,
+          kind + ': a repository hook was writable inside the writable project');
+
+        // Zero tax: the deny is narrow enough that ordinary work in the same
+        // directory is untouched, including the rest of the repository.
+        assert.strictEqual(runUnder(spec, 'mkdir -p src && echo x > src/a.js', proj), 0,
+          kind + ': ordinary work was refused');
+        assert.strictEqual(runUnder(spec, 'echo x >> .git/config', proj), 0,
+          kind + ': the deny is too wide, it caught ordinary repository files');
+      }
+
+      const jail = sb.jailSpawnSpec({ cwd: proj, network: 'none' });
+      assert.ok(jail.ok, 'jail spec failed: ' + jail.error);
+      const jspec = { exec: jail.exec, args: jail.args, env: jail.env };
+      assert.notStrictEqual(runUnder(jspec, 'echo x > .git/hooks/pre-commit', proj), 0,
+        'jail: a repository hook was writable inside the project');
+      assert.strictEqual(runUnder(jspec, 'mkdir -p src && echo x > src/b.js', proj), 0,
+        'jail: ordinary work was refused');
+
+      assert.strictEqual(fs.readFileSync(path.join(home, '.zshrc'), 'utf8').trim(), 'original',
+        'a startup file was modified');
+      assert.strictEqual(fs.readdirSync(path.join(proj, '.git', 'hooks')).length, 0,
+        'a repository hook landed');
+      assert.strictEqual(fs.readdirSync(path.join(home, '.claude', 'hooks')).length, 0,
+        'an agent-host hook landed');
+    });
+  } finally {
+    if (savedHome === undefined) delete process.env.HOME; else process.env.HOME = savedHome;
+  }
+});
+
+test('SBG-11: every startup file walled here is also walled on the tool road', () => {
+  // Two lists exist because this one must resolve HOME per call while the
+  // policy freezes it at load. They may differ in shape; they must not differ
+  // in what they cover, or one road quietly stops agreeing with the other.
+  const policy = require(path.join(__dirname, '..', 'shared-core', 'tools', 'path-policy.js'));
+  // Compared on the part below HOME, not on absolute paths: the two modules
+  // resolve HOME at different moments by design, so an absolute comparison
+  // measures when a module was required rather than what it covers.
+  const blocked = policy.BLOCKED_PREFIXES.map((e) => e.prefix.replace(/\/$/, ''));
+  for (const rel of sb.PERSISTENCE_RELATIVE) {
+    assert.ok(blocked.some((p) => p.endsWith(path.sep + rel)),
+      'the tool road does not refuse a startup file the kernel rule covers: ' + rel);
+  }
+  assert.ok(/\.git\/hooks/.test(sb.HOOK_DIR_RULE), 'the repository hook rule lost its target');
+});
+
+test('SBG-12: creating a repository still works on every ground, and a hook that would run still does not', () => {
+  if (!sb.isAvailable().available) return skip('sandbox-exec unavailable');
+  // Creating a repository copies fourteen template files into the hook
+  // directory and fails hard when refused, so the rule that protects the
+  // directory has to let the templates through. Their .sample suffix is
+  // exactly what stops them running: a hook is executed by exact name.
+  withTrothDir(({ root }) => {
+    const work = path.join(root, 'repowork');
+    fs.mkdirSync(work, { recursive: true });
+    for (const kind of ['thin', 'confine']) {
+      const spec = sb.groundSpawnSpec({ kind, cwd: work });
+      assert.ok(spec.ok, kind + ' spec failed: ' + spec.error);
+      const name = 'r-' + kind;
+      assert.strictEqual(runUnder(spec, 'git init -q ' + name, work), 0,
+        kind + ': creating a repository was refused');
+      assert.strictEqual(runUnder(spec,
+        'cd ' + name + ' && echo x > z.txt && git add z.txt && '
+        + 'git -c user.email=a@b -c user.name=n commit -qm t', work), 0,
+        kind + ': committing was refused');
+      assert.notStrictEqual(runUnder(spec, 'echo evil > ' + name + '/.git/hooks/pre-commit', work), 0,
+        kind + ': a hook that the next command would run was writable');
+      const hooks = fs.readdirSync(path.join(work, name, '.git', 'hooks'));
+      assert.ok(hooks.length > 0, kind + ': the templates did not land');
+      assert.ok(hooks.every((f) => f.endsWith('.sample')),
+        kind + ': something other than a template landed in the hook directory: ' + hooks.join(', '));
+    }
+  });
+});
 };

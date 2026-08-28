@@ -30,7 +30,7 @@ import { resolve as pathResolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
 import { compressCommandOutput } from './compress.mjs';
-import { jailFor } from './workspace-jail.mjs';
+import { jailFor, wrapFor } from './workspace-jail.mjs';
 
 const require = createRequire(import.meta.url);
 const _greet = require(fileURLToPath(new URL('../../../shared-core/mcp-greeting.js', import.meta.url))).makeGreeter();
@@ -88,6 +88,21 @@ let cwd = resolveDir(process.env.TROTH_BASH_CWD) || process.cwd();
 // Even process.cwd() can be a removed directory (spawned from a dead
 // worktree); land somewhere that exists.
 if (!existsSync(cwd)) cwd = homedir();
+// The directory the session started in is opened ground for this process
+// only. Captured before any cd can move it, and never written anywhere: an
+// in-memory grant has no expiry to get wrong, leaves nothing stale on disk,
+// and gives the partner no road that writes to the operator's registry.
+const SESSION_ROOT = cwd;
+
+// Notes that would otherwise repeat on every command. A wall the agent has
+// already been told about does not need saying again, and a line printed on
+// every result is a line nobody reads.
+const _noted = new Set();
+function noteOnce(key, text) {
+  if (_noted.has(key)) return '';
+  _noted.add(key);
+  return text;
+}
 
 const TOOLS = [
   {
@@ -205,38 +220,52 @@ function runCommand(command, timeoutMs, overrideCwd) {
       effectiveCwd = homedir();
       if (!overrideCwd) cwd = effectiveCwd;
     }
-    // Workspace ground runs jailed; the note keeps the agent oriented so a
-    // "permission denied" inside the jail reads as the wall, not a bug.
-    const jail = jailFor(effectiveCwd);
-    if (jail && jail.refuse) {
-      // A cwd that claims the workspace but resolves outside it. Running it
+    // Which ground this command stands on decides which walls it runs
+    // behind. The note keeps the agent oriented so a "permission denied"
+    // reads as the wall rather than a bug.
+    const wrap = wrapFor(effectiveCwd, { sessionRoot: SESSION_ROOT });
+    if (wrap && wrap.refuse) {
+      // A cwd that claims one ground but resolves into another. Running it
       // bare would be the one fail-open the whole design exists to avoid.
       return resolve({
-        stdout: '', stderr: '[troth-bash] REFUSED: ' + jail.refuse + '\n',
+        stdout: '', stderr: '[troth-bash] REFUSED: ' + wrap.refuse + '\n',
         exitCode: 126, signal: null, timedOut: false
       });
     }
-    if (jail && jail.off === 'operator') {
+    if (wrap && wrap.off === 'operator') {
       // The operator set l4.sandbox.runtime to bare. Their machine, their
-      // call — but say so on every command, because a jail that is off and
-      // a jail that is on look identical until something goes wrong.
-      cwdNote += '[troth-bash] workspace jail OFF by operator config'
-        + ' (l4.sandbox.runtime=bare): ' + jail.project + ' runs unsandboxed\n';
-    } else if (jail && jail.off === 'unavailable') {
-      // This host has no jail to give. Announced for the same reason as the
-      // operator's own switch: the directory promises containment, and a
-      // promise that quietly is not kept is worse than one never made.
-      cwdNote += '[troth-bash] workspace jail UNAVAILABLE: ' + jail.project
-        + ' runs unsandboxed (' + (jail.why || 'no runtime') + ')\n';
-    } else if (jail) {
-      cwdNote += '[troth-bash] workspace jail: writes+reads scoped to ' + jail.project
-        + (jail.ground === 'workspace'
+      // call — but say so, because walls that are off and walls that are on
+      // look identical until something goes wrong.
+      cwdNote += noteOnce('off:operator:' + wrap.ground,
+        '[troth-bash] sandbox OFF by operator config (l4.sandbox.runtime=bare):'
+        + ' ' + wrap.ground + ' ground runs unsandboxed\n');
+    } else if (wrap && wrap.off) {
+      // This host has no wall to give, or the kernel refuses to apply one —
+      // which is the answer inside an existing sandbox. Announced for the
+      // same reason as the operator's own switch: a promise that quietly is
+      // not kept is worse than one never made.
+      cwdNote += noteOnce('off:' + wrap.off + ':' + wrap.ground,
+        '[troth-bash] sandbox UNAVAILABLE: ' + wrap.ground + ' ground runs'
+        + ' unsandboxed (' + (wrap.why || 'no runtime') + ')\n');
+    } else if (wrap && wrap.kind === 'jail') {
+      cwdNote += '[troth-bash] workspace jail: writes+reads scoped to ' + wrap.root
+        + (wrap.ground === 'workspace'
             ? ' (the workspace root: this command can see every project — cd into one for real work)'
             : '') + '\n';
+    } else if (wrap && wrap.kind === 'confine') {
+      cwdNote += noteOnce('confine:' + wrap.root,
+        '[troth-bash] undeclared ground: writes are scoped to ' + wrap.root
+        + ' (reads stay open). `troth open` this folder to work in it normally.\n');
+    } else if (wrap && wrap.kind === 'home') {
+      cwdNote += noteOnce('home:' + wrap.root,
+        '[troth-bash] this directory holds the substrate: writes land in scratch,'
+        + ' not here. cd into a project to work.\n');
     }
-    // An off-by-config jail carries no argv, so it spawns like operator
-    // ground below.
-    const wrapped = jail && jail.exec ? jail : null;
+    // Opened ground says nothing: it is the operator's own machine behaving
+    // as it always has, and a note on every command there means nothing.
+    //
+    // An off-by-config wrap carries no argv, so it spawns bare below.
+    const wrapped = wrap && wrap.exec ? wrap : null;
     // detached puts the command in its OWN process group so a kill can take
     // the whole tree. Seatbelt scopes signals to one sandbox-exec
     // invocation, so a background server started inside a jail is
@@ -245,7 +274,8 @@ function runCommand(command, timeoutMs, overrideCwd) {
     const proc = wrapped
       ? spawn(wrapped.exec, wrapped.args.concat(['/bin/bash', '-lc', command]),
               { cwd: effectiveCwd, env: wrapped.env, detached: true })
-      : spawn('/bin/bash', ['-lc', command], { cwd: effectiveCwd, env: partnerEnv(), detached: true });
+      : spawn('/bin/bash', ['-lc', command],
+              { cwd: effectiveCwd, env: (wrap && wrap.env) || partnerEnv(), detached: true });
     // Signal the group (-pid), falling back to the leader if the group is
     // already gone, so a stray child can never outlive its command.
     const endTree = (sig) => {
