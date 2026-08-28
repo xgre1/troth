@@ -76,6 +76,7 @@ require('./suite-68-substrate-sync.js')({ test, skip });
 require('./suite-69-context-window.js')({ test, skip });
 require('./suite-70-field-contract.js')({ test, skip });
 require('./suite-71-run-id-containment.js')({ test, skip });
+require('./suite-72-ground-policy.js')({ test, skip });
 
 // --- SUMMARY ---
 flushAsyncTests().then(() => {

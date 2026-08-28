@@ -90,6 +90,12 @@ const BLOCKED_PREFIXES = Object.freeze([
   // on mcp-clients.json does not catch mcp-pending.json (different basename,
   // and prefix rules match from index 0). Pinned both ways by suite-18.
   { name: 'l4_config',          prefix: _expandHome('~/.troth/config.json'), why: 'L4 master config — operator-only' },
+  // The registry naming which of the operator's own folders the partner may
+  // work in bare. A partner-written entry widens the partner's own walls, so
+  // it belongs beside the other policy files: the operator adds a folder
+  // through the CLI, never the partner through a tool.
+  { name: 'opened_folders',     prefix: _expandHome('~/.troth/opened-folders.json'), why: 'ground registry — an entry here decides where the partner runs unconfined; operator-only' },
+  { name: 'opened_folders_tmp', prefix: _expandHome('~/.troth/opened-folders.json.tmp'), why: 'ground registry temp file (atomic-write target)' },
   // The substrate database. It was absent from this list while every OTHER
   // ~/.troth registry was on it, so the one file holding the partner's whole
   // memory was the one file a shell could rewrite. The prefix also covers the
