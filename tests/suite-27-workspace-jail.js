@@ -170,20 +170,22 @@ test('WSJAIL-8: a host with no jail SAYS so instead of running workspace ground 
   // ground, and a host that has no jail to give. They printed the same
   // nothing, so on Linux the containment directory ran unsandboxed with no
   // sign. Degrading is fine; degrading quietly is the failure.
+  // The runtime is removed the way SANDBOX-9 removes it: fake the platform,
+  // which every load of the wall builder sees — including the fresh one the
+  // hands make per command — where a patched module instance would be
+  // dropped on the next re-read.
   const probe = [
     'const fs = require("fs"), os = require("os"), path = require("path");',
     'const home = fs.realpathSync(fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "wsna-")));',
     'process.env.HOME = home;',
     'const proj = path.join(home, ".troth", "workspace", "demo");',
     'fs.mkdirSync(proj, { recursive: true });',
-    'const sb = require(process.argv[2]);',
-    'sb.jailSpawnSpec = () => ({ ok: false, error: "no runtime on this host" });',
+    'Object.defineProperty(process, "platform", { value: "linux" });',
     'import(process.argv[1]).then(wj => {',
     '  console.log(JSON.stringify({ ws: wj.jailFor(proj), op: wj.jailFor(home) }));',
     '});'
   ].join('');
-  const sbPath = path.join(__dirname, '..', 'shared-core', 'tools', 'sandbox-seatbelt.js');
-  const r = spawnSync(process.execPath, ['-e', probe, modHref, sbPath], { encoding: 'utf8', timeout: 20000 });
+  const r = spawnSync(process.execPath, ['-e', probe, modHref], { encoding: 'utf8', timeout: 20000 });
   const out = JSON.parse(String(r.stdout).trim());
   assert.strictEqual(out.ws && out.ws.off, 'unavailable',
     'workspace ground with no runtime must report itself, got: ' + JSON.stringify(out.ws));
