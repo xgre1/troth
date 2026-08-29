@@ -279,7 +279,10 @@ print("\n".join(sorted(out)))' \
   #     smoke checks and 6 standards when a clone produces 11 and 5. Every
   #     count below that a reader will see is taken in this tree.
   local PUBROOT PUBTREE
-  PUBROOT=$(mktemp -d)
+  # mktemp's no-template form resolves to the system temp dir, which walled
+  # ground refuses; the explicit template keeps gate scratch in the session's
+  # own temp, where the gate runs no matter whose hand invokes it.
+  PUBROOT=$(mktemp -d "${TMPDIR:-/tmp}/gate.XXXXXXXX")
   PUBTREE="$PUBROOT/public"
   mkdir -p "$PUBTREE"
   git archive HEAD | tar -x -C "$PUBTREE" 2>/dev/null
@@ -540,7 +543,7 @@ check_dmg() {
   echo "BUNDLE GATE: $(basename "$dmg")"
   [ -f "$dmg" ] || { fail "no such file: $dmg"; return; }
 
-  local mnt; mnt="$(mktemp -d)/m"
+  local mnt; mnt="$(mktemp -d "${TMPDIR:-/tmp}/gate.XXXXXXXX")/m"
   hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg" >/dev/null 2>&1 \
     || { fail "cannot mount the image"; return; }
   local app core; app="$(find "$mnt" -maxdepth 1 -name '*.app' | head -1)"
@@ -758,7 +761,7 @@ check_ship() {
   dmg_url=$(printf '%s' "$appcast" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).dmg_url))" 2>/dev/null)
   site_sha=$(printf '%s' "$appcast" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).sha256))" 2>/dev/null)
   local tmp got
-  tmp="$(mktemp)"
+  tmp="$(mktemp "${TMPDIR:-/tmp}/gate.XXXXXXXX")"
   if curl -sSfL --max-time 300 -o "$tmp" "$dmg_url" 2>/dev/null; then
     got=$(shasum -a 256 "$tmp" | awk '{print $1}')
     if [ "$got" = "$site_sha" ]; then

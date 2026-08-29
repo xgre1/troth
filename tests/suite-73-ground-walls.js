@@ -15,7 +15,7 @@ const { spawnSync } = require('child_process');
 
 const sb = require(path.join(__dirname, '..', 'shared-core', 'tools', 'sandbox-seatbelt.js'));
 
-console.log('\nGround walls (SBG-1..18):');
+console.log('\nGround walls (SBG-1..19):');
 
 function withTrothDir(fn) {
   const saved = process.env.TROTH_CONFIG_DIR;
@@ -523,5 +523,32 @@ test('SBG-18: the keychain is write-refused but never read-refused', () => {
   const body = sb2._groundProfile('thin', 1, 1, 1, 0, 0, 2, 1, 1);
   assert.ok(body.indexOf('(deny file-write* (subpath (param "SECRETW0")))') > -1, 'write deny for the write-only store missing');
   assert.ok(body.indexOf('(deny file-read* (subpath (param "SECRETW0")))') === -1, 'a read deny appeared on the write-only store');
+});
+
+test('SBG-19: the gate input lists ride the carve road into every ground', () => {
+  const sb2 = require('../shared-core/tools/sandbox-seatbelt.js');
+  // The release gate greps a candidate tree against these lists from the
+  // partner's own hand, so they are read-only literals through the substrate
+  // inversion. The pin: exactly these three, gate- shaped, at the substrate
+  // root, and actually wired into the emitted ground — never a fourth name.
+  const want = ['gate-identifiers', 'gate-jargon', 'gate-closed-probes'];
+  const carves = sb2._gateInputCarves();
+  const root = path.dirname(sb2._policyPaths()[0]);
+  assert.strictEqual(carves.length, want.length, 'the gate carve list changed size');
+  for (const c of carves) {
+    assert.strictEqual(path.dirname(c), root, 'a gate carve left the substrate dir: ' + c);
+    assert.ok(want.indexOf(path.basename(c)) > -1, 'unexpected gate carve: ' + c);
+    assert.strictEqual(path.basename(c).indexOf('gate-'), 0, 'a gate carve without the gate- shape: ' + c);
+  }
+  const spec = sb2.groundSpawnSpec({ kind: 'thin' });
+  if (spec.ok) {
+    const dArgs = spec.args.filter((a, i) => spec.args[i - 1] === '-D');
+    for (const c of carves) {
+      let real = c;
+      try { real = fs.realpathSync(c); } catch (_) {}
+      assert.ok(dArgs.some((a) => /^CARVE\d+=/.test(a) && a.slice(a.indexOf('=') + 1) === real),
+        'gate carve missing from the ground spec: ' + c);
+    }
+  }
 });
 };

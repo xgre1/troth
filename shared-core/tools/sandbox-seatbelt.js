@@ -593,6 +593,18 @@ function _secretStoreCarves() {
           path.join(h, '.ssh', 'config')];
 }
 
+// The release gate's input lists: the identifiers, vocabulary and closed-
+// module probes a candidate tree is grepped against before anything goes
+// public. The gate runs in the partner's hand, so these three literals stay
+// readable through the substrate inversion while everything beside them
+// stays dark. Lint lists only — nothing here is a credential or a policy.
+function _gateInputCarves() {
+  const t = _trothDir();
+  return [path.join(t, 'gate-identifiers'),
+          path.join(t, 'gate-jargon'),
+          path.join(t, 'gate-closed-probes')];
+}
+
 // Write-denied: files that decide what the partner is allowed to do. A
 // partner that can edit these widens its own walls, so they are refused by
 // the kernel and not only by the tool that would normally write them.
@@ -704,8 +716,10 @@ function _groundProfile(kind, jewelCount, policyCount, persistCount, cacheCount,
   lines.push('(allow file-read-metadata (literal (param "TROTHDIR")))');
   lines.push('(allow file-read* (subpath (param "TROTHJAILS")))');
   lines.push('(allow file-read* (subpath (param "TROTHPROFILES")))');
-  // Host inventory and ssh client configuration: read-only literals, so
-  // agent-backed git-over-ssh keeps connecting while key files stay dark.
+  // Read-only literal pinholes, two families: host inventory and ssh client
+  // configuration (agent-backed git-over-ssh keeps connecting while key
+  // files stay dark), and the release gate's input lists (the gate runs in
+  // the partner's hand and greps them there).
   for (let i = 0; i < (carveCount || 0); i++) {
     lines.push('(allow file-read* (literal (param "CARVE' + i + '")))');
   }
@@ -813,7 +827,7 @@ function groundSpawnSpec(opts) {
   const policies = _policyPaths();
   const persist  = _persistencePaths();
   const secrets  = _secretStorePaths();
-  const carves   = _secretStoreCarves();
+  const carves   = _secretStoreCarves().concat(_gateInputCarves());
   const secretsW = _secretStoreWriteOnlyPaths();
   const caches   = (kind === 'confine' || kind === 'home') ? _cachePaths() : [];
   const extraWritable = (kind === 'confine' && Array.isArray(opts.alsoWritable))
@@ -888,6 +902,7 @@ module.exports = {
   _jewelPaths,
   _secretStorePaths,
   _secretStoreCarves,
+  _gateInputCarves,
   _secretStoreWriteOnlyPaths,
   _policyPaths,
   _cachePaths,

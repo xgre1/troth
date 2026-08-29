@@ -158,11 +158,13 @@ function runProbes() {
   const knownHosts = path.join(h, '.ssh', 'known_hosts');
   const cfgFile = path.join(_troth(), 'config.json');
   const jailsDir = path.join(_troth(), 'jails');
+  const gateIdents = path.join(_troth(), 'gate-identifiers');
   out.hostSees = {
     sshAuthSock: !!process.env.SSH_AUTH_SOCK,
     knownHosts: fs.existsSync(knownHosts),
     trothConfig: fs.existsSync(cfgFile),
     jailsDir: fs.existsSync(jailsDir),
+    gateIdents: fs.existsSync(gateIdents),
     // The undo store's real footprint — the operator's 'is my disk filling'
     // question answered with a number on every doctor run. Retention keeps
     // it bounded (RETAIN_DAYS window, keep floor, gc on every maintenance).
@@ -199,6 +201,10 @@ function runProbes() {
   if (out.hostSees.knownHosts) {
     add('base keeps known_hosts readable', _sh(base, 'head -c1 ' + JSON.stringify(knownHosts) + ' >/dev/null'), [0],
       'ssh keeps connecting to already-known hosts');
+  }
+  if (out.hostSees.gateIdents) {
+    add('base keeps the gate inputs readable', _sh(base, 'head -c1 ' + JSON.stringify(gateIdents) + ' >/dev/null'), [0],
+      'the release gate greps its lists from the partner hand');
   }
   if (out.hostSees.jailsDir) {
     add('base keeps jails readable', _sh(base, 'ls ' + JSON.stringify(jailsDir) + ' >/dev/null'), [0],
@@ -290,7 +296,8 @@ function runProbes() {
       .map(get).filter(Boolean).every((p) => p.ok),
     promotionLive: ['base denies substrate config read', 'base keeps known_hosts readable',
       'base keeps jails readable', 'base denies wall self-editing',
-      'base mkdir -p through the substrate chain', 'base substrate node answers stat while contents stay dark']
+      'base mkdir -p through the substrate chain', 'base substrate node answers stat while contents stay dark',
+      'base keeps the gate inputs readable']
       .map(get).filter(Boolean).every((p) => p.ok),
     jailHolds: ['jail writes land in the project', 'jail refuses writing beside the project',
       'jail cannot read the operator home', 'jail ground available']
