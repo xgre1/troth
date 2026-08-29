@@ -20,6 +20,7 @@
 // the caller passes them through untouched.
 
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 let _parsers = null;
 let _loadAttempted = false;
@@ -27,6 +28,19 @@ function loadParsers() {
   if (_parsers) return _parsers;
   if (_loadAttempted) return null;
   _loadAttempted = true;
+  // A runtime whose ABI drifted from these native bindings can die at parse
+  // time rather than throw at require time — and a death inside the serving
+  // process takes the hands with it. One child spawn buys the answer safely:
+  // if the child cannot require and parse, this host has no validator and
+  // every caller sees an honest skip.
+  try {
+    const probe = spawnSync(process.execPath, ['-e',
+      'const P=require("tree-sitter");const L=require("tree-sitter-javascript");' +
+      'const p=new P();p.setLanguage(L);const t=p.parse("let x=1;");' +
+      'process.exit(t&&t.rootNode&&!t.rootNode.hasError?0:1);'
+    ], { timeout: 10000, cwd: path.join(__dirname, '..') });
+    if (probe.status !== 0) return null;
+  } catch (_) { return null; }
   try {
     const Parser = require('tree-sitter');
     const JS = require('tree-sitter-javascript');
@@ -177,5 +191,6 @@ module.exports = {
   validate,
   applyEdit,
   applyMultiEdit,
-  langFor
+  langFor,
+  available: () => !!loadParsers()
 };

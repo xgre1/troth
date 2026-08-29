@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Auto-split from tests/test-all.js (verbatim section bodies; order preserved).
 // Sections: RATELIMIT (behavior) | PLUGIN HOOKS (behavior) | PROXY ↔ PLUGIN COEXISTENCE (behavior) | CRITIC ↔ REFLEXION LOOP (behavior) | ERRORTAX (behavior) | CRITIC (behavior) | TASK TIER CLASSIFIER (behavior) | DANGER CLASSIFIER (behavior) | REPOMAP (behavior) | EDIT MATCHER (behavior) | INJECTOR (behavior) 
-module.exports = function run({ test }) {
+module.exports = function run({ test, skip }) {
 const assert = require('assert');
 const TMP = require('os').tmpdir() + '/troth-validator-test-' + Date.now();
 const dedup = require('../proxy/modules/dedup');
@@ -1812,6 +1812,9 @@ console.log('\nHashline edit format (behavior):');
   });
 
   test('hashline_edit MCP rejects edits that break AST', () => {
+    // The reject road only exists where the parsers do; a runtime without
+    // them serves edits with validation reported skipped, proven elsewhere.
+    if (!require('../shared-core/ast-validate.js').available()) return skip('no tree-sitter parsers on this runtime');
     const childMCP = require('child_process');
     const pMCP = require('path');
     const fMCP = require('fs');
