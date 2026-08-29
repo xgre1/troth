@@ -44,8 +44,11 @@ assert.ok(dialogueMemory.recordTurn({
   assistant_text: 'Sounds fun.'
 }));
 
-const extractor = () => Promise.resolve(JSON.stringify([
-  { kind: 'activity', entity: 'baking class', description: 'local culinary school class', date_iso: null, status: 'completed', qualifier: 'attended', quantity: null, turn_idxs: [0] }
+// The product parser speaks the v2 combined shape: rows ride under
+// `instances`, each attested by a verbatim quote from its own turn.
+const v2 = (rows) => JSON.stringify({ identities: [], instances: rows });
+const extractor = () => Promise.resolve(v2([
+  { kind: 'activity', entity: 'baking class', description: 'local culinary school class', date_iso: null, status: 'completed', qualifier: 'attended', quantity: null, turn_idxs: [0], quote: 'attended an amazing baking class' }
 ]));
 
 await t('cadence window alone sees NOTHING in a years-old history', async () => {

@@ -30,6 +30,10 @@ function t(name, fn) {
 
 const BRAIN = 'test-brain';
 
+// The product parser speaks the v2 combined shape: rows ride under
+// `instances`, each attested by a verbatim quote from its own turn.
+const v2 = (rows) => JSON.stringify({ identities: [], instances: rows });
+
 (async function main() {
 console.log('\n=== instance-pool count-read arm ===\n');
 
@@ -51,7 +55,7 @@ for (let i = 0; i < seed.length; i++) {
   }));
   const s = await ic.runPass({
     agent_id: BRAIN, user_id: 'default',
-    llmCall: () => Promise.resolve(JSON.stringify([seed[i][2]]))
+    llmCall: () => Promise.resolve(v2([Object.assign({}, seed[i][2], { quote: seed[i][0] })]))
   });
   assert.strictEqual(s.written, 1, 'seed ' + i + ': ' + JSON.stringify(s));
 }

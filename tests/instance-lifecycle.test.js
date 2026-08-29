@@ -49,6 +49,10 @@ function currentVisits() {
 (async function main() {
 console.log('\n=== instance lifecycle (transitions + same-occurrence merge) ===\n');
 
+// The product parser speaks the v2 combined shape: rows ride under
+// `instances`, each attested by a verbatim quote from its own turn.
+const v2 = (rows) => JSON.stringify({ identities: [], instances: rows });
+
 const T0 = Date.now() - 5 * 60 * 1000;
 
 // ── SPECIMEN 1: Dr. Patel — planned, then completed ─────────────────────
@@ -56,8 +60,8 @@ await t('window 1: a planned visit lands as status planned', async () => {
   turnRow("I'll schedule a follow-up with Dr. Patel about my chronic sinusitis.", T0, 'sess-P1');
   const s = await ic.runPass({
     agent_id: BRAIN, user_id: 'default',
-    llmCall: () => Promise.resolve(JSON.stringify([
-      { kind: 'visit', entity: 'Dr. Patel', description: 'ENT follow-up for chronic sinusitis', date_iso: null, status: 'planned', qualifier: 'scheduled', quantity: null, turn_idxs: [0] }
+    llmCall: () => Promise.resolve(v2([
+      { kind: 'visit', entity: 'Dr. Patel', description: 'ENT follow-up for chronic sinusitis', date_iso: null, status: 'planned', qualifier: 'scheduled', quantity: null, turn_idxs: [0], quote: 'schedule a follow-up with Dr. Patel' }
     ]))
   });
   assert.strictEqual(s.written, 1, JSON.stringify(s));
@@ -71,8 +75,8 @@ await t('window 2: "the appointment went well" TRANSITIONS planned→completed, 
   turnRow('The appointment with Dr. Patel went well — sinuses are clearing up.', T0 + 60 * 1000, 'sess-P2');
   const s = await ic.runPass({
     agent_id: BRAIN, user_id: 'default',
-    llmCall: () => Promise.resolve(JSON.stringify([
-      { kind: 'visit', entity: 'Dr. Patel', description: 'ENT follow-up for chronic sinusitis', date_iso: null, status: 'completed', qualifier: 'visited', quantity: null, turn_idxs: [0] }
+    llmCall: () => Promise.resolve(v2([
+      { kind: 'visit', entity: 'Dr. Patel', description: 'ENT follow-up for chronic sinusitis', date_iso: null, status: 'completed', qualifier: 'visited', quantity: null, turn_idxs: [0], quote: 'appointment with Dr. Patel went well' }
     ]))
   });
   assert.strictEqual(s.transitions, 1, JSON.stringify(s));
@@ -90,8 +94,8 @@ await t('terminal guard: a stale "planned" retelling cannot downgrade completed'
   turnRow("I'm planning to see Dr. Patel about the sinus thing.", T0 + 120 * 1000, 'sess-P3');
   const s = await ic.runPass({
     agent_id: BRAIN, user_id: 'default',
-    llmCall: () => Promise.resolve(JSON.stringify([
-      { kind: 'visit', entity: 'Dr. Patel', description: 'sinus follow-up', date_iso: null, status: 'planned', qualifier: 'planning', quantity: null, turn_idxs: [0] }
+    llmCall: () => Promise.resolve(v2([
+      { kind: 'visit', entity: 'Dr. Patel', description: 'sinus follow-up', date_iso: null, status: 'planned', qualifier: 'planning', quantity: null, turn_idxs: [0], quote: 'planning to see Dr. Patel' }
     ]))
   });
   const v = currentVisits();
@@ -106,16 +110,16 @@ await t('one occurrence under two names merges by identity (restatement, proof c
   turnRow("My sister's wedding was at a rooftop garden — I was maid of honor.", T0 + 180 * 1000, 'sess-W1');
   const s1 = await ic.runPass({
     agent_id: BRAIN, user_id: 'default',
-    llmCall: () => Promise.resolve(JSON.stringify([
-      { kind: 'event', entity: 'my sister', description: 'wedding, rooftop garden, maid of honor', date_iso: null, status: 'completed', qualifier: 'attended', quantity: null, turn_idxs: [0] }
+    llmCall: () => Promise.resolve(v2([
+      { kind: 'event', entity: 'my sister', description: 'wedding, rooftop garden, maid of honor', date_iso: null, status: 'completed', qualifier: 'attended', quantity: null, turn_idxs: [0], quote: 'sister\'s wedding was at a rooftop garden' }
     ]))
   });
   assert.strictEqual(s1.written, 1, JSON.stringify(s1));
   turnRow("Jen and Tom's wedding photos came back — the rooftop shots are stunning.", T0 + 240 * 1000, 'sess-W2');
   const s2 = await ic.runPass({
     agent_id: BRAIN, user_id: 'default',
-    llmCall: () => Promise.resolve(JSON.stringify([
-      { kind: 'event', entity: 'Jen', description: 'wedding at the rooftop garden', date_iso: null, status: 'completed', qualifier: 'attended', quantity: null, turn_idxs: [0] }
+    llmCall: () => Promise.resolve(v2([
+      { kind: 'event', entity: 'Jen', description: 'wedding at the rooftop garden', date_iso: null, status: 'completed', qualifier: 'attended', quantity: null, turn_idxs: [0], quote: 'Jen and Tom\'s wedding photos' }
     ]))
   });
   assert.strictEqual(s2.written, 0, 'the same wedding must NOT become a second instance: ' + JSON.stringify(s2));
@@ -132,10 +136,10 @@ await t('two PINNED different dates stay two occurrences (never merged)', async 
   turnRow('I saw Dr. Lee again on June 9th for the follow-up.', T0 + 360 * 1000, 'sess-D1b');
   const s = await ic.runPass({
     agent_id: BRAIN, user_id: 'default',
-    llmCall: (prompt) => Promise.resolve(JSON.stringify(
+    llmCall: (prompt) => Promise.resolve(v2(
       prompt.indexOf('March') >= 0
-        ? [{ kind: 'visit', entity: 'Dr. Lee', description: 'first mole check', date_iso: '2023-03-03', status: 'completed', qualifier: 'visited', quantity: null, turn_idxs: [0] }]
-        : [{ kind: 'visit', entity: 'Dr. Lee', description: 'mole follow-up', date_iso: '2023-06-09', status: 'completed', qualifier: 'visited', quantity: null, turn_idxs: [0] }]
+        ? [{ kind: 'visit', entity: 'Dr. Lee', description: 'first mole check', date_iso: '2023-03-03', status: 'completed', qualifier: 'visited', quantity: null, turn_idxs: [0], quote: 'Dr. Lee on March 3rd' }]
+        : [{ kind: 'visit', entity: 'Dr. Lee', description: 'mole follow-up', date_iso: '2023-06-09', status: 'completed', qualifier: 'visited', quantity: null, turn_idxs: [0], quote: 'Dr. Lee again on June 9th' }]
     ))
   });
   assert.strictEqual(s.written, 2, 'distinct dated visits are distinct occurrences: ' + JSON.stringify(s));
@@ -148,10 +152,10 @@ await t('possessions with different descriptions stay DISTINCT (the tanks class)
   turnRow('My 20-gallon tank finished cycling this week.', T0 + 460 * 1000, 'sess-T2');
   const s = await ic.runPass({
     agent_id: BRAIN, user_id: 'default',
-    llmCall: (prompt) => Promise.resolve(JSON.stringify(
+    llmCall: (prompt) => Promise.resolve(v2(
       prompt.indexOf('betta') >= 0
-        ? [{ kind: 'possession', entity: 'tank', description: '5-gallon tank with betta Finley', date_iso: null, status: 'completed', qualifier: 'owns', quantity: null, turn_idxs: [0] }]
-        : [{ kind: 'possession', entity: 'tank', description: '20-gallon tank finished cycling', date_iso: null, status: 'completed', qualifier: 'owns', quantity: null, turn_idxs: [0] }]
+        ? [{ kind: 'possession', entity: 'tank', description: '5-gallon tank with betta Finley', date_iso: null, status: 'completed', qualifier: 'owns', quantity: null, turn_idxs: [0], quote: '5-gallon tank with my betta Finley' }]
+        : [{ kind: 'possession', entity: 'tank', description: '20-gallon tank finished cycling', date_iso: null, status: 'completed', qualifier: 'owns', quantity: null, turn_idxs: [0], quote: '20-gallon tank finished cycling' }]
     ))
   });
   assert.strictEqual(s.written, 2, 'two different tanks are two possessions: ' + JSON.stringify(s));
@@ -164,8 +168,8 @@ await t('the same possession retold with agreeing description still merges', asy
   turnRow('The 5-gallon tank with Finley the betta needs a filter change.', T0 + 520 * 1000, 'sess-T3');
   const s = await ic.runPass({
     agent_id: BRAIN, user_id: 'default',
-    llmCall: () => Promise.resolve(JSON.stringify(
-      [{ kind: 'possession', entity: 'tank', description: '5-gallon betta tank (Finley)', date_iso: null, status: 'completed', qualifier: 'owns', quantity: null, turn_idxs: [0] }]
+    llmCall: () => Promise.resolve(v2(
+      [{ kind: 'possession', entity: 'tank', description: '5-gallon betta tank (Finley)', date_iso: null, status: 'completed', qualifier: 'owns', quantity: null, turn_idxs: [0], quote: '5-gallon tank with Finley the betta' }]
     ))
   });
   assert.strictEqual(s.written, 0, 'restatement must not mint a third tank: ' + JSON.stringify(s));
