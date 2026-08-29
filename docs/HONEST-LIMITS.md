@@ -136,6 +136,17 @@ elsewhere in our docs about "Docker isolation" describes the container path
 only. If that is more autonomy than you want, run it with Docker up, or do
 not use `troth run` at all; nothing else in the open tree starts a worker.
 
+The interactive shell is a different lane with a different answer. On macOS
+every command the partner's hands run is wrapped in a per-command kernel
+sandbox (Seatbelt): ssh key material and cloud credential stores are
+unreadable, the substrate and its policy files take no writes, and partner
+project ground is deny-default — the project and its scratch, nothing else.
+No prompt is involved and nothing depends on a judgment call at the moment
+of running. On a host without that runtime — Linux today — the same commands
+run with no kernel wall at all, the tool output says so, and what remains
+are the tool-layer guards (path policy, bash judgment, STVC). A kernel wall
+for Linux is an open item, not a promise.
+
 The second is `proxy/modules/scheduler.js`, the v6.3
 time-based scheduler behind `troth schedule`. When a schedule fires it runs
 `git worktree add -b troth/<runId>` in your repository and spawns a worker
