@@ -9,9 +9,32 @@ All notable changes to troth are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.18] — 2026-08-29
 
 ### Added
+- Kernel walls for the partner's hands. On macOS, every shell command runs
+  inside a per-command sandbox profile shaped to the ground it stands on:
+  ssh key material and cloud credential stores are unreadable, the substrate
+  and its policy files take no writes, and partner project ground is
+  deny-default — the project and its scratch, nothing else. The keychain
+  takes no writes while the stored git credential keeps serving ordinary
+  pushes, and the ssh agent keeps answering, so agent-side git works
+  untouched. No prompt and no judgment call: the wall is the kernel's
+  answer. A host without the sandbox runtime runs with the walls off and
+  the tool output says so.
+
+- The walls prove themselves. On every proxy boot a wall doctor runs the
+  whole board from unwalled ground — engagement, the credential road, the
+  read carves, the jail, the substrate inversion — and `/api/doctor`
+  carries the verdicts with the rest of the health board. A wall edit
+  lands on the very next command with no restart, and a broken edit keeps
+  the last good walls serving.
+
+- Undo for everything the hands touch. Before a command runs, the files it
+  stands to change are photographed into a content-addressed shadow
+  repository; restore never loses work, and retention keeps the shadow's
+  disk footprint bounded while the newest state stays recoverable.
+
 - The substrate distils what it understood. A pass at worker cadence reads new
   dialogue through one extraction charter — the people first so occurrences can
   key on them, every row quoting the turn that attests it, provenance
