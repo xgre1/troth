@@ -31,13 +31,17 @@ const require = createRequire(import.meta.url);
 export const WORKSPACE_ROOT = pathResolve(homedir(), '.troth', 'workspace');
 
 let _seatbelt = null;
+// Re-resolved from disk on every wall build: a wall edit lands on the NEXT
+// command, with no server restart in between. On a broken fresh load the
+// last good module keeps serving, so the walls never fail open and the
+// hands never go dark mid-session.
 function seatbelt() {
-  if (_seatbelt === null) {
-    try {
-      const serverDir = fileURLToPath(new URL('.', import.meta.url));
-      _seatbelt = require(serverDir + '../../../shared-core/tools/sandbox-seatbelt.js');
-    } catch { _seatbelt = false; }
-  }
+  try {
+    const serverDir = fileURLToPath(new URL('.', import.meta.url));
+    const modPath = serverDir + '../../../shared-core/tools/sandbox-seatbelt.js';
+    delete require.cache[require.resolve(modPath)];
+    _seatbelt = require(modPath);
+  } catch { /* keep the last good wall builder */ }
   return _seatbelt || null;
 }
 
