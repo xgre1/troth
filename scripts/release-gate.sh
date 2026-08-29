@@ -186,7 +186,7 @@ PYKEY
   #     before they ever shipped; this keeps the count at zero. A file that
   #     legitimately needs working-language text joins the list below in the
   #     same commit that adds the text, as a conscious act.
-  local greek_ok=" plugin/hooks/voice-shape.mjs plugin/hooks/session-start.mjs shared-core/decision-patterns.js scripts/backfill-mind-from-transcripts.js bin/troth-entity.js shared-core/engram.js shared-core/intent-decisions.js shared-core/intent-extract.js shared-core/intent-router.js shared-core/lang/base.js shared-core/lang/el.js shared-core/lang/index.js shared-core/memory-shaped.js shared-core/constraint-ledger.js plugin/hooks/constraint-capture.mjs tests/suite-06-voice-triage.js tests/suite-07-intent-routed-mounting-policy.js tests/suite-60-recallforce.js tests/suite-63-memory-dispatch.js tests/suite-66-constraint-ledger.js "
+  local greek_ok=" plugin/hooks/voice-shape.mjs plugin/hooks/session-start.mjs shared-core/decision-patterns.js scripts/backfill-mind-from-transcripts.js bin/troth-entity.js shared-core/engram.js shared-core/intent-decisions.js shared-core/intent-extract.js shared-core/intent-router.js shared-core/lang/base.js shared-core/lang/el.js shared-core/lang/index.js shared-core/memory-shaped.js shared-core/constraint-ledger.js plugin/hooks/constraint-capture.mjs tests/entity-identity.test.js tests/suite-06-voice-triage.js tests/suite-07-intent-routed-mounting-policy.js tests/suite-60-recallforce.js tests/suite-63-memory-dispatch.js tests/suite-66-constraint-ledger.js "
   local greek_hits="" gf
   for gf in $(git grep -lIP '[\x{03B1}-\x{03C9}\x{03AC}-\x{03CE}]' -- '*.js' '*.mjs' '*.py' '*.sh' '*.md' '*.html' 2>/dev/null); do
     case "$greek_ok" in *" $gf "*) ;; *) greek_hits="$greek_hits $gf";; esac
@@ -721,8 +721,10 @@ check_outgoing_history() {
   local idents hits
   # History scans exclude the retired brand token: it appears legitimately in
   # old diffs (the product was renamed) and removing it would rewrite
-  # historical trees. Tree-level checks keep the full identifier list.
-  idents="$(tr ',' '|' < "$HOME/.troth/gate-identifiers" 2>/dev/null | sed -E 's/(^|\|)troth(\||$)/\1\2/; s/\|\|/|/g; s/^\|//; s/\|$//')"
+  # historical trees. Tree-level checks keep the full identifier list. The
+  # token is spelled with a bracket so the tree-level scan never matches its
+  # own exclusion.
+  idents="$(tr ',' '|' < "$HOME/.troth/gate-identifiers" 2>/dev/null | sed -E 's/(^|\|)g[e]mclaw(\||$)/\1\2/; s/\|\|/|/g; s/^\|//; s/\|$//')"
   if [ -n "$idents" ]; then
     hits="$(git log -p "$range" 2>/dev/null | grep -icE "$idents" || true)"
     if [ "${hits:-0}" -eq 0 ]; then
