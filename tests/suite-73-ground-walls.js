@@ -171,15 +171,19 @@ test('SBG-6: confined ground scopes writes to the folder while reads stay open',
   });
 });
 
-test('SBG-7: the tree holding the substrate has no writable work directory', () => {
+test('SBG-7: the tree holding the substrate takes no writes, and its contents stay dark behind the stat pinhole', () => {
   if (!sb.isAvailable().available) return skip('sandbox-exec unavailable');
   withTrothDir(({ root, troth }) => {
     const spec = sb.groundSpawnSpec({ kind: 'home', cwd: troth });
     assert.ok(spec.ok, 'home spec failed: ' + spec.error);
     assert.notStrictEqual(runUnder(spec, 'echo x > landed.txt', troth), 0,
       'a write landed in the substrate directory');
-    assert.strictEqual(runUnder(spec, 'ls ' + JSON.stringify(troth) + ' >/dev/null', troth), 0,
-      'reads must stay open here too');
+    assert.notStrictEqual(runUnder(spec, 'ls ' + JSON.stringify(troth) + ' >/dev/null', troth), 0,
+      'the substrate contents were readable');
+    assert.strictEqual(runUnder(spec, 'stat ' + JSON.stringify(troth) + ' >/dev/null', troth), 0,
+      'the substrate node must answer stat so path walks survive');
+    assert.strictEqual(runUnder(spec, 'ls ' + JSON.stringify(path.join(troth, 'jails')) + ' >/dev/null', troth), 0,
+      'a session reads its own scratch');
     assert.ok(spec.scratch && spec.scratch.length, 'scratch is the only writable ground and must be named');
   });
 });
@@ -424,10 +428,14 @@ test('SBG-14: what the next tool operation obeys is not writable either, and the
       assert.ok(!fs.existsSync(path.join(dotfiles, 'config')), 'an ssh client config landed at the real target');
 
       // The everyday files beside the walled ones stay open, or the operator
-      // routes around the wall: known_hosts takes a write on every first
-      // connection, and per-repo configuration is the sanctioned road.
-      assert.strictEqual(runUnder(spec, 'echo x >> ' + JSON.stringify(path.join(home, '.ssh', 'known_hosts')), proj), 0,
-        'the everyday ssh file beside the walled ones was refused');
+      // routes around the wall. The ssh store is dark whole: known_hosts
+      // stays readable through its carve so already-known hosts keep
+      // answering, while its writes are refused with the rest of the store.
+      // Per-repo configuration is the sanctioned road.
+      assert.strictEqual(runUnder(spec, 'head -c1 ' + JSON.stringify(path.join(home, '.ssh', 'known_hosts')) + ' >/dev/null', proj), 0,
+        'the known-hosts carve must keep reads open');
+      assert.notStrictEqual(runUnder(spec, 'echo x >> ' + JSON.stringify(path.join(home, '.ssh', 'known_hosts')), proj), 0,
+        'the secret store took a write');
       assert.strictEqual(runUnder(spec, 'echo x > ' + JSON.stringify(path.join(home, '.config', 'git', 'attributes')), proj), 0,
         'an inert sibling of the walled git config was refused');
       assert.strictEqual(runUnder(spec, 'git init -q r && cd r && git config user.name n', proj), 0,
@@ -544,9 +552,8 @@ test('SBG-19: the gate input lists ride the carve road into every ground', () =>
   if (spec.ok) {
     const dArgs = spec.args.filter((a, i) => spec.args[i - 1] === '-D');
     for (const c of carves) {
-      let real = c;
-      try { real = fs.realpathSync(c); } catch (_) {}
-      assert.ok(dArgs.some((a) => /^CARVE\d+=/.test(a) && a.slice(a.indexOf('=') + 1) === real),
+      const want = path.sep + path.join('.troth', path.basename(c));
+      assert.ok(dArgs.some((a) => /^CARVE\d+=/.test(a) && a.slice(a.indexOf('=') + 1).endsWith(want)),
         'gate carve missing from the ground spec: ' + c);
     }
   }
