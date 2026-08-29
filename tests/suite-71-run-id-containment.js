@@ -7,6 +7,9 @@ const os = require('os');
 const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const MCP = path.join(ROOT, 'bin', 'mcp-server.js');
+// Fixture commits carry their own identity and signing stance, so a bare
+// runner with no git configuration is enough ground for this suite.
+const GITC = ['-c', 'user.email=t@t.local', '-c', 'user.name=t', '-c', 'commit.gpgsign=false'];
 
 console.log('\nRun-id containment (RID):');
 
@@ -42,7 +45,7 @@ function plantRealRun(root) {
   const wt = path.join(dir, 'workspace');
   fs.mkdirSync(wt, { recursive: true });
   cp.spawnSync('git', ['init', '-q', '.'], { cwd: wt });
-  cp.spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'base'], { cwd: wt });
+  cp.spawnSync('git', GITC.concat(['commit', '-q', '--allow-empty', '-m', 'base']), { cwd: wt });
   cp.spawnSync('git', ['branch', '-M', 'main'], { cwd: wt });
   fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({
     id, task: 'a task', branch: 'troth/a-task', parent_branch: 'main',
@@ -107,7 +110,7 @@ test('RID-3: a meta value never reaches git as an option', () => {
   const wt = path.join(dir, 'workspace');
   fs.mkdirSync(wt, { recursive: true });
   cp.spawnSync('git', ['init', '-q', '.'], { cwd: wt });
-  cp.spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'base'], { cwd: wt });
+  cp.spawnSync('git', GITC.concat(['commit', '-q', '--allow-empty', '-m', 'base']), { cwd: wt });
   const written = path.join(root, 'written-by-git');
   fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({
     id, task: 't', branch: 'troth/t', worktree: wt, repo_root: wt,
@@ -139,12 +142,12 @@ test('RID-5: a meta file cannot name the repository git acts in', () => {
   const owner = path.join(root, 'owner-repo');
   fs.mkdirSync(owner, { recursive: true });
   cp.spawnSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: owner });
-  cp.spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'base'], { cwd: owner });
+  cp.spawnSync('git', GITC.concat(['commit', '-q', '--allow-empty', '-m', 'base']), { cwd: owner });
 
   const foreign = path.join(root, 'someone-elses-repo');
   fs.mkdirSync(foreign, { recursive: true });
   cp.spawnSync('git', ['init', '-q', '-b', 'main', '.'], { cwd: foreign });
-  cp.spawnSync('git', ['commit', '-q', '--allow-empty', '-m', 'base'], { cwd: foreign });
+  cp.spawnSync('git', GITC.concat(['commit', '-q', '--allow-empty', '-m', 'base']), { cwd: foreign });
   cp.spawnSync('git', ['branch', 'precious-work'], { cwd: foreign });
 
   // A valid id and a workspace genuinely inside the run: every earlier gate
