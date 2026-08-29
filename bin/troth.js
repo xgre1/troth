@@ -1580,24 +1580,45 @@ require('./cmd-stats.js')(__cliCtx);
 require('./cmd-telemetry.js')(__cliCtx);
 
 if (command === "checkpoint") {
-  // Manually create a checkpoint
+  // Photograph the current ground by hand (photographs also happen before
+  // every command and write). `troth checkpoint list` shows what is held.
   try {
-    var checkpoint = require('../proxy/modules/checkpoint');
-    var msg = passthrough.join(' ') || 'manual';
-    var id = checkpoint.checkpoint(process.cwd(), msg, []);
-    if (id) console.log('Checkpoint created: ' + id);
-    else console.log('No checkpoint needed (no changes or not a git repo)');
-    process.exit(0);
+    var undoShadow = require('../shared-core/tools/undo-shadow.js');
+    if ((passthrough[0] || '') === 'list') {
+      var photos = undoShadow.list(process.cwd(), 15);
+      if (!photos.length) console.log('No photographs of this ground yet.');
+      for (var pi = 0; pi < photos.length; pi++) {
+        console.log('  ' + (pi + 1) + '. ' + photos[pi].id + '  '
+          + new Date(photos[pi].ts * 1000).toISOString().replace('T', ' ').slice(0, 19)
+          + '  ' + photos[pi].label);
+      }
+      process.exit(0);
+    }
+    var snapMsg = passthrough.join(' ') || 'manual';
+    var snap = undoShadow.snapshot(process.cwd(), 'manual:' + snapMsg, { allowShallow: true });
+    if (snap.ok && snap.unchanged) console.log('Already photographed as ' + snap.id + ' — nothing changed since.');
+    else if (snap.ok) console.log('Photograph taken: ' + snap.id);
+    else console.log('No photograph: ' + (snap.skipped || snap.degraded || 'unknown'));
+    process.exit(snap.ok ? 0 : 1);
   } catch (e) { console.error('Checkpoint failed:', e.message); process.exit(1); }
 }
 
 if (command === "rollback") {
+  // Restore the ground to a photograph. The present is photographed first,
+  // so a rollback can itself be rolled back.
   try {
-    var checkpoint = require('../proxy/modules/checkpoint');
-    var ok = checkpoint.rollback(process.cwd(), 1);
-    if (ok) console.log('Rolled back to last checkpoint.');
-    else console.log('Rollback failed (no checkpoints or not a git repo).');
-    process.exit(ok ? 0 : 1);
+    var undoRestore = require('../shared-core/tools/undo-shadow.js');
+    var nBack = parseInt(passthrough[0], 10) || 1;
+    var res = undoRestore.restore(process.cwd(), nBack);
+    if (res.ok) {
+      console.log('Restored photograph ' + res.restored + ' (' + res.filesChanged + ' path'
+        + (res.filesChanged === 1 ? '' : 's') + ' changed).');
+      console.log('The state before this restore is photograph ' + res.safety + ' — undo is reversible.');
+      if (res.overBudget > 0) {
+        console.log('Note: ' + res.overBudget + ' file(s) were beyond the photo budget and are not covered.');
+      }
+    } else console.log('Rollback failed: ' + (res.error || res.degraded || 'unknown'));
+    process.exit(res.ok ? 0 : 1);
   } catch (e) { console.error('Rollback failed:', e.message); process.exit(1); }
 }
 

@@ -259,6 +259,16 @@ function partnerEnv() {
   return env;
 }
 
+// Undo shadow, reached lazily the same way the jail is: absent shared-core
+// (a bridge-only install) leaves the shell exactly as it was.
+let _undoMod;
+function requireUndo() {
+  if (_undoMod !== undefined) return _undoMod;
+  try { _undoMod = require(fileURLToPath(new URL('../../../shared-core/tools/undo-shadow.js', import.meta.url))); }
+  catch (e) { _undoMod = null; }
+  return _undoMod;
+}
+
 function runCommand(command, timeoutMs, overrideCwd) {
   return new Promise((resolve) => {
     let effectiveCwd = overrideCwd || cwd;
@@ -318,6 +328,20 @@ function runCommand(command, timeoutMs, overrideCwd) {
             : 'direct network (egress proxy unavailable)')
         + '; global/user-target installs are not intercepted and keep their ground\n';
     }
+    // A photograph of the ground before every command — no judgment about
+    // the command, because deciding which actions deserve one is exactly
+    // the judgment the undo net removes. Synchronous on purpose: the photo
+    // must exist before the first byte can touch the tree. Never a gate —
+    // a failed photo lands in undo stats and the command proceeds.
+    try {
+      const undo = requireUndo();
+      if (undo) {
+        const g = (wrap && wrap.ground) || 'operator';
+        const sanctioned = (g === 'project' || g === 'workspace' || g === 'opened');
+        const photoDir = sanctioned ? ((wrap && wrap.root) || effectiveCwd) : effectiveCwd;
+        undo.snapshot(photoDir, 'shell:' + g, { allowShallow: sanctioned });
+      }
+    } catch (e) { /* the net never becomes a gate */ }
     const active = iw || wrap;
     // Confined ground and the substrate tree say nothing in advance. A
     // warning printed before anything has gone wrong is a line on every

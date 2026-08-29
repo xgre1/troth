@@ -136,6 +136,14 @@ async function dispatch(intent, capability, ctx) {
     } catch (e) { return { ok: false, error: 'fs_mock_threw: ' + (e && e.message || e) }; }
   }
 
+  // Photograph before any mutation — the undo net, never a gate: a failed
+  // photo is recorded by the module and the operation proceeds.
+  if (payload.op === 'write' || payload.op === 'append' || payload.op === 'delete') {
+    try {
+      require('../tools/undo-shadow.js').snapshot(root, 'fs:' + payload.op, { allowShallow: true });
+    } catch (e) { /* recorded in undo stats */ }
+  }
+
   try {
     switch (payload.op) {
       case 'read': {

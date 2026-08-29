@@ -360,12 +360,16 @@ function criticize(responseBody) {
           if (lineCount > 5 && wContent.length < 15000) {
             securityAudit(input.file_path, wContent);
           }
-          // Auto-fire shadow Git checkpoint for substantial writes (>50 lines)
-          if (lineCount > 50 && input.file_path) {
+          // Undo photograph for engine-road writes — no size gate: judging
+          // which writes deserve one is the judgment the undo net removes.
+          // Observer timing: critic sees the stream as it passes, so the
+          // photo can land moments after the engine's own write begins —
+          // best effort until the engine child runs behind session walls.
+          if (input.file_path) {
             try {
               if (require('./modtoggle').isModuleEnabled('checkpoint')) {
                 var projDir = process.env.GF_WATCH_DIR || process.cwd();
-                require('./checkpoint').checkpoint(projDir, 'pre-Write:' + input.file_path, [input.file_path]);
+                require('../../shared-core/tools/undo-shadow.js').snapshot(projDir, 'engine:Write', { allowShallow: true });
               }
             } catch (e) {}
           }
@@ -375,6 +379,13 @@ function criticize(responseBody) {
       // Bash: heuristic + async Flash review
       if (name === 'Bash' || name === 'bash') {
         const cmd = input.command || '';
+        // The likeliest mistake arrives as a shell command; it gets the
+        // same photograph as a write. Same observer-timing caveat as above.
+        try {
+          if (require('./modtoggle').isModuleEnabled('checkpoint')) {
+            require('../../shared-core/tools/undo-shadow.js').snapshot(process.env.GF_WATCH_DIR || process.cwd(), 'engine:Bash', { allowShallow: true });
+          }
+        } catch (e) {}
         if (cmd.includes('rm -rf') && !cmd.includes('/tmp') && !cmd.includes('node_modules')) {
           issues.push('Bash: rm -rf on non-temporary path');
         }

@@ -1168,6 +1168,25 @@ const server = http.createServer((req, res) => {
           bLive ? ('CDP answering on ' + bLive + (bLive === 9222 ? ', your own debug Chrome' : ', the troth browser')) : 'no browser running',
           bLive ? '' : 'nothing to do - the browse tool starts one on demand');
       } catch (e) { add('Browser', null, 'not checkable, skipped'); }
+      try {
+        // Ground walls: the doctor stands on unwalled ground, so it is the
+        // one place that can APPLY a session wall and observe it. Probes are
+        // exit-code-only workflow checks: the agent socket and keychain
+        // still answer, the promoted read rules hold, the pinholes stay
+        // open. Red here means sessions run wider or narrower than built.
+        const wd = require('../shared-core/tools/wall-doctor.js').runProbes();
+        if (wd.context !== 'unwalled') {
+          add('Ground walls', null, 'not measurable from here (' + wd.context + '), skipped');
+        } else {
+          const v = wd.verdicts || {};
+          const okAll = !!(v.controlsEngaged && v.agentSocketSurvives && v.keychainSurvives && v.carvesWork && v.promotionLive && v.jailHolds);
+          const failed = (wd.probes || []).filter(function (p) { return !p.ok; }).map(function (p) { return p.name; });
+          add('Ground walls', okAll,
+            okAll ? ((wd.probes || []).length + ' probes: credential stores dark, agent socket and keychain answering')
+                  : ('holding except: ' + failed.join('; ')),
+            okAll ? '' : 'run: troth restart, then re-check; if it stays red, the wall builder changed behaviour');
+        }
+      } catch (e) { add('Ground walls', null, 'not checkable, skipped'); }
       const bad = checks.filter(function (c) { return c.ok === false; }).length;
       jsonResponse(res, 200, { checks: checks, findings: bad });
     })().catch(function (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); });
@@ -2092,7 +2111,7 @@ const server = http.createServer((req, res) => {
     try { critic = require('./modules/critic').getStats(); } catch (e) {}
     try { workflow = require('./modules/workflow').getState(); } catch (e) {}
     try { cochange = require('./modules/cochange').getStats(); } catch (e) {}
-    try { checkpoint = require('./modules/checkpoint').getStats(); } catch (e) {}
+    try { checkpoint = require('../shared-core/tools/undo-shadow.js').getStats(); } catch (e) {}
     try { morph = require('./modules/morph').getStats(); } catch (e) {}
     try { buildgraph = require('./modules/buildgraph').getStats(); } catch (e) {}
     try { abtest = require('./modules/abtest').getStats(); } catch (e) {}
@@ -6296,6 +6315,10 @@ server.listen(listenPort, BIND_HOST, () => {
     if (!fsP.existsSync(dataDir)) fsP.mkdirSync(dataDir, { recursive: true });
     fsP.writeFileSync(pathP.join(dataDir, 'proxy-' + listenPort + '.pid'), String(process.pid));
   } catch (_) { /* non-fatal */ }
+  // One measurement run of the ground walls when a request marker asks for
+  // it — the proxy is the one process here that stands on unwalled ground,
+  // so it is the only place a wall profile can be applied and observed.
+  try { require('../shared-core/tools/wall-doctor.js').maybeRunFromBoot(); } catch (_) { /* non-fatal */ }
   log('troth Proxy v' + VERSION);
   log('Local LLM server: ' + BACKEND_HOST + ':' + BACKEND_PORT);
 

@@ -246,6 +246,14 @@ function handleEdit(args) {
     });
   }
 
+  // Photograph the file's ground before the edit lands — the undo net,
+  // never a gate: a failed photo is recorded in undo stats and the edit
+  // proceeds. Ground = nearest enclosing repository, else the folder.
+  try {
+    require(serverDir + '../../../shared-core/tools/undo-shadow.js')
+      .snapshotForFile(abs, 'edit:hashline');
+  } catch (e) { /* recorded in undo stats */ }
+
   // 3. Commit.
   try { writeFileSync(abs, result.content); }
   catch (e) { return errorReply({ error: 'write_failed', message: String(e.message) }); }
