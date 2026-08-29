@@ -182,7 +182,10 @@ test('SBG-7: the tree holding the substrate takes no writes, and its contents st
       'the substrate contents were readable');
     assert.strictEqual(runUnder(spec, 'stat ' + JSON.stringify(troth) + ' >/dev/null', troth), 0,
       'the substrate node must answer stat so path walks survive');
-    assert.strictEqual(runUnder(spec, 'ls ' + JSON.stringify(path.join(troth, 'jails')) + ' >/dev/null', troth), 0,
+    // Its OWN scratch — spec.scratch — which the spawn spec created; the
+    // substrate-dir jails and the scratch root part ways when the config
+    // dir is pointed elsewhere, and the session's contract is its own.
+    assert.strictEqual(runUnder(spec, 'ls ' + JSON.stringify(spec.scratch) + ' >/dev/null', troth), 0,
       'a session reads its own scratch');
     assert.ok(spec.scratch && spec.scratch.length, 'scratch is the only writable ground and must be named');
   });
