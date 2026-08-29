@@ -25,10 +25,10 @@ const cp = require('child_process');
 const PURPOSES = {
   // parent-boundary: argv authored by product code, short-lived, no model
   // input reaches the command line.
+  'undo-plumbing': { kind: 'trusted-plumbing' },
   // The parser self-test: one node child requiring the native bindings, so
   // an ABI that dies at parse time dies in the child, never in the server.
   'parser-probe': { kind: 'trusted-plumbing' },
-  'undo-plumbing': { kind: 'trusted-plumbing' },
   // ground-walled purposes; adopters pick one consciously and the profile
   // tightens per purpose without touching call sites again.
   'inference':   { kind: 'ground', ground: 'confine' },

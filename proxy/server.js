@@ -1028,7 +1028,6 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-
   // Become another mind, one click: validate the bundle, then a detached
   // helper waits for this process to release the port, swaps the substrate
   // in (importArchive, replace), and starts a fresh proxy — the same
