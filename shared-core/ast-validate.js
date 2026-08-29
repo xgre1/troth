@@ -20,7 +20,7 @@
 // the caller passes them through untouched.
 
 const path = require('path');
-const { spawnSync } = require('child_process');
+const spawnPurpose = require('./tools/spawn-purpose.js');
 
 let _parsers = null;
 let _loadAttempted = false;
@@ -34,12 +34,11 @@ function loadParsers() {
   // if the child cannot require and parse, this host has no validator and
   // every caller sees an honest skip.
   try {
-    const probe = spawnSync(process.execPath, ['-e',
+    spawnPurpose.execFileSync('parser-probe', process.execPath, ['-e',
       'const P=require("tree-sitter");const L=require("tree-sitter-javascript");' +
       'const p=new P();p.setLanguage(L);const t=p.parse("let x=1;");' +
       'process.exit(t&&t.rootNode&&!t.rootNode.hasError?0:1);'
-    ], { timeout: 10000, cwd: path.join(__dirname, '..') });
-    if (probe.status !== 0) return null;
+    ], { timeout: 10000, cwd: path.join(__dirname, '..'), stdio: 'ignore' });
   } catch (_) { return null; }
   try {
     const Parser = require('tree-sitter');
