@@ -30,12 +30,19 @@ const ALLOWLIST_DIR  = process.env.TROTH_CONFIG_DIR ||
 const ALLOWLIST_PATH = process.env.TROTH_WEB_ALLOWLIST_PATH ||
                        path.join(ALLOWLIST_DIR, 'web-allowlist.json');
 
-// 10-domain seed per the autonomy design. Technical / reference only —
-// no social, no commerce, no entertainment. Wildcards limited to vendor doc
-// subdomains so user-content subdomains don't slip in.
+// Seed per the autonomy design. Technical / reference only — no social, no
+// commerce, no entertainment. Wildcards limited to vendor subdomains so
+// user-content subdomains don't slip in.
+//
+// A vendor is admitted as a vendor, not as one hostname: every service here
+// answers on a subdomain for its API, and admitting the site while refusing
+// the API is a distinction the operator never drew. GitHub sat bare while
+// every other vendor carried a wildcard, so a partner could push code to a
+// repository and not read back the state of the same repository.
 const SEED = Object.freeze([
   'arxiv.org',
   'github.com',
+  '*.github.com',
   'wikipedia.org',
   'developer.mozilla.org',
   'stackoverflow.com',
@@ -73,8 +80,18 @@ function _ensureLoaded() {
   return seed;
 }
 
+// The shipped seed is a FLOOR for a list nobody has customized: a file
+// written from the seed keeps gaining what later seeds add, so an operator
+// who never edited the list is not frozen on the defaults of the version
+// they happened to install. A list the operator HAS touched is theirs alone
+// and is returned verbatim — additions there are their decision, and so are
+// omissions.
 function listAllowed() {
-  return _ensureLoaded().domains.slice();
+  const cur = _ensureLoaded();
+  const domains = cur.domains.slice();
+  if (cur.source !== 'seed') return domains;
+  for (const s of SEED) if (domains.indexOf(s) === -1) domains.push(s);
+  return domains;
 }
 
 // Match a host against a pattern. Exact match OR wildcard (*.domain) where
