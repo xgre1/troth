@@ -109,7 +109,18 @@ module.exports = ({ test, skip }) => {
       assert.ok(on.includes('--strict-mcp-config'), 'operator MCP servers stay out of the organ');
       delete process.env.TROTH_CLAUDE_MCP;
       const off = PROFILES.claude_cli.buildArgs({ user: 'hi', system: 's' });
-      assert.ok(!off.includes('--mcp-config'), 'flag off → no MCP wiring');
+      // One-road containment: flag off removes the SUBSTRATE, never the
+      // walled execution servers. Full silence needs TROTH_ONE_ROAD=0 too.
+      const iOff = off.indexOf('--mcp-config');
+      assert.ok(iOff > -1, 'execution servers still ride with the flag off');
+      const cfgOff = JSON.parse(off[iOff + 1]);
+      assert.ok(!cfgOff.mcpServers['troth-substrate'], 'flag off → no substrate wiring');
+      assert.ok(cfgOff.mcpServers['troth-bash'], 'flag off keeps the walled hands');
+      const prevRoad = process.env.TROTH_ONE_ROAD;
+      process.env.TROTH_ONE_ROAD = '0';
+      const bare = PROFILES.claude_cli.buildArgs({ user: 'hi', system: 's' });
+      if (prevRoad === undefined) delete process.env.TROTH_ONE_ROAD; else process.env.TROTH_ONE_ROAD = prevRoad;
+      assert.ok(!bare.includes('--mcp-config'), 'flag off + road off → no MCP wiring at all');
     } finally {
       if (prev === undefined) delete process.env.TROTH_CLAUDE_MCP; else process.env.TROTH_CLAUDE_MCP = prev;
     }

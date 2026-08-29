@@ -866,7 +866,7 @@ const REGISTRY = {
   //                          / github_* / vercel_* / notion_* / supabase_*
   //                          / gmail email_*)
   //   intent:fs:do        — read/write under capability-scoped path
-  //   intent:shell:do     — sandboxed shell (docker / firejail / refuse)
+  //   intent:shell:do     — walled shell (in-place ground walls by default; docker where declared)
   //   intent:browser:do   — Playwright/Stagehand browser session
   //   intent:spawn:do     — spawn a scoped worker (closed tier)
   //   intent:skill:execute — run a compiled skill template

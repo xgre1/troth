@@ -163,6 +163,20 @@ const CLAUDE_MEMORY_RULE =
   'never open ~/.troth/state.db, never answer \"I do not remember\" before recalling. To persist a ' +
   'durable fact the operator states, call mcp__troth-substrate__troth_engram_record.';
 
+// Execution discoverability for the one-road containment: the engine's
+// native Bash/Write/Edit are disallowed at spawn (see buildArgs), so the
+// rule must say where the hands are or the model flails at missing tools.
+// Named ids exist only when the execution servers are mounted; the push is
+// gated on the same oneRoad switch. No em-dash per repo authored-string rule.
+const CLAUDE_EXEC_RULE =
+  'EXECUTION: your shell is mcp__troth-bash__run, with a persistent working directory set via ' +
+  'mcp__troth-bash__cd. Your shell starts on guarded ground where writes are refused, so your FIRST ' +
+  'action for any task that touches files is mcp__troth-bash__cd to the directory of the task; only ' +
+  'then run commands. Edit existing files with mcp__troth-hashline__hashline_read then ' +
+  'mcp__troth-hashline__hashline_edit. Create new files with a heredoc through run (cat > path <<EOF). ' +
+  'Native Bash, Write and Edit are not mounted. These tools are the same hands with the ground walls ' +
+  'and the undo photographs attached; use them for every action.';
+
 const PROFILES = Object.freeze({
   gemini_cli: {
     binary:     'gemini',
@@ -271,6 +285,12 @@ const PROFILES = Object.freeze({
       if (vars.system && String(vars.system).trim()) { _sysParts.push(String(vars.system).trim()); }
       _sysParts.push(CLAUDE_BROWSER_RULE);
       _sysParts.push(CLAUDE_SECRETS_RULE);
+      // One-road containment: when the native mutating tools are disallowed
+      // (see the mcp-config block below), the rule says where the hands are.
+      // Same fiction-guard as the memory rule: pushed only when the named
+      // tools are actually mounted.
+      const oneRoad = process.env.TROTH_ONE_ROAD !== '0';
+      if (oneRoad) { _sysParts.push(CLAUDE_EXEC_RULE); }
       // Gated on the same flag that mounts the server below: the rule names
       // mcp__troth-substrate__* ids, which only exist when the MCP rides.
       if (process.env.TROTH_CLAUDE_MCP === '1') { _sysParts.push(CLAUDE_MEMORY_RULE); }
@@ -283,33 +303,67 @@ const PROFILES = Object.freeze({
       // stream is alive; the parser forwards them as keepalives only.
       // Kill-switch for older CLIs: TROTH_CLAUDE_PARTIAL=0.
       if (process.env.TROTH_CLAUDE_PARTIAL !== '0') { a.push('--include-partial-messages'); }
-      // Substrate-as-MCP:
-      // hand claude LIVE substrate tools (recall/record) instead of only the
-      // passive memory snapshot riding --append-system-prompt. The server ships
-      // in-tree (plugin/mcp-servers/troth-substrate) in both the repo checkout
-      // and the app bundle's Resources/core, resolved relative to THIS file; the
-      // entity's own node binary runs it. --strict-mcp-config keeps the
-      // operator's personal MCP servers OUT of the faculty (recall-source
-      // isolation, #41) — the organ gets the substrate and nothing else.
-      // Tool permission rides the existing --dangerously-skip-permissions.
-      if (process.env.TROTH_CLAUDE_MCP === '1') {
-        try {
-          const _p = require('path');
-          const _f = require('fs');
-          const srv = _p.resolve(__dirname, '..', '..', 'plugin', 'mcp-servers', 'troth-substrate', 'server.mjs');
+      // Execution-and-substrate MCP:
+      // ONE ROAD (containment): the engine's execution flows through troth's
+      // own MCP tools, where the ground walls, the install jail and the undo
+      // photographs already live. The native mutating tools are disallowed
+      // below, so a decision the model was poisoned into making still lands
+      // on a walled road; WHICH engine produced the decision stops mattering
+      // (subscription Claude, gpt/kimi override, a local model behind the
+      // proxy). Reads stay native for speed; the read wall is kernel work
+      // (part B). The child itself carries NO seatbelt profile: profiles do
+      // not nest, and a profiled child would make troth-bash's per-ground
+      // jails fail open inside it. The walls live at the chokepoints.
+      // TROTH_ONE_ROAD=0 reverts to the pre-containment behavior entirely.
+      // Substrate mount stays opt-in (TROTH_CLAUDE_MCP=1): recall-source
+      // isolation (#41) is a separate concern from execution routing.
+      // --strict-mcp-config keeps the operator's personal MCP servers OUT
+      // of the faculty either way.
+      try {
+        const _p = require('path');
+        const _f = require('fs');
+        const _srvDir = _p.resolve(__dirname, '..', '..', 'plugin', 'mcp-servers');
+        const mcpServers = {};
+        if (oneRoad) {
+          for (const _name of ['troth-bash', 'troth-hashline']) {
+            const _s = _p.join(_srvDir, _name, 'server.mjs');
+            if (_f.existsSync(_s)) {
+              const _cfg = { command: process.execPath, args: [_s] };
+              // Session ground: start the engine's shell on the watched
+              // project (same semantic the critic uses on this road), so
+              // its first write lands on opened ground instead of the
+              // guarded substrate tree. cd still re-scopes per task.
+              if (_name === 'troth-bash' && process.env.GF_WATCH_DIR && _f.existsSync(process.env.GF_WATCH_DIR)) {
+                _cfg.env = { TROTH_BASH_CWD: process.env.GF_WATCH_DIR };
+              }
+              mcpServers[_name] = _cfg;
+            }
+            else { console.error('[subprocess-cli] execution server missing: ' + _s + ' (natives stay disallowed; the engine will refuse rather than run bare)'); }
+          }
+        }
+        if (process.env.TROTH_CLAUDE_MCP === '1') {
+          const srv = _p.join(_srvDir, 'troth-substrate', 'server.mjs');
           if (_f.existsSync(srv)) {
-            // Governed ACTIONS over MCP
-            // are opt-in: the flag must ride the server config EXPLICITLY,
-            // because relying on implicit env inheritance through the claude
-            // process is undocumented and was a silent gap (no path enabled
-            // the tools even when the operator asked for them).
+            // Governed ACTIONS over MCP are opt-in: the flag must ride the
+            // server config EXPLICITLY, because relying on implicit env
+            // inheritance through the claude process is undocumented and was
+            // a silent gap (no path enabled the tools even when the operator
+            // asked for them).
             const srvCfg = { command: process.execPath, args: [srv] };
             if (process.env.TROTH_MCP_ACTIONS === '1') { srvCfg.env = { TROTH_MCP_ACTIONS: '1' }; }
-            a.push('--mcp-config',
-                   JSON.stringify({ mcpServers: { 'troth-substrate': srvCfg } }),
-                   '--strict-mcp-config');
+            mcpServers['troth-substrate'] = srvCfg;
           }
-        } catch (_) { /* additive wiring — a resolve failure must not kill the spawn */ }
+        }
+        if (Object.keys(mcpServers).length) {
+          a.push('--mcp-config', JSON.stringify({ mcpServers }), '--strict-mcp-config');
+        }
+      } catch (_) { /* additive wiring — a resolve failure must not kill the spawn */ }
+      // Fail closed: even if an execution server went missing above, the
+      // natives stay off. An engine that cannot act says so loudly; an
+      // engine that acts around the walls says nothing until too late.
+      // Kept LAST: --disallowedTools is variadic and eats following args.
+      if (oneRoad) {
+        a.push('--disallowedTools', 'Bash', 'Write', 'Edit', 'NotebookEdit');
       }
       return a;
     },
