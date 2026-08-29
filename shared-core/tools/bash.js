@@ -28,6 +28,7 @@
 // underneath. Bash's surface area is intentionally minimal.
 
 const { spawn } = require('child_process');
+const CANCEL_POLL_MS = 100;
 
 const DEFAULT_TIMEOUT_MS = 120 * 1000;
 const MAX_TIMEOUT_MS     = 600 * 1000;
@@ -154,12 +155,23 @@ async function run(args, ctx) {
     let graceTimer = null;
     let done = false;
 
+    let cancelPoll = null;
+
     function finish(payload) {
       if (done) return;
       done = true;
-      if (killTimer)  clearTimeout(killTimer);
-      if (graceTimer) clearTimeout(graceTimer);
+      if (killTimer)   clearTimeout(killTimer);
+      if (graceTimer)  clearTimeout(graceTimer);
+      if (cancelPoll)  clearInterval(cancelPoll);
       resolve(payload);
+    }
+
+    function killNow() {
+      if (done) return;
+      interrupted = true;
+      if (cancelPoll) { clearInterval(cancelPoll); cancelPoll = null; }
+      try { child.kill('SIGTERM'); } catch (_) {}
+      graceTimer = setTimeout(() => { try { child.kill('SIGKILL'); } catch (_) {} }, KILL_GRACE_MS);
     }
 
     child.stdout.setEncoding('utf8');
@@ -185,11 +197,21 @@ async function run(args, ctx) {
       });
     });
 
-    killTimer = setTimeout(() => {
-      interrupted = true;
-      try { child.kill('SIGTERM'); } catch (_) {}
-      graceTimer = setTimeout(() => { try { child.kill('SIGKILL'); } catch (_) {} }, KILL_GRACE_MS);
-    }, timeout);
+    killTimer = setTimeout(killNow, timeout);
+
+    if (typeof ctx.shouldCancel === 'function') {
+      let asked = false;
+      try { asked = !!ctx.shouldCancel(); } catch (_) { asked = false; }
+      if (asked) killNow();
+      else {
+        cancelPoll = setInterval(() => {
+          let hit = false;
+          try { hit = !!ctx.shouldCancel(); } catch (_) { hit = false; }
+          if (hit) killNow();
+        }, CANCEL_POLL_MS);
+        if (cancelPoll.unref) cancelPoll.unref();
+      }
+    }
   });
 }
 

@@ -90,6 +90,18 @@ const BLOCKED_PREFIXES = Object.freeze([
   // on mcp-clients.json does not catch mcp-pending.json (different basename,
   // and prefix rules match from index 0). Pinned both ways by suite-18.
   { name: 'l4_config',          prefix: _expandHome('~/.troth/config.json'), why: 'L4 master config — operator-only' },
+  // The registry naming which of the operator's own folders the partner may
+  // work in bare. A partner-written entry widens the partner's own walls, so
+  // it belongs beside the other policy files: the operator adds a folder
+  // through the CLI, never the partner through a tool.
+  { name: 'opened_folders',     prefix: _expandHome('~/.troth/opened-folders.json'), why: 'ground registry — an entry here decides where the partner runs unconfined; operator-only' },
+  { name: 'opened_folders_tmp', prefix: _expandHome('~/.troth/opened-folders.json.tmp'), why: 'ground registry temp file (atomic-write target)' },
+  // Which hosts a jailed install may reach. An entry here widens the one
+  // road out of the jail, so it belongs beside the other policy files:
+  // the operator adds a host through the CLI, never the partner through a
+  // tool or a shell redirect.
+  { name: 'net_allowlists',     prefix: _expandHome('~/.troth/net-allowlists.json'), why: 'egress allowlist — an entry decides where a jailed install may connect; operator-only' },
+  { name: 'net_allowlists_tmp', prefix: _expandHome('~/.troth/net-allowlists.json.tmp'), why: 'egress allowlist temp file (atomic-write target)' },
   // The substrate database. It was absent from this list while every OTHER
   // ~/.troth registry was on it, so the one file holding the partner's whole
   // memory was the one file a shell could rewrite. The prefix also covers the
@@ -124,7 +136,22 @@ const BLOCKED_PREFIXES = Object.freeze([
   // at fish startup (we ship a conf.d drop-in ourselves — same reachability
   // proof as .zshenv).
   { name: 'fish_config_dir',    prefix: _expandHome('~/.config/fish/'), why: 'fish startup tree (config.fish + conf.d auto-sourced) — persistence-implant anchor' },
-  { name: 'shell_envrc',        prefix: _expandHome('~/.env'),        why: 'env-var init — secret-leak vector' }
+  { name: 'shell_envrc',        prefix: _expandHome('~/.env'),        why: 'env-var init — secret-leak vector' },
+  // Files a LATER tool operation obeys rather than the next shell start: the
+  // global git configs and npm config decide what the next git or install
+  // run does anywhere on the machine, the docker client config names
+  // credential-helper executables that run on the next docker command, and
+  // the logout files are sourced at shell exit exactly as the rc files above
+  // are at start. Each has a per-project road that stays open (.git/config
+  // in the repo, a project-local .npmrc), so refusing the global file costs
+  // no workflow. The ssh siblings (~/.ssh/config, rc, authorized_keys) are
+  // already covered by the ssh_dir entry above.
+  { name: 'git_config_global',  prefix: _expandHome('~/.gitconfig'),  why: 'global git config — a setting here names a command the next git operation runs; per-repo .git/config stays writable' },
+  { name: 'git_config_xdg',     prefix: _expandHome('~/.config/git/config'), why: 'global git config (XDG spelling) — same reach as ~/.gitconfig' },
+  { name: 'npm_config_global',  prefix: _expandHome('~/.npmrc'),      why: 'global npm config — redirects every later install on the machine; a project-local .npmrc stays writable' },
+  { name: 'docker_config_write', prefix: _expandHome('~/.docker/config.json'), why: 'docker client config — names credential-helper executables the next docker command runs' },
+  { name: 'shell_bash_logout',  prefix: _expandHome('~/.bash_logout'), why: 'shell exit hook — sourced at logout exactly as the rc files are at start' },
+  { name: 'shell_zlogout',      prefix: _expandHome('~/.zlogout'),    why: 'shell exit hook (zsh) — sourced at logout' }
 ]);
 
 // Strict-taint switch (default OFF). See the Layer-2 comment in isWritablePath.

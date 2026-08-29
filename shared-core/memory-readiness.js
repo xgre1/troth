@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// memory-readiness.js — one owner for the memory pipeline's truth
-// (PLAN-COHERENCE-2026-08-09, law 5).
+// memory-readiness.js — one owner for the memory pipeline's truth.
 //
 // Memory has THREE readiness stages a new user lives through — the engine
 // downloads, the imports land, the index catches up — and until now only the
@@ -30,9 +29,9 @@ function readiness() {
     imported: { chat_sessions: 0, distilled_sessions: 0 },
     indexing: { recall_total: 0, recall_embedded: 0, recall_missing: 0, archive_chunks: 0, archive_embedded: 0 },
     // The drain's proof-of-life, read from the background_task_run ledger.
-    // Counts without a heartbeat were the field failure mode: a frozen "28
-    // still indexing" for two days LOOKED like slow progress when in truth
-    // no process anywhere was draining (dashboard-only topology, 2026-08-09).
+    // Counts without a heartbeat are the failure mode: a frozen "28
+    // still indexing" LOOKS like slow progress when in truth
+    // no process anywhere is draining (dashboard-only topology).
     drain: { alive: false, last_run_ts: null, last_notes: null },
     // Documents seen but not yet turned into passages. The reservoir is a
     // QUEUE, and a queue nobody can see is the same failure as an index
@@ -108,10 +107,10 @@ function readiness() {
     out.reasons.push('memory engine downloading (' + Math.round(out.embedder.progress * 100) + '%)');
   } else if (out.indexing.recall_missing > 0) {
     out.stage = 'indexing';
-    // "N memories still indexing" was both a duplicate of the detail line
-    // below it and the wrong noun: on 2026-08-11 the 4,656 pending items were
-    // passages of ingested DOCUMENTS, not memories, and the sentence sat
-    // directly under "Import your chat history" — so it read as if the
+    // "N memories still indexing" would be both a duplicate of the detail
+    // line below it and the wrong noun: the pending items are
+    // passages of ingested DOCUMENTS, not memories, and the sentence sits
+    // directly under "Import your chat history" — so it reads as if the
     // operator's Claude Code sessions were being processed. The count belongs
     // to the progress bar; this line says only what state we are in.
     out.reasons.push('Still indexing — answers get sharper as this drains');
@@ -170,9 +169,8 @@ function readiness() {
     //
     // The card first estimated the queue by hardcoding "8 documents every 15
     // minutes" in the renderer — the worker's budget and cadence, duplicated
-    // by hand into a second file. Any change to the worker would have left
-    // the screen confidently wrong, and the operator caught it reading "6
-    // hours" beside "100% indexed" (2026-08-11).
+    // by hand into a second file. Any change to the worker leaves
+    // the screen confidently wrong: "6 hours" beside "100% indexed".
     //
     // So: count what actually completed in the last hour. If nothing has yet,
     // the rate is null and the surface says it does not know instead of
@@ -194,9 +192,8 @@ function readiness() {
   //
   // The progress line sits under "Import your chat history", so a bare count
   // reads as "your Claude Code sessions are indexing" whatever the backlog
-  // actually is. The operator asked precisely that while the backlog was
-  // 4,912 passages of ingested DOCUMENTS and zero chat sessions
-  // (2026-08-11). Naming the mix costs one query and removes the guess.
+  // actually is — a backlog can be entirely ingested documents with no chat
+  // sessions in it. Naming the mix costs one query and removes the guess.
   //
   // The breakdown MUST use the same predicate as recall_missing above. The
   // first version did not, and the card showed "indexed 100%" beside "32

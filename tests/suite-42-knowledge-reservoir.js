@@ -2,11 +2,10 @@
 // What the partner has SEEN, kept.
 //
 // The substrate kept what the operator said and nothing of what the partner
-// read. Measured 2026-08-11: 22,830 `read` records holding a path, a line
-// count and a byte count — no content — and filed substrate_internal, so even
-// the receipt was unreachable. 11,753 reads over 3,346 distinct files means
-// 8,407 re-reads (72%); one file was opened 352 times because there was
-// nowhere for it to have stayed.
+// read. A `read` record holds a path, a line count and a byte count — no
+// content — and is filed substrate_internal, so even the receipt is
+// unreachable. Most reads are re-reads of a file already opened, because there
+// was nowhere for it to have stayed.
 //
 // Two decisions this pins, both measured rather than assumed:
 //
@@ -15,10 +14,10 @@
 //   embedding cost 51ms per 800 chars and must never land on the operator's
 //   turn — which already carries 488ms of hook time per Read.
 //
-//   DOCUMENTS, NOT EVERYTHING. Of 3,346 distinct files read, 737 are
-//   document-shaped and 1,443 are source code. Code is codelens's job and goes
-//   stale on every edit. And on ~/Documents, 82% of everything an unfiltered
-//   predicate would capture sits inside node_modules.
+//   DOCUMENTS, NOT EVERYTHING. Most files a partner reads are source code,
+//   not documents. Code is codelens's job and goes stale on every edit. And
+//   over a documents tree, the bulk of what an unfiltered predicate would
+//   capture sits inside node_modules.
 module.exports = function run({ test }) {
 const assert = require('assert');
 const fs   = require('fs');
@@ -183,9 +182,8 @@ test('KR-6: the proxy queues it and the idle worker drains it (source pin)', () 
   const names = (worker.DEFAULT_TASKS || []).map((t) => t.name);
   assert.ok(names.indexOf('knowledge_drain') !== -1, 'the idle worker drains it: ' + JSON.stringify(names.slice(-3)));
   // Membership in DEFAULT_TASKS is NOT the same as having a runner. That list
-  // belongs to the entity daemon; the machine this ships to runs a proxy.
-  // Asserting only the first is how a queue with no reader passed its own
-  // test for a day while nothing on the operator's machine drained it.
+  // belongs to the entity daemon; every install keeps a proxy alive. Asserting
+  // membership alone lets a queue with no reader pass its own test.
   const proxySrc = fs.readFileSync(path.join(ROOT, 'proxy', 'server.js'), 'utf8');
   assert.ok(proxySrc.indexOf('bw.tasks.knowledgeDrain') !== -1,
     'and the proxy — the one process every install keeps alive — hosts it too');

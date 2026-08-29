@@ -52,10 +52,26 @@ const payload = await readStdinJson();
 const tool = payload.tool_name || '';
 const session = payload.session_id || null;
 
-// Never archive an archive RETRIEVAL. The second blind trial (2026-08-16)
-// hit the recursion live: archive_excerpt returned a >4KB single-line JSON,
-// this hook archived the excerpt, and the agent chased archive ids in a
-// circle until it gave up on the archive entirely. An excerpt the agent
+// MCP servers outlive sessions (daemon-managed), so the savings rows they
+// write carry a stale spawn-time session or none at all. This hook runs
+// inside the session that made the call — it claims the last half-minute's
+// unclaimed rows, which is what lets those savings join the session's
+// carried count instead of sitting outside every timeline forever.
+if (session && tool.startsWith('mcp__plugin_troth')) {
+  try {
+    state.db().prepare(
+      "UPDATE savings_ledger SET session_id = ? WHERE session_id IS NULL AND ts >= ? " +
+      "AND kind IN ('bash_compression','mcp_cache:hit','hashline_edit_applied')"
+    ).run(session, Date.now() - 30000);
+    state.db().prepare(
+      'UPDATE tool_output_archive SET session_id = ? WHERE session_id IS NULL AND ts >= ?'
+    ).run(session, Date.now() - 30000);
+  } catch (_) { /* claiming is best-effort */ }
+}
+
+// Never archive an archive RETRIEVAL: archive_excerpt can return a >4KB
+// single-line JSON, and archiving the excerpt sends the agent chasing
+// archive ids in a circle until it abandons the archive. An excerpt the agent
 // explicitly asked for is wanted WHOLE, whatever it weighs.
 const _argsStr = JSON.stringify(payload.tool_input || {});
 if (/archive_(?:excerpt|search)/.test(tool) || /archive_(?:excerpt|search)/.test(_argsStr)) { allow(); }

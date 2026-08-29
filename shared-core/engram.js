@@ -356,9 +356,9 @@ function recordEngram(opts) {
     //
     // Source-string heuristic for AUTHORITY TIER REMOVED.
     //
-    // Previously: if (s.includes('operator')) → source_authority='operator_confirmed'.
-    // This let any caller (including LLM-faculty writes) launder themselves
-    // into operator_confirmed tier just by including 'operator' in the source
+    // A source-string test — if (s.includes('operator')) → 'operator_confirmed'
+    // — lets any caller, including LLM-faculty writes, launder itself into the
+    // top tier just by putting 'operator' in the source
     // string. The 4-tier authority gradient is supposed to be ambient
     // (derived from authenticated calling surface), NEVER declared in
     // caller-controlled payload content.
@@ -558,6 +558,7 @@ function recordEngram(opts) {
       cwd,
       user_id,
       parent_id: opts.parent_id || null,
+      context_id: opts.context_id || null,
       audience,
       memory_class,
       input:  { source },
@@ -681,6 +682,7 @@ function listEngrams(opts) {
   // docs:codebase-current (scope='codebase-current'). Pass scope=null
   // explicitly to fetch ONLY scopeless engrams.
   const scopeFilter = opts.scope === undefined ? '__any__' : opts.scope;
+  const scopePrefix = typeof opts.scope_prefix === 'string' && opts.scope_prefix ? opts.scope_prefix : null;
   // Audience filter (defense-in-depth — R17, the design work). Most callers
   // hit the recall.recall() path which already enforces audience; this
   // catches the legacy retrieveRelevant fallback + future direct
@@ -692,7 +694,7 @@ function listEngrams(opts) {
   try {
     // When scope filter is set, overfetch — we filter in JS after
     // hydrating because the scope lives inside the JSON output blob.
-    const fetchLimit = scopeFilter === '__any__' ? limit : Math.min(limit * 8, 2000);
+    const fetchLimit = (scopeFilter === '__any__' && !scopePrefix) ? limit : Math.min(limit * 8, 2000);
     // SQL-level commitment_type filter: type='commitment' fans out into
     // many sub-kinds (anchor/refusal/opinion/hard/...). Without this,
     // the LIMIT clip routinely drops engrams in busy substrates because
@@ -717,6 +719,7 @@ function listEngrams(opts) {
       // '__any__' (no-scope) path passes undefined -> SQL unchanged -> the per-turn
       // recall path is byte-identical (no regression).
       scope: (scopeFilter === '__any__') ? undefined : scopeFilter,
+      scope_prefix: scopePrefix || undefined,
       limit: fetchLimit,
       order: 'desc'
     }) || [];
@@ -758,6 +761,7 @@ function listEngrams(opts) {
       if (supersededIds.has(rec.id)) continue;   // PLR-retired, hidden from default view
       const recScope = rec.output.scope || null;
       if (scopeFilter !== '__any__' && recScope !== scopeFilter) continue;
+      if (scopePrefix && (typeof recScope !== 'string' || recScope.indexOf(scopePrefix) !== 0)) continue;
       if (audienceFilter !== 'all') {
         // Treat NULL audience as substrate_internal (matches recall.js
         // audienceOk semantics + the sentinel convention for legacy
@@ -945,18 +949,30 @@ async function retrieveRelevant(opts) {
   opts = opts || {};
   const agent_id = opts.agent_id || null;
   const query    = String(opts.query || '');
-  const k        = Math.max(1, Math.min(20, opts.k || 5));
+const _WORD_NUM = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
+function _parseTimeWindow(query, referenceTs) {
+  const q = String(query || '').toLowerCase();
+  const ref = Number.isFinite(referenceTs) ? referenceTs : Date.now();
+  const m = /\b(?:past|last)\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)?\s*(day|week|month|year)s?\b/.exec(q);
+  if (!m) return null;
+  const n = m[1] ? (_WORD_NUM[m[1]] || parseInt(m[1], 10) || 1) : 1;
+  const unitMs = { day: 86400000, week: 7 * 86400000, month: 30 * 86400000, year: 365 * 86400000 }[m[2]];
+  if (!unitMs) return null;
+  return { since: ref - n * unitMs, until: ref };
+}
+
+  const _countShaped = /\b(how many|how much|how often|total|count|number of|order of|first to last|earliest to latest|the (two|three|four|five|six|seven) )\b|πόσ(α|ες|ους|η|ο)\b|σύνολ|με τη σειρά/i.test(String(opts.query || ''));
+  const _reqShaped = /\b(can you (recommend|suggest)|any (tips|suggestions|recommendations|ideas)|what should i|could you (recommend|suggest)|suggest some|recommend some|what time|when did i|what day)\b/i.test(String(opts.query || ''));
+  const k        = Math.max(1, Math.min(20, (opts.k || 5) + (_countShaped ? 6 : 0) + (!_countShaped && _reqShaped ? 6 : 0)));
   if (!query) return [];
 
   // Cross-type unified retrieval.
   //
-  // Before: this function only looked at commitment-engrams. That was wrong
-  // for the no-scope path because the substrate's user-meaningful memory
-  // is overwhelmingly in dialogue.turn (memory_class=episodic) and lessons
-  // (memory_class=semantic). Live reproduction: 24 BTC dialogue.turn rows
-  // + 9 BTC mind_snapshots existed in the substrate, but retrieveRelevant
-  // (commitment-only) returned 0 hits for "btc puzzle" — the model called
-  // engram_search, got empty, honestly reported "no memory of that."
+  // A commitment-engram-only look-up is wrong for the no-scope path: the
+  // substrate's user-meaningful memory is overwhelmingly dialogue.turn
+  // (memory_class=episodic) and lessons (memory_class=semantic), so a
+  // commitment-only search returns empty and the model reports no memory
+  // for conversations the substrate holds verbatim.
   //
   // recall.recall already does the cross-type pull correctly, routing by
   // memory_class (not type) with token-overlap + recency-weighted scoring.
@@ -985,6 +1001,37 @@ async function retrieveRelevant(opts) {
       // to re-rank. Cap at recall's max (50).
       limit:    Math.min(50, Math.max(k * 5, 10))
     });
+    // 'between X and Y' questions need BOTH events retrieved; a single
+    // similarity query returns neighbors of the whole sentence and routinely
+    // misses one side. Each side runs as its own sub-query and the union
+    // feeds the shared rerank — additive only, never replaces the main pool.
+    const _between = /\bbetween\s+([\s\S]{4,80}?)\s+and\s+([\s\S]{4,80}?)(?:[?.!]|$)/i.exec(query);
+    // Counted-noun sub-query: 'how many projects have I led' needs every
+    // PROJECT mention, and the full-sentence similarity spends its budget on
+    // 'how many have I led'. The noun phrase after the count cue runs as its
+    // own sub-query — same additive union as the between-events split.
+    const _counted = _countShaped
+      ? /\b(?:how many|how much|number of|order of|the (?:two|three|four|five|six|seven))\s+([a-z][a-z \-]{3,40}?)(?:\s+(?:have|has|had|did|do|does|i|we|are|is|were|was|in|from|that)\b|[?.!]|$)/i.exec(query)
+      : null;
+    const _subParts = [];
+    if (_between) { _subParts.push(_between[1], _between[2]); }
+    if (_counted && _counted[1]) { _subParts.push(_counted[1].trim()); }
+    if (_subParts.length) {
+      const seen = new Set(items.map((it) => it.id));
+      for (const part of _subParts) {
+        try {
+          const extra = await recall.recall({
+            query: part, class: 'all', audience: opts.audience || 'model_visible',
+            cwd: opts.cwd || null, limit: Math.max(4, Math.ceil(k / 2))
+          });
+          for (const it of extra) {
+            if (seen.has(it.id)) continue;
+            seen.add(it.id);
+            items.push(it);
+          }
+        } catch (_) { /* sub-query is additive, never fatal */ }
+      }
+    }
     if (!items.length) return [];
     // Hybrid rerank (the core of associative recall): recall.recall gives a
     // lexical-ranked candidate pool; we fuse it with a SEMANTIC ranking from
@@ -1034,6 +1081,340 @@ async function retrieveRelevant(opts) {
       memory_class: it.class,
       source:    it.source || null
     }));
+    // Temporal window arm. A query that NAMES a time span ('the three trips
+    // in the past three months') often needs evidence sharing no vocabulary
+    // with it — similarity cannot reach 'day hike to Muir Woods' from
+    // 'trips'. When a window parses, a session-diverse sample of dialogue
+    // turns inside it is APPENDED after the ranked results (archive-arm
+    // pattern: bounded labeled depth, never released into the general pool).
+    const _win = _countShaped ? _parseTimeWindow(query, opts.reference_ts) : null;
+    if (_win) {
+      try {
+        const seenIds = new Set(final.map((it) => it.id));
+        const rows = state.queryActions({
+          type: 'tool_call', since: _win.since, until: _win.until,
+          limit: 200, order: 'desc'
+        }) || [];
+        const turns = [];
+        for (const row of rows) {
+          if (seenIds.has(row.id)) continue;
+          let inp = null, out = null;
+          try { inp = typeof row.input === 'string' ? JSON.parse(row.input) : row.input; } catch (_) { continue; }
+          if (!inp || inp.tool_name !== 'dialogue.turn') continue;
+          try { out = typeof row.output === 'string' ? JSON.parse(row.output) : row.output; } catch (_) { out = {}; }
+          const u = (inp.args && inp.args.user_text) || '';
+          const a = (out && out.assistant_text) || '';
+          if (!u && !a) continue;
+          turns.push({ row, sess: row.session_id || 'none', u, a });
+        }
+        // Rank INSIDE the window by cosine to the query. Corpus-wide, evidence
+        // sharing no vocabulary with the query loses to thousands of stronger
+        // neighbors; inside a 200-row window the competition is small enough
+        // for weak-but-real similarity to surface it. Blind newest-per-session
+        // sampling covered ~4 of ~20 window sessions and missed the evidence.
+        let qv = null;
+        try { qv = await require('./local-embedder.js').embed(query, { role: 'query' }); } catch (_) { qv = null; }
+        if (qv) {
+          for (const t of turns) {
+            const ev = state.getEmbedding(t.row.id);
+            t.cos = ev ? Math.max(0, cosine(qv, ev)) : 0;
+          }
+          turns.sort((x, y) => (y.cos || 0) - (x.cos || 0));
+        }
+        const perSession = new Set();
+        let added = 0;
+        for (const t of turns) {
+          if (added >= 4) break;
+          if (perSession.has(t.sess)) continue;
+          perSession.add(t.sess);
+          seenIds.add(t.row.id);
+          final.push({
+            id: t.row.id,
+            ts: t.row.timestamp,
+            statement: (t.u ? 'user: ' + t.u : '') + (t.u && t.a ? ' / ' : '') + (t.a ? 'asst: ' + t.a : ''),
+            score: 0,
+            memory_class: t.row.memory_class || 'episodic',
+            source: 'dialogue-window'
+          });
+          added++;
+        }
+      } catch (_) { /* window arm is additive — never fatal */ }
+    }
+    const _nounHead = _counted && _counted[1] ? _counted[1].trim().split(/\s+/).pop().toLowerCase() : null;
+    // Instance-pool arm — on count-shaped queries the UNDERSTOOD stratum
+    // reads first: typed occurrences distilled by consolidation, already
+    // deduplicated by identity, status-resolved, provenance-counted. The
+    // raw-turn sweep below stays — a count reads instances and sweeps the
+    // primary record for reconciliation; the two strata compose, neither
+    // replaces the other. Instances live as substrate_internal so the
+    // general pool never mounts them; a count-shaped query is the ONE
+    // deliberate lift (audience:'all' here is that lift, not a leak).
+    if (_countShaped) {
+      try {
+        const qLow = query.toLowerCase();
+        const qTokens = qLow.split(/[^\p{L}\p{N}]+/u).filter((t) => t.length >= 4);
+        const querySlugs = new Set();
+        try {
+          const ident = require('./entity-identity.js');
+          for (const h of ident.lookupFromText(query, { agent_id })) querySlugs.add(h.identity.slug);
+        } catch (_) {}
+        const _nounHead2 = [];
+        if (_nounHead) {
+          _nounHead2.push(_nounHead);
+          if (_nounHead.endsWith('s') && !_nounHead.endsWith('ss')) _nounHead2.push(_nounHead.slice(0, -1));
+          if (_nounHead.length >= 7 && _nounHead.endsWith('ing')) _nounHead2.push(_nounHead.slice(0, -3));
+        }
+        const poolRows = listEngrams({
+          scope_prefix: 'instance:', audience: 'all',
+          agent_id: agent_id || undefined, limit: 1000
+        }) || [];
+        const candidates = [];
+        for (const r of poolRows) {
+          const inst = r && r.payload && r.payload.instance;
+          if (!inst) continue;
+          const blob = String(r.statement || '').toLowerCase();
+          let sc = 0;
+          if (inst.entity_slug && querySlugs.has(inst.entity_slug)) sc += 2;
+          if (_nounHead2 && _nounHead2.some((v) => blob.indexOf(v) >= 0)) sc += 2;
+          for (const t of qTokens) if (blob.indexOf(t) >= 0) sc += 1;
+          candidates.push({ r, sc });
+        }
+        // Hyponyms are invisible to token overlap — a sweater never contains
+        // the word "clothing" — and the pool carries vectors like every other
+        // recallable row. Rank-fuse the token ordering with a cosine ordering
+        // when the embedder answers; token order alone when it does not —
+        // degraded, never broken. Zero-token rows enter only semantically.
+        const lexOrder = candidates.filter((c) => c.sc > 0)
+          .sort((x, y) => y.sc - x.sc || (x.r.ts || 0) - (y.r.ts || 0));
+        let mounted = lexOrder;
+        try {
+          const _emb = require('./local-embedder.js');
+          const qv = await _emb.embed(query, { role: 'query' });
+          if (qv) {
+            const withCos = candidates.map((c) => {
+              let ev = null;
+              try { ev = state.getEmbedding(c.r.id); } catch (_) {}
+              return { c, cos: ev ? Math.max(0, cosine(qv, ev)) : null };
+            });
+            const lexRank = new Map(lexOrder.map((c, i) => [c, i + 1]));
+            const semOrder = withCos.filter((x) => x.cos != null).sort((a, b) => b.cos - a.cos);
+            const semRank = new Map(semOrder.map((x, i) => [x.c, i + 1]));
+            const C = 60;
+            // Zero-lexical rows enter semantically or not at all: without a
+            // similarity floor every vaguely-related instance rides into the
+            // enumeration surface as the pool grows, and padded counts teach
+            // the user to distrust every number. Floor picked against the
+            // measured recovery case (a citrus event reachable only by
+            // similarity) with margin below typical same-topic cosines.
+            const SEM_FLOOR = 0.25;
+            mounted = withCos
+              .filter((x) => lexRank.has(x.c) || (x.cos != null && x.cos >= SEM_FLOOR))
+              .map((x) => ({
+                c: x.c,
+                rrf: (lexRank.has(x.c) ? 1 / (C + lexRank.get(x.c)) : 0) +
+                     (semRank.has(x.c) ? 1 / (C + semRank.get(x.c)) : 0)
+              }))
+              .filter((x) => x.rrf > 0)
+              .sort((a, b) => b.rrf - a.rrf)
+              .map((x) => x.c);
+          }
+        } catch (_) { /* embedder absent — token order stands */ }
+        // A count needs the whole matching class, not the likeliest dozen —
+        // measured: the third doctor scored low on keyword overlap, fell
+        // below a 12-row cut, and the count came back one short. Forty rows
+        // (~800 tokens) covers every observed pool's relevant subset.
+        for (const { r } of mounted.slice(0, 40)) {
+          let attested = 1;
+          let _refs = [];
+          try {
+            const raw = state.getAction(r.id);
+            const out = typeof raw.output === 'string' ? JSON.parse(raw.output) : (raw.output || {});
+            if (Array.isArray(out.provenance_ref)) { attested = out.provenance_ref.length; _refs = out.provenance_ref.map(String); }
+          } catch (_) {}
+          final.push({
+            id: r.id,
+            ts: r.ts || 0,
+            statement: '[instance] ' + r.statement + ' (attested ×' + attested + ')',
+            score: 0,
+            memory_class: 'semantic',
+            source: 'instance-pool',
+            refs: _refs
+          });
+        }
+        // Provenance completion — a ledger line whose receipts are absent from
+        // the mounted statements used to carry a flag admitting it ("attested
+        // outside the shown statements"). The receipts are turn ids the pool
+        // already holds, so those turns mount too: both strata present for
+        // every member of the counted class — measured missing on the
+        // third-doctor run, where neither stratum surfaced the specialist.
+        try {
+          const have = new Set(final.map((it) => String(it.id)));
+          const wantTurns = [];
+          for (const it of final) {
+            if (it.source !== 'instance-pool') continue;
+            for (const ref of (it.refs || [])) {
+              const tid = String(ref).replace(/^dialogue\.turn:/, '');
+              if (!have.has(tid) && wantTurns.indexOf(tid) === -1) wantTurns.push(tid);
+            }
+          }
+          // Receipts are evidence sentences, not transcripts: each mounted
+          // turn is clipped and the whole completion runs under a character
+          // budget — an unbounded mount once pushed the biggest haystacks
+          // past every compose clock. A receipt that stays unmounted leaves
+          // its ledger line carrying the existing honesty flag ("attested
+          // outside the shown statements"), so truncation is never silent.
+          const TURN_CLIP = 600;
+          const COMPLETION_BUDGET = 12000;
+          let spent = 0;
+          for (const tid of wantTurns.slice(0, 30)) {
+            if (spent >= COMPLETION_BUDGET) break;
+            let raw = null;
+            try { raw = state.getAction(tid); } catch (_) { continue; }
+            if (!raw) continue;
+            let inp = null, out = null;
+            try { inp = typeof raw.input === 'string' ? JSON.parse(raw.input) : raw.input; } catch (_) { continue; }
+            try { out = typeof raw.output === 'string' ? JSON.parse(raw.output) : raw.output; } catch (_) { out = {}; }
+            const u = (inp && inp.args && inp.args.user_text) || '';
+            const a = (out && out.assistant_text) || '';
+            if (!u && !a) continue;
+            let text = (u ? 'user: ' + u : '') + (u && a ? ' / ' : '') + (a ? 'asst: ' + a : '');
+            if (text.length > TURN_CLIP) text = text.slice(0, TURN_CLIP) + ' …';
+            spent += text.length;
+            have.add(tid);
+            final.push({
+              id: tid,
+              ts: raw.timestamp || 0,
+              statement: text,
+              score: 0,
+              memory_class: raw.memory_class || 'episodic',
+              source: 'provenance'
+            });
+          }
+        } catch (_) { /* completion is additive — never fatal */ }
+        // Identity cast — a "how many different doctors" question counts
+        // PEOPLE, and the registry holds exactly that: canonical identities
+        // with their role or relation. The cast of the mounted material rides
+        // along (lookupFromText over what is already mounted — no new
+        // ontology), so distinctness is counted over identities while the
+        // ledger stays the evidence of what each one actually did.
+        try {
+          const identReg = require('./entity-identity.js');
+          const mountedText = final.map((it) => it.statement || '').join('\n');
+          const hits = identReg.lookupFromText(mountedText, { agent_id: agent_id || undefined }) || [];
+          let castAdded = 0;
+          for (const h of hits) {
+            if (castAdded >= 15) break;
+            const idn = h && h.identity;
+            if (!idn || !idn.canonical) continue;
+            const cid = 'identity:' + idn.slug;
+            if (final.some((it) => String(it.id) === cid)) continue;
+            const otherNames = (idn.aliases || []).filter((a) => String(a).toLowerCase() !== String(idn.canonical).toLowerCase());
+            // Names the view may LINK on: only those the registry resolves to
+            // exactly this one identity — shared aliases render but never join.
+            let linkNames = [String(idn.canonical).toLowerCase()];
+            try { linkNames = identReg.linkableNames(idn, { agent_id: agent_id || undefined }).map((n) => String(n).toLowerCase()); } catch (_) {}
+            final.push({
+              id: cid,
+              ts: 0,
+              statement: '[cast] ' + idn.canonical +
+                (idn.relation ? ' — ' + idn.relation : (idn.kind ? ' — ' + idn.kind : '')) +
+                (otherNames.length ? ' (also: ' + otherNames.join(', ') + ')' : ''),
+              link_names: linkNames,
+              score: 0,
+              memory_class: 'semantic',
+              source: 'identity-cast'
+            });
+            castAdded++;
+          }
+        } catch (_) { /* cast is additive — never fatal */ }
+      } catch (_) { /* instance pool arm is additive — never fatal */ }
+    }
+    if (_nounHead && _nounHead.length >= 3) {
+      try {
+        const seenSweep = new Set(final.map((it) => it.id));
+        const ftsRows = state.searchActionsFull('"' + _nounHead.replace(/"/g, '') + '"', {
+          type: 'tool_call', rank: true, limit: 200
+        }) || [];
+        const cands = [];
+        for (const row of ftsRows) {
+          if (seenSweep.has(row.id)) continue;
+          let inp = null, out = null;
+          try { inp = typeof row.input === 'string' ? JSON.parse(row.input) : row.input; } catch (_) { continue; }
+          if (!inp || inp.tool_name !== 'dialogue.turn') continue;
+          const u = (inp.args && inp.args.user_text) || '';
+          if (!u) continue;
+          const _uLow = u.toLowerCase();
+          const _variants = [_nounHead];
+          if (_nounHead.endsWith('s') && !_nounHead.endsWith('ss')) _variants.push(_nounHead.slice(0, -1));
+          if (_nounHead.length >= 7 && _nounHead.endsWith('ing')) _variants.push(_nounHead.slice(0, -3));
+          if (!_variants.some((v) => _uLow.indexOf(v) >= 0)) continue;
+          try { out = typeof row.output === 'string' ? JSON.parse(row.output) : row.output; } catch (_) { out = {}; }
+          cands.push({ row, sess: row.session_id || 'none', u, a: (out && out.assistant_text) || '' });
+        }
+        const bySess = new Map();
+        for (const t of cands) {
+          const prev = bySess.get(t.sess);
+          if (!prev || t.row.timestamp < prev.row.timestamp) bySess.set(t.sess, t);
+        }
+        const picked = [...bySess.values()].sort((x, y) => x.row.timestamp - y.row.timestamp).slice(0, 8);
+        for (const t of picked) {
+          seenSweep.add(t.row.id);
+          final.push({
+            id: t.row.id,
+            ts: t.row.timestamp,
+            statement: (t.u ? 'user: ' + t.u : '') + (t.u && t.a ? ' / ' : '') + (t.a ? 'asst: ' + t.a : ''),
+            score: 0,
+            memory_class: t.row.memory_class || 'episodic',
+            source: 'instance-sweep'
+          });
+        }
+      } catch (_) { /* instance sweep is additive — never fatal */ }
+    }
+    // Continuation arm. A "what did you tell me / remind me what you said"
+    // question paraphrases the user's ASK, so retrieval lands on the ask
+    // turn — while the assistant's specific content (the names, the list,
+    // the text they want back) lives in the turns immediately AFTER it in
+    // the same session. For those questions, each retrieved dialogue turn
+    // pulls its next two session-neighbours, bounded and labeled like the
+    // window and sweep arms — never released into the general pool.
+    const _ssaShaped = /\b(what did you (say|tell|recommend|suggest|write)|you (told|gave|recommended|suggested|wrote) (me|us)|remind me (what|of the|about)|our (previous|last|earlier) (conversation|chat|discussion)|going back to our)\b/i.test(query);
+    if (_ssaShaped) {
+      try {
+        const seenCont = new Set(final.map((it) => it.id));
+        const added = [];
+        for (const it of final.slice(0, k)) {
+          const src = state.getAction(it.id);
+          if (!src || !src.session_id) continue;
+          let inp0 = null;
+          try { inp0 = typeof src.input === 'string' ? JSON.parse(src.input) : src.input; } catch (_) { continue; }
+          if (!inp0 || inp0.tool_name !== 'dialogue.turn') continue;
+          const next = state.queryActions({
+            type: 'tool_call', session_id: src.session_id,
+            since: src.timestamp + 1, limit: 2, order: 'asc'
+          }) || [];
+          for (const row of next) {
+            if (seenCont.has(row.id) || added.length >= 6) continue;
+            let inp = null, out = null;
+            try { inp = typeof row.input === 'string' ? JSON.parse(row.input) : row.input; } catch (_) { continue; }
+            if (!inp || inp.tool_name !== 'dialogue.turn') continue;
+            try { out = typeof row.output === 'string' ? JSON.parse(row.output) : row.output; } catch (_) { out = {}; }
+            const u = (inp.args && inp.args.user_text) || '';
+            const a = (out && out.assistant_text) || '';
+            if (!u && !a) continue;
+            seenCont.add(row.id);
+            added.push({
+              id: row.id,
+              ts: row.timestamp,
+              statement: (u ? 'user: ' + u : '') + (u && a ? ' / ' : '') + (a ? 'asst: ' + a : ''),
+              score: 0,
+              memory_class: row.memory_class || 'episodic',
+              source: 'dialogue-continuation'
+            });
+          }
+        }
+        for (const it of added) final.push(it);
+      } catch (_) { /* continuation arm is additive — never fatal */ }
+    }
     _triggerPLR(final);
     return final;
   }
@@ -1169,10 +1550,20 @@ function auditEngramsByAgent(opts) {
   } catch (_) { return []; }
 }
 
+// The head noun of a count-shaped question ('how many WEDDINGS have I…' →
+// 'weddings'), null when the question is not count-shaped. The same pattern
+// the count arm's counted-noun sub-query uses; exported so the reconciled
+// view can scope its cast counting clause to what is actually being counted.
+function countNounHead(query) {
+  const m = /\b(?:how many|how much|number of|order of|the (?:two|three|four|five|six|seven))\s+([a-z][a-z \-]{3,40}?)(?:\s+(?:have|has|had|did|do|does|i|we|are|is|were|was|in|from|that)\b|[?.!]|$)/i.exec(String(query || ''));
+  return m && m[1] ? m[1].trim().split(/\s+/).pop().toLowerCase() : null;
+}
+
 module.exports = {
   recordEngram,
   listEngrams,
   auditEngramsByAgent,
+  countNounHead,
   // Deprecated alias — kept for backward compat with pre- callers.
   // New code MUST use auditEngramsByAgent (intent-communicating name).
   listAgentsWithEngrams: auditEngramsByAgent,

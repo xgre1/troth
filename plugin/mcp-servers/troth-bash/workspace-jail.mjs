@@ -164,3 +164,162 @@ export function jailFor(cwd, workspaceRoot) {
   }
   return { exec: spec.exec, args: spec.args, env: spec.env, project: c.project, ground: c.ground };
 }
+
+let _ground = null;
+function groundPolicy() {
+  if (_ground === null) {
+    try {
+      const serverDir = fileURLToPath(new URL('.', import.meta.url));
+      _ground = require(serverDir + '../../../shared-core/tools/ground-policy.js');
+    } catch { _ground = false; }
+  }
+  return _ground || null;
+}
+
+// wrapFor(cwd, opts) → the wrap for ANY ground, not only the workspace.
+//
+// jailFor above answers one question — is this partner project ground — and
+// answers null everywhere else, which meant every other ground ran with no
+// wall at all. This answers for all of them:
+//
+//   { refuse }                     the path names one ground and lands in
+//                                  another; running it bare is the one
+//                                  fail-open the design exists to avoid
+//   { kind:'jail', exec, args }    partner project ground, deny-default
+//   { kind:'thin', ... }           a folder the operator opened
+//   { kind:'confine', ... }        ground nobody declared
+//   { kind:'home', ... }           the tree holding the substrate
+//   { off:'operator', ... }        the operator's own switch
+//   { off:'unavailable', ... }     no runtime here, or a profile that cannot
+//                                  be applied — which is the answer inside an
+//                                  existing sandbox, where the kernel refuses
+//                                  any profile carrying a restriction
+//
+// Every branch carries the environment a partner command should get on that
+// ground, so the caller has one answer to consult instead of rebuilding the
+// rules for the unwrapped case.
+//
+// A checkout without the ground module falls back to the workspace-only
+// answer rather than refusing: a partial tree loses the new walls, it does
+// not lose the shell.
+export function wrapFor(cwd, opts) {
+  opts = opts || {};
+  const gp = groundPolicy();
+  const sb = seatbelt();
+  const bareEnv = () => (sb && typeof sb.operatorEnv === 'function') ? sb.operatorEnv() : undefined;
+
+  if (!gp || typeof gp.classifyGround !== 'function') {
+    const j = jailFor(cwd, opts.workspaceRoot);
+    return j || { off: 'ungoverned', ground: 'operator', env: bareEnv() };
+  }
+
+  const c = gp.classifyGround(cwd, {
+    sessionRoot:    opts.sessionRoot,
+    workspaceRoot:  opts.workspaceRoot
+  });
+  if (c.ground === 'escape') return { refuse: c.reason, ground: 'escape' };
+
+  const jailed = (c.ground === 'workspace' || c.ground === 'project');
+  const root   = jailed ? c.jail : c.root;
+
+  // Read after classification so an escape is still reported as an escape:
+  // 'the walls are off' and 'this path lied about where it lands' are
+  // different facts, and the second one stays worth saying.
+  if (operatorWantsBare()) {
+    return { off: 'operator', ground: c.ground, root, env: bareEnv() };
+  }
+  if (!sb || typeof sb.jailSpawnSpec !== 'function') {
+    return { off: 'unavailable', ground: c.ground, root, env: bareEnv(),
+             why: 'no sandbox runtime on this host (platform: ' + process.platform + ')' };
+  }
+
+  const spec = jailed
+    ? sb.jailSpawnSpec({ cwd: root, network: 'full' })
+    : sb.groundSpawnSpec({
+        kind: c.ground === 'opened' ? 'thin' : (c.ground === 'home' ? 'home' : 'confine'),
+        cwd:  root,
+        alsoWritable: c.alsoWritable
+      });
+  if (!spec.ok) {
+    return { off: 'unavailable', ground: c.ground, root, env: bareEnv(),
+             why: spec.error || 'unknown' };
+  }
+  return { kind: jailed ? 'jail' : spec.kind, exec: spec.exec, args: spec.args,
+           env: spec.env, ground: c.ground, root };
+}
+
+let _intercept = null;
+function intercept() {
+  if (_intercept === null) {
+    try {
+      const serverDir = fileURLToPath(new URL('.', import.meta.url));
+      _intercept = require(serverDir + '../../../shared-core/tools/install-intercept.js');
+    } catch { _intercept = false; }
+  }
+  return _intercept || null;
+}
+
+// installWrapFor(command, wrap, cwd) — the second look a command gets after
+// the ground decision: a package installation on the operator's own ground
+// (thin or confined) moves into the OS jail, scoped to the nearest project,
+// because an install script runs with the reach of the ground it stands on
+// and the everyday "add package X to my repo" stands on the widest one.
+//
+// Grounds already jailed keep their jail; home ground keeps its scratch-only
+// treatment, which is STRICTER than a jail whose WORK would be the home
+// itself; walls-off stays walls-off — the operator's switch outranks this
+// layer the same way it outranks every other.
+//
+// Returns { kind:'install-jail', exec, args, env, ground, root, manager }
+// or null when the command is not an intercepted install.
+export function installWrapFor(command, wrap, cwd, opts) {
+  if (!wrap || (wrap.kind !== 'thin' && wrap.kind !== 'confine')) return null;
+  const ic = intercept();
+  if (!ic) return null;
+  const c = ic.classifyInstall(command);
+  if (!c.install) return null;
+  const sb = seatbelt();
+  const gp = groundPolicy();
+  if (!sb || typeof sb.jailSpawnSpec !== 'function') return null;
+  let work = null;
+  try { work = (gp && typeof gp.projectRoot === 'function') ? gp.projectRoot(cwd) : null; }
+  catch { work = null; }
+  work = work || wrap.root || cwd;
+  // With an egress listener the jail's only road out is the proxy, and the
+  // child is told to use it in the one dialect every package manager
+  // speaks. The address is an IP literal so no resolver is needed inside,
+  // and the userinfo carries a token naming THIS project's allowlist —
+  // package managers forward it as proxy credentials, so one project's
+  // extra registry is never lent to another project's install.
+  //
+  // Without a listener the jail falls back to direct network with loopback
+  // denied — the filesystem walls hold either way, and the note says which
+  // road the install ran on.
+  const egress = opts && opts.egress && Number.isInteger(opts.egress.port) ? opts.egress : null;
+  let token = null;
+  if (egress) {
+    let allow = null;
+    try {
+      const serverDir = fileURLToPath(new URL('.', import.meta.url));
+      const na = require(serverDir + '../../../shared-core/tools/net-allowlist.js');
+      allow = na.allowFor(work);
+    } catch { allow = null; }
+    try { token = egress.grant(allow); } catch { token = null; }
+  }
+  const url = egress
+    ? 'http://' + (token ? encodeURIComponent(token) + ':@' : '') + '127.0.0.1:' + egress.port
+    : null;
+  const spec = egress
+    ? sb.jailSpawnSpec({ cwd: work, network: 'proxy', proxyPort: egress.port, env: {
+        HTTP_PROXY: url, HTTPS_PROXY: url, http_proxy: url, https_proxy: url,
+        NO_PROXY: '', no_proxy: ''
+      } })
+    : sb.jailSpawnSpec({ cwd: work, network: 'full' });
+  if (!spec.ok) {
+    if (egress && token) { try { egress.revoke(token); } catch {} }
+    return null;
+  }
+  return { kind: 'install-jail', exec: spec.exec, args: spec.args, env: spec.env,
+           ground: wrap.ground, root: spec.work, manager: c.manager,
+           egress: egress ? 'proxy' : 'direct', token };
+}

@@ -113,7 +113,7 @@ const { checkPinning, getStats: pinningStats } = require('./modules/pinning');
 const { checkLoop, getStats: loopStats } = require('./modules/loopguard');
 const { getStats: cacheStats, init: initCache } = require('./modules/hotcache');
 const { initIndex, queryContext, getArchitectureOverview, getStats: codeLensStats } = require('./modules/codelens');
-const { callFallbackChain, callAnthropic, handleCompaction, preprocessAnthropicBody, scaleTokens, forwardToLocal, getStats: routerStats, getProviders, getRoutingPrefs, loadProviders, generatePlan, injectPlan, continueIfTruncated } = require('./modules/router');
+const { callFallbackChain, callAnthropic, handleCompaction, preprocessAnthropicBody, scaleTokens, scaleUsage, scaleUsageInSSE, believedContextWindow, forwardToLocal, getStats: routerStats, getProviders, getRoutingPrefs, loadProviders, generatePlan, injectPlan, continueIfTruncated } = require('./modules/router');
 const { augmentToolResults } = require('./modules/vision');
 const scheduler = require('./modules/scheduler');
 // Closed-extension routes (private overlay; absent on a public clone).
@@ -1124,6 +1124,15 @@ const server = http.createServer((req, res) => {
         const errs = Object.keys((a.health && a.health.errors_by_module) || {}).length;
         add('Engine errors today', errs === 0, errs === 0 ? 'none' : (errs + ' engine(s) erroring'),
           errs === 0 ? '' : 'open Analytics for which engine and how often');
+        const weak = ((a.health && a.health.degraded) || [])
+          .filter((x) => /hit_rate$/.test(x.metric));
+        if (weak.length) {
+          add('Read caches', false,
+            weak.map((x) => x.metric.split('.')[1].replace('cached_', '') + ' ' + Math.round(x.value * 100) + '%').join(' · '),
+            'reads are not being served from cache — the same files are being re-read into the window');
+        } else {
+          add('Read caches', true, 'serving');
+        }
       } catch (e) { add('Engine errors today', null, 'analytics not readable, skipped'); }
       try {
         const svc = require('./modules/service.js');
@@ -1159,6 +1168,25 @@ const server = http.createServer((req, res) => {
           bLive ? ('CDP answering on ' + bLive + (bLive === 9222 ? ', your own debug Chrome' : ', the troth browser')) : 'no browser running',
           bLive ? '' : 'nothing to do - the browse tool starts one on demand');
       } catch (e) { add('Browser', null, 'not checkable, skipped'); }
+      try {
+        // Ground walls: the doctor stands on unwalled ground, so it is the
+        // one place that can APPLY a session wall and observe it. Probes are
+        // exit-code-only workflow checks: the agent socket and keychain
+        // still answer, the promoted read rules hold, the pinholes stay
+        // open. Red here means sessions run wider or narrower than built.
+        const wd = require('../shared-core/tools/wall-doctor.js').runProbes();
+        if (wd.context !== 'unwalled') {
+          add('Ground walls', null, 'not measurable from here (' + wd.context + '), skipped');
+        } else {
+          const v = wd.verdicts || {};
+          const okAll = !!(v.controlsEngaged && v.agentSocketSurvives && v.keychainSurvives && v.carvesWork && v.promotionLive && v.jailHolds);
+          const failed = (wd.probes || []).filter(function (p) { return !p.ok; }).map(function (p) { return p.name; });
+          add('Ground walls', okAll,
+            okAll ? ((wd.probes || []).length + ' probes: credential stores dark, agent socket and keychain answering')
+                  : ('holding except: ' + failed.join('; ')),
+            okAll ? '' : 'run: troth restart, then re-check; if it stays red, the wall builder changed behaviour');
+        }
+      } catch (e) { add('Ground walls', null, 'not checkable, skipped'); }
       const bad = checks.filter(function (c) { return c.ok === false; }).length;
       jsonResponse(res, 200, { checks: checks, findings: bad });
     })().catch(function (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); });
@@ -1252,6 +1280,33 @@ const server = http.createServer((req, res) => {
         const r = vault.unlock(pass);
         jsonResponse(res, 200, { ok: true, entry_count: r.entry_count, session_expires_at: r.session_expires_at });
       } catch (e) { jsonResponse(res, 403, { error: String(e && e.message || e) }); }
+    }).catch(function (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); });
+    return;
+  }
+  if (url === '/api/vault/change-passphrase' && req.method === 'POST') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then(function (b) {
+      const opk = require('../shared-core/operator-key.js');
+      const oldPass = b && b.old_passphrase;
+      const newPass = b && b.new_passphrase;
+      if (!oldPass || typeof oldPass !== 'string') { jsonResponse(res, 400, { error: 'old_passphrase_required' }); return; }
+      if (!newPass || typeof newPass !== 'string' || newPass.length < 8) { jsonResponse(res, 400, { error: 'new_passphrase_min_8_chars' }); return; }
+      if (oldPass === newPass) { jsonResponse(res, 400, { error: 'new_passphrase_identical' }); return; }
+      if (!opk.exists()) { jsonResponse(res, 409, { error: 'no_operator_key' }); return; }
+      try {
+        // changePassphrase re-wraps the operator key AND the credential vault
+        // in one operation, rolling the key back if the vault half fails.
+        const r = opk.changePassphrase(oldPass, newPass);
+        // The live session was derived from the old secret. Drop it so the
+        // operator proves the new passphrase on the next unlock instead of
+        // riding a session nobody re-authenticated.
+        try { require('../shared-core/vault.js').lock(); } catch (_) {}
+        jsonResponse(res, 200, { ok: true, public_key_id: r && r.public_key_id });
+      } catch (e) {
+        const m = String(e && e.message || e);
+        const wrong = /decryption failed|wrong passphrase/i.test(m);
+        jsonResponse(res, wrong ? 403 : 500, { error: wrong ? 'wrong_passphrase' : m });
+      }
     }).catch(function (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); });
     return;
   }
@@ -1444,9 +1499,9 @@ const server = http.createServer((req, res) => {
       let cli = [];
       try {
         // The same DATA module the CLI dispatch builds its Set from.
-        // This used to regex bin/troth.js SOURCE for the literal, and
-        // shipped bundles are minified: every published build served the
-        // reference page with zero CLI commands (gate behave, 2026-08-09).
+        // Read from the module, never by regexing bin/troth.js SOURCE for
+        // the literal: shipped bundles are minified, and a source regex
+        // serves the reference page with zero CLI commands.
         cli = require('../shared-core/cli-commands.js').slice();
       } catch (_) {}
       jsonResponse(res, 200, { slash: slash, cli: cli });
@@ -1608,8 +1663,8 @@ const server = http.createServer((req, res) => {
             }
           } catch (_) { /* reranker is an enhancement, never a blocker */ }
           // `verified` — recall proven by a real vector, not by a file landing
-          // on disk. "Ready" used to mean "download_done", which is true on
-          // machines where nothing can run the model, and a setup that says
+          // on disk. "download_done" is true even on machines where nothing
+          // can run the model, and a setup that says
           // memory is on while recall is lexical is the failure nobody
           // notices. The awaited embed runs ONCE, in the background, and only
           // after the file exists: the first in-process load is ~30s on CPU,
@@ -1633,8 +1688,8 @@ const server = http.createServer((req, res) => {
       } else if (url === '/api/memory/recent') {
         // The memories a human can SEE — newest distilled/committed facts,
         // so "did the import actually produce memories?" has a visible
-        // answer on the dashboard instead of a bare count (field question,
-        // 2026-08-09). Read-only; raw archive chunks and substrate
+        // answer on the dashboard instead of a bare count.
+        // Read-only; raw archive chunks and substrate
         // bookkeeping never appear here.
         try {
           out = { memories: sharedState.listRecentMemories(query.get('limit')) };
@@ -1692,11 +1747,6 @@ const server = http.createServer((req, res) => {
         // A commitment WHERE-count is not "things learned": engram-gc writes
         // its eviction/duplicate markers as ordinary commitments
         // (commitment_type='engram_tombstoned'), and bench/test seeds live in
-        // the same table. The raw count told the operator the partner had
-        // learned 231,071 things when 81% were the garbage collector talking
-        // to itself — measured 2026-08-09: 188k tombstones + ~7k test/bench
-        // rows against 43k real facts, a 5.3x inflation on the dashboard's
-        // headline number. Both consumer surfaces (ChatSurface's "things
         // I've learned" and Activity's "memories") read by_type.commitment,
         // so the honest predicate lives here, once. The raw ledger count
         // stays available as by_type_raw_commitment for anyone auditing the
@@ -2061,7 +2111,7 @@ const server = http.createServer((req, res) => {
     try { critic = require('./modules/critic').getStats(); } catch (e) {}
     try { workflow = require('./modules/workflow').getState(); } catch (e) {}
     try { cochange = require('./modules/cochange').getStats(); } catch (e) {}
-    try { checkpoint = require('./modules/checkpoint').getStats(); } catch (e) {}
+    try { checkpoint = require('../shared-core/tools/undo-shadow.js').getStats(); } catch (e) {}
     try { morph = require('./modules/morph').getStats(); } catch (e) {}
     try { buildgraph = require('./modules/buildgraph').getStats(); } catch (e) {}
     try { abtest = require('./modules/abtest').getStats(); } catch (e) {}
@@ -2428,6 +2478,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'POST' && url === '/api/routing/reload') {
     try {
       loadProviders();
+      try { require('./modules/router').warmContextWindows(); } catch (_) {}
       log('Providers reloaded via /api/routing/reload');
       jsonResponse(res, 200, { ok: true });
     } catch (e) {
@@ -2991,13 +3042,15 @@ const server = http.createServer((req, res) => {
 
   // ===== API: Open run folder in Finder =====
   if (req.method === 'POST' && url.match(/^\/api\/runs\/[^/]+\/open$/)) {
-    var openRunId = url.split('/')[3];
+    var openRunId = decodeURIComponent(url.split('/')[3]);
     var openRunner = getRunner();
     if (openRunner) {
-      var openResult = openRunner.apiGetRun(openRunId);
-      if (openResult.ok && openResult.meta.worktree) {
+      // The workspace comes from the runner's gate, not from the meta file:
+      // whatever path is handed to `open` is launched.
+      var openResult = openRunner.apiRunWorkspace(openRunId);
+      if (openResult.ok) {
         try {
-          require('child_process').spawn('open', [openResult.meta.worktree], { detached: true, stdio: 'ignore' }).unref();
+          require('child_process').spawn('open', [openResult.worktree], { detached: true, stdio: 'ignore' }).unref();
           jsonResponse(res, 200, { ok: true });
         } catch (e) {
           jsonResponse(res, 500, { error: e.message });
@@ -3120,9 +3173,9 @@ const server = http.createServer((req, res) => {
         // whole recallable corpus. This used to call the legacy
         // commitment-only path, whose candidate window is the newest 200
         // engrams scored on word overlap with no embeddings at all: on a
-        // 43,209-engram substrate that is the last WEEK, so typing a memory's
-        // own words verbatim could not find it if it was older (measured
-        // 2026-08-10). The search a human runs and the recall the partner runs
+        // large substrate that is only the last week deep, so typing a
+        // memory's own words verbatim cannot find anything older.
+        // The search a human runs and the recall the partner runs
         // now answer from the same engine, or they teach the human that the
         // memory is broken when it is not.
         const recall = require('../shared-core/recall.js');
@@ -3160,8 +3213,6 @@ const server = http.createServer((req, res) => {
           // has it), the statement only as the CLI-shaped fallback. Passing
           // text made /forget re-derive its own target through a lookup whose
           // window is the newest 200 engrams, which retired a DIFFERENT memory
-          // for anything older (measured 2026-08-10: 5 of 6 clicks hit the
-          // wrong row). Identity travels with the click now.
           const targetId = String(body.id || '').trim();
           const stmt = String(body.statement || '').trim();
           if (!targetId && !stmt) { jsonResponse(res, 400, { ok: false, error: 'missing_statement' }); return; }
@@ -4741,10 +4792,9 @@ const server = http.createServer((req, res) => {
   //
   // This endpoint is what the Tauri app calls, and it used to write a
   // free-standing scope:'system:tombstone' engram — which NOTHING filters,
-  // so the "forgotten" fact kept surfacing. That visible failure is why a
-  // partner, asked to forget something, escalated to raw sqlite against
-  // state.db (incident 2, 2026-08-09): the sanctioned path did not work.
-  // Now it retires exactly the way the slash path does: a successor engram
+  // so the "forgotten" fact keeps surfacing, and a sanctioned path that
+  // does not work invites raw sqlite against state.db.
+  // It retires exactly the way the slash path does: a successor engram
   // written through the blessed reconsolidation primitive, with
   // lifetime.supersedes pointing at the original (every recall path hides
   // it) at tier='flagged' (the successor itself never surfaces). The wire
@@ -4810,6 +4860,23 @@ const server = http.createServer((req, res) => {
       }
     });
     return;
+  }
+
+  {
+    const mCtxWin = req.method === 'GET' && url === '/api/context-window';
+    if (mCtxWin) {
+      if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+      const q = new URL(req.url, 'http://localhost').searchParams;
+      const model = (q.get('model') || '').trim();
+      if (!model) { jsonResponse(res, 400, { error: 'model required' }); return; }
+      try {
+        const r = require('./modules/router').resolveContextWindow(model);
+        jsonResponse(res, 200, { model, window: r.window, source: r.source });
+      } catch (e) {
+        jsonResponse(res, 500, { error: String(e && e.message || e) });
+      }
+      return;
+    }
   }
 
   // GET /api/providers/openrouter/models → {models:[{id,name}]} — live list for
@@ -5766,7 +5833,8 @@ const server = http.createServer((req, res) => {
         // Scale tokens for correct compaction timing + log estimator drift.
         try {
           const p = JSON.parse(responseBody);
-          if (p.usage && p.usage.input_tokens && requestedModel) {
+          const servedModel = p.model || requestedModel;
+          if (p.usage && requestedModel) {
             // P3.1: drift telemetry — our estimate vs Anthropic's real count.
             if (estimatedInputTokens > 0) {
               try {
@@ -5775,7 +5843,7 @@ const server = http.createServer((req, res) => {
                 );
               } catch (e) {}
             }
-            p.usage.input_tokens = scaleTokens(p.usage.input_tokens, requestedModel);
+            scaleUsage(p.usage, servedModel, believedContextWindow(requestedModel, req.headers));
           }
           if (p.model && requestedModel) p.model = requestedModel;
           responseBody = JSON.stringify(p);
@@ -5828,7 +5896,10 @@ const server = http.createServer((req, res) => {
         let responseBody = processResponse(fbResult, false);
         try {
           const p = JSON.parse(responseBody);
-          if (p.model && requestedModel) { p.model = requestedModel; responseBody = JSON.stringify(p); }
+          const servedModel = p.model || requestedModel;
+          if (p.model && requestedModel) p.model = requestedModel;
+          if (p.usage) scaleUsage(p.usage, servedModel, believedContextWindow(requestedModel, req.headers));
+          responseBody = JSON.stringify(p);
         } catch (e) {}
         res.writeHead(200, { 'content-type': 'application/json', 'content-length': Buffer.byteLength(responseBody) });
         res.end(responseBody);
@@ -5872,10 +5943,11 @@ const server = http.createServer((req, res) => {
         if (wantsStream) {
           try {
             const respObj = JSON.parse(responseBody);
+            const servedModel = respObj.model || requestedModel;
             // Mask model identity + scale tokens for compaction
             if (requestedModel && respObj.model) respObj.model = requestedModel;
-            if (respObj.usage && respObj.usage.input_tokens && requestedModel) {
-              respObj.usage.input_tokens = scaleTokens(respObj.usage.input_tokens, requestedModel);
+            if (respObj.usage && requestedModel) {
+              scaleUsage(respObj.usage, servedModel, believedContextWindow(requestedModel, req.headers));
             }
             res.writeHead(200, {
               'content-type': 'text/event-stream',
@@ -5939,10 +6011,10 @@ const server = http.createServer((req, res) => {
             });
             emit('message_stop', { type: 'message_stop' });
             res.end();
-            // Perflog — the streaming lane ended here without ever recording,
-            // so a day of Claude Code turns (always stream:true) left no
-            // per-request rows at all: the 2026-08-04 burn analysis had to
-            // reconstruct "before" from a month-old file. Mirror of the
+            // Perflog — the streaming lane must record here too: Claude
+            // Code turns are always stream:true, and a streaming lane that
+            // ends without recording leaves no per-request rows at all.
+            // Mirror of the
             // non-streaming record further down; the catch keeps a scope or
             // shape surprise from ever touching the served response.
             try {
@@ -5968,6 +6040,8 @@ const server = http.createServer((req, res) => {
             // model never leaks.
             if (!res.headersSent && /^\s*event:\s*message/.test(responseBody)) {
               let sse = responseBody;
+              const sseServed = (sse.match(/"model"\s*:\s*"([^"]+)"/) || [])[1] || requestedModel;
+              sse = scaleUsageInSSE(sse, sseServed, believedContextWindow(requestedModel, req.headers));
               if (requestedModel) sse = sse.replace(/"model"\s*:\s*"[^"]+"/g, '"model":"' + requestedModel + '"');
               res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'connection': 'keep-alive' });
               res.end(sse);
@@ -6007,10 +6081,11 @@ const server = http.createServer((req, res) => {
 
         try {
           const p = JSON.parse(responseBody);
+          const servedModel = p.model || requestedModel;
           if (p.model && requestedModel) p.model = requestedModel;
           // Scale tokens for correct compaction timing on non-200K models
-          if (p.usage && p.usage.input_tokens && requestedModel) {
-            p.usage.input_tokens = scaleTokens(p.usage.input_tokens, requestedModel);
+          if (p.usage && requestedModel) {
+            scaleUsage(p.usage, servedModel, believedContextWindow(requestedModel, req.headers));
           }
           responseBody = JSON.stringify(p);
         } catch (e) {}
@@ -6075,7 +6150,12 @@ const server = http.createServer((req, res) => {
       if (requestedModel) {
         try {
           parsedForUsage = JSON.parse(responseBody);
-          if (parsedForUsage.model) { parsedForUsage.model = requestedModel; responseBody = JSON.stringify(parsedForUsage); }
+          const servedLocal = parsedForUsage.model || cfg.model || '';
+          if (parsedForUsage.usage) {
+            scaleUsage(parsedForUsage.usage, servedLocal, believedContextWindow(requestedModel, req.headers));
+          }
+          if (parsedForUsage.model) parsedForUsage.model = requestedModel;
+          responseBody = JSON.stringify(parsedForUsage);
         } catch (e) {
           // SSE/streaming response — string replace model name
           responseBody = responseBody.replace(/"model"\s*:\s*"[^"]+"/g, '"model":"' + requestedModel + '"');
@@ -6235,8 +6315,14 @@ server.listen(listenPort, BIND_HOST, () => {
     if (!fsP.existsSync(dataDir)) fsP.mkdirSync(dataDir, { recursive: true });
     fsP.writeFileSync(pathP.join(dataDir, 'proxy-' + listenPort + '.pid'), String(process.pid));
   } catch (_) { /* non-fatal */ }
+  // One measurement run of the ground walls when a request marker asks for
+  // it — the proxy is the one process here that stands on unwalled ground,
+  // so it is the only place a wall profile can be applied and observed.
+  try { require('../shared-core/tools/wall-doctor.js').maybeRunFromBoot(); } catch (_) { /* non-fatal */ }
   log('troth Proxy v' + VERSION);
   log('Local LLM server: ' + BACKEND_HOST + ':' + BACKEND_PORT);
+
+  try { require('./modules/router').warmContextWindows(); } catch (_) {}
 
   // B2 uninstall self-reaper - mirrors bin/troth-entity.js.
   // A proxy whose server.js vanished serves deleted code forever after an
@@ -6324,6 +6410,8 @@ server.listen(listenPort, BIND_HOST, () => {
         // browser belongs to troth.
         var _AGENT_PROFILE = '';
         try { _AGENT_PROFILE = require('../shared-core/perception/chromium-daemon.js').defaultProfileDir(); } catch (_) {}
+        var _LEGACY_PROFILE = '';
+        try { _LEGACY_PROFILE = require('../shared-core/perception/chromium-daemon.js').legacyProfileDir(); } catch (_) {}
         // EVERY long-lived child the product can leave behind, not just the
         // two the operator happened to catch. A customer cannot diagnose a
         // hung daemon and has no reason to know these exist, so nothing may
@@ -6363,7 +6451,8 @@ server.listen(listenPort, BIND_HOST, () => {
               now: Date.now(),
               idleMs: _idleMin * 60000 * (t.mult || 1),
               procLines: _lines,
-              agentProfile: _AGENT_PROFILE
+              agentProfile: _AGENT_PROFILE,
+              legacyProfile: _LEGACY_PROFILE
             });
             if (!_verdict.reap) return;
           } else {
@@ -6387,6 +6476,57 @@ server.listen(listenPort, BIND_HOST, () => {
             log('reaped idle ' + t.what + ' on :' + t.port + ' (idle ' + Math.round(idleMs / 60000) + 'm) — respawns on next use');
           } catch (_) {}
         });
+
+        // Orphan sweep — a browser wearing OUR profile directory on a port the
+        // lane above does not watch. Two ways one exists: a pre-hardening
+        // install left its shared-profile browser on 9222 (measured: nine days
+        // resident, catching every link the system opened), or the operator
+        // changed TROTH_BROWSER_CDP_PORT and the old daemon stayed behind.
+        // First sighting writes a discovery stamp, so "no stamp is never a
+        // reap" holds: collection happens a full browser-leash later.
+        try {
+          var _cfgPort = parseInt(process.env.TROTH_BROWSER_CDP_PORT || '18222', 10);
+          var _wearsOurs = function (l) {
+            return (!!_AGENT_PROFILE && l.indexOf('--user-data-dir=' + _AGENT_PROFILE) !== -1) ||
+                   (!!_LEGACY_PROFILE && l.indexOf('--user-data-dir=' + _LEGACY_PROFILE) !== -1);
+          };
+          var _orphans = {};
+          _cp.execSync('pgrep -fl "remote-debugging-port=" || true', { encoding: 'utf8' })
+            .split('\n').filter(function (l) { return !!l && _wearsOurs(l); })
+            .forEach(function (l) {
+              var m = /remote-debugging-port=(\d+)/.exec(l);
+              var p = m ? parseInt(m[1], 10) : 0;
+              if (!p || p === _cfgPort) return;
+              (_orphans[p] = _orphans[p] || []).push(l);
+            });
+          Object.keys(_orphans).forEach(function (pk) {
+            var p = parseInt(pk, 10);
+            var stamp = _pathI.join(_os.homedir(), '.troth', 'lastuse-' + p + '.txt');
+            var lastO = 0;
+            try { lastO = parseInt(_fs.readFileSync(stamp, 'utf8'), 10) || 0; } catch (_) { lastO = 0; }
+            if (!lastO) { try { _fs.writeFileSync(stamp, String(Date.now())); } catch (_) {} return; }
+            var v = require('../shared-core/browser-reap.js').mayReapBrowser({
+              port: p, lastUse: lastO, now: Date.now(),
+              idleMs: _idleMin * 60000 * 4,
+              procLines: _orphans[pk],
+              agentProfile: _AGENT_PROFILE,
+              legacyProfile: _LEGACY_PROFILE
+            });
+            if (!v.reap) return;
+            _orphans[pk].forEach(function (l) {
+              var pid = parseInt(l, 10);
+              if (pid) { try { process.kill(pid, 'SIGTERM'); } catch (_) {} }
+            });
+            setTimeout(function () {
+              try {
+                _cp.execSync('pgrep -fl "remote-debugging-port=' + p + '" || true', { encoding: 'utf8' })
+                  .split('\n').filter(function (l) { return !!l && _wearsOurs(l); })
+                  .forEach(function (l) { var pid = parseInt(l, 10); if (pid) { try { process.kill(pid, 'SIGKILL'); } catch (_) {} } });
+              } catch (_) {}
+            }, 4000).unref();
+            log('reaped orphan troth browser on :' + p + ' (' + v.reason + ') — legacy; nothing respawns it');
+          });
+        } catch (_) { /* orphan sweep is housekeeping, never a request blocker */ }
       } catch (_) { /* reaping is housekeeping, never a request blocker */ }
     }, 5 * 60 * 1000).unref();
   }
@@ -6436,9 +6576,9 @@ server.listen(listenPort, BIND_HOST, () => {
   // The memory pipeline's upkeep (embedding drain, import delta-sync) has
   // to live where EVERY topology keeps a process alive — and that is this
   // proxy: a dashboard-only Linux install (`troth start` + browser) has no
-  // entity daemon, so before this block nothing there ever drained the
-  // index and the readiness numbers froze forever (field report,
-  // 2026-08-09). The entity daemon still runs the full task set when it is
+  // entity daemon — without this block nothing there drains the index and
+  // the readiness numbers freeze forever.
+  // The entity daemon still runs the full task set when it is
   // up; the background_task_run ledger acts as a cross-process lease so
   // the two never double-work one queue. TROTH_MAINTENANCE=0 disables.
   if (process.env.TROTH_MAINTENANCE !== '0') {
@@ -6456,7 +6596,7 @@ server.listen(listenPort, BIND_HOST, () => {
         // install. Both were registered in DEFAULT_TASKS — the entity daemon's
         // list — so on this machine the document queue had no reader at all
         // and the operator watched "183 still to read" never move.
-        tasks: [bw.tasks.embeddingBackfill, bw.tasks.knowledgeDrain, bw.tasks.outcomeFold, bw.tasks.importSync, bw.tasks.backup, bw.tasks.walReplicate, bw.tasks.ledgerPrune],
+        tasks: [bw.tasks.embeddingBackfill, bw.tasks.knowledgeDrain, bw.tasks.outcomeFold, bw.tasks.importSync, bw.tasks.backup, bw.tasks.walReplicate, bw.tasks.ledgerPrune, bw.tasks.carriedFreeze],
         cross_process_lease: true,
         idle_threshold_ms: Math.max(parseInt(process.env.TROTH_MAINT_IDLE_MS || '60000', 10) || 60000, 0),
         tick_ms: Math.max(parseInt(process.env.TROTH_MAINT_TICK_MS || '30000', 10) || 30000, 250),

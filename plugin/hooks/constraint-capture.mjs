@@ -13,9 +13,8 @@
 // anything. Enforcement lives in the troth-bash server gate; this hook is the
 // scribe that gives the gate something to enforce.
 //
-// Born 2026-08-15: an explicit "μην κάνεις τίποτα" was violated by a push a
-// few turns later. The freeze had no row, so the gate had no state, so the
-// wall did not exist. Never again — text does not bind, state does.
+// A freeze with no row leaves the gate no state to enforce, so the capture
+// runs before anything else in the turn: text does not bind, state does.
 
 import { createRequire } from 'node:module';
 import { readStdinJson, allow, addContext, log, recordAction } from './_lib.mjs';
@@ -31,12 +30,10 @@ const payload = await readStdinJson();
 const text = String(payload.prompt || '');
 const session = payload.session_id || 'unknown';
 
-// Only the OPERATOR's own words register or lift constraints. The second
-// blind trial (2026-08-16) proved the hole live: a task-notification quoted
-// a freeze verbatim ("...the operator said: 'min kaneis tipota'... Greek
-// for 'don't do anything'") and this hook captured a PHANTOM freeze from a
-// system turn no human wrote. Anything notification- or command-shaped is
-// not a prompt — skip before the detector ever runs.
+// Only the OPERATOR's own words register or lift constraints. A system turn
+// can quote a freeze verbatim, and treating that quote as a prompt captures a
+// freeze no human asked for. Anything notification- or command-shaped is not
+// a prompt — skip before the detector ever runs.
 const NOT_OPERATOR = /\[SYSTEM NOTIFICATION - NOT USER INPUT\]|<task-notification>|<local-command-caveat>|<command-name>|<system-reminder>/;
 if (NOT_OPERATOR.test(text)) { allow(); }
 

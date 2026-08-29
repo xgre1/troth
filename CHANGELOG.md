@@ -9,6 +9,80 @@ All notable changes to troth are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- The substrate distils what it understood. A pass at worker cadence reads new
+  dialogue through one extraction charter — the people first so occurrences can
+  key on them, every row quoting the turn that attests it, provenance
+  mandatory — and writes typed instances: one row per real-world occurrence,
+  with its status, and obligations kept open until the operator says otherwise.
+  Conversational recall never mounts them; a counting question lifts them
+  deliberately. Where no extractor answers, the pass keeps its window and
+  retries on the next cadence, so nothing is dropped and nothing is invented.
+  `TROTH_INSTANCE_CONSOLIDATION=0` turns the pass off.
+
+- Every engine reports how much of its context window a turn used. Token
+  usage from every lane — Anthropic, ChatGPT-subscription, Ollama,
+  llama.cpp and the router itself — carries a `context_used` figure, and
+  model limits resolve in layers: the curated table ships with the
+  product, the operator's own limits override it from config, and a local
+  GGUF model answers from its own file metadata, which states its context
+  length outright. Engine pins render under their proper names.
+
+### Changed
+- A run id addresses a run and nothing else. Every path a run-keyed tool
+  reads, kills or removes is built inside the runs directory and confirmed to
+  still be there after symlinks resolve; a run's own metadata may name only
+  that run's workspace, so what it says is never a licence to delete
+  elsewhere; a value it carries reaches git as a ref, never as an option; and
+  the repository git acts in is asked of the workspace itself, so a run can
+  neither delete a branch in nor apply commits to a repository it does not
+  own. The MCP tools, the CLI and the HTTP surface enter through the same
+  functions, so the same gate stands on all three; opening a run's folder on
+  the desktop takes the workspace from that gate rather than from the file it
+  is described in; and an orchestrated worker's directory is addressed through
+  it too, so a role name a project supplies stays a name.
+
+- The read policy stands on every road. A retrieval tool judges its target
+  before opening it, so key material, credential files and the substrate
+  database are refused exactly as the shell refuses them; a search withholds
+  matches that come from refused files and says how many it withheld; and the
+  hash-anchored editor reads under the same wall it writes under.
+
+- Secret redaction reads a credential value as a literal. A credential-shaped
+  field NAME decides nothing by itself: an identifier that the same text
+  declares, calls, or reaches through a dot is code, and code keeps its own
+  name in every later reply. Key prefixes, URL passwords, PEM blocks and
+  literal credential values are all caught.
+
+- What the substrate says each turn is what it can attest. A tool call that
+  succeeded is read only on its error channel, so prose that happens to
+  mention an error is never reported as a failure and never shelved as
+  precedent. The turn's memory block carries what the cross-encoder ranks as
+  relevant and stays silent when nothing clears it, the goal line carries a
+  goal rather than the message just typed, and an entity named in two casings
+  counts once.
+
+- Analytics updates without being felt. The page re-reads itself while you
+  watch it, and a reading that carries the same numbers now touches nothing:
+  no node is rewritten, the flow bars keep their own elements and ease to a
+  new length instead of being rebuilt, and the $ split stays open under your
+  cursor for as long as you keep it there. Choosing a different period holds
+  the figures already on screen and dims them until the new ones land, rather
+  than blanking them to placeholders; the shimmer is reserved for a figure
+  that has never been shown. When readings overlap, only the newest one is
+  allowed to paint, so a slow answer can no longer drag the numbers backwards.
+
+- Secret redaction keeps full speed on large tool output. Every command
+  result is swept for credential shapes before it is archived or shown, and
+  that sweep now runs in linear time: a multi-megabyte result is scanned in
+  milliseconds, and a long unbroken blob of hex, base64 or JWT-shaped text
+  costs no more than ordinary prose. What is detected is unchanged. The same
+  key prefixes, URL passwords, PEM blocks and credential-named fields are
+  caught, and git hashes, uuids, placeholders and vault references stay
+  untouched.
+
 ## [0.1.17] — 2026-08-16
 
 ### Added

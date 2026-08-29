@@ -30,7 +30,7 @@ import { resolve as pathResolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
 import { compressCommandOutput } from './compress.mjs';
-import { jailFor } from './workspace-jail.mjs';
+import { jailFor, wrapFor, installWrapFor } from './workspace-jail.mjs';
 
 const require = createRequire(import.meta.url);
 const _greet = require(fileURLToPath(new URL('../../../shared-core/mcp-greeting.js', import.meta.url))).makeGreeter();
@@ -56,6 +56,8 @@ let danger = null;
 let safety = null;
 let constraintLedger = null;
 let redactor = null;
+let seatbelt = null;
+let envdoor = null;
 try {
   const serverDir = fileURLToPath(new URL('.', import.meta.url));
   // plugin/mcp-servers/troth-bash/ → repo/shared-core/state.js
@@ -63,6 +65,8 @@ try {
   constraintLedger = require(serverDir + '../../../shared-core/constraint-ledger.js');
   danger = require(serverDir + '../../../shared-core/danger.js');
   safety = require(serverDir + '../../../shared-core/tools/bash-safety.js');
+  seatbelt = require(serverDir + '../../../shared-core/tools/sandbox-seatbelt.js');
+  envdoor = require(serverDir + '../../../shared-core/tools/env-door.js');
   // The same harvest+redact store the outbound reply path uses. Raw stdout
   // used to flow to the model AND into tool_output_archive untouched, which
   // is how 550 credential literals ended up full-text searchable on disk:
@@ -71,6 +75,18 @@ try {
   // (compression, the model, the archive) sees the text.
   redactor = require(serverDir + '../../../shared-core/secret-redactor.js');
 } catch (e) { /* fall back to no archival or danger check */ }
+
+// The egress listener: an install jail's only network road leads here, and
+// the allowlist lives in this process, where the jail cannot reach it. It
+// binds loopback on an ephemeral port, starts with the server and dies with
+// it. A failed start degrades the install jail to direct network with
+// loopback denied — announced on each interception, never silent.
+let egress = null;
+try {
+  const serverDir = fileURLToPath(new URL('.', import.meta.url));
+  const eg = require(serverDir + '../../../shared-core/tools/egress-proxy.js');
+  eg.startEgressProxy({}).then((p) => { egress = p; }).catch(() => {});
+} catch (_) { /* module missing from this install: direct-network fallback */ }
 
 // Normalize + validate a directory: expand a leading ~, resolve, and require
 // an EXISTING directory. Returns null otherwise. A stale cwd (deleted
@@ -88,6 +104,21 @@ let cwd = resolveDir(process.env.TROTH_BASH_CWD) || process.cwd();
 // Even process.cwd() can be a removed directory (spawned from a dead
 // worktree); land somewhere that exists.
 if (!existsSync(cwd)) cwd = homedir();
+// The directory the session started in is opened ground for this process
+// only. Captured before any cd can move it, and never written anywhere: an
+// in-memory grant has no expiry to get wrong, leaves nothing stale on disk,
+// and gives the partner no road that writes to the operator's registry.
+const SESSION_ROOT = cwd;
+
+// Notes that would otherwise repeat on every command. A wall the agent has
+// already been told about does not need saying again, and a line printed on
+// every result is a line nobody reads.
+const _noted = new Set();
+function noteOnce(key, text) {
+  if (_noted.has(key)) return '';
+  _noted.add(key);
+  return text;
+}
 
 const TOOLS = [
   {
@@ -131,6 +162,42 @@ const TOOLS = [
         host: { type: 'string', description: 'CDP host (default 127.0.0.1).' },
         port: { type: 'integer', description: 'CDP port. Omit to use the troth browser (started if needed on 18222). Explicit ports are attach-only; 9222 is the operator\'s own debug browser.' }
       }
+    }
+  },
+  {
+    name: 'env_set',
+    description: 'Write keys into a dotenv file (.env, .env.*) WITHOUT the values transiting the conversation: secrets are named from the vault and resolved host-side; replies carry key NAMES only. Literals are for non-secret configuration — a credential-shaped literal is refused (put it in the vault first). Reading .env stays refused everywhere; verify configuration by running the app.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'Target dotenv file, absolute or relative to the persistent cwd.' },
+        entries: {
+          type: 'array',
+          description: 'Each entry sets one key: {key, from_vault: "<vault entry name>"} for secrets, {key, value: "<literal>"} for non-secret config. All-or-nothing: the whole batch is refused if any entry cannot resolve.',
+          items: {
+            type: 'object',
+            properties: {
+              key: { type: 'string', description: 'Env var name ([A-Za-z_][A-Za-z0-9_]*).' },
+              value: { type: 'string', description: 'Literal value — non-secret configuration only.' },
+              from_vault: { type: 'string', description: 'Vault entry name to resolve host-side; the value never enters the conversation.' }
+            },
+            required: ['key']
+          }
+        },
+        overwrite: { type: 'boolean', description: 'Required true to replace keys that already exist — their current values are not readable from here, so replacing them is destructive.' }
+      },
+      required: ['file', 'entries']
+    }
+  },
+  {
+    name: 'env_keys',
+    description: 'List the key NAMES present in a dotenv file and whether a vault entry of the same name is usable for this project. Never returns values.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file: { type: 'string', description: 'Dotenv file, absolute or relative to the persistent cwd.' }
+      },
+      required: ['file']
     }
   }
 ];
@@ -192,6 +259,16 @@ function partnerEnv() {
   return env;
 }
 
+// Undo shadow, reached lazily the same way the jail is: absent shared-core
+// (a bridge-only install) leaves the shell exactly as it was.
+let _undoMod;
+function requireUndo() {
+  if (_undoMod !== undefined) return _undoMod;
+  try { _undoMod = require(fileURLToPath(new URL('../../../shared-core/tools/undo-shadow.js', import.meta.url))); }
+  catch (e) { _undoMod = null; }
+  return _undoMod;
+}
+
 function runCommand(command, timeoutMs, overrideCwd) {
   return new Promise((resolve) => {
     let effectiveCwd = overrideCwd || cwd;
@@ -205,38 +282,77 @@ function runCommand(command, timeoutMs, overrideCwd) {
       effectiveCwd = homedir();
       if (!overrideCwd) cwd = effectiveCwd;
     }
-    // Workspace ground runs jailed; the note keeps the agent oriented so a
-    // "permission denied" inside the jail reads as the wall, not a bug.
-    const jail = jailFor(effectiveCwd);
-    if (jail && jail.refuse) {
-      // A cwd that claims the workspace but resolves outside it. Running it
+    // Which ground this command stands on decides which walls it runs
+    // behind. The note keeps the agent oriented so a "permission denied"
+    // reads as the wall rather than a bug.
+    const wrap = wrapFor(effectiveCwd, { sessionRoot: SESSION_ROOT });
+    if (wrap && wrap.refuse) {
+      // A cwd that claims one ground but resolves into another. Running it
       // bare would be the one fail-open the whole design exists to avoid.
       return resolve({
-        stdout: '', stderr: '[troth-bash] REFUSED: ' + jail.refuse + '\n',
+        stdout: '', stderr: '[troth-bash] REFUSED: ' + wrap.refuse + '\n',
         exitCode: 126, signal: null, timedOut: false
       });
     }
-    if (jail && jail.off === 'operator') {
+    if (wrap && wrap.off === 'operator') {
       // The operator set l4.sandbox.runtime to bare. Their machine, their
-      // call — but say so on every command, because a jail that is off and
-      // a jail that is on look identical until something goes wrong.
-      cwdNote += '[troth-bash] workspace jail OFF by operator config'
-        + ' (l4.sandbox.runtime=bare): ' + jail.project + ' runs unsandboxed\n';
-    } else if (jail && jail.off === 'unavailable') {
-      // This host has no jail to give. Announced for the same reason as the
-      // operator's own switch: the directory promises containment, and a
-      // promise that quietly is not kept is worse than one never made.
-      cwdNote += '[troth-bash] workspace jail UNAVAILABLE: ' + jail.project
-        + ' runs unsandboxed (' + (jail.why || 'no runtime') + ')\n';
-    } else if (jail) {
-      cwdNote += '[troth-bash] workspace jail: writes+reads scoped to ' + jail.project
-        + (jail.ground === 'workspace'
+      // call — but say so, because walls that are off and walls that are on
+      // look identical until something goes wrong.
+      cwdNote += noteOnce('off:operator:' + wrap.ground,
+        '[troth-bash] sandbox OFF by operator config (l4.sandbox.runtime=bare):'
+        + ' ' + wrap.ground + ' ground runs unsandboxed\n');
+    } else if (wrap && wrap.off) {
+      // This host has no wall to give, or the kernel refuses to apply one —
+      // which is the answer inside an existing sandbox. Announced for the
+      // same reason as the operator's own switch: a promise that quietly is
+      // not kept is worse than one never made.
+      cwdNote += noteOnce('off:' + wrap.off + ':' + wrap.ground,
+        '[troth-bash] sandbox UNAVAILABLE: ' + wrap.ground + ' ground runs'
+        + ' unsandboxed (' + (wrap.why || 'no runtime') + ')\n');
+    } else if (wrap && wrap.kind === 'jail') {
+      cwdNote += '[troth-bash] workspace jail: writes+reads scoped to ' + wrap.root
+        + (wrap.ground === 'workspace'
             ? ' (the workspace root: this command can see every project — cd into one for real work)'
             : '') + '\n';
     }
-    // An off-by-config jail carries no argv, so it spawns like operator
-    // ground below.
-    const wrapped = jail && jail.exec ? jail : null;
+    // The second look: a package installation on thin or confined ground
+    // moves into the OS jail, scoped to the nearest project. Announced every
+    // time — it is a mode switch, and its failure modes differ from the
+    // ground's — like the workspace jail above, not like the quiet walls.
+    const iw = installWrapFor(command, wrap, effectiveCwd, { egress });
+    if (iw) {
+      cwdNote += '[troth-bash] install jail (' + iw.manager + '): writes scoped to '
+        + iw.root + ', home invisible, '
+        + (iw.egress === 'proxy'
+            ? 'network reaches the package registries only'
+            : 'direct network (egress proxy unavailable)')
+        + '; global/user-target installs are not intercepted and keep their ground\n';
+    }
+    // A photograph of the ground before every command — no judgment about
+    // the command, because deciding which actions deserve one is exactly
+    // the judgment the undo net removes. Synchronous on purpose: the photo
+    // must exist before the first byte can touch the tree. Never a gate —
+    // a failed photo lands in undo stats and the command proceeds.
+    try {
+      const undo = requireUndo();
+      if (undo) {
+        const g = (wrap && wrap.ground) || 'operator';
+        const sanctioned = (g === 'project' || g === 'workspace' || g === 'opened');
+        const photoDir = sanctioned ? ((wrap && wrap.root) || effectiveCwd) : effectiveCwd;
+        undo.snapshot(photoDir, 'shell:' + g, { allowShallow: sanctioned });
+      }
+    } catch (e) { /* the net never becomes a gate */ }
+    const active = iw || wrap;
+    // Confined ground and the substrate tree say nothing in advance. A
+    // warning printed before anything has gone wrong is a line on every
+    // result that the reader learns to skip, and it arrives when there is
+    // nothing to act on. The explanation is attached to the refusal instead,
+    // at the moment it explains something — see the exit handler below.
+    // Opened ground says nothing: it is the operator's own machine behaving
+    // as it always has, and a note on every command there means nothing.
+    //
+    // An off-by-config wrap carries no argv, so it spawns bare below.
+    const wrapped = active && active.exec ? active : null;
     // detached puts the command in its OWN process group so a kill can take
     // the whole tree. Seatbelt scopes signals to one sandbox-exec
     // invocation, so a background server started inside a jail is
@@ -245,7 +361,8 @@ function runCommand(command, timeoutMs, overrideCwd) {
     const proc = wrapped
       ? spawn(wrapped.exec, wrapped.args.concat(['/bin/bash', '-lc', command]),
               { cwd: effectiveCwd, env: wrapped.env, detached: true })
-      : spawn('/bin/bash', ['-lc', command], { cwd: effectiveCwd, env: partnerEnv(), detached: true });
+      : spawn('/bin/bash', ['-lc', command],
+              { cwd: effectiveCwd, env: (wrap && wrap.env) || partnerEnv(), detached: true });
     // Signal the group (-pid), falling back to the leader if the group is
     // already gone, so a stray child can never outlive its command.
     const endTree = (sig) => {
@@ -281,6 +398,50 @@ function runCommand(command, timeoutMs, overrideCwd) {
       let stderrOut = cwdNote + errBuf.get();
       if (killedByOverflow) {
         stderrOut += '\n[troth-bash] HARD KILL: output exceeded ' + HARD_KILL_BYTES + ' bytes total';
+      }
+      // A write refused by the ground wall reads as an unexplained permission
+      // error, and the next thing tried is usually a workaround for a bug that
+      // is not there. Explain it here, where it is the answer to something the
+      // reader is looking at — and name the road that is actually open, which
+      // differs by cause: a startup or tool-config file is refused on EVERY
+      // ground, so pointing at `troth open` for one would promise a lift that
+      // never comes.
+      // Case-insensitive: the shell spells it "Operation not permitted", an
+      // interpreter error spells it lower-case, and the kernel wall is the
+      // only road an interpreter-carried write ever meets.
+      if (active && active.kind && code !== 0 && /operation not permitted|permission denied/i.test(errBuf.get())) {
+        const walled = seatbelt ? seatbelt._persistencePaths().find((p) => errBuf.get().includes(p)) : null;
+        if (walled) {
+          stderrOut += '\n[troth-bash] ' + walled + ' is a file this machine executes or obeys'
+            + ' (shell startup, agent host, or the next git/ssh/npm/docker operation), so no'
+            + ' ground writes it. Per-project configuration stays open: .git/config in the'
+            + ' repo, a project-local .npmrc.\n';
+        } else if (active.kind === 'install-jail') {
+          stderrOut += '\n[troth-bash] the install ran jailed: writes land only in ' + active.root
+            + ' and the home is not visible. A dependency that needs a path outside the'
+            + ' project is the thing this jail exists to catch — check what asked for it.\n';
+        } else if (active.kind === 'confine' || active.kind === 'home') {
+          stderrOut += '\n[troth-bash] ' + (active.kind === 'home'
+            ? 'this directory holds the substrate: writes land in scratch, not here.'
+              + ' cd into a project to work.'
+            : 'writes here are scoped to ' + active.root + ', so a path outside it is'
+              + ' refused. If that is wrong, `troth open ' + active.root + '` and it'
+              + ' runs with your own environment.') + '\n';
+        }
+      }
+      // What the egress proxy turned away while this command ran, named on
+      // the result it explains, and the token retired with it. Attribution
+      // is exact: the token was issued for this command alone.
+      if (iw && iw.token && egress) {
+        const refused = Array.from(new Set(egress.refusalsFor(iw.token)));
+        if (refused.length) {
+          stderrOut += '\n[troth-bash] egress refused during this install: '
+            + refused.slice(0, 8).join(', ')
+            + ' — an install jail reaches the package registries only.'
+            + ' If this project genuinely needs one of these, `troth net-allow <host>`'
+            + ' from the project adds it for that project alone.\n';
+        }
+        try { egress.revoke(iw.token); } catch (_) {}
       }
       resolve({
         stdout: outBuf.get(),
@@ -407,6 +568,22 @@ async function handleTool(name, args) {
     cwd = dir;
     return { content: [{ type: 'text', text: 'cwd → ' + cwd }] };
   }
+  if (name === 'env_set' || name === 'env_keys') {
+    if (!envdoor) {
+      return { isError: true, content: [{ type: 'text', text: 'env door unavailable: shared-core not found from this install' }] };
+    }
+    if (name === 'env_keys') {
+      const r = envdoor.envKeys({ file: args.file, cwd });
+      if (!r.ok) return { isError: true, content: [{ type: 'text', text: 'REFUSED ' + r.error + '. ' + (r.detail || '') }] };
+      const names = r.keys.map((k) => k.name + (k.vault_usable ? ' (vault)' : '')).join(', ');
+      return { content: [{ type: 'text', text: r.keys.length + ' key(s) in ' + r.file + (r.keys.length ? ': ' + names : '') + (r.vault === 'locked' ? ' — vault locked, vault-usable flags unavailable' : '') }] };
+    }
+    const r = envdoor.envSet({ file: args.file, entries: args.entries, overwrite: args.overwrite === true, cwd });
+    if (!r.ok) {
+      return { isError: true, content: [{ type: 'text', text: 'REFUSED ' + r.error + '. ' + (r.detail || '') }] };
+    }
+    return { content: [{ type: 'text', text: 'wrote ' + r.count + ' key(s) to ' + r.file + ': ' + r.written.join(', ') + (r.from_vault.length ? ' (' + r.from_vault.join(', ') + ' from vault)' : '') }] };
+  }
   if (name === 'run') {
     // Two pre-flight gates, and the difference between them is whether an
     // ack can buy a way through.
@@ -446,9 +623,9 @@ async function handleTool(name, args) {
     // Operator-freeze gate. An active "don't" in the ledger blocks outward
     // commands (push / upload / notarize) HERE, at the one chokepoint both
     // lanes pass through (native Bash arrives via bash-steer). The freeze is
-    // state written by constraint-capture, not a sentence in a window — born
-    // 2026-08-15, when a git push sailed through an explicit operator freeze
-    // because the wall only existed as text. Fail-open on a missing ledger
+    // state written by constraint-capture, not a sentence in a window — a
+    // freeze that exists only as text in a window is a wall a push can sail
+    // straight through. Fail-open on a missing ledger
     // (bare clone), fail-CLOSED on an active freeze: no acknowledge flag
     // overrides the operator's standing word.
     if (constraintLedger) {
@@ -488,14 +665,13 @@ async function handleTool(name, args) {
           isError: true
         };
       }
-      // Medium hits (git branch -D, --no-verify, killall…) used to be
-      // classified and then thrown away — the one severity that ran with
-      // no trace at all. They still run without an ack, because intent is
-      // plausibly legitimate, but the classification now travels with the
-      // result so neither the model nor the archive can say nobody knew.
+      // Medium hits (git branch -D, --no-verify, killall…) run without an
+      // ack — intent is plausibly legitimate — but their classification
+      // travels with the result, so neither the model nor the archive can
+      // say nobody knew.
       if (hit) caution = hit.kind + ' (' + hit.severity + '): matched ' + hit.pattern;
     }
-    const res = await runCommand(args.command, args.timeout_ms, args.cwd);
+    const res = await runCommand(args.command, Math.min(args.timeout_ms || 120000, MAX_CALL_TIMEOUT_MS), args.cwd);
     let combined = res.stdout + (res.stderr ? '\n---\n' + res.stderr : '');
     // Redact BEFORE compression so every downstream consumer — the model,
     // tool_output_archive, the FTS index, the savings label — sees the same
@@ -551,13 +727,24 @@ async function handleTool(name, args) {
 // Old design: global string concat + sequential `await` inside `'data'` →
 // during a slow bash call, new chunks pile up in node's internal stdin buffer
 // AND in our `inputBuffer`; eventually MCP heartbeat times out → kill.
-// New design: line-by-line via readline; each line enqueued; queue drained
-// serially. stdin is paused while the queue is non-empty so the parent
-// applies natural backpressure instead of accumulating in our memory.
+// New design: line-by-line via readline; each line enqueued. tools/call
+// requests run CONCURRENTLY (bounded): one long-running command must never
+// block the requests behind it — a hung ssh or a legitimately long watcher
+// at the queue head wedges every later call for its whole timeout, and a
+// client that gives up on a call cannot cancel the server-side command, so
+// serial draining turns one slow call into a dead lane. Lifecycle messages
+// (initialize, tools/list) stay serial. stdin is paused while the queue is
+// non-empty so the parent applies natural backpressure.
 process.stdin.setEncoding('utf8');
 const rl = createInterface({ input: process.stdin, terminal: false, crlfDelay: Infinity });
 const msgQueue = [];
 let draining = false;
+// timeout_ms ceiling: without it an orphaned call (client aborted, server
+// still running) can hold resources for hours — the cap bounds orphan life.
+const MAX_CALL_TIMEOUT_MS = 30 * 60 * 1000;
+const MAX_CONCURRENT_CALLS = 8;
+let inflightCalls = 0;
+let inflightWait = null;
 
 rl.on('line', (line) => {
   if (!line.trim()) return;
@@ -587,10 +774,25 @@ async function drainQueue() {
   try { process.stdin.pause(); } catch {}
   while (msgQueue.length) {
     const msg = msgQueue.shift();
-    try {
-      await handleUpstream(msg);
-    } catch (e) {
-      process.stderr.write('[troth-bash] handler threw: ' + (e && (e.stack || e.message) || e) + '\n');
+    if (msg.method === 'tools/call') {
+      while (inflightCalls >= MAX_CONCURRENT_CALLS) {
+        await new Promise((r) => { inflightWait = r; });
+      }
+      inflightCalls++;
+      handleUpstream(msg)
+        .catch((e) => {
+          process.stderr.write('[troth-bash] handler threw: ' + (e && (e.stack || e.message) || e) + '\n');
+        })
+        .finally(() => {
+          inflightCalls--;
+          if (inflightWait) { const w = inflightWait; inflightWait = null; w(); }
+        });
+    } else {
+      try {
+        await handleUpstream(msg);
+      } catch (e) {
+        process.stderr.write('[troth-bash] handler threw: ' + (e && (e.stack || e.message) || e) + '\n');
+      }
     }
   }
   draining = false;

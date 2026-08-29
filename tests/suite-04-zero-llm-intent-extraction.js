@@ -94,7 +94,7 @@ console.log('\nP16 Tier 2 — intent extraction + capture hook + edge auto-creat
   }
 
   function makeTmp(prefix) {
-    const d = pT2.join('/tmp', prefix + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7));
+    const d = pT2.join(require('os').tmpdir(), prefix + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7));
     fsT2.mkdirSync(d, { recursive: true });
     return d;
   }
@@ -105,7 +105,7 @@ console.log('\nP16 Tier 2 — intent extraction + capture hook + edge auto-creat
     // '' is treated as unset → built-in default ON; '0' is the explicit opt-out.
     // TROTH_CONFIG_PATH is pointed at a nonexistent file so the config layer is
     // neutralized and we exercise the built-in default + env precedence only.
-    const NOCFG = '/tmp/troth-nonexistent-config-' + Date.now() + '.json';
+    const NOCFG = require('os').tmpdir() + '/troth-nonexistent-config-' + Date.now() + '.json';
     const countIntents = (tmp, sess) => {
       delete require.cache[require.resolve('../shared-core/state')];
       process.env.CLAUDE_PLUGIN_DATA = tmp;
@@ -338,7 +338,7 @@ console.log('\nP16 Tier 2 — intent extraction + capture hook + edge auto-creat
     const cpF17 = require('child_process');
     const fsF17 = require('fs');
     const pF17  = require('path');
-    const tmp = pF17.join('/tmp', 'gc-f17-' + Date.now());
+    const tmp = pF17.join(require('os').tmpdir(), 'gc-f17-' + Date.now());
     fsF17.mkdirSync(tmp, { recursive: true });
     const REPO = pF17.resolve(__dirname, '..');
     const PLUGIN = pF17.join(REPO, 'plugin');
@@ -432,7 +432,7 @@ console.log('\nP16.5 I2 — cost attribution graph:');
 (function runP165I2Tests() {
   const pI2  = require('path');
   const fsI2 = require('fs');
-  const TMP_I2 = pI2.join('/tmp', 'gc-invariant-i2-' + Date.now());
+  const TMP_I2 = pI2.join(require('os').tmpdir(), 'gc-invariant-i2-' + Date.now());
   fsI2.mkdirSync(TMP_I2, { recursive: true });
   const savedEnv = process.env.CLAUDE_PLUGIN_DATA;
   process.env.CLAUDE_PLUGIN_DATA = TMP_I2;
@@ -615,7 +615,7 @@ console.log('\nP16.5 I1 — negative-knowledge substrate:');
 (function runP165I1Tests() {
   const pI1  = require('path');
   const fsI1 = require('fs');
-  const TMP_I1 = pI1.join('/tmp', 'gc-invariant-i1-' + Date.now());
+  const TMP_I1 = pI1.join(require('os').tmpdir(), 'gc-invariant-i1-' + Date.now());
   fsI1.mkdirSync(TMP_I1, { recursive: true });
   const savedEnv = process.env.CLAUDE_PLUGIN_DATA;
   process.env.CLAUDE_PLUGIN_DATA = TMP_I1;
@@ -750,7 +750,7 @@ console.log('\nP16.5 I3 — counterfactual replay:');
 (function runP165I3Tests() {
   const pI3  = require('path');
   const fsI3 = require('fs');
-  const TMP_I3 = pI3.join('/tmp', 'gc-invariant-i3-' + Date.now());
+  const TMP_I3 = pI3.join(require('os').tmpdir(), 'gc-invariant-i3-' + Date.now());
   fsI3.mkdirSync(TMP_I3, { recursive: true });
   const savedEnv = process.env.CLAUDE_PLUGIN_DATA;
   process.env.CLAUDE_PLUGIN_DATA = TMP_I3;
@@ -1213,7 +1213,7 @@ console.log('\nP17 Tier 3 — schema reflector:');
 (function runP17T3Tests() {
   const pT3  = require('path');
   const fsT3 = require('fs');
-  const TMP_T3 = pT3.join('/tmp', 'gc-p17-t3-' + Date.now());
+  const TMP_T3 = pT3.join(require('os').tmpdir(), 'gc-p17-t3-' + Date.now());
   fsT3.mkdirSync(TMP_T3, { recursive: true });
   const savedEnv = process.env.CLAUDE_PLUGIN_DATA;
   process.env.CLAUDE_PLUGIN_DATA = TMP_T3;
@@ -1410,7 +1410,7 @@ console.log('\nPhase CH — Chameleon Protocol v0.1 (filesystem reference adapte
   const REPO_CH = pCH.resolve(__dirname, '..');
 
   // Build a tiny fixture directory of supported files for /read tests.
-  const FIXTURE = pCH.join('/tmp', 'gc-ch-fixture-' + Date.now());
+  const FIXTURE = pCH.join(require('os').tmpdir(), 'gc-ch-fixture-' + Date.now());
   fCH.mkdirSync(FIXTURE, { recursive: true });
   fCH.writeFileSync(pCH.join(FIXTURE, 'a.md'),
     '# Doc A\n## Section one\n' + 'lorem '.repeat(120) + '\n## Section two\n' + 'ipsum '.repeat(120));
@@ -1611,7 +1611,7 @@ console.log('\nChameleon Claude-JSONL adapter (event_stream):');
   const REPO_CH2 = pCH2.resolve(__dirname, '..');
 
   // Fixture: a tiny synthetic JSONL log mimicking Claude Code session shape.
-  const FIXTURE2 = pCH2.join('/tmp', 'gc-ch2-fixture-' + Date.now());
+  const FIXTURE2 = pCH2.join(require('os').tmpdir(), 'gc-ch2-fixture-' + Date.now());
   fCH2.mkdirSync(FIXTURE2, { recursive: true });
   const jsonlPath = pCH2.join(FIXTURE2, 'session-test.jsonl');
   const events = [
@@ -1756,7 +1756,7 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
   const REPO_CH3 = pCH3.resolve(__dirname, '..');
 
   // Fixture: schema.json + records.json describing a tiny CRM-style dataset.
-  const FIXTURE3 = pCH3.join('/tmp', 'gc-ch3-fixture-' + Date.now());
+  const FIXTURE3 = pCH3.join(require('os').tmpdir(), 'gc-ch3-fixture-' + Date.now());
   fCH3.mkdirSync(FIXTURE3, { recursive: true });
   fCH3.writeFileSync(pCH3.join(FIXTURE3, 'schema.json'), JSON.stringify({
     $schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -3014,7 +3014,7 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
     // ENT-59 (substrate-backup keeps a stale handle to the original DB).
     // Verify via subprocess spawn so the env override is clean per-test.
     const { spawnSync } = require('child_process');
-    const tmpPath = '/tmp/state-test-env-' + Date.now() + '.db';
+    const tmpPath = require('os').tmpdir() + '/state-test-env-' + Date.now() + '.db';
     const r = spawnSync(process.execPath, ['-e',
       'process.env.STATE_DB_PATH = ' + JSON.stringify(tmpPath) + ';' +
       'const s = require(' + JSON.stringify(require('path').resolve(__dirname, '../shared-core/state.js')) + ');' +
@@ -3195,13 +3195,13 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
     const agent_id = 'backup-' + Date.now();
     eng.recordEngram({ agent_id, statement: 'pre-backup fact #1', source: 'test' });
     eng.recordEngram({ agent_id, statement: 'pre-backup fact #2', source: 'test' });
-    const bundleDir = '/tmp/troth-bundle-' + Date.now();
+    const bundleDir = require('os').tmpdir() + '/troth-bundle-' + Date.now();
     const exp = backup.exportArchive({ out_path: bundleDir });
     assert.strictEqual(exp.ok, true);
     assert.ok(fs.existsSync(path.join(bundleDir, 'state.db')));
     assert.ok(fs.existsSync(path.join(bundleDir, 'manifest.json')));
     // Restore into a fresh target db
-    const targetDb = '/tmp/troth-restore-' + Date.now() + '/state.db';
+    const targetDb = require('os').tmpdir() + '/troth-restore-' + Date.now() + '/state.db';
     const imp = backup.importArchive({ in_path: bundleDir, target_db: targetDb });
     assert.strictEqual(imp.ok, true);
     assert.ok(fs.existsSync(targetDb));
@@ -3256,7 +3256,7 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
     const path = require('path');
     const watcher = require('../shared-core/ingest-watcher.js');
     const chameleon = require('../shared-core/chameleon.js');
-    const tmpRoot = '/tmp/troth-watcher-' + Date.now();
+    const tmpRoot = require('os').tmpdir() + '/troth-watcher-' + Date.now();
     fs.mkdirSync(tmpRoot, { recursive: true });
     fs.writeFileSync(path.join(tmpRoot, 'note1.md'), 'The team uses Rust for high-perf modules. The CI runs nightly.');
     const events = [];
@@ -3566,7 +3566,7 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
   test('ENT-42: transport-config snapshot exposes env/file/default sources for UI rendering', () => {
     const fs = require('fs');
     const path = require('path');
-    const tmpDir = '/tmp/troth-snap-' + Date.now();
+    const tmpDir = require('os').tmpdir() + '/troth-snap-' + Date.now();
     fs.mkdirSync(tmpDir, { recursive: true });
     fs.writeFileSync(path.join(tmpDir, 'config.json'),
       JSON.stringify({ ollama_model: 'custom-from-file' }));
@@ -3601,7 +3601,7 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
   test('ENT-41: chameleon ingestDocument + queryScope + listScopes round-trip end-to-end', async () => {
     const ch = require('../shared-core/chameleon.js');
     const agent_id = 'cham-' + Date.now();
-    const cwd = '/tmp/cham-' + Date.now();
+    const cwd = require('os').tmpdir() + '/cham-' + Date.now();
     const text = [
       'The argus tokenizer handles UTF-8 source files with grapheme clusters.',
       'It uses a finite state machine for whitespace and identifier classification.',
@@ -3686,7 +3686,7 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
   test('ENT-37: transport-config writePatch persists overrides + readback survives mtime', () => {
     const fs = require('fs');
     const path = require('path');
-    const tmpDir = '/tmp/troth-cfg-test-' + Date.now();
+    const tmpDir = require('os').tmpdir() + '/troth-cfg-test-' + Date.now();
     process.env.TROTH_CONFIG_DIR  = tmpDir;
     process.env.TROTH_CONFIG_PATH = path.join(tmpDir, 'config.json');
     delete require.cache[require.resolve('../shared-core/transport-config.js')];
@@ -3706,7 +3706,7 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
   test('ENT-36: transport-config resolves env > file > default', () => {
     const fs = require('fs');
     const path = require('path');
-    const tmpDir = '/tmp/troth-cfg-prio-' + Date.now();
+    const tmpDir = require('os').tmpdir() + '/troth-cfg-prio-' + Date.now();
     fs.mkdirSync(tmpDir, { recursive: true });
     fs.writeFileSync(path.join(tmpDir, 'config.json'),
       JSON.stringify({ llamacpp_host: 'http://from-file:8000', ollama_host: 'http://from-file:7000' }));
@@ -4067,7 +4067,7 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
     const runtime = require('../shared-core/chameleon-runtime.js');
     const ch = require('../shared-core/chameleon.js');
 
-    const tmpDir = '/tmp/gc-rt-fixture-' + Date.now();
+    const tmpDir = require('os').tmpdir() + '/gc-rt-fixture-' + Date.now();
     fsRT.mkdirSync(tmpDir, { recursive: true });
     // Filesystem adapter requires file size in [200, 2_000_000] bytes.
     fsRT.writeFileSync(pathRT.join(tmpDir, 'one.md'),
@@ -4081,7 +4081,7 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
       'aurelia '.repeat(40));
 
     const agent_id = 'rt-' + Date.now();
-    const cwd = '/tmp/rt-cwd-' + Date.now();
+    const cwd = require('os').tmpdir() + '/rt-cwd-' + Date.now();
 
     const result = await runtime.runIngestionFlow(
       'node',
@@ -4161,7 +4161,7 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
     const { Deliberator } = require('../shared-core/deliberator.js');
     const eng = require('../shared-core/engram.js');
     const agent_id = 'delib-drift-' + Date.now();
-    const cwd = '/tmp/delib-' + Date.now();
+    const cwd = require('os').tmpdir() + '/delib-' + Date.now();
     // Pre-seed substrate with assistant turns that will trip sycophancy.
     const dm2 = require('../shared-core/dialogue-memory.js');
     for (let i = 0; i < 5; i++) {
@@ -4203,7 +4203,7 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
     const { Deliberator } = require('../shared-core/deliberator.js');
     const eng = require('../shared-core/engram.js');
     const agent_id = 'delib-empty-' + Date.now();
-    const cwd = '/tmp/delib-empty-' + Date.now();
+    const cwd = require('os').tmpdir() + '/delib-empty-' + Date.now();
     const captured = [];
     const d = new Deliberator({
       agent_id, cwd,
@@ -4243,7 +4243,7 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
       'deliberator_enabled defaults true in BUILT_IN_DEFAULTS');
 
     const agent_id = 'troth-deliberator-e2e-' + Date.now();
-    const cwd = '/tmp/delib-e2e-' + Date.now();
+    const cwd = require('os').tmpdir() + '/delib-e2e-' + Date.now();
 
     // 2) Seed sycophantic dialogue so drift signals will fire.
     for (let i = 0; i < 5; i++) {
@@ -4275,6 +4275,35 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
     assert.ok(lines[0].length > 5, 'first drift line has a real statement body');
     assert.ok(/sycophancy|tunnel|repetition|length/i.test(lines[0]),
       'drift line names a known signal kind');
+  });
+
+  test('ENT-99: two panes in one project read their OWN thread, not each other\'s', async () => {
+    const dm = require('../shared-core/dialogue-memory.js');
+    const tools = require('../shared-core/substrate-tools.js');
+    const cwd = require('os').tmpdir() + '/thread-scope-' + Date.now();
+    const A = 'pane-A-' + Date.now();
+    const B = 'pane-B-' + Date.now();
+    const put = (cid, u) => dm.recordTurn({
+      agent_id: 'thread-probe', user_id: 'default', cwd,
+      conversation_id: cid, user_text: u, assistant_text: 'noted'
+    });
+    put(A, 'the deploy uses blue-green with a manual cutover');
+    put(A, 'the cutover needs two approvals');
+    put(B, 'the invoice template is missing the VAT line');
+    put(B, 'the VAT line goes under the subtotal');
+
+    const tool = tools.REGISTRY.dialogue_recent;
+    const leaks = (r) => (JSON.stringify(r).match(/VAT|invoice/g) || []).length;
+
+    const scoped = await tool.run({}, { cwd, conversation_id: A });
+    assert.strictEqual(scoped.turns.length, 2, 'the thread returns its own two turns');
+    assert.strictEqual(leaks(scoped), 0, "the other pane's turns must not appear");
+
+    const unscoped = await tool.run({}, { cwd });
+    assert.strictEqual(unscoped.turns.length, 4, 'a surface with no thread is unchanged');
+
+    const cross = await tool.run({ all_projects: true }, { cwd, conversation_id: A });
+    assert.ok(cross.turns.length >= 4, 'an explicit cross-read still crosses');
   });
 })();
 

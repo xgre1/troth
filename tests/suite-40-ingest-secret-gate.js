@@ -6,7 +6,7 @@
 // backfill-claude-sessions). chameleon.ingestDocument mentioned redaction zero
 // times — survivable while a human chose each file by hand, not survivable the
 // moment ingestion becomes automatic. Measured on the operator's own material
-// 2026-08-11: 3 of 141 knowledge-shaped files they had opened carried a
+// In the field, 3 of 141 knowledge-shaped files they had opened carried a
 // credential-shaped literal (2.1%), and they were markdown notes, not config
 // files — the kind of file an automatic capture predicate accepts.
 //

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Did the work survive?
 //
-// The substrate has recorded 21,188 changes and, until this task existed, knew
-// the outcome of none of them: 0 outcome events (measured 2026-08-11).
+// The substrate records every change and, without an observer, knows the
+// outcome of none of them — edit records against zero outcome events.
 // action-outcome.js could always answer — event-sourced, folded on read,
 // exercised end to end — and had zero callers. This is its first observer.
 //

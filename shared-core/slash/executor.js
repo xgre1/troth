@@ -688,9 +688,8 @@ const DETERMINISTIC_HANDLERS = {
     // text was silently retiring a DIFFERENT memory: the lookup runs through
     // the legacy commitment path, whose candidate window is the most recent
     // 200 engrams, so anything older resolved to whatever recent row shared
-    // the most words. Measured 2026-08-10 on a live substrate: 5 of 6 clicks
-    // retired the wrong engram — e.g. clicking "user prefers tabs over
-    // spaces" would have retired a security note. Identity travels; text
+    // the most words — so a click on an aged memory retires an unrelated recent
+    // one. Identity travels; text
     // stays a fallback for the CLI, where there is no id to travel with.
     if (parsed.target_id) {
       let row = null;

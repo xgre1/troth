@@ -112,7 +112,7 @@ function embeddingHost() {
   // NEVER fall back to the chat-model host. Memory embedding and chat are
   // unrelated concerns: the old fallback meant pointing the chat LLM at a
   // remote box silently killed write-time embeddings whenever that box
-  // slept — found live 2026-08-15: every engram wrote embedded:false while
+  // slept — in the field, every engram wrote embedded:false while
   // the self-installed LOCAL embed server ran healthy on this machine, and
   // recall went lexical-only, starving the memory-dispatch gate. The
   // self-installed embedder is the product's own always-local organ; it is

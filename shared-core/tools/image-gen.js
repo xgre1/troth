@@ -347,12 +347,11 @@ async function run(args, ctx) {
   const RETRY_WAITS_MS = [5000, 15000];
   const isOverloaded = (v) => /overload|service_unavailable|server_is_overloaded/i.test(String(v || ''));
 
-  // AUTO mode gets a second door. "Plan first, key as fallback" used to be
-  // resolved once, at link-time - so with the plan linked but its lane down,
-  // the Google key sat unused while the user got an error (operator hit this
-  // web ChatGPT fine, Codex lane overloaded, fresh Gemini key on
-  // file, still no image). An explicit args.source pins one lane and reports
-  // honestly; auto means "get me an image", so failures fall through.
+  // AUTO mode gets a second door. "Plan first, key as fallback" resolved once
+  // at link-time means that with the plan linked but its lane down, the Google
+  // key sits unused while the operator gets an error and no image. An explicit
+  // args.source pins one lane and reports honestly; auto means "get me an
+  // image", so failures fall through to the next door.
   const order = explicit ? [source] : (source === 'chatgpt' && googleKey ? ['chatgpt', 'google'] : [source]);
   let b64 = null;
   let mime = 'image/png';

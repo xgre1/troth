@@ -333,6 +333,21 @@ function changePassphrase(oldPassphrase, newPassphrase, opts) {
     try { signer.lock(); } catch (_) {}
     throw new Error('operator-key.changePassphrase: rename failed mid-write, rolled back: ' + (e && e.message || String(e)));
   }
+  // The credential vault derives its own key from the same passphrase and is
+  // stored separately, so a key rewrap alone leaves it openable only by the
+  // OLD secret: the app would accept the new passphrase while the dashboard
+  // vault page rejected it. Re-wrap it here, inside the same operation, and
+  // roll the key files back if it fails so the two can never diverge.
+  try {
+    require('./vault.js').rekey(oldPassphrase, newPassphrase, opts);
+  } catch (e) {
+    try { fs.unlinkSync(p.enc); } catch (_) {}
+    try { fs.unlinkSync(p.kdf); } catch (_) {}
+    try { fs.renameSync(encBak, p.enc); } catch (_) {}
+    try { fs.renameSync(kdfBak, p.kdf); } catch (_) {}
+    try { signer.lock(); } catch (_) {}
+    throw new Error('operator-key.changePassphrase: vault rewrap failed, passphrase unchanged: ' + (e && e.message || e));
+  }
   // Success — drop the backups.
   try { fs.unlinkSync(encBak); } catch (_) {}
   try { fs.unlinkSync(kdfBak); } catch (_) {}

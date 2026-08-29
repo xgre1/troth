@@ -262,7 +262,7 @@ function makeCodexOAuthTransport(opts) {
           error = new Error('codex-oauth http ' + res.statusCode + ': ' + chunks.slice(0, 500));
           error.code = 'http_status';
           ended = true;
-          while (waiters.length) waiters.shift()({ done: true, _abort_reason: 'http_error' });
+          while (waiters.length) waiters.shift()({ done: true, _abort_reason: 'http_error', _status: res.statusCode, _detail: String(chunks).slice(0, 400) });
         });
         return;
       }
@@ -415,6 +415,14 @@ function parseFrame(frame, emit, acc) {
     if (acc) {
       const tcs = Object.keys(acc).map((k, i) => ({ id: acc[k].id || ('codex_tc_' + i), type: 'function', function: { name: acc[k].name || '', arguments: acc[k].args || '{}' } }));
       if (tcs.length) emit({ tool_calls: tcs });
+    }
+    const _cu = data && data.response && data.response.usage;
+    if (_cu) {
+      const _in = _cu.input_tokens || _cu.prompt_tokens || 0;
+      const _out = _cu.output_tokens || _cu.completion_tokens || 0;
+      if (_in > 0 || _out > 0) {
+        emit({ usage: { input_tokens: _in, output_tokens: _out, context_used: _in } });
+      }
     }
     emit({ done: true });
     return;

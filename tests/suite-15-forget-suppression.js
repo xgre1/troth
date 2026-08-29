@@ -97,11 +97,10 @@ test('FORGET-5: empty args is rejected', async () => {
 });
 
 test('FORGET-6: the HTTP endpoint the app calls retires, it does not tombstone', () => {
-  // AUDIT-2026-08-09 incident 2: the slash path was fixed, but the Tauri
-  // app calls POST /api/substrate/forget, which still wrote a free-standing
-  // scope:'system:tombstone' engram — which nothing filters — so the
-  // "forgotten" fact kept surfacing, and the partner escalated to raw
-  // sqlite against state.db. The endpoint lives inline in the proxy's
+  // Fixing the slash path is not enough: the Tauri app calls POST
+  // /api/substrate/forget, and a free-standing scope:'system:tombstone' engram
+  // — which nothing filters — leaves the "forgotten" fact still surfacing. The
+  // endpoint lives inline in the proxy's
   // request handler, so this pins its SOURCE the way suite-24 pins
   // checkRemoteAuth: the tombstone write is gone, the blessed
   // reconsolidation is there, and the signed-fact floor is honoured.

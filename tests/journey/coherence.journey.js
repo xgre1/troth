@@ -3,8 +3,8 @@
 // The fresh-install truth, as a journey: what a stranger's machine derives,
 // states and admits BEFORE anyone configures anything — and how the shape
 // flips the moment a Claude subscription is the only engine (the exact
-// install that spelunked state.db with cd/cat because nothing mounted its
-// memory, 2026-08-09). Unit suites prove the rule table; this proves the
+// install that spelunks state.db with cd/cat because nothing mounted its
+// memory). Unit suites prove the rule table; this proves the
 // SHIPPED surfaces serve it: the same file runs against the checkout, the
 // DMG bundle's core, and the public export in Linux docker.
 //

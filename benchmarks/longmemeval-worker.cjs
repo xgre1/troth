@@ -60,7 +60,7 @@ async function main() {
   const raw = readFileSync(0, 'utf8'); // read all of stdin
   const job = JSON.parse(raw);
   const {
-    question_id, question, haystack_sessions, haystack_dates,
+    question_id, question, haystack_sessions, haystack_dates, question_date,
     agent_id, cwd, embedding_host
   } = job;
 
@@ -82,17 +82,20 @@ async function main() {
       const sessDateStr = (haystack_dates && haystack_dates[si]) || null;
       let sessTs = tsCursor;
       if (sessDateStr) {
-        const parsed = Date.parse(sessDateStr.replace(/\s*\([^)]*\)\s*/, ' '));
+        const _cleanDate = sessDateStr.replace(/\s*\([^)]*\)\s*/, ' ').trim();
+        const parsed = Date.parse(_cleanDate + ' UTC') || Date.parse(_cleanDate);
         if (!Number.isNaN(parsed)) sessTs = parsed;
       }
       // Pair consecutive user/assistant turns. LongMemEval sessions are
       // role-alternating; we walk pairs, tolerating stray unmatched roles.
       let userText = null;
+      let pairIdx = 0;
       for (const turn of session) {
         if (turn.role === 'user') {
           userText = turn.content;
         } else if (turn.role === 'assistant') {
           const ok = dialogueMemory.recordTurn({
+            timestamp: sessTs + pairIdx * 1000,
             agent_id,
             user_id: 'default',
             cwd,
@@ -101,11 +104,31 @@ async function main() {
             faculty: 'longmemeval-ingest',
             conversation_id: 'sess-' + si,
           });
-          if (ok) out.ingested_turns++;
+          if (ok) { out.ingested_turns++; pairIdx++; }
           userText = null;
         }
       }
       tsCursor = sessTs + 60_000;
+    }
+
+    // Full digestion (TROTH_BENCH_FULL_SAUCE=1): the same understanding a
+    // long-running entity accrues over time - identity registry, typed
+    // instances, chunked docs:chats archive - built here, question-blind,
+    // before the question is seen. Off by default so the raw-turn lane
+    // stays runnable as the before/after baseline.
+    if (process.env.TROTH_BENCH_FULL_SAUCE === '1') {
+      const digest = require('./digest.cjs');
+      const ic = require('../shared-core/instance-consolidation.js');
+      const llmCall = ic.makeLlamacppExtractor({
+        host: process.env.TROTH_BENCH_EXTRACTOR_HOST || undefined,
+        timeout_ms: parseInt(process.env.TROTH_BENCH_EXTRACTOR_TIMEOUT_MS || '120000', 10)
+      });
+      out.digest = await digest.digestHaystack({
+        agent_id,
+        user_id: 'default',
+        llmCall,
+        cacheDir: process.env.TROTH_BENCH_EXTRACT_CACHE || null
+      });
     }
 
     // Backfill embeddings BEFORE recall.
@@ -173,10 +196,17 @@ async function main() {
       k: 10,
       audience: 'model_visible', // matches the real prefix provider's filter
       embedding_host: host,
+      reference_ts: (() => {
+        if (!question_date) return undefined;
+        const _cleanQd = String(question_date).replace(/\s*\([^)]*\)\s*/, ' ').trim();
+        const p = Date.parse(_cleanQd + ' UTC') || Date.parse(_cleanQd);
+        return Number.isNaN(p) ? undefined : p;
+      })(),
     });
     out.retrieved = items.map(it => ({
-      statement: it.statement, score: it.score,
-      memory_class: it.memory_class, ts: it.ts
+      id: it.id, statement: it.statement, score: it.score,
+      memory_class: it.memory_class, ts: it.ts,
+      source: it.source || null, refs: it.refs || undefined
     }));
     out.retrieval_path = healthy ? 'semantic+lexical' : 'lexical_fallback';
   } catch (e) {

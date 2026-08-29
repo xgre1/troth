@@ -30,7 +30,6 @@ const fs = require('fs');
 const { execFileSync } = require('child_process');
 
 const HOME = process.env.HOME || require('os').homedir();
-const RUNS_DIR = path.join(HOME, '.troth', 'runs');
 
 const roles = require('./roles.js');
 
@@ -46,8 +45,20 @@ function _genGroupId() {
          Math.random().toString(36).slice(2, 8);
 }
 
+// A role name comes from a project's own roles file and a group id from the
+// caller: both are data, and both land in a directory name. Reduce them the
+// way the runner reduces a task, so neither can carry a separator or a parent
+// segment into the path. Names already shaped like ids pass through unchanged.
+function _slugForId(s) {
+  return String(s || '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+}
+
 function _genRunId(roleName, groupId) {
-  return groupId + '-' + roleName + '-' + Math.random().toString(36).slice(2, 6);
+  return _slugForId(groupId) + '-' + _slugForId(roleName) + '-' +
+         Math.random().toString(36).slice(2, 6);
 }
 
 // Spawn one role-specialist worker. Returns the metadata the orchestrator
@@ -70,8 +81,12 @@ function spawnRoleWorker(roleName, task, opts) {
   const role = roles.getRole(roleName, cwd);
   if (!role) return { ok: false, error: 'unknown role: ' + roleName };
 
+  // Address the directory through the runner's gate rather than joining onto
+  // the runs directory here: one definition of where a run may live.
   const runId = _genRunId(roleName, groupId);
-  const runDir = path.join(RUNS_DIR, runId);
+  let runDir;
+  try { runDir = _runner().runDirFor(runId); }
+  catch (e) { return { ok: false, error: 'unusable role name: ' + roleName }; }
   const worktreePath = path.join(runDir, 'workspace');
   try { fs.mkdirSync(runDir, { recursive: true }); } catch (e) {}
 

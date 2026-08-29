@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// Archive provenance + reachability (field reports, 2026-08-09): imported
+// Archive provenance + reachability (field report): imported
 // chunks used to be titled by session uuid with cwd null in ONE flat scope,
 // so "remember what we did in <project>" had nothing to hold on to, and the
 // auto-recall exclusion (correct: raw fragments out-match curated facts)
@@ -9,6 +9,10 @@
 // families, and the recall archive arm that serves depth on request while
 // the flood-protection stands.
 module.exports = function run({ test }) {
+// Decode premise: every tmpdir segment hyphen-free and dot-free. When it
+// fails (walled session: jail scratch under ~/.troth), the import takes the
+// DOCUMENTED degraded road: cwd stays null, scope + human tail still carry
+// the project. Both roads are pinned below.
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
@@ -33,6 +37,7 @@ fs.mkdirSync(path.join(HOME2, '.troth'), { recursive: true });
 const projDir = fs.mkdtempSync(path.join(os.tmpdir(), 'snapx'));
 const encoded = projDir.replace(/\//g, '-');
 const uuid = 'e2e0aaaa-1111-2222-3333-444455556666';
+const decodable = projDir.split(path.sep).filter(Boolean).every(seg => !seg.includes('-') && !seg.includes('.'));
 const sessionsDir = path.join(HOME2, '.claude', 'projects', encoded);
 fs.mkdirSync(sessionsDir, { recursive: true });
 const mkline = (role, text) => JSON.stringify({ type: role, message: { role, content: [{ type: 'text', text }] } });
@@ -74,7 +79,8 @@ test('ARCH-1: a fresh import stamps the project scope, the verified cwd and a hu
     'console.log(JSON.stringify(r || null));');
   assert.ok(row, 'a project-scoped archive row exists');
   assert.strictEqual(row.scope, 'docs:chats:' + encoded, 'the scope carries the full encoded project dir');
-  assert.strictEqual(row.cwd, projDir, 'the cwd decode verified on disk and was stored');
+  if (decodable) assert.strictEqual(row.cwd, projDir, 'the cwd decode verified on disk and was stored');
+  else assert.strictEqual(row.cwd, null, 'undecodable tmpdir takes the documented road: cwd stays null');
   assert.ok(String(row.stmt).includes(path.basename(projDir)), 'the title carries the human project tail: ' + String(row.stmt).slice(0, 80));
 });
 
@@ -103,7 +109,8 @@ test('ARCH-3: legacy flat-scope rows heal in place when their session file still
     'const r = d.prepare("SELECT cwd, json_extract(output,\'$.scope\') AS scope FROM action_records WHERE json_extract(output,\'$.statement\') = \'legacy flat chunk\'").get();' +
     'console.log(JSON.stringify(r || null));');
   assert.ok(row && String(row.scope).startsWith('docs:chats:'), 'flat scope became a project scope: ' + JSON.stringify(row));
-  assert.strictEqual(row.cwd, projDir, 'and the healed row carries the verified cwd');
+  if (decodable) assert.strictEqual(row.cwd, projDir, 'and the healed row carries the verified cwd');
+  else assert.strictEqual(row.cwd, null, 'undecodable tmpdir: healed row keeps the documented null cwd');
 });
 
 test('ARCH-4: the recall archive arm serves the project on request; the flood-protection stands', () => {

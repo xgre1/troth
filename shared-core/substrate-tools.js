@@ -349,7 +349,8 @@ const REGISTRY = {
             statement: { type: 'string', description: 'The fact to remember (single sentence)' },
             salience:  { type: 'number', description: 'Importance weight 0..2 (default 1)', minimum: 0, maximum: 2 },
             scope:     { type: 'string', description: 'Optional scope/corpus tag. handoff:* and internal:* auto-derive substrate_internal+operational. identity stays in always-on envelope. docs:* and research:* land in semantic class. Omit for general episodic fact.' },
-            audience:  { type: 'string', description: 'model_visible (default) | substrate_internal (handoff/operational) | synthesis_of_external (web_fetch-derived).', enum: ['model_visible', 'substrate_internal', 'synthesis_of_external'] }
+            audience:  { type: 'string', description: 'model_visible (default) | substrate_internal (handoff/operational) | synthesis_of_external (web_fetch-derived).', enum: ['model_visible', 'substrate_internal', 'synthesis_of_external'] },
+            context:   { type: 'string', description: 'Optional subject-context this fact belongs to (a project/topic slug, e.g. troth-core-bootstrap). Binds the memory to that context for scoped recall; omit when unsure — unbound stays reachable via explicit recall.' }
           },
           required: ['statement']
         }
@@ -370,6 +371,9 @@ const REGISTRY = {
         salience: typeof args.salience === 'number' ? args.salience : 1.0,
         scope:    typeof args.scope === 'string' ? args.scope : undefined,
         audience: typeof args.audience === 'string' ? args.audience : undefined,
+        context_id: typeof args.context === 'string'
+          ? require('./context-registry.js').contextIdFor(args.context)
+          : undefined,
         embedding
       });
       return { ok: !!id, id, embedded: !!embedding, scope: args.scope || null, audience: args.audience || 'model_visible' };
@@ -419,9 +423,8 @@ const REGISTRY = {
   // drift into disagreeing about what "nothing calls this" means.
   //
   // Every name here is also read into the daemon's system prompt, which
-  // truncates past its cap. Measured 2026-08-11: these two cost 31 characters
-  // in text mode (4,287 -> 4,318) and the cap was raised to keep the voice
-  // variant — 172 chars longer for the brevity block — clear of the tail.
+  // truncates past its cap. These two add 31 characters in text mode, and the
+  // cap is set to keep the longer voice variant clear of the tail.
   code_who_calls: {
     schema: {
       type: 'function',
@@ -863,7 +866,7 @@ const REGISTRY = {
   //                          / github_* / vercel_* / notion_* / supabase_*
   //                          / gmail email_*)
   //   intent:fs:do        — read/write under capability-scoped path
-  //   intent:shell:do     — sandboxed shell (docker / firejail / refuse)
+  //   intent:shell:do     — walled shell (in-place ground walls by default; docker where declared)
   //   intent:browser:do   — Playwright/Stagehand browser session
   //   intent:spawn:do     — spawn a scoped worker (closed tier)
   //   intent:skill:execute — run a compiled skill template
@@ -1204,7 +1207,8 @@ const REGISTRY = {
       const turns = dialogueMemory.recentTurns({
         cwd:      ctx.cwd,
         same_cwd: !args.all_projects,
-        limit:    args.n || 20
+        limit:    args.n || 20,
+        conversation_id: args.all_projects ? null : (ctx.conversation_id || null)
       });
       return {
         turns: turns.map(t => ({

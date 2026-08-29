@@ -8,8 +8,8 @@
 // ~/.claude wiring. connect_claude_code() installs troth-bash + the
 // bash-steer hook into the OPERATOR's Claude Code, and none of that reaches
 // this spawn: with --dangerously-skip-permissions its native Bash ran with
-// no wall at all. Both AUDIT-2026-08-09 incidents (`cut` on a .env, raw
-// sqlite3 against state.db) happened on exactly this surface.
+// no wall at all — reading a secrets file or opening the substrate database
+// directly are both reachable from exactly this surface.
 //
 // So the faculty home gets its own PreToolUse hook (subprocess-cli.js
 // provisions settings.json pointing here), and the hook asks the SAME

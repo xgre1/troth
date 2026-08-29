@@ -120,6 +120,50 @@ function rateFor(modelName) {
   return null;
 }
 
+// Vendor list price for models a plan covers. rateFor() returns zero for them,
+// which is what the operator is CHARGED; this is what the same tokens would
+// cost bought per token, so a comparison has something real on the other side.
+// Verified against the vendor catalogue 2026-08-19.
+const API_LIST_RATES = {
+  'gpt-5.6-sol':               { in: 2.50, out: 15.00, cached_in: 0.25 },
+  'gpt-5.6-sol-pro':           { in: 2.50, out: 15.00, cached_in: 0.25 },
+  'gpt-5.6-terra':             { in: 2.50, out: 15.00, cached_in: 0.25 },
+  'gpt-5.6-luna':              { in: 2.50, out: 15.00, cached_in: 0.25 },
+  'gpt-5.5':                   { in: 5.00, out: 30.00, cached_in: 0.50 },
+  'gpt-5.5-pro':               { in: 30.00, out: 180.00, cached_in: 3.00 },
+  'k3':                        { in: 3.00, out: 15.00, cached_in: 0.30 },
+  'k3[1m]':                    { in: 3.00, out: 15.00, cached_in: 0.30 },
+  'kimi-for-coding':           { in: 0.71, out: 3.50, cached_in: 0.15 },
+  'kimi-for-coding-highspeed': { in: 0.71, out: 3.50, cached_in: 0.15 }
+};
+
+// What these tokens would have cost bought per token, cache reads priced as
+// cache reads. A plan-covered model resolves to its list price here instead of
+// the zero it is charged at.
+function apiRateFor(modelName) {
+  if (!modelName) return null;
+  const bare = String(modelName).replace(/ \(plan\)$/, '');
+  if (API_LIST_RATES[bare]) return API_LIST_RATES[bare];
+  const direct = RATES[bare];
+  if (direct && direct.plan !== 'flat' && direct.plan !== 'free') return direct;
+  const viaLookup = rateFor(bare);
+  if (viaLookup && viaLookup.plan !== 'flat' && viaLookup.plan !== 'free') return viaLookup;
+  for (const k of Object.keys(API_LIST_RATES)) {
+    if (bare.toLowerCase().includes(k.toLowerCase())) return API_LIST_RATES[k];
+  }
+  return null;
+}
+
+function costAtApiRates(modelName, inputTokens, outputTokens, cachedInputTokens) {
+  const rate = apiRateFor(modelName);
+  if (!rate) return 0;
+  const cached = cachedInputTokens || 0;
+  const uncached = Math.max(0, (inputTokens || 0) - cached);
+  return (uncached / 1e6) * (rate.in || 0) +
+         (cached / 1e6) * (rate.cached_in != null ? rate.cached_in : (rate.in || 0)) +
+         ((outputTokens || 0) / 1e6) * (rate.out || 0);
+}
+
 function calculateCost(modelName, inputTokens, outputTokens, cachedInputTokens) {
   const rate = rateFor(modelName);
   if (!rate) return { cost: 0, currency: 'USD', model: modelName, unknown: true };
@@ -139,6 +183,11 @@ let totals = {}; // model → { input, cached_input, output, totalCost }
 
 function recordUsage(modelName, inputTokens, outputTokens, cachedInputTokens) {
   if (!modelName) return;
+  try {
+    const names = require('../../shared-core/engine-names.js');
+    const bare = String(modelName).replace(/ \(plan\)$/, '');
+    if (names.toProvider(bare) !== bare) return;
+  } catch (_) { /* name table absent: record as given */ }
   // Persist alongside the in-memory totals: those reset on every proxy
   // restart (several times a day on a dev machine), which made the dashboard
   // a per-boot view while claiming to be usage truth. Fail-open: history is
@@ -171,4 +220,4 @@ function getTotals() {
 
 function reset() { totals = {}; }
 
-module.exports = { rateFor, calculateCost, recordUsage, getTotals, reset, RATES };
+module.exports = { rateFor, apiRateFor, calculateCost, costAtApiRates, recordUsage, getTotals, reset, RATES, API_LIST_RATES };

@@ -80,6 +80,22 @@ function _clip(s) {
   return s.slice(0, MAX_STREAM_BYTES) + '\n…(stream truncated at ' + MAX_STREAM_BYTES + ' bytes)';
 }
 
+// A repository hook directory cannot be named as a parameter: it exists once
+// per repository, anywhere under whatever ground is writable, so the rule has
+// to be a pattern. Every profile ends with it.
+//
+// The template files a repository creation copies in are the exception, and
+// they have to be: creating a repository writes fourteen of them and fails
+// hard when refused. Every one ends in .sample, and that suffix is precisely
+// what stops the hook running — the tooling executes a hook by exact name and
+// never a sample. So the suffix is allowed back and nothing executable is:
+// a file staged as a sample still cannot be renamed into place, because the
+// rename is a write to the executable name.
+const HOOK_DIR_RULE = [
+  '(deny file-write* (regex #"/\\.git/hooks/"))',
+  '(allow file-write* (regex #"/\\.git/hooks/[^/]*\\.sample$"))'
+].join('\n');
+
 // The profile is a constant with -D parameters, never string-concatenated
 // paths: a path with a quote in it must not be able to rewrite the policy.
 //   WORK     — the jail (read+write+exec)
@@ -125,7 +141,13 @@ function _profile(network) {
     '(allow file-read-metadata)',
     // The jail is the only writable ground, plus the terminal devices.
     '(allow file-write* (subpath (param "WORK")) (subpath (param "SCRATCH")))',
-    '(allow file-write-data (literal "/dev/null") (literal "/dev/tty"))'
+    '(allow file-write-data (literal "/dev/null") (literal "/dev/tty"))',
+    // A repository hook is a script the operator's own next git command
+    // runs, so a package that drops one inside the writable project has
+    // bought execution outside these walls. Denied last, and by pattern
+    // rather than by path, because the writable ground IS the project and
+    // every repository under it carries the same directory.
+    HOOK_DIR_RULE
   ];
   if (network === 'full') {
     // SBPL cannot express "these hosts only", so outbound is all-or-nothing
@@ -140,6 +162,14 @@ function _profile(network) {
     lines.push('(allow network*)');
     lines.push('(allow system-socket)');
     lines.push('(deny network* (remote ip "localhost:*"))');
+  } else if (network === 'proxy') {
+    // One loopback port and nothing else — the egress proxy's. Measured
+    // both ways with a live listener one port over: the grant connects,
+    // the neighbour refuses, and the parameter form carries the port so
+    // one profile file serves every proxy instance. The child needs no
+    // resolver: its proxy environment names the address as an IP literal,
+    // and name resolution happens in the host process on the far side.
+    lines.push('(allow network-outbound (remote tcp (param "PROXYADDR")))');
   }
   return lines.join('\n') + '\n';
 }
@@ -160,7 +190,17 @@ function isAvailable(opts) {
     result = { available: false, error: SANDBOX_EXEC + ' not present' };
   } else {
     try {
-      const r = spawnSync(SANDBOX_EXEC, ['-p', '(version 1)(allow default)', '/usr/bin/true'], {
+      // The probe must carry a RESTRICTION, not just launch a profile. A
+      // profile that restricts nothing applies even inside an existing
+      // sandbox, where every real profile — jail, thin or confine — is
+      // refused by the kernel with sandbox_apply: Operation not permitted.
+      // Probing with an unrestricted profile therefore reports a usable
+      // sandbox in the one environment that has none. The denied path is
+      // deliberately one that cannot exist, so the probe measures whether a
+      // restriction can be APPLIED and nothing else.
+      const r = spawnSync(SANDBOX_EXEC, ['-p',
+        '(version 1)(allow default)(deny file-read* (literal "/.troth-sandbox-probe"))',
+        '/usr/bin/true'], {
         timeout: 3000, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8'
       });
       result = (r.status === 0)
@@ -305,7 +345,11 @@ function jailSpawnSpec(opts) {
   opts = opts || {};
   const avail = module.exports.isAvailable();
   if (!avail.available) return { ok: false, error: avail.error || 'sandbox-exec not usable' };
-  const network = opts.network === 'full' ? 'full' : 'none';
+  const network = opts.network === 'full' ? 'full'
+    : opts.network === 'proxy' ? 'proxy' : 'none';
+  if (network === 'proxy' && !(Number.isInteger(opts.proxyPort) && opts.proxyPort > 0)) {
+    return { ok: false, error: 'proxy network mode requires proxyPort' };
+  }
   let work;
   try {
     work = fs.realpathSync(opts.cwd);   // symlink-resolved: subpath match is on real paths
@@ -338,11 +382,13 @@ function jailSpawnSpec(opts) {
   } catch (e) {
     return { ok: false, error: 'jail_setup_failed: ' + (e && e.message || e) };
   }
+  const args = ['-f', profilePath, '-D', 'WORK=' + work,
+                '-D', 'TOOLROOT=' + toolRoot, '-D', 'SCRATCH=' + scratch];
+  if (network === 'proxy') args.push('-D', 'PROXYADDR=localhost:' + opts.proxyPort);
   return {
     ok:   true,
     exec: SANDBOX_EXEC,
-    args: ['-f', profilePath, '-D', 'WORK=' + work,
-           '-D', 'TOOLROOT=' + toolRoot, '-D', 'SCRATCH=' + scratch],
+    args,
     env:  _buildEnv(jailHome, jailTmp, path.join(toolRoot, 'bin'), opts.env),
     work
   };
@@ -435,15 +481,403 @@ function runInSandbox(command, opts) {
   });
 }
 
+// ── Ground profiles: the walls for ground that is NOT a deny-default jail ──
+//
+// The jail above is for partner project ground, where nothing is allowed
+// until it is named. These two are for ground the operator owns, where the
+// opposite is true: everything works as it did, and a short list of denies
+// is carved out. They exist because a check made before a command runs can
+// be raced or side-stepped by the command itself, while a kernel rule cannot.
+//
+//   thin     the operator's own opened folder. Their environment, their
+//            tools, their credentials for their own git and cloud work.
+//            Denied: reading partner project ground, reading the credential
+//            stores, writing the files that decide what the partner may do.
+//   confine  ground nobody declared. Same denies, plus writes limited to
+//            that folder and a scratch directory. Reads stay open, so
+//            exploring an unfamiliar tree is untouched.
+//   home     the tree holding the substrate. Confine with no writable work
+//            directory at all — scratch only.
+//
+// Reading partner project ground is denied rather than merely executing it,
+// because an interpreter defeats an exec-only rule: the interpreter is the
+// binary that runs, and the staged file is only read. The same rule closes
+// the unreviewed copy-out, since a shell can no longer move a file from
+// partner ground onto operator ground.
+//
+// Paths never enter the profile TEXT. They are passed as -D parameters, so a
+// directory whose name contains a quote cannot rewrite the policy.
+
+// Lowering switches never cross into a partner shell on any ground. The
+// substrate honours this variable on every write it records, so a partner
+// shell that sets it is the judged turning off the judge.
+const PARTNER_ENV_STRIP = ['TROTH_STVC_BYPASS'];
+
+function operatorEnv(extra) {
+  const env = Object.assign({}, process.env);
+  for (const k of PARTNER_ENV_STRIP) delete env[k];
+  if (extra && typeof extra === 'object') {
+    for (const k of Object.keys(extra)) {
+      if (typeof extra[k] === 'string' || typeof extra[k] === 'number') env[k] = String(extra[k]);
+    }
+  }
+  return env;
+}
+
+function _trothDir() {
+  return process.env.TROTH_CONFIG_DIR
+      || path.join(process.env.HOME || os.homedir(), '.troth');
+}
+
+// Read-denied: files whose CONTENTS are the credential.
+//
+// The substrate database is deliberately absent. Its contents are already
+// refused on the tool road and the shell road, each naming the sanctioned
+// way in, and partner project ground cannot reach this directory at all —
+// a jail never allows it. A third rule here would instead break the
+// operator running the substrate's own tooling from their own checkout.
+function _jewelPaths() {
+  const t = _trothDir();
+  return [path.join(t, 'credentials.json'),
+          path.join(t, 'codex-token.json'),
+          path.join(t, '.env'),
+          path.join(t, 'audit-keys')];
+}
+
+// Read-refused on operator ground: stores whose CONTENTS are credentials.
+// The tool road and the shell road already refuse commands that NAME these
+// paths, but both judge text, and a read carried inside an interpreter
+// argument is not command text. These are the kernel's copies of the path
+// policy's read rules — spelled relative to HOME and resolved per call for
+// the same reason the persistence list is, and pinned against that policy
+// by the suite so the two lists cannot drift apart unnoticed.
+//
+// The ssh agent socket and keychain lookups answer over IPC, so they keep
+// working while every path here is unreadable — agent-backed ssh and the
+// git credential helper survive; credential FILES stop being readable or
+// writable.
+function _secretStorePaths() {
+  const h = process.env.HOME || os.homedir();
+  return [path.join(h, '.ssh'),
+          path.join(h, 'Library', 'Keychains'),
+          path.join(h, '.aws'),
+          path.join(h, '.config', 'gcloud'),
+          path.join(h, '.gnupg'),
+          path.join(h, '.kube'),
+          path.join(h, '.docker', 'config.json'),
+          path.join(h, '.config', 'gh', 'hosts.yml'),
+          path.join(h, '.claude', '.credentials.json')];
+}
+
+// Readable pinholes inside the stores above: host inventory and client
+// configuration, which ssh reads on every connection. Without these, every
+// agent-backed git-over-ssh push dies on an unreadable known_hosts. Key
+// material is never carved — the carve is by literal path, read-only, and
+// the suite pins that no entry here ever names a private-key shape.
+function _secretStoreCarves() {
+  const h = process.env.HOME || os.homedir();
+  return [path.join(h, '.ssh', 'known_hosts'),
+          path.join(h, '.ssh', 'known_hosts.old'),
+          path.join(h, '.ssh', 'config')];
+}
+
+// Write-denied: files that decide what the partner is allowed to do. A
+// partner that can edit these widens its own walls, so they are refused by
+// the kernel and not only by the tool that would normally write them.
+function _policyPaths() {
+  const t = _trothDir();
+  return [path.join(t, 'config.json'),
+          path.join(t, 'web-allowlist.json'),
+          path.join(t, 'opened-folders.json'),
+          path.join(t, 'mcp-clients.json'),
+          path.join(t, 'router.json'),
+          path.join(t, 'net-allowlists.json')];
+}
+
+// Write-denied on operator ground: files the shell or the agent host EXECUTES
+// on its next start. A single write to any of them buys execution outside
+// every wall here, which is why they are refused by the kernel and not only
+// by the two roads that judge command text.
+//
+// Spelled relative to HOME and resolved per call rather than borrowed from
+// the path policy's list, which freezes HOME at load: a wall whose target
+// depends on when a module happened to be required is a wall that moves.
+// The suite pins that every name here is also refused by that policy, so the
+// two cannot drift apart unnoticed.
+//
+// Two families sit here. Shell and host startup files are executed on the
+// next shell or agent start. The second family is obeyed by the next TOOL
+// operation instead: the global git configs and the ssh client config can
+// name a command that operation runs, the global npm config redirects every
+// later install, the docker client config names credential-helper
+// executables, authorized_keys grants a login, and the logout files are
+// sourced at shell exit exactly as the rc files are at start.
+//
+// The DIRECTORIES holding the second family stay writable on purpose:
+// ~/.ssh/known_hosts takes a write on every first connection, and a wall
+// that breaks the operator's everyday git push is a wall people route
+// around. Only the named files are refused — and each has a sanctioned
+// road that stays open: per-repo .git/config, a project-local .npmrc.
+const PERSISTENCE_RELATIVE = [
+  '.bashrc', '.bash_profile', '.bash_login', '.bash_logout', '.profile',
+  '.zshrc', '.zshenv', '.zprofile', '.zlogin', '.zlogout',
+  '.claude/settings.json', '.claude/settings.local.json',
+  '.claude/hooks', '.claude/agents', '.claude/plugins',
+  '.config/fish', 'Library/LaunchAgents',
+  '.gitconfig', '.config/git/config', '.npmrc', '.docker/config.json',
+  '.ssh/config', '.ssh/rc', '.ssh/authorized_keys'
+];
+
+function _persistencePaths() {
+  const home = process.env.HOME || os.homedir();
+  return PERSISTENCE_RELATIVE.map((rel) => path.join(home, rel));
+}
+
+// Writable on confined ground: the per-user caches a toolchain writes without
+// being asked. Redirecting them one environment variable at a time means
+// enumerating every build system that will ever exist and re-downloading the
+// world per folder; allowing the roots costs nothing worth protecting,
+// because a cache is derived data by definition.
+//
+// Deliberately absent: the local binary and configuration trees. One holds
+// executables that are on PATH, the other holds several tools' credentials,
+// and neither is a cache.
+const CACHE_RELATIVE = [
+  'Library/Caches', '.cache', '.npm', '.cargo', '.rustup', 'go',
+  '.gradle', '.m2', '.bun', '.deno', '.nvm', '.pnpm-store', '.yarn'
+];
+
+function _cachePaths() {
+  const home = process.env.HOME || os.homedir();
+  // The system temp root is deliberately NOT here. Temporary files already
+  // have a home: the environment points them at scratch, which is writable.
+  // Opening the whole user temp tree would hand confined ground a large area
+  // outside the project for nothing measured — no command class needed it —
+  // and would leave the confinement untestable, since a test's own throwaway
+  // directories live there.
+  return CACHE_RELATIVE.map((rel) => path.join(home, rel));
+}
+
+// Later rules win in SBPL, so order carries meaning: the blanket write deny
+// comes first, the work and scratch allowances reopen exactly two subtrees,
+// and the denies that must survive a writable tree come LAST.
+function _groundProfile(kind, jewelCount, policyCount, persistCount, cacheCount, extraCount, secretCount, carveCount) {
+  const confined = (kind === 'confine' || kind === 'home');
+  const lines = ['(version 1)', '(allow default)',
+                 '(deny file-read* (subpath (param "WORKSPACE")))'];
+  for (let i = 0; i < jewelCount; i++) {
+    lines.push('(deny file-read* (subpath (param "JEWEL' + i + '")))');
+  }
+  // The kernel's copies of the read policy (_secretStorePaths). Every allow
+  // below them is a deliberate pinhole, never a default.
+  for (let i = 0; i < (secretCount || 0); i++) {
+    lines.push('(deny file-read* (subpath (param "SECRET' + i + '")))');
+  }
+  // The substrate directory as a whole, inverted: nothing inside is
+  // readable except the two subtrees a session legitimately stands on —
+  // its own jail scratch and the wall's own profile files. This is what
+  // closes the provider-key configuration and the engine's stored
+  // credential at the kernel, whatever spelling carries the read. The
+  // sanctioned ways into substrate data — the router tools, the doctor —
+  // run outside session walls and keep working; the substrate CLI run from
+  // inside a session stops working, and that is accepted: daemon
+  // administration is operator surface.
+  lines.push('(deny file-read* (subpath (param "TROTHDIR")))');
+  // The directory NODE itself answers stat — metadata only, contents stay
+  // dark: ls and reads inside are still refused. Without this, every
+  // mkdir -p whose path passes through the substrate dir walks its
+  // components, finds the node unstattable, tries to create it and dies on
+  // the write deny — and npm's cache makes exactly that walk on every
+  // install.
+  lines.push('(allow file-read-metadata (literal (param "TROTHDIR")))');
+  lines.push('(allow file-read* (subpath (param "TROTHJAILS")))');
+  lines.push('(allow file-read* (subpath (param "TROTHPROFILES")))');
+  // Host inventory and ssh client configuration: read-only literals, so
+  // agent-backed git-over-ssh keeps connecting while key files stay dark.
+  for (let i = 0; i < (carveCount || 0); i++) {
+    lines.push('(allow file-read* (literal (param "CARVE' + i + '")))');
+  }
+  // Restated after every carve: no pinhole above may become the last word
+  // on partner ground.
+  lines.push('(deny file-read* (subpath (param "WORKSPACE")))');
+  if (confined) {
+    lines.push('(deny file-write*)');
+    lines.push('(allow file-write* (subpath (param "SCRATCH")))');
+    if (kind === 'confine') lines.push('(allow file-write* (subpath (param "WORK")))');
+    // A working tree whose repository lives elsewhere needs that repository
+    // writable too, or every commit is refused for a path the operator never
+    // named. Declared by the caller, never guessed here.
+    for (let i = 0; i < (extraCount || 0); i++) {
+      lines.push('(allow file-write* (subpath (param "EXTRA' + i + '")))');
+    }
+    for (let i = 0; i < (cacheCount || 0); i++) {
+      lines.push('(allow file-write* (subpath (param "CACHE' + i + '")))');
+    }
+    lines.push('(allow file-write-data (literal "/dev/null") (literal "/dev/tty"))');
+  }
+  for (let i = 0; i < policyCount; i++) {
+    lines.push('(deny file-write* (subpath (param "POLICY' + i + '")))');
+  }
+  // Files the operator's shell or agent host executes on their next start.
+  // The tool road and the shell road already refuse these, but both judge
+  // text: a filesystem call carried inside an interpreter argument is not
+  // shell syntax and no pre-execution scan parses it. A kernel rule does not
+  // care how the write was spelled.
+  for (let i = 0; i < (persistCount || 0); i++) {
+    lines.push('(deny file-write* (subpath (param "PERSIST' + i + '")))');
+  }
+  // The credential stores are read-denied above, near the top. They are
+  // denied for WRITING here, at the end, because a deny that sits before the
+  // write allowances is only inert while no allowance overlaps it — and an
+  // allowance is a path computed at runtime. Unreadable but overwritable is
+  // not a state worth leaving reachable.
+  for (let i = 0; i < jewelCount; i++) {
+    lines.push('(deny file-write* (subpath (param "JEWEL' + i + '")))');
+  }
+  for (let i = 0; i < (secretCount || 0); i++) {
+    lines.push('(deny file-write* (subpath (param "SECRET' + i + '")))');
+  }
+  // The substrate tree closes for writing too — an unreadable profile or
+  // policy file that a session could still overwrite would let the next
+  // spawn's walls be authored from inside the current ones. The jail
+  // subtree reopens after it: that is where TMPDIR and every scratch home
+  // live, and denying a session its own scratch is not a wall, it is a
+  // broken build.
+  lines.push('(deny file-write* (subpath (param "TROTHDIR")))');
+  lines.push('(allow file-write* (subpath (param "TROTHJAILS")))');
+  lines.push(HOOK_DIR_RULE);
+  return lines.join('\n') + '\n';
+}
+
+// Resolve through links even when the path does not exist yet: most of the
+// walled files are absent on a given machine, but the directory that will
+// hold them exists and is what dotfile setups commonly link elsewhere. A
+// parameter built from the unresolved spelling would then name a path no
+// syscall ever reports, and the wall would miss exactly the write it is
+// for. Resolve the deepest ancestor that exists and rejoin the rest.
+function _realOr(p) {
+  let head = p;
+  const tail = [];
+  for (;;) {
+    try {
+      const real = fs.realpathSync(head);
+      return tail.length ? path.join(real, ...tail) : real;
+    } catch (_) {
+      const parent = path.dirname(head);
+      if (parent === head) return p;
+      tail.unshift(path.basename(head));
+      head = parent;
+    }
+  }
+}
+
+// groundSpawnSpec({ kind, cwd, env }) →
+//   { ok:true, exec, args, env, kind, work?, scratch? } | { ok:false, error }
+//
+// The caller spawns exec + args.concat([command...]) exactly as it does for
+// a jail, so one spawn site serves every ground.
+function groundSpawnSpec(opts) {
+  opts = opts || {};
+  const kind = opts.kind;
+  if (kind !== 'thin' && kind !== 'confine' && kind !== 'home') {
+    return { ok: false, error: 'unknown ground kind: ' + String(kind) };
+  }
+  const avail = module.exports.isAvailable();
+  if (!avail.available) return { ok: false, error: avail.error || 'sandbox-exec not usable' };
+
+  let work = null;
+  if (kind === 'confine') {
+    // Subpath matching is on resolved paths: on macOS the temp and user roots
+    // are themselves links, so an unresolved work directory matches nothing
+    // and every write inside it is refused.
+    try { work = fs.realpathSync(opts.cwd); }
+    catch (e) { return { ok: false, error: 'cwd unusable: ' + (e && e.message || e) }; }
+  }
+
+  const jewels   = _jewelPaths();
+  const policies = _policyPaths();
+  const persist  = _persistencePaths();
+  const secrets  = _secretStorePaths();
+  const carves   = _secretStoreCarves();
+  const caches   = (kind === 'confine' || kind === 'home') ? _cachePaths() : [];
+  const extraWritable = (kind === 'confine' && Array.isArray(opts.alsoWritable))
+    ? opts.alsoWritable.filter((p) => typeof p === 'string' && p).map(_realOr)
+    : [];
+  const profilePath = path.join(PROFILE_DIR,
+    'ground-' + kind + '-' + jewels.length + '-' + policies.length
+    + '-' + persist.length + '-' + caches.length + '-' + extraWritable.length
+    + '-' + secrets.length + '-' + carves.length + '.sb');
+
+  let scratch = _scratchDirFor(work || (opts.cwd || _trothDir()));
+  const args = [];
+  try {
+    fs.mkdirSync(PROFILE_DIR, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(profilePath,
+      _groundProfile(kind, jewels.length, policies.length, persist.length,
+                     caches.length, extraWritable.length,
+                     secrets.length, carves.length),
+      { mode: 0o600 });
+    fs.mkdirSync(path.join(scratch, 'tmp'), { recursive: true, mode: 0o700 });
+    scratch = fs.realpathSync(scratch);
+    args.push('-f', profilePath);
+    args.push('-D', 'WORKSPACE=' + _realOr(path.join(_trothDir(), 'workspace')));
+    jewels.forEach((p, i)   => args.push('-D', 'JEWEL' + i + '=' + _realOr(p)));
+    policies.forEach((p, i) => args.push('-D', 'POLICY' + i + '=' + _realOr(p)));
+    persist.forEach((p, i)  => args.push('-D', 'PERSIST' + i + '=' + _realOr(p)));
+    caches.forEach((p, i)   => args.push('-D', 'CACHE' + i + '=' + _realOr(p)));
+    secrets.forEach((p, i)  => args.push('-D', 'SECRET' + i + '=' + _realOr(p)));
+    carves.forEach((p, i)   => args.push('-D', 'CARVE' + i + '=' + _realOr(p)));
+    args.push('-D', 'TROTHDIR=' + _realOr(_trothDir()));
+    args.push('-D', 'TROTHJAILS=' + _realOr(path.join(_trothDir(), 'jails')));
+    args.push('-D', 'TROTHPROFILES=' + _realOr(PROFILE_DIR));
+    if (kind === 'confine' || kind === 'home') args.push('-D', 'SCRATCH=' + scratch);
+    if (kind === 'confine') args.push('-D', 'WORK=' + work);
+    extraWritable.forEach((p, i) => args.push('-D', 'EXTRA' + i + '=' + p));
+  } catch (e) {
+    return { ok: false, error: 'ground_setup_failed: ' + (e && e.message || e) };
+  }
+
+  // Confined ground keeps the operator's environment — that is what makes it
+  // ordinary to work in — but the caches every toolchain writes without
+  // asking are pointed at scratch, so a build does not die on the write deny.
+  const extra = (kind === 'thin') ? null : Object.assign({
+    TMPDIR: path.join(scratch, 'tmp'),
+    npm_config_cache: path.join(scratch, 'npm')
+  }, opts.env || {});
+
+  return {
+    ok: true,
+    exec: SANDBOX_EXEC,
+    args,
+    env: operatorEnv(kind === 'thin' ? (opts.env || null) : extra),
+    kind,
+    work,
+    scratch
+  };
+}
+
 module.exports = {
   isAvailable,
   runInSandbox,
   jailSpawnSpec,
+  groundSpawnSpec,
+  operatorEnv,
   DEFAULT_TIMEOUT_MS,
   AVAILABILITY_TTL_MS,
   // exposed for tests
   _resetAvailabilityCache,
   _profile,
+  _groundProfile,
+  _jewelPaths,
+  _secretStorePaths,
+  _secretStoreCarves,
+  _policyPaths,
+  _cachePaths,
+  CACHE_RELATIVE,
+  _persistencePaths,
+  PERSISTENCE_RELATIVE,
+  HOOK_DIR_RULE,
+  PARTNER_ENV_STRIP,
   _scratchDirFor,
   PROFILE_DIR,
   JAIL_SCRATCH_ROOT,

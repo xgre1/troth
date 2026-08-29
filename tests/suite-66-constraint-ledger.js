@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // The operator's "don't" binds mechanically, in three writing systems.
 //
-// Born 2026-08-15: an explicit freeze ("μην κάνεις τίποτα") was violated by a
-// git push while the words were still in the window. Omission constraints
-// decay in prose (73%→33% by turn 16, arXiv:2604.20911); as ledger state
+// Omission constraints decay in prose (73%→33% by turn 16, arXiv:2604.20911);
 // gating the dispatch they cannot. What this suite pins is the FAIL-CLOSED
 // geometry more than the happy path: a negation never lifts, a generic "go"
 // never unlocks a scoped freeze, a bare action word never unlocks a generic
@@ -156,7 +154,8 @@ test('CLG-7: the release is judged from where strangers stand (source pins)', ()
   const gate = fs.readFileSync(path.join(ROOT, 'scripts', 'release-gate.sh'), 'utf8');
   assert.ok(/check_ship/.test(gate), 'the ship-reality check exists');
   assert.ok(gate.indexOf('api/appcast') !== -1, 'and reads the live appcast, not a local build product');
-  assert.ok(/check_repo; check_open_parity; check_ship/.test(gate), 'release mode runs all three walls');
+  assert.ok(/check_repo; check_open_parity; check_outgoing_history; check_ship/.test(gate), 'release mode runs all four walls');
+  assert.ok(/check_outgoing_history\(\)/.test(gate), 'outgoing history is a wall of its own — authors and diffs travel with a push');
   const cron = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'parity-cron.yml'), 'utf8');
   assert.ok(/schedule:/.test(cron) && /appcast/.test(cron), 'the daily cron asks the same question between releases');
   const ci = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');

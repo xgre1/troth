@@ -140,11 +140,11 @@ function makeOrchestrator(opts) {
   // each call sees current state, not the boot-time snapshot.
   const prefixProvider = typeof opts.prefix_provider === 'function' ? opts.prefix_provider : null;
   // PREFIX-STABILITY: the provider's output is
-  // VOLATILE (situation snapshot, recent dialogue, per-turn recall), and it
-  // used to be appended into req.system. Chat templates render system FIRST,
+  // VOLATILE (situation snapshot, recent dialogue, per-turn recall) and must
+  // never ride req.system. Chat templates render system FIRST,
   // then the ~9K tokens of tool schemas - so one changed byte near the top
-  // invalidated the server's whole KV prefix and EVERY turn re-prefilled
-  // ~10K tokens (40s per "hey" on a 31B Q8; measured: llama-server reuses
+  // invalidates the server's whole KV prefix and EVERY turn re-prefills
+  // ~10K tokens (40s per "hey" on a 31B Q8; llama-server reuses
   // 4107/4114 tokens when the prefix IS stable). Now req.system carries ONLY
   // the static stable_prefix and the volatile context rides at the TOP of
   // the user message, which renders AFTER the tools in every template -
@@ -200,9 +200,12 @@ function makeOrchestrator(opts) {
   // timer alive regardless of stream state, so the orchestrator must self-bound.
   const pullWithIdle = async (iterator, idleMs) => {
     let timer;
+    const armedAt = Date.now();
     const nextP = Promise.resolve(iterator.next());
     nextP.catch(() => {});  // we may abandon this on idle — never let it throw unhandled
-    const idleP = new Promise((resolve) => { timer = setTimeout(() => resolve({ __idle: true }), idleMs); });
+    const idleP = new Promise((resolve) => {
+      timer = setTimeout(() => resolve({ __idle: true, wall_ms: Date.now() - armedAt, idle_ms: idleMs }), idleMs);
+    });
     try { return await Promise.race([ nextP, idleP ]); }
     finally { clearTimeout(timer); }
   };
@@ -439,6 +442,8 @@ function makeOrchestrator(opts) {
     let lastNarration = '';
     let toolCallsMade = false;
     let forcedAnswer = false;
+    let repairs = 0;
+    let abortDetail = '';
     let aborted = false;
     let abortReason = null;
     // Guarantee a non-empty reply when the partner actually DID something.
@@ -460,6 +465,58 @@ function makeOrchestrator(opts) {
     // say the answer was cut. Set from the completed turn below.
     let lastTurnFinish = null;
     const TRUNCATING_FINISH = new Set(['length', 'max_tokens', 'model_length', 'content_filter']);
+    const RESUMABLE_FINISH = new Set(['length', 'max_tokens', 'model_length']);
+    const REPAIRABLE_ABORT = /^transport_(http_error|stream_error|request_error|router_error|http_5\d\d|http_429|stream_ended_without_completion|stream_ended_without_finish)$/;
+    const MAX_REPAIRS = parseInt(process.env.TROTH_LLM_MAX_REPAIRS || '3', 10) || 0;
+    const overflowOf = (detail) => {
+      try {
+        const j = JSON.parse(String(detail || ''));
+        const e = j && j.error;
+        if (e && e.type === 'exceed_context_size_error') {
+          return { n_ctx: e.n_ctx || 0, n_prompt: e.n_prompt_tokens || 0 };
+        }
+      } catch (_) {}
+      return null;
+    };
+    const compactToolResults = (msgs, targetChars) => {
+      let total = msgs.reduce((n, m) => n + String((m && m.content) || '').length, 0);
+      let dropped = 0;
+      for (let i = 0; i < msgs.length && total > targetChars; i++) {
+        const m = msgs[i];
+        if (!m || m.role !== 'tool') continue;
+        const was = String(m.content || '').length;
+        if (was <= 80) continue;
+        m.content = '[earlier tool output dropped to fit the engine context]';
+        total -= (was - m.content.length);
+        dropped++;
+      }
+      return dropped;
+    };
+    const TRANSPORT_CAUSE = {
+      auth_expired: 'the engine session expired — sign in again in Settings',
+      cli_auth: 'the engine is not signed in — sign in again in Settings',
+      cli_spawn: 'the engine command is not installed on this machine',
+      cli_empty: 'the engine returned nothing',
+      http_429: 'the engine refused for rate/usage limits',
+      http_error: 'the engine answered with an error',
+      request_error: 'the engine could not be reached — check the endpoint in Settings',
+      router_error: 'no configured engine could serve this turn',
+      stream_error: 'the connection to the engine broke mid-answer',
+      stream_ended_without_completion: 'the engine stopped mid-answer',
+      stream_ended_without_finish: 'the engine stopped mid-answer',
+      empty_turn: 'the engine returned nothing'
+    };
+    const transportCause = (r) => {
+      const key = String(r || '').replace(/^transport_/, '');
+      const om = key.match(/^http_400$/) ? overflowOf(abortDetail) : null;
+      if (om) return 'the turn outgrew the engine context (' + om.n_prompt.toLocaleString() +
+        ' tokens against a ' + om.n_ctx.toLocaleString() + '-token window) — raise the context in the engine settings';
+      if (TRANSPORT_CAUSE[key]) return TRANSPORT_CAUSE[key];
+      const m = key.match(/^(cli_exit|cli_result|http_status|http_5)/);
+      if (m) return 'the engine failed (' + key + ')';
+      return 'the engine stopped (' + key + ')';
+    };
+    const RESUME_NOTE = 'Your previous message was cut off before it finished. Continue from exactly where it stopped. Do not repeat what you already said, and do not redo work that already succeeded.';
     // Staple unresolved action failures AND a truncation note to whatever text
     // we return. One wrapper so every return site is honest by construction.
     const withFailureNote = (text) => {
@@ -646,8 +703,9 @@ function makeOrchestrator(opts) {
               maybeAbort(transport, stream);
               break;
             }
-            if (step && step.__idle) {
-              aborted = true; abortReason = 'timeout';
+                    if (step && step.__idle) {
+          aborted = true;
+          abortReason = wasSuspended(step.wall_ms, step.idle_ms) ? 'suspended' : 'timeout';
               maybeAbort(transport, stream);
               break;
             }
@@ -662,11 +720,14 @@ function makeOrchestrator(opts) {
             // transient AND nothing was committed yet AND we have retries left,
             // re-issue the SAME request; otherwise surface it as an ABORT.
             if (chunk && chunk._abort_reason) {
-              if (isTransient(chunk._abort_reason) && !turnText && !pendingToolCalls && attempt < MAX_TRANSIENT_RETRIES) {
+              let _r = chunk._abort_reason;
+              if (_r === 'http_error' && chunk._status) _r = 'http_' + chunk._status;
+              if (isTransient(_r) && !turnText && !pendingToolCalls && attempt < MAX_TRANSIENT_RETRIES) {
                 retryThis = true; maybeAbort(transport, stream); break;
               }
               aborted = true;
-              abortReason = 'transport_' + chunk._abort_reason;
+              abortReason = 'transport_' + _r;
+              abortDetail = String(chunk._detail || '');
               break;
             }
             // Visibility-only tool signal — e.g. an agent-faculty (claude_cli)
@@ -770,6 +831,34 @@ function makeOrchestrator(opts) {
         break; // success, or a non-transient abort — stop retrying
       }
       if (fatalReturn) return fatalReturn;
+      const _overflow = aborted ? overflowOf(abortDetail) : null;
+      if (_overflow && repairs < MAX_REPAIRS && !cancelHit()) {
+        repairs++;
+        const _chars = messages.reduce((n, m) => n + String((m && m.content) || '').length, 0);
+        const _ratio = _overflow.n_prompt > 0 ? (_overflow.n_ctx * 0.7) / _overflow.n_prompt : 0.5;
+        const dropped = compactToolResults(messages, Math.max(2000, Math.floor(_chars * _ratio)));
+        trace.push({ iter, repair: 'compact', dropped, n_ctx: _overflow.n_ctx, n_prompt: _overflow.n_prompt, attempt: repairs });
+        if (!dropped) { aborted = true; }
+        else {
+          aborted = false; abortReason = null; abortDetail = '';
+          pendingToolCalls = null;
+          continue;
+        }
+      }
+      if (aborted && (abortReason === 'suspended' || REPAIRABLE_ABORT.test(String(abortReason || ''))) &&
+          repairs < MAX_REPAIRS && !cancelHit()) {
+        repairs++;
+        trace.push({ iter, repair: abortReason, attempt: repairs });
+        if (turnText) {
+          if (pendingToolCalls && pendingToolCalls.length) lastNarration = turnText;
+          else finalText += turnText;
+          messages.push({ role: 'assistant', content: turnText });
+        }
+        messages.push({ role: 'user', content: RESUME_NOTE });
+        pendingToolCalls = null;
+        aborted = false; abortReason = null;
+        continue;
+      }
       if (aborted) break;
 
       // Text-format tool-call rescue: local/open models (e.g. Qwen) emit calls as
@@ -795,8 +884,8 @@ function makeOrchestrator(opts) {
       // A turn that also fired tools is narration in motion — plans,
       // manifests, "let me search…" — and belongs to the activity trace,
       // not the reply. The codex-served models re-emit their plan preamble
-      // EVERY round, and concatenating rounds shipped EIGHT manifests above
-      // one answer (field-verified 2026-08-15). Only a tool-free
+      // EVERY round, and concatenating rounds ships a stack of manifests
+      // above one answer. Only a tool-free
       // turn speaks to the operator; finalize() salvages a last turn that
       // spoke and acted at once.
       if (turnText && !(pendingToolCalls && pendingToolCalls.length)) {
@@ -874,6 +963,9 @@ function makeOrchestrator(opts) {
           content: turnText ? turnText : null,
           tool_calls: pendingToolCalls
         });
+        if (ctx && typeof ctx === 'object' && typeof ctx.shouldCancel !== 'function') {
+          try { ctx.shouldCancel = cancelHit; } catch (_) {}
+        }
         for (const tc of pendingToolCalls) {
           // Cancel between tool executions: already-run tools stand (their
           // effects are real); the remaining calls in this batch are skipped
@@ -1067,6 +1159,14 @@ function makeOrchestrator(opts) {
           usage: _usageOut()
         };
       }
+      if (RESUMABLE_FINISH.has(finishReason) && repairs < MAX_REPAIRS && !cancelHit()) {
+        repairs++;
+        trace.push({ iter, repair: 'finish_' + finishReason, attempt: repairs });
+        messages.push({ role: 'assistant', content: turnText });
+        messages.push({ role: 'user', content: RESUME_NOTE });
+        lastTurnFinish = null;
+        continue;
+      }
       // Text-only turn (or already forced) — we're done. Final text passes the
       // structural secret wall: any tool-result secret the model echoed is
       // masked here regardless of stream behavior.
@@ -1080,10 +1180,12 @@ function makeOrchestrator(opts) {
     if (aborted) {
       tailText = (finalText && finalText.trim())
         ? finalText
-        : (abortReason === 'timeout'
+        : (abortReason === 'suspended'
+            ? '(Stopped — the machine slept for longer than this turn could be held open.)'
+            : abortReason === 'timeout'
             ? '(Stopped — the model took too long to finish. Try again, or break the task into smaller steps.)'
             : (abortReason && abortReason.indexOf('transport_') === 0)
-                ? '(Could not reach the language-model endpoint — it looks offline. If you set a Custom endpoint, make sure that machine is reachable; otherwise switch to the Automatic/local model in Settings.)'
+                ? '(Stopped — ' + transportCause(abortReason) + '.)'
                 : '(Stopped before finishing.)');
     } else {
       // Iteration budget exhausted MID-WORK: a genuine completion returns as
@@ -1142,6 +1244,16 @@ function _honestStartFailure(facultyLabel, err) {
     + '. Check its key or settings, or switch engines in Settings.)';
 }
 
+const FAIL_SHAPE = /unknown downstream server|not logged in|unauthorized|permission denied|command not found|no such file|ENOENT|traceback \(most recent|refused|intent_refused/i;
+
+const SUSPEND_FACTOR = parseFloat(process.env.TROTH_LLM_SUSPEND_FACTOR || '1.5') || 1.5;
+
+function wasSuspended(wallMs, idleMs) {
+  const w = Number(wallMs), i = Number(idleMs);
+  if (!Number.isFinite(w) || !Number.isFinite(i) || i <= 0) return false;
+  return w > i * SUSPEND_FACTOR;
+}
+
 function _toolErrorReason(content) {
   // Short failure reason if a tool result signals an error, else null.
   const s = String(content || '');
@@ -1174,13 +1286,13 @@ function _toolErrorReason(content) {
       if (obj.interrupted === true) return 'interrupted before completion';
       if (obj.signal) return ('killed by signal ' + obj.signal).slice(0, 140);
       if (obj.exitCode === 0) return null;
-      // Nonzero exit falls through to the text shapes below on purpose:
-      // a grep miss exits 1 and is not a failure; a real failure usually
-      // says why in stderr and matches a shape.
+      const errLines = String(obj.stderr || '').split('\n').map((x) => x.trim()).filter(Boolean);
+      if (!errLines.length || !FAIL_SHAPE.test(errLines.join(' '))) return null;
+      return ('exit ' + obj.exitCode + ': ' + errLines[errLines.length - 1]).slice(0, 140);
     }
   }
   // Plain-text failure shapes that side-effecting tools emit.
-  if (/unknown downstream server|not logged in|unauthorized|permission denied|command not found|no such file|ENOENT|traceback \(most recent|refused|intent_refused/i.test(s)) {
+  if (FAIL_SHAPE.test(s)) {
     return s.replace(/\s+/g, ' ').trim().slice(0, 140);
   }
   return null;
@@ -1204,4 +1316,4 @@ function looksComplete(text) {
   return /[\.\!\?\u3002\uFF01\uFF1F]\s*$/.test(text);
 }
 
-module.exports = { makeOrchestrator, parseTextToolCalls, _honestStartFailure, _sanitizeStartError };
+module.exports = { makeOrchestrator, parseTextToolCalls, _honestStartFailure, _sanitizeStartError, wasSuspended };

@@ -164,10 +164,9 @@ class CodeStore {
   // Both of these asked for `e.relation = 'CALLS'`. The column is
   // `relation_type` and the values are lower-case ('calls', 'imports',
   // 'extends'), so every call threw "no such column: e.relation". Nothing
-  // ever called them, which is why nobody found out: the index has held a
-  // complete call graph — 31,248 edges — and the two methods that read it
-  // were broken from the day they were written (found 2026-08-11, while
-  // wrapping them in a tool).
+  // ever called them, which is how a complete call graph can sit unread:
+  // the two methods that read the index only prove themselves the first
+  // time something calls them.
   getCallers(entityId) {
     return this.db.prepare(
       'SELECT e.*, ent.name as source_name, ent.file_path as source_file, ent.signature as source_sig, ent.line_number as source_line FROM edges e JOIN entities ent ON ent.id = e.source_id WHERE e.target_id = ? AND e.relation_type = ?'

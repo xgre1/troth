@@ -35,6 +35,7 @@ const _set = new Set();
 // Known credential prefixes / token shapes. Word-ish boundaries; each match is
 // the secret itself.
 const PREFIX_RE = new RegExp(
+  '(?<![A-Za-z0-9_-])' +
   '(?:sk-[A-Za-z0-9_-]{16,}|sk_(?:live|test)_[A-Za-z0-9]{16,}|rk_(?:live|test)_[A-Za-z0-9]{16,}|' +
   'ghp_[A-Za-z0-9]{20,}|gho_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|' +
   'xox[bpars]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|' +
@@ -43,7 +44,7 @@ const PREFIX_RE = new RegExp(
   'eyJ[A-Za-z0-9_-]{10,}\\.eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,})', 'g');
 
 // scheme://user:PASSWORD@host - capture group 1 is the password.
-const URL_CRED_RE = /[a-z][a-z0-9+.-]*:\/\/[^\s:@\/]+:([^\s@\/]{4,})@/gi;
+const URL_CRED_RE = /(?<![A-Za-z0-9+.-])[a-z][a-z0-9+.-]{0,31}:\/\/[^\s:@\/]+:([^\s@\/]{4,})@/gi;
 
 // PEM private-key blocks (the whole block is the secret).
 const PEM_RE = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
@@ -51,11 +52,41 @@ const PEM_RE = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVAT
 // credential-named fields in JSON / env / yaml-ish text. Capture group 2 is
 // the value. Name must CONTAIN a credential word; value must be a single
 // unbroken token of >= MIN_LEN chars.
-const FIELD_RE = /["']?([A-Za-z0-9_.-]*(?:secret|token|passwd|password|api[_-]?key|apikey|service_role|access[_-]?key|private[_-]?key|credential|client[_-]?secret)[A-Za-z0-9_.-]*)["']?\s*[:=]\s*["']?([A-Za-z0-9+\/_.=~-]{8,})/gi;
+//
+// Split in two on purpose. Folding the credential-word alternation INSIDE a
+// [A-Za-z0-9_.-]* quantifier let the name part overlap its own alternation:
+// every offset of a long unbroken token re-scanned the whole run, so cost was
+// O(n^2). A ~1.3MB tool result pinned a core at 100% for ~40min inside a
+// single exec(). The pair matcher below is linear: the lookbehind refuses to
+// start mid-token, and the bounded {1,128} name caps backtracking. The word
+// test then runs on the short captured name, not on the whole haystack.
+const FIELD_PAIR_RE = /(?<![A-Za-z0-9_.-])([A-Za-z0-9_.-]{1,128})["']?\s*[:=]\s*["']?([A-Za-z0-9+\/_.=~-]{8,})/g;
+const CRED_NAME_RE = /secret|token|passwd|password|api[_-]?key|apikey|service_role|access[_-]?key|private[_-]?key|credential|client[_-]?secret/i;
 
 // Field VALUES that are clearly not secrets even when the field name matches
 // (booleans, placeholders, vault references).
 const VALUE_ALLOW_RE = /^(?:true|false|null|none|redacted|placeholder|changeme|<[^>]*>|\$vault[:.].*|\$\{[^}]*\})$/i;
+
+// A credential VALUE is a literal. Source code assigns identifiers to
+// credential-NAMED constants all day — `MAX_TOKENS = parseInt(...)`,
+// `qTokens = qLow.split(...)`, `max_tokens: MAX_TOKENS` — and the pair
+// matcher sees the same shape as a config line. Masking an identifier would
+// blank an ordinary word everywhere for the life of the process, including
+// inside code read back as if it were the file. The four shapes below are
+// never literals; everything else still falls through to _add.
+const DOTTED_IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+$/;
+const IDENT_RE        = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+const CONST_NAME_RE   = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;
+
+function _isCodeToken(text, value, endIdx) {
+  if (DOTTED_IDENT_RE.test(value)) return true;   // a.b — property access
+  if (text.charAt(endIdx) === '(') return true;   // parseInt( — a call
+  if (CONST_NAME_RE.test(value)) return true;     // SCREAMING_SNAKE — a name
+  if (!IDENT_RE.test(value)) return false;        // literals fall through
+  // Declared as an identifier in this same text: code, not a credential.
+  const safe = value.replace(/\$/g, '\\$');
+  return new RegExp('(?:const|let|var|function|class)\\s+' + safe + '\\b').test(text);
+}
 
 function _add(v) {
   if (typeof v !== 'string') return;
@@ -79,8 +110,12 @@ function harvest(text) {
   while ((m = URL_CRED_RE.exec(text)) !== null) _add(m[1]);
   PEM_RE.lastIndex = 0;
   while ((m = PEM_RE.exec(text)) !== null) _add(m[0]);
-  FIELD_RE.lastIndex = 0;
-  while ((m = FIELD_RE.exec(text)) !== null) _add(m[2]);
+  FIELD_PAIR_RE.lastIndex = 0;
+  while ((m = FIELD_PAIR_RE.exec(text)) !== null) {
+    if (!CRED_NAME_RE.test(m[1])) continue;
+    if (_isCodeToken(text, m[2], m.index + m[0].length)) continue;
+    _add(m[2]);
+  }
   return _fifo.length - before;
 }
 
@@ -99,7 +134,30 @@ function redact(text) {
 /** True when at least one harvested secret is being tracked. */
 function active() { return _fifo.length > 0; }
 
+/** Register a value KNOWN to be a secret (e.g. one the env door resolved
+ *  from the vault) so any later surfacing leaves masked. Same store and
+ *  bounds as harvest; below-minimum or allow-listed values are ignored. */
+function addKnown(v) { _add(v); }
+
+/** Judge one name/value pair for the env door: the known token prefixes and
+ *  PEM blocks are secrets whatever the name says; otherwise a
+ *  credential-worded name marks the value. Deliberately STRICTER than
+ *  harvest's in-text judgement: harvest must not mask identifiers that code
+ *  assigns to credential-named constants, but a literal handed to a dotenv
+ *  write under a credential-worded key has no such reading — real passwords
+ *  are exactly the identifier-shaped strings that exemption would wave
+ *  through. Placeholders stay allowed via VALUE_ALLOW_RE. */
+function looksSecret(name, value) {
+  if (typeof value !== 'string') return false;
+  const v = value.trim();
+  if (v.length < MIN_LEN || VALUE_ALLOW_RE.test(v)) return false;
+  PREFIX_RE.lastIndex = 0;
+  if (PREFIX_RE.test(v)) return true;
+  if (/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(v)) return true;
+  return typeof name === 'string' && CRED_NAME_RE.test(name);
+}
+
 // Test hook: reset the store (hermetic suites only).
 function _resetForTests() { _fifo.length = 0; _set.clear(); }
 
-module.exports = { harvest, redact, active, MARKER, _resetForTests };
+module.exports = { harvest, redact, active, addKnown, looksSecret, MARKER, _resetForTests };

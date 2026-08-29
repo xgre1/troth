@@ -3,11 +3,10 @@
 // The reservoir of what the partner has seen.
 //
 // The substrate has always kept what the operator SAID. What the partner READ
-// was kept as a receipt and nothing more: measured 2026-08-11, 22,830 `read`
-// records carrying a path, a line count and a byte count — not one byte of
-// content — and filed as substrate_internal, so even the receipt was
-// unreachable. 72% of all reads were re-reads of a file already opened, one of
-// them 352 times, because there was nowhere for it to have stayed.
+// was kept as a receipt and nothing more: a path, a line count and a byte
+// count — not one byte of content — filed as substrate_internal, so even the
+// receipt was unreachable. Most reads are re-reads of a file already opened,
+// because there was nowhere for it to have stayed.
 //
 // The proxy queues a POINTER the moment it sees a document read (it is the one
 // place that knows the tool, the path and the content hash together). This

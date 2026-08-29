@@ -903,6 +903,7 @@ const taskWorkingMemoryConsolidation = {
         scope: 'consolidated:dialogue',
         source: 'background_worker.wm_consolidation',
         source_authority: 'plr_evolved',
+        provenance_ref: 'dialogue.turn:' + row.id,
         // detectEmphasis runs again inside recordEngram — final salience
         // is 1.0 + boost. Caller's salience here would be additive; we
         // intentionally pass undefined so the write-time emphasis stamp
@@ -935,6 +936,45 @@ const taskWorkingMemoryConsolidation = {
       notes: ['wm_consolidation: scanned=' + turns.length + ' promoted=' + promoted + ' skipped_dup=' + skippedDup +
               ' watermark→' + new Date(latestTs).toISOString()]
     };
+  }
+};
+
+// taskInstanceConsolidation.
+//
+// Typed distillation of first-person occurrences (visits, purchases,
+// events, activities, possessions) into instance:<kind> engrams with
+// mandatory provenance — the substrate counts what it understood instead
+// of re-reading transcripts per question. All mechanics live in
+// shared-core/instance-consolidation.js (the bench's lazy-distillation
+// path calls the same module); this wrapper only wires the worker cadence,
+// the flag gate and the local extractor transport. Extractor unreachable
+// ⇒ the pass retains its window (no watermark advance) and the next
+// cadence retries — unavailability queues, it never drops.
+const taskInstanceConsolidation = {
+  name: 'instance_consolidation',
+  cadence_ms: 10 * 60 * 1000,
+  run: async function (view) {
+    const ic = require('./instance-consolidation.js');
+    if (!ic.enabled()) {
+      return { events: [], notes: ['instance_consolidation: off (TROTH_INSTANCE_CONSOLIDATION=0)'] };
+    }
+    const ctx = (view && view.substrate_ctx) || {};
+    let stats;
+    try {
+      stats = await ic.runPass({
+        agent_id: ctx.agent_id || 'background-worker',
+        user_id: ctx.user_id || 'default',
+        cwd: ctx.cwd || null,
+        llmCall: ic.makeLlamacppExtractor()
+      });
+    } catch (e) {
+      return { events: [], notes: ['instance_consolidation: ' + String(e && e.message || e)] };
+    }
+    const note = stats.advanced
+      ? ('instance_consolidation: processed=' + stats.processed + ' written=' + stats.written +
+         ' dup=' + stats.dup + ' dropped=' + stats.dropped + ' no_provenance=' + stats.no_provenance)
+      : ('instance_consolidation: window retained (' + (stats.transport_error || 'no new turns') + ')');
+    return { events: [], notes: [note] };
   }
 };
 
@@ -1019,9 +1059,9 @@ const taskEmbeddingBackfill = {
     // smaller cap: recall quality is the product promise, the archive is
     // depth. Bounded so the old cost fear (that justified excluding the
     // archive entirely) stays controlled — an import done before the embed
-    // host was warm now heals over idle cycles instead of staying
-    // keyword-only forever (field-hit 2026-08-09, a real user's ~1000-chunk
-    // import held 39 vectors).
+    // host was warm heals over idle cycles instead of staying
+    // keyword-only forever (a ~1000-chunk import can otherwise sit at a
+    // few dozen vectors).
     const ARCHIVE_CHUNK = 64;
     const t0 = Date.now();
     let embedded = 0, failed = 0, scanned = 0, more = false;
@@ -1037,10 +1077,9 @@ const taskEmbeddingBackfill = {
       let picked = collectEmbedWork(rows);
       if (!picked.work.length) {
         // The recall lane is drained OR holds only quarantined residue —
-        // either way the archive lane gets its turn NOW. Before this
-        // fall-through, residue at the head of the recall lane starved the
-        // archive forever (the frozen "still embedding" dashboards, field
-        // report 2026-08-09).
+        // either way the archive lane gets its turn NOW. Without this
+        // fall-through, residue at the head of the recall lane starves the
+        // archive forever — the frozen "still embedding" dashboard.
         rows = state.listArchiveMissingEmbeddings(ARCHIVE_CHUNK)
           .filter(function (r) { return !_embedQuarantine.has(r.id); });
         cap = ARCHIVE_CHUNK;
@@ -1187,10 +1226,138 @@ const taskLedgerPrune = {
   }
 };
 
-// Did the work survive? The substrate records every change and, until this
-// task existed, never learned the answer: 21,188 edit records, 0 outcome
-// events (measured 2026-08-11). action-outcome.js has been able to answer it
-// since it was written and had no caller — this is the first observer it
+// The carried multiplier reads timelines that decay — transcripts prune on
+// their owner's schedule and substrate traces thin out. Once a removal's
+// count is settled (its session compacted after it, went quiet for a week,
+// or the row is a month old), the value is frozen onto the row itself and
+// analytics stops recomputing it. Savings become append-only history.
+const taskCarriedFreeze = {
+  name: 'carried_freeze',
+  cadence_ms: 60 * 60 * 1000,
+  run: async function () {
+    const state = require('./state.js');
+    const analytics = require('./analytics.js');
+    const db = state.db();
+    const KINDS = ['output_archive', 'bash_compression', 'context_filter', 'mcp_cache:hit', 'gemcache:hit'];
+    let rows = [];
+    try {
+      rows = db.prepare(
+        `SELECT id, ts, session_id FROM savings_ledger
+         WHERE carried_turns IS NULL AND session_id IS NOT NULL AND tokens > 0
+           AND kind IN (${KINDS.map(() => '?').join(',')})
+         ORDER BY ts LIMIT 20000`
+      ).all(...KINDS);
+    } catch (e) { return { events: [], notes: ['carried_freeze: ' + (e && e.message || e)] }; }
+    // Frozen values are floors, not verdicts. The value-heaviest frozen
+    // sessions get their rows re-derived whenever a readable transcript — the
+    // primary evidence — says MORE turns than the row holds; a value only
+    // ever rises. This heals rows frozen while their transcript was
+    // unreadable or missing, and costs one indexed query per run.
+    let auditRows = [];
+    try {
+      const sids = db.prepare(
+        `SELECT session_id, SUM(tokens) AS tok FROM savings_ledger
+         WHERE carried_turns IS NOT NULL AND session_id IS NOT NULL AND tokens > 0
+           AND kind IN (${KINDS.map(() => '?').join(',')})
+         GROUP BY session_id ORDER BY tok DESC LIMIT 40`
+      ).all(...KINDS).map((r) => r.session_id);
+      if (sids.length) {
+        auditRows = db.prepare(
+          `SELECT id, ts, session_id, carried_turns FROM savings_ledger
+           WHERE carried_turns IS NOT NULL AND tokens > 0
+             AND session_id IN (${sids.map(() => '?').join(',')})
+             AND kind IN (${KINDS.map(() => '?').join(',')})`
+        ).all(...sids, ...KINDS);
+      }
+    } catch (_) { /* audit is best-effort */ }
+    // Rows whose primary evidence burned before the freeze system existed
+    // freeze at a zero floor nobody believes. The same population, measured
+    // while its evidence was alive, averaged ~223 stayed-out turns, and those
+    // rows carry that era average, marked estimated — applied once, only where
+    // no timeline source ever existed, never over a real measurement.
+    const FREEZE_BIRTH_TS = 1787443200000; // freeze system ships; older zero-frozen rows are evidence-less
+    const ERA_AVG_TURNS = 223;
+    let estimated = 0;
+    try {
+      estimated = db.prepare(
+        `UPDATE savings_ledger SET carried_turns = ${ERA_AVG_TURNS}, note = 'carried_est:era-avg'
+         WHERE carried_turns = 0 AND (note IS NULL OR note = '') AND tokens > 0
+           AND ts < ${FREEZE_BIRTH_TS}
+           AND kind IN (${KINDS.map(() => '?').join(',')})`
+      ).run(...KINDS).changes || 0;
+    } catch (_) { /* estimate is best-effort */ }
+    if (!rows.length && !auditRows.length && !estimated) return { events: [], notes: ['carried_freeze: nothing unfrozen'] };
+    const ids = [];
+    for (const r of rows) if (ids.indexOf(r.session_id) === -1) ids.push(r.session_id);
+    for (const r of auditRows) if (ids.indexOf(r.session_id) === -1) ids.push(r.session_id);
+    let timeline;
+    try { timeline = analytics.sessionTimeline(ids, { fresh: true }); } catch (e) {
+      return { events: [], notes: ['carried_freeze: timeline failed — ' + (e && e.message || e)] };
+    }
+    const now = Date.now();
+    const WEEK = 7 * 24 * 60 * 60 * 1000;
+    const MONTH = 30 * 24 * 60 * 60 * 1000;
+    const batch = [];
+    let waiting = 0;
+    for (const r of rows) {
+      const s = timeline.get(r.session_id);
+      if (!s) {
+        // No timeline anywhere. Month-old rows freeze at the honest floor of
+        // zero; younger ones wait for traces to appear.
+        if (now - r.ts > MONTH) batch.push({ id: r.id, later: 0 });
+        else waiting++;
+        continue;
+      }
+      const stop = s.compactions.find((c) => c > r.ts);
+      let later = 0;
+      for (const t of s.turns) {
+        if (t <= r.ts) continue;
+        if (stop && t >= stop) break;
+        later++;
+      }
+      const lastBeat = s.turns.length ? s.turns[s.turns.length - 1] : 0;
+      // A compaction settles a count only when the transcript — the primary
+      // evidence — produced it. A substrate-sourced timeline is a floor:
+      // freezing a fresh row from its sparse beats locks in a near-zero
+      // multiplier, so those rows wait for quiet instead.
+      const settled = (!!stop && s.src === 'transcript') || (now - Math.max(lastBeat, r.ts) > WEEK) || (now - r.ts > MONTH);
+      if (settled) batch.push({ id: r.id, later });
+      else waiting++;
+    }
+    const raises = [];
+    for (const r of auditRows) {
+      const s = timeline.get(r.session_id);
+      if (!s || s.src !== 'transcript') continue;
+      const stop = s.compactions.find((c) => c > r.ts);
+      let later = 0;
+      for (const t of s.turns) {
+        if (t <= r.ts) continue;
+        if (stop && t >= stop) break;
+        later++;
+      }
+      if (later > r.carried_turns) raises.push({ id: r.id, later });
+    }
+    if (!batch.length && !raises.length && !estimated) return { events: [], notes: ['carried_freeze: 0 settled, ' + waiting + ' still settling'] };
+    try {
+      const upd = db.prepare('UPDATE savings_ledger SET carried_turns = ? WHERE id = ?');
+      db.transaction((b) => { for (const x of b) upd.run(x.later, x.id); }).immediate(batch.concat(raises));
+    } catch (e) { return { events: [], notes: ['carried_freeze: update failed — ' + (e && e.message || e)] }; }
+    return {
+      events: [{
+        type: 'tool_call',
+        input:  { tool_name: 'background_worker.carried_freeze', args: { frozen: batch.length, raised: raises.length, estimated: estimated } },
+        output: { status: 'completed' }
+      }],
+      notes: ['carried_freeze: froze ' + batch.length + ' removals' + (raises.length ? ', raised ' + raises.length + ' from primary evidence' : '') + (estimated ? ', ' + estimated + ' era-estimated' : '') + (waiting ? ', ' + waiting + ' still settling' : '')]
+    };
+  }
+};
+
+// Did the work survive? The substrate records every change but learns the
+// answer only if something observes the outcome; without an observer the edit
+// records accumulate and the outcome events stay at zero. action-outcome.js
+// has been able to answer it since it was written and had no caller — this is
+// the first observer it
 // named, the one that links a change to the commit that kept it.
 //
 // Runs on the idle worker rather than a hook because it shells out to git,
@@ -1377,7 +1544,7 @@ function hydrateLastRunFromRecords(cwd, stateOverride) {
   return lastRun;
 }
 
-const DEFAULT_TASKS = [taskContradictionScan, taskDormantReview, taskStateSummary, taskDriftScan, taskEngramGc, taskAnchorSuggest, taskIdentityExtract, taskReconsolidationReview, taskBackup, taskOrchestrationReview, taskHypothesisGeneration, taskPurposeRefresh, taskWorkingMemoryConsolidation, taskEmbeddingBackfill, taskDormancyWarn, taskWalReplicate, taskImportSync, taskLedgerPrune, taskOutcomeFold, taskKnowledgeDrain];
+const DEFAULT_TASKS = [taskContradictionScan, taskDormantReview, taskStateSummary, taskDriftScan, taskEngramGc, taskAnchorSuggest, taskIdentityExtract, taskReconsolidationReview, taskBackup, taskOrchestrationReview, taskHypothesisGeneration, taskPurposeRefresh, taskWorkingMemoryConsolidation, taskInstanceConsolidation, taskEmbeddingBackfill, taskDormancyWarn, taskWalReplicate, taskImportSync, taskLedgerPrune, taskCarriedFreeze, taskOutcomeFold, taskKnowledgeDrain];
 // Closed-extension worker tasks (guarded optional require — absent in the open build).
 try { const _ext = require('./core-ext.js'); if (Array.isArray(_ext.workerTasks)) DEFAULT_TASKS.push(..._ext.workerTasks); } catch (_) {}
 
@@ -1720,6 +1887,7 @@ module.exports = {
     embeddingBackfill: taskEmbeddingBackfill,
     importSync:        taskImportSync,
     ledgerPrune:       taskLedgerPrune,
+    carriedFreeze:     taskCarriedFreeze,
     // Both of these were written, tested and scheduled — into DEFAULT_TASKS,
     // which only the entity daemon runs. In the topology the operator
     // actually has (Claude Code + proxy) nothing referenced them, so the

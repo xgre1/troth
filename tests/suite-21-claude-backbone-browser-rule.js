@@ -80,7 +80,7 @@ module.exports = function run({ test }) {
     assert(!sys.includes('—'), 'no em-dash in the native prompt');
   });
 
-  // ── Model pick (AUDIT-2026-08-09 item 15: "Fable 5 selected, does not
+  // ── Model pick (audit item 15: "Fable 5 selected, does not
   // play"). Settings → Claude → model writes providers.anthropic.model in
   // ~/.troth/config.json, and the claude_cli spawn used to consult only the
   // dispatcher's ambient vars.model — the pick was durably stored in a key
@@ -136,7 +136,7 @@ module.exports = function run({ test }) {
     }
   });
 
-  // ── Memory rule (AUDIT-2026-08-09: memory questions funnelled into
+  // ── Memory rule (audit: memory questions funnelled into
   // troth-bash file greps and a raw sqlite open of state.db, because
   // troth_recall was reachable only behind mcp_call whose description never
   // says the word memory). The rule rides ONLY when the substrate MCP
@@ -168,7 +168,7 @@ module.exports = function run({ test }) {
     }
   });
 
-  // ── Advert suppression (AUDIT-2026-08-09: the backbone prompt shipped 41
+  // ── Advert suppression (audit: the backbone prompt shipped 41
   // native-loop tool names — Bash/Read/engram_search… — that do not exist in
   // the harness, while the mcp__troth-substrate__* tools that DO exist went
   // unnamed). troth-entity passes available_tools: [] for the claude_cli

@@ -4,12 +4,10 @@
 // drives them: over HTTP, against a real proxy, on a fresh HOME.
 //
 // The unit suite can prove the gate module and pin the routes' source. It
-// cannot prove that the routes are REACHABLE — which is exactly the class of
-// bug this whole card kept producing. `knowledge_drain` was written, tested
-// and registered, and never ran on the operator's machine for a day, because
-// it was registered into a list that only the entity daemon reads. Its test
-// passed throughout. So this scenario asks the only question that mattered:
-// press the button, does the product answer.
+// cannot prove that the routes are REACHABLE. A task can be written, tested
+// and registered into a list nothing on this surface reads, and its unit test
+// still passes. So this scenario asks the question that decides it: press the
+// button, does the product answer.
 module.exports.describe = 'pause, look inside the queue, and read a batch now — through the HTTP the dashboard uses';
 
 const { execFileSync } = require('child_process');

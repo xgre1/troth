@@ -5,7 +5,7 @@ module.exports = function run({ test }) {
 const assert = require('assert');
 const fsMod = require('fs');
 const pathMod = require('path');
-const TMP = '/tmp/troth-validator-test-' + Date.now();
+const TMP = require('os').tmpdir() + '/troth-validator-test-' + Date.now();
 const errortax = require('../proxy/modules/errortax');
 const { record, getRecent } = require('../proxy/modules/perflog');
 // --- End-to-end regression suite ---
@@ -34,7 +34,7 @@ console.log('\nEnd-to-end regression suite:');
     return require('../shared-core/mind-state');
   }
   function tmp(label) {
-    const dir = pA7.join('/tmp', 'gc-a7' + label + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6));
+    const dir = pA7.join(require('os').tmpdir(), 'gc-a7' + label + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6));
     fA7.mkdirSync(dir, { recursive: true });
     return dir;
   }
@@ -71,7 +71,7 @@ console.log('\nEnd-to-end regression suite:');
   test('A7.E2E.1: queryActions honors kind filter at SQL level', () => {
     const TMP = tmp('e2e1');
     const s = loadStateForDirA7(TMP);
-    const cwd = '/tmp/a7e2e1';
+    const cwd = require('os').tmpdir() + '/a7e2e1';
     const now = Date.now();
     s.recordAction(makeNoiseDecision(cwd, now - 5000, 'loopbreaker'));
     s.recordAction(makeNoiseDecision(cwd, now - 4000, 'ast_validate'));
@@ -95,7 +95,7 @@ console.log('\nEnd-to-end regression suite:');
     const TMP = tmp('e2e2');
     const s = loadStateForDirA7(TMP);
     const mind = freshMindModule();
-    const cwd = '/tmp/a7e2e2';
+    const cwd = require('os').tmpdir() + '/a7e2e2';
     const now = Date.now();
 
     // Seed an initial project snapshot so recompute has something to fold into.
@@ -140,7 +140,7 @@ console.log('\nEnd-to-end regression suite:');
     const TMP = tmp('e2e3');
     const s = loadStateForDirA7(TMP);
     const mind = freshMindModule();
-    const cwd = '/tmp/a7e2e3';
+    const cwd = require('os').tmpdir() + '/a7e2e3';
     const t0 = Date.now() - 60 * 60 * 1000; // 1h ago
     const tDecisions = t0 + 1000;
     const tNewerSnapshot = t0 + 2000;
@@ -184,7 +184,7 @@ console.log('\nEnd-to-end regression suite:');
     const TMP = tmp('e2e4');
     const s = loadStateForDirA7(TMP);
     const mind = freshMindModule();
-    const cwd = '/tmp/a7e2e4';
+    const cwd = require('os').tmpdir() + '/a7e2e4';
     const now = Date.now();
 
     // Project snapshot for project_name resolution.
@@ -227,7 +227,7 @@ console.log('\nEnd-to-end regression suite:');
     const TMP = tmp('e2e5');
     const s = loadStateForDirA7(TMP);
     const mind = freshMindModule();
-    const cwd = '/tmp/a7e2e5';
+    const cwd = require('os').tmpdir() + '/a7e2e5';
     const now = Date.now();
 
     // 1) bootstrap
@@ -282,7 +282,7 @@ console.log('\nPhase B — deterministic query + causality:');
   const AR = require('../shared-core/action-record');
   const pB = require('path');
   const fB = require('fs');
-  const TMP_B = pB.join('/tmp', 'gc-b-' + Date.now());
+  const TMP_B = pB.join(require('os').tmpdir(), 'gc-b-' + Date.now());
   fB.mkdirSync(TMP_B, { recursive: true });
   const savedB = process.env.CLAUDE_PLUGIN_DATA;
   process.env.CLAUDE_PLUGIN_DATA = TMP_B;
@@ -295,7 +295,7 @@ console.log('\nPhase B — deterministic query + causality:');
 
   // Seed data: 1 read, 2 edits (one passing AST, one failing), 1 lesson, 1 causal chain
   const sess = 'B-' + Date.now();
-  const cwd = '/tmp/Bproj';
+  const cwd = require('os').tmpdir() + '/Bproj';
 
   const r1 = AR.create({ type: 'read', agent_id: 'cc', session_id: sess, cwd,
     input: { file_path: 'mod.ts' }, output: { hash: 'r1' } });
@@ -474,7 +474,7 @@ console.log('\nPhase C — GMP v0.1 conformance:');
   const fC = require('fs');
   const REPO_C = pC.resolve(__dirname, '..');
   const PLUGIN_C = pC.join(REPO_C, 'plugin');
-  const TMP_C = pC.join('/tmp', 'gc-c-' + Date.now());
+  const TMP_C = pC.join(require('os').tmpdir(), 'gc-c-' + Date.now());
   fC.mkdirSync(TMP_C, { recursive: true });
 
   const SERVER_PATH = pC.join(PLUGIN_C, 'mcp-servers', 'troth-memory', 'server.mjs');
@@ -1140,7 +1140,7 @@ console.log('\nPhase D — virtual runtime + working set:');
   const AR = require('../shared-core/action-record');
   const pD = require('path');
   const fD = require('fs');
-  const TMP_D = pD.join('/tmp', 'gc-d-' + Date.now());
+  const TMP_D = pD.join(require('os').tmpdir(), 'gc-d-' + Date.now());
   fD.mkdirSync(TMP_D, { recursive: true });
   const savedD = process.env.CLAUDE_PLUGIN_DATA;
   process.env.CLAUDE_PLUGIN_DATA = TMP_D;
@@ -1314,7 +1314,7 @@ console.log('\nPhase E — KnowledgeAtlas + AgentMarket:');
   const AR = require('../shared-core/action-record');
   const pE = require('path');
   const fE = require('fs');
-  const TMP_E = pE.join('/tmp', 'gc-e-' + Date.now());
+  const TMP_E = pE.join(require('os').tmpdir(), 'gc-e-' + Date.now());
   fE.mkdirSync(TMP_E, { recursive: true });
   const savedE = process.env.CLAUDE_PLUGIN_DATA;
   process.env.CLAUDE_PLUGIN_DATA = TMP_E;
@@ -1363,7 +1363,7 @@ console.log('\nPhase E — KnowledgeAtlas + AgentMarket:');
     // threads forExport:true so a deliberate export reads the whole substrate.
     // This test crosses the 1000 boundary and proves the clamp is bypassed, and
     // that the default export carries the mind types but NOT the audit noise.
-    const bulkDir = pE.join('/tmp', 'gc-e-bulk-' + Date.now());
+    const bulkDir = pE.join(require('os').tmpdir(), 'gc-e-bulk-' + Date.now());
     fE.mkdirSync(bulkDir, { recursive: true });
     const saveD = process.env.CLAUDE_PLUGIN_DATA;
     const saveBypass = process.env.TROTH_STVC_BYPASS;
@@ -1431,7 +1431,7 @@ console.log('\nPhase E — KnowledgeAtlas + AgentMarket:');
   });
 
   test('E1: importAtlas roundtrip into fresh substrate preserves records', () => {
-    const freshDir = pE.join('/tmp', 'gc-e-fresh-' + Date.now());
+    const freshDir = pE.join(require('os').tmpdir(), 'gc-e-fresh-' + Date.now());
     fE.mkdirSync(freshDir, { recursive: true });
     const saveD = process.env.CLAUDE_PLUGIN_DATA;
     process.env.CLAUDE_PLUGIN_DATA = freshDir;
@@ -1583,7 +1583,7 @@ console.log('\nPreCompact hook integration:');
   const fPC = require('fs');
   const REPO_PC = pPC.resolve(__dirname, '..');
   const PLUGIN_PC = pPC.join(REPO_PC, 'plugin');
-  const TMP_PC = pPC.join('/tmp', 'gc-precompact-' + Date.now());
+  const TMP_PC = pPC.join(require('os').tmpdir(), 'gc-precompact-' + Date.now());
   fPC.mkdirSync(TMP_PC, { recursive: true });
 
   function runPreCompact(payload) {
@@ -2319,7 +2319,7 @@ console.log('\nP16 Tier 1 — intent type + DecisionGraph edges + path queries:'
 (function runP16T1Tests() {
   const pP16  = require('path');
   const fsP16 = require('fs');
-  const TMP_P16 = pP16.join('/tmp', 'gc-p16-t1-' + Date.now());
+  const TMP_P16 = pP16.join(require('os').tmpdir(), 'gc-p16-t1-' + Date.now());
   fsP16.mkdirSync(TMP_P16, { recursive: true });
   const savedEnv = process.env.CLAUDE_PLUGIN_DATA;
   process.env.CLAUDE_PLUGIN_DATA = TMP_P16;

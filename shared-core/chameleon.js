@@ -120,9 +120,9 @@ async function ingestDocument(opts) {
 
   // SECRET GATE. Bulk text is the one road into the substrate where nobody
   // read the document first: a folder of PDFs, a fetched page, a notes file
-  // with a key pasted into it. Measured on the operator's own material,
-  // 2026-08-11: 3 of 141 knowledge-shaped files they had opened contained a
-  // credential-shaped literal (2.1%) — markdown notes, not config files.
+  // with a key pasted into it. A measurable share of ordinary
+  // knowledge-shaped files (markdown notes, not config files) carries a
+  // credential-shaped literal.
   // Ingested raw, those get chunked, embedded, and then RETURNED BY RECALL
   // to whatever model is answering.
   //
@@ -155,12 +155,10 @@ async function ingestDocument(opts) {
     }
     // FALL BACK TO THE EMBEDDER ON THIS MACHINE.
     //
-    // The configured host is a remote one (a second Mac over the network on
-    // this install). When it is asleep, embedRequest returns null WITHOUT
-    // throwing, so every chunk was stored with no vector and nobody noticed:
-    // measured 2026-08-11 during the first backfill, 16,711 passages ingested
-    // and 819 embedded — 4.9%. The text was there, the meaning was not, and
-    // the corpus answered only to exact words.
+    // When the configured host is remote and asleep, embedRequest returns null
+    // WITHOUT throwing, so chunks store with no vector and nothing reports it.
+    // The text is there, the meaning is not, and the corpus answers only to
+    // exact words.
     //
     // The local embedder was up the whole time and answers in 8ms. A remote
     // preference must degrade to it, not to silence.
@@ -178,7 +176,7 @@ async function ingestDocument(opts) {
   // document's ingest marker IS its chunk rows (listIngestedSources reads
   // input.source off them), so a half-written document would read as
   // "already imported" and its missing tail could never be completed —
-  // the close-the-laptop interrupt (field question, 2026-08-10).
+  // the close-the-laptop interrupt.
   // All-or-nothing instead: an interrupted import leaves NOTHING behind
   // and the next run ingests the document whole; a completed one is
   // complete. No duplicates on either road. recordEngram is synchronous

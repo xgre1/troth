@@ -2,8 +2,8 @@
 'use strict';
 // A record must say what happened, not what its type is called.
 //
-// Measured 2026-08-11: the substrate holds 11,746 Read calls, 1,787 Bash,
-// 1,435 Grep — and every one of them rendered as the bare tool name, because
+// Every tool record — Read, Bash, Grep — rendered as the bare tool name,
+// because
 // the line builder never reached into `args`. The detail panel meant to fix
 // that read `input.tool` / `input.name` while every record on disk stores
 // `input.tool_name`, so its tool row never rendered either and the generic

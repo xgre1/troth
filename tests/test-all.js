@@ -73,6 +73,15 @@ require('./suite-65-dialogue-dedup.js')({ test, skip });
 require('./suite-66-constraint-ledger.js')({ test, skip });
 require('./suite-67-verifiable-claims.js')({ test, skip });
 require('./suite-68-substrate-sync.js')({ test, skip });
+require('./suite-69-context-window.js')({ test, skip });
+require('./suite-70-field-contract.js')({ test, skip });
+require('./suite-71-run-id-containment.js')({ test, skip });
+require('./suite-72-ground-policy.js')({ test, skip });
+require('./suite-73-ground-walls.js')({ test, skip });
+require('./suite-74-ground-wiring.js')({ test, skip });
+require('./suite-75-env-door.js')({ test, skip });
+require('./suite-76-install-intercept.js')({ test, skip });
+require('./suite-77-egress-proxy.js')({ test, skip });
 
 // --- SUMMARY ---
 flushAsyncTests().then(() => {

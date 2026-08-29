@@ -38,6 +38,12 @@ function flag(name, def) {
 // cli into its own pool, separate from the rest of the user's memory.
 const AGENT_ID = flag('agent-id', require('../shared-core/agent-id.js').resolveAgentId());
 const CWD      = flag('cwd', process.env.TROTH_ENTITY_CWD || process.cwd());
+// This chat is a thread, and it has to say so. Turns land in the substrate's
+// session_id column, and a turn written without one joins the unattributed
+// pool every other unscoped surface writes into — which a later read cannot
+// tell apart from this conversation. Minted per process: one run of the CLI is
+// one thread. TROTH_CONVERSATION_ID lets a caller rejoin an existing one.
+const CONV_ID  = process.env.TROTH_CONVERSATION_ID || require('crypto').randomUUID();
 const LLM_MODE = flag('llm', process.env.TROTH_ENTITY_LLM || 'router');
 const AGENTIC  = flag('agentic', '1') === '1';
 // `troth -c` / `--claude`: run this CLI session on the Claude Code backbone
@@ -1638,7 +1644,7 @@ function start() {
       type: 'user_input',
       input: { text: line },
       parent_id: null,
-      options: { agentic: AGENTIC, auto_write: AUTO_WRITE }
+      options: { agentic: AGENTIC, auto_write: AUTO_WRITE, conversation_id: CONV_ID }
     };
     try { child.stdin.write(JSON.stringify(event) + '\n'); }
     catch (e) {

@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // The inventory behind "why is the laptop hot".
 //
-// troth keeps long-lived children on the operator's machine: a proxy, two
+// troth keeps long-lived children on the machine it runs on: a proxy, two
 // small model servers, sometimes a chat model, sometimes a browser, one MCP
-// server set per editor session. When the machine heats up, the operator's
-// first question is which of those is doing it — and until this card the
-// answer needed a shell, and the first number a shell offers (%CPU) is a
-// lifetime average that repeatedly pointed at the wrong process on the
-// machine this was built on. Cumulative CPU time and resident memory are the
-// two numbers that identify a burner; this module reports those.
+// server set per editor session. When the machine heats up the question is
+// which of those is doing it, and the first number a shell offers (%CPU) is a
+// lifetime average that names the wrong process. Cumulative CPU time and
+// resident memory are the two numbers that identify a burner; this module
+// reports those.
 //
 // The parser is pure so the classification is provable on a fixture instead
 // of on whatever happens to be running where the suite runs.

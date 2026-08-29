@@ -70,10 +70,10 @@ const net  = require('net');
 // standalone runs fall back to <core>/.troth-entity-state.json (mirrors how
 // the Rust troth_root() — the dir holding bin/troth.js — resolves it).
 const DAEMON_MODE = process.env.TROTH_ENTITY_DAEMON === '1' || process.env.TROTH_ENTITY_DAEMON === 'true';
-// Default is the SHARED per-user location. It used to be the
-// install root (repo/bundle dir) — but a mixed topology (open-repo CLI +
-// installed app) then has TWO state files, each side blind to the other's
-// daemon: the one-mind/singleton/staleness machinery silently stops seeing
+// Default is the SHARED per-user location, never the install root
+// (repo/bundle dir): a mixed topology (open-repo CLI + installed app) with
+// per-install state files leaves each side blind to the other's daemon —
+// the one-mind/singleton/staleness machinery silently stops seeing
 // half the world. ~/.troth is the one place every surface already shares
 // (same state.db). TROTH_ENTITY_STATE_FILE still overrides for tests.
 const ENTITY_STATE_FILE = process.env.TROTH_ENTITY_STATE_FILE ||
@@ -136,7 +136,42 @@ const perceptionTail   = require('../shared-core/perception/perception-tail.js')
 let AGENT_ID = require('../shared-core/agent-id.js').resolveAgentId();
 const USER_ID  = process.env.TROTH_ENTITY_USER_ID  || 'default';
 const CWD      = process.env.TROTH_ENTITY_CWD      || process.cwd();
-// Coherence by derivation (PLAN-COHERENCE-2026-08-09): when NOTHING above
+let _boundContext = null;
+function _bindContext(ctxId, by, trigger) {
+  if (!ctxId || ctxId === _boundContext) return;
+  _boundContext = ctxId;
+  try {
+    const ar = require('../shared-core/action-record.js');
+    const st = require('../shared-core/state.js');
+    st.recordAction({
+      id: ar.uuidv7(), timestamp: Date.now(), type: 'decision',
+      agent_id: AGENT_ID, cwd: CWD, context_id: ctxId,
+      audience: 'substrate_internal', memory_class: 'operational',
+      input: { kind: 'context_bind' },
+      output: { kind: 'context_bind', context_id: ctxId, bound_by: by, trigger: String(trigger || '').slice(0, 140) }
+    }, 'context_bind ' + ctxId + ' ' + by);
+  } catch (_) { /* binding survives without the audit row */ }
+}
+function _updateContextBinding(text) {
+  try {
+    const ctxReg = require('../shared-core/context-registry.js');
+    const t = String(text || '');
+    if (/\b(δουλεύουμε|πάμε στο|switch to|working on|work on)\b/i.test(t)) {
+      const explicit = ctxReg.resolveMention(t);
+      if (explicit) return _bindContext(explicit, 'explicit', t);
+    }
+    if (_boundContext) return;
+    const base = path.basename(CWD || '');
+    const cwdCtx = ctxReg.contextIdFor(base);
+    if (cwdCtx && CWD !== require('os').homedir() &&
+        ctxReg.listContexts().some((c) => c.context_id === cwdCtx)) {
+      return _bindContext(cwdCtx, 'cwd', base);
+    }
+    const mention = ctxReg.resolveMention(t);
+    if (mention) _bindContext(mention, 'mention', t);
+  } catch (_) { /* unbound is a valid state */ }
+}
+// Coherence by derivation: when NOTHING above
 // this process stated a backbone or a dispatch preference — no app env, no
 // desktop-config parity (pure open-repo installs have neither) — detect
 // what engines this machine can actually serve and fill the ABSENT keys
@@ -189,6 +224,14 @@ if (BACKBONE === 'claude_cli') {
 // loop, which contradicts the "substrate-as-mind / LLM is one faculty"
 // thesis. Opt out with TROTH_ENTITY_AGENTIC=0 for legacy single-shot.
 const AGENTIC_DEFAULT = process.env.TROTH_ENTITY_AGENTIC === '0' ? false : true;
+
+if (!process.env.TROTH_CONTEXT_BINDING) {
+  try {
+    const _cfg = JSON.parse(require('fs').readFileSync(
+      require('../shared-core/config-file.js').configPath(), 'utf8')) || {};
+    if (_cfg.context_binding === true) process.env.TROTH_CONTEXT_BINDING = '1';
+  } catch (_) { /* no config → flag stays off */ }
+}
 
 // switchableFaculties() — the faculties an EXPLICIT /engine may land on, read
 // from the operator's own config.json: the same source the Settings provider
@@ -530,6 +573,10 @@ function main() {
   // attachment — the llm road mounts the same memories as context anyway.
   const _memShaped = (() => { try { return require('../shared-core/memory-shaped.js'); } catch (_) { return null; } })();
   const decide = async (view, event) => {
+    if (event && event.type === 'user_input' && event.input &&
+        typeof event.input.text === 'string') {
+      _updateContextBinding(event.input.text);
+    }
     if (_memShaped && event && event.type === 'user_input' && event.input &&
         typeof event.input.text === 'string' && !event.recall &&
         _memShaped.isMemoryShaped(event.input.text)) {
@@ -537,7 +584,8 @@ function main() {
         const recallMod = require('../shared-core/recall.js');
         const hits = await recallMod.recall({
           query: event.input.text, class: 'all', audience: 'model_visible',
-          cwd: CWD, limit: 3
+          cwd: CWD, limit: 3,
+          context_id: (process.env.TROTH_CONTEXT_BINDING === '1' && _boundContext) ? _boundContext : undefined
         });
         if (Array.isArray(hits) && hits.length) event = { ...event, recall: { hits } };
       } catch (_) { /* recall is a gift, never a gate */ }
@@ -737,6 +785,23 @@ function main() {
       const lines = [];
       const query = extractQuery(action);
 
+      // A greeting mounts nothing. The router already classifies "hi" as
+      // chitchat and answers 'null_mount', but that verdict only reached the
+      // query-driven recall further down: identity, situation, focus, handoff
+      // and the dialogue window were assembled regardless, so a two-character
+      // turn arrived carrying project facts, a git summary and another
+      // thread's last exchange — and the local model paid the prefill for all
+      // of it before it could say hello.
+      //
+      // null_mount means what it says here too. The operating frame stays: the
+      // partner still knows where it is and what it can do, it simply is not
+      // handed memory nobody asked for.
+      try {
+        if (query && intentRouter.route(query).mount_policy === 'null_mount') {
+          return '';
+        }
+      } catch (_) { /* classifier unavailable — assemble as usual */ }
+
       // project topic anchor (lifted here so
       // identity block can use it too for Phase F project-aware ranking).
       // Auto-derived from cwd via project-id.resolveProjectId. Identity
@@ -799,6 +864,12 @@ function main() {
         if (block) { lines.push(block); lines.push(''); }
       } catch (_) { /* identity read failure → silently skip; daemon stays up */ }
 
+      try {
+        const _standing = require('../shared-core/standing-rules.js');
+        const _srBlk = _standing.renderStandingRules(require('../shared-core/state.js'), { cwd: CWD });
+        if (_srBlk) { lines.push(_srBlk.text); lines.push(''); }
+      } catch (_) { /* additive: the surface degrades to its previous behaviour */ }
+
       // thesis content rides inside
       // <memory_identity> via operator_confirmed authority ranking; we do
       // NOT add separate scope categories for it. But three substrate
@@ -823,7 +894,8 @@ function main() {
       try {
         const decisionHits = engram.listEngrams({
           audience: 'model_visible',
-          limit: 100
+          scope_prefix: 'decision:',
+          limit: 40
         }) || [];
         const allDecisions = decisionHits
           .filter(e => e && e.statement && typeof e.scope === 'string' && e.scope.indexOf('decision:') === 0)
@@ -899,7 +971,8 @@ function main() {
         const focusScopePrefix = 'system:current_focus:' + CURRENT_PROJECT;
         const focusHits = engram.listEngrams({
           audience: 'substrate_internal',
-          limit: 50
+          scope: focusScopePrefix,
+          limit: 5
         }) || [];
         const focus = focusHits
           .filter(e => e && e.statement && e.scope === focusScopePrefix)
@@ -927,7 +1000,8 @@ function main() {
         try {
           const handoffHits = engram.listEngrams({
             audience: 'substrate_internal',
-            limit: 50
+            scope_prefix: 'handoff:',
+            limit: 200
           }) || [];
           // Project-scoped: prefer same-project handoff; fall back to
           // cross-project only if no project-specific handoff exists.
@@ -1014,12 +1088,10 @@ function main() {
           if (weights && (_runFull || _runLight)) {
             // Cross-type memory recall.
             //
-            // Previously: multiAxisQuery({type:'commitment'}) + filter to
-            // commitment_type==='engram'. That made yesterday's BTC
-            // discussion (stored as memory_class='episodic' dialogue.turn)
-            // structurally invisible to the prefix. Live repro: 24 BTC
-            // dialogue.turn rows existed; this block returned zero hits;
-            // model honestly reported "no memory of that."
+            // A commitment-typed query filtered to commitment_type==='engram'
+            // cannot see an episodic dialogue.turn, so a conversation held in
+            // that class is structurally invisible to the prefix and the model
+            // reports no memory of it.
             //
             // Now: route through recall.recall({class:'all'}) which spans
             // ALL memory-bearing classes (identity, semantic, episodic,
@@ -1036,7 +1108,8 @@ function main() {
               class:    'all',
               audience: 'model_visible',
               cwd:      CWD,
-              limit:    _runFull ? 3 : 2
+              limit:    _runFull ? 3 : 2,
+              context_id: (process.env.TROTH_CONTEXT_BINDING === '1' && _boundContext) ? _boundContext : undefined
             });
             if (relevant.length) {
               // L2.2 — XML-tagged session memory block. Tag matches
@@ -1045,12 +1118,16 @@ function main() {
               const SESSION_CHAR_BUDGET = 2000;
               lines.push('<memory_session intent="' + intent + '">');
               let sessUsed = 0;
+              const guide = 'Each memory is tagged [class date-recorded]. For how-many / most-recent questions, enumerate the matching memories and prefer the newest value.';
+              lines.push(guide);
+              sessUsed += guide.length + 1;
               for (const h of relevant) {
                 // Tag class so the model can distinguish "we discussed"
                 // (episodic dialogue) from "we decided" (procedural) from
                 // "we know" (semantic) — provenance helps it reason about
                 // what kind of memory it's looking at.
-                const item = '- [' + h.class + '] ' + String(h.statement || '').slice(0, 600);
+                const _d = Number.isFinite(h.ts) ? ' ' + new Date(h.ts).toISOString().slice(0, 10) : '';
+                const item = '- [' + h.class + _d + '] ' + String(h.statement || '').slice(0, 600);
                 if (sessUsed + item.length > SESSION_CHAR_BUDGET) break;
                 lines.push(item);
                 sessUsed += item.length + 1;
@@ -1061,7 +1138,14 @@ function main() {
           }
           // weights === null path (chitchat): substrate stays quiet —
           // no L2 section, no header, nothing pushed to the LLM.
-        } catch (_) { /* failure → silently skip the L2 section */ }
+        } catch (e) {
+          // A failure here removes the partner's memory for the turn and
+          // nothing else changes, so silence made it indistinguishable from
+          // "the substrate holds nothing" — the one outcome an operator will
+          // read as the product not working. The section is still skipped
+          // rather than failing the turn; it just says so.
+          try { process.stderr.write('[entity] memory section skipped: ' + (e && e.message || e) + '\n'); } catch (_) {}
+        }
       }
 
       // L_DMN — Default Mode Network composition for default-intent turns.
@@ -1081,12 +1165,10 @@ function main() {
             // Concerns — unresolved intents (type='intent', outcome
             // unsatisfied), ranked by relevance to the current query.
             //
-            //  rewrite: previously fetched 30 MOST RECENT intents
-            // and took top 3 unresolved. That recency window meant goals
-            // from > 30 turns ago (e.g. yesterday's BTC puzzle) were
-            // unreachable even when the current query was directly about
-            // them. Real DMN current-concerns surfacing isn't recency-
-            // gated — Klinger's concerns persist across days. Fix: pull
+            // Ranked by relevance, not recency: a window of the 30 most recent
+            // intents leaves a goal from further back unreachable even when the
+            // current query is directly about it. DMN current-concerns surfacing
+            // is not recency-gated — Klinger's concerns persist across days. Pull
             // a wide candidate window (500), filter to unresolved, then
             // rank by token overlap with the live query.
             //
@@ -1185,7 +1267,7 @@ function main() {
               let pUsed = 0;
               for (const p of paths) {
                 const out = (p && p.output) || {};
-                const text = String(out.statement || out.reason || out.note || '');
+                const text = String(out.avoidance_text || out.statement || out.reason || out.note || '');
                 if (!text) continue;
                 const item = '- avoid: ' + text.replace(/\s+/g, ' ').slice(0, 180);
                 if (pUsed + item.length > PROSPECTIVE_BUDGET) break;
@@ -1240,36 +1322,30 @@ function main() {
       // it gets a chat-sized window; voice/CLI (no conversation id) keeps
       // the tight low-latency one.
       const _paneConvId = (action && action.options && action.options.conversation_id) || null;
-      let turns = dialogueMemory.recentTurns({
-        // same_cwd, or the cwd above is thrown away: recentTurns only honours
-        // it under strict_isolation or same_cwd, so this call has been passing
-        // a working directory that was silently discarded, and the injected
-        // window mixed one project's conversation into another's. Explicit
-        // recall stays cross-project on purpose — asked directly, the one mind
-        // answers about everything. This is the window nobody asked for.
-        cwd: CWD, same_cwd: true, limit: _paneConvId ? 12 : 3,
-        conversation_id: _paneConvId
-      });
-      // Scoped-window BACKFILL: a pane mints
-      // a FRESH conversation_id whenever the app cannot restore its layout
-      // (fresh install, wiped/empty cockpit_layout, deleted conversation),
-      // so right after a relaunch the scoped window came up EMPTY while the
-      // operator's turns sat in the db under the previous id - and the
-      // partner opened with "we never talked about that". When the scoped
-      // thread is thin, backfill with recent cross-surface turns: continuity
-      // degrades to the old cross-surface window instead of to amnesia.
-      // Backfilled lines are explicitly labeled below so the model treats
-      // them as older context, not the live thread.
-      let _windowBackfilled = false;
-      if (_paneConvId && (!turns || turns.length < 3)) {
-        try {
-          const _tkey = (t) => String(t && t.id != null ? t.id : ((t && t.ts) || '') + '|' + ((t && t.user_text) || ''));
-          const fill = dialogueMemory.recentTurns({ cwd: CWD, limit: 6 });
-          const seen = new Set((turns || []).map(_tkey));
-          const older = (fill || []).filter((t) => !seen.has(_tkey(t)));
-          if (older.length) { turns = older.concat(turns || []); _windowBackfilled = true; }
-        } catch (_) { /* best-effort: scoped-only beats a crashed prefix */ }
-      }
+      // Working memory for THIS thread, and nothing else.
+      //
+      // The window exists for one job: the immediately preceding turns, so
+      // "that one" and "it" resolve. That is working memory, and working
+      // memory belongs to a single conversation by definition. Long-term
+      // continuity is not this block's job — it is the substrate's, reached by
+      // recall when something is actually asked.
+      //
+      // So an unidentified thread gets NO window rather than a wide one. The
+      // wide read looked like graceful degradation and was not: turns from
+      // other conversations in the same directory arrived presented as this
+      // one's own history, which is not less continuity but invented
+      // continuity. Nothing is lost by withholding it — those turns are in the
+      // substrate and answer when asked.
+      const turns = _paneConvId
+        ? (dialogueMemory.recentTurns({
+            // same_cwd, or the cwd is silently discarded: recentTurns honours
+            // it only under strict_isolation or same_cwd. Explicit recall stays
+            // cross-project on purpose — asked directly, the one mind answers
+            // about everything. This is the window nobody asked for.
+            cwd: CWD, same_cwd: true, limit: 12,
+            conversation_id: _paneConvId
+          }) || [])
+        : [];
       let dropDialogue = false;
       if (query && turns && turns.length) {
         // Purpose-built off-topic check: drop dialogue only when none
@@ -1306,12 +1382,13 @@ function main() {
       }
       if (!dropDialogue) {
         // Chars follow the same surface split as the turn limit above.
-        const transcript = dialogueMemory.renderTranscript(turns, { max_chars: _paneConvId ? 4000 : 700 });
+        const transcript = dialogueMemory.renderTranscript(turns, { max_chars: 4000 });
         if (transcript) {
           // Temporal honesty (operator-reported: the CLI greeted with a
-          // days-old project as if it were live). The window is cross-
-          // surface by design (one mind), but the model must KNOW how
-          // old it is, or it presents stale context as the present.
+          // days-old project as if it were live). The window is one thread's
+          // own history now, but a thread can be resumed after a long gap and
+          // the model must KNOW how old it is, or it presents stale context as
+          // the present.
           let ageStr = '';
           try {
             const newest = Math.max.apply(null, turns.map((t) => Number(t.ts || t.timestamp || 0)).filter(Boolean));
@@ -1322,10 +1399,8 @@ function main() {
             }
           } catch (_) { /* aging is best-effort */ }
           lines.push(ageStr
-            ? '## Recent dialogue (STALE — last exchange ' + ageStr + '; possibly another surface. Do not present it as current: mention its age if you bring it up, or simply ask what is next.)'
-            : (_windowBackfilled
-              ? '## Recent dialogue (this thread is new; older lines below are earlier exchanges, possibly from another surface. Treat them as context — the operator\'s CURRENT message defines the topic.)'
-              : '## Recent dialogue'));
+            ? '## Recent dialogue (STALE — last exchange ' + ageStr + '. Do not present it as current: mention its age if you bring it up, or simply ask what is next.)'
+            : '## Recent dialogue');
           lines.push(transcript);
         }
       }
@@ -1748,7 +1823,8 @@ function main() {
         const baseRunner = toolRunner.makeRunner({
           agent_id: AGENT_ID,
           cwd:      TURN_CWD,
-          user_id:  USER_ID
+          user_id:  USER_ID,
+          conversation_id: (action.options && action.options.conversation_id) || null
         });
         // Mode A safety: wrap with permission gate so write/exec tools
         // need TROTH_ENTITY_AUTO_WRITE=1 OR action.options.auto_write
@@ -1902,6 +1978,7 @@ function main() {
         dialogueMemory.recordTurn({
           agent_id: AGENT_ID,
           cwd: CWD,
+          context_id: _boundContext,
           user_id: USER_ID,
           user_text: action.prompt || '',
           assistant_text: res.text,
@@ -1965,6 +2042,7 @@ function main() {
         dialogueMemory.recordTurn({
           agent_id: AGENT_ID,
           cwd: CWD,
+          context_id: _boundContext,
           user_id: USER_ID,
           user_text: action.prompt,
           assistant_text: '',

@@ -108,7 +108,7 @@ function makeOllamaTransport(opts) {
           error = new Error('ollama http ' + res.statusCode + ': ' + chunks.slice(0, 500));
           error.code = 'http_status';
           ended = true;
-          while (waiters.length) waiters.shift()({ done: true, _abort_reason: 'http_error' });
+          while (waiters.length) waiters.shift()({ done: true, _abort_reason: 'http_error', _status: res.statusCode, _detail: String(chunks).slice(0, 400) });
         });
         return;
       }
@@ -144,6 +144,13 @@ function makeOllamaTransport(opts) {
             emit({ tool_calls: tcs });
           }
           if (msg && msg.done) {
+            const _p = msg.prompt_eval_count || 0;
+            const _e = msg.eval_count || 0;
+            if (_p > 0 || _e > 0) {
+              const _u = { input_tokens: _p, output_tokens: _e };
+              if (_p > 0) _u.context_used = _p;
+              emit({ usage: _u });
+            }
             emit({ done: true });
           }
         }

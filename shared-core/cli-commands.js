@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // The CLI command surface, as DATA. One list, two consumers: bin/troth.js
 // builds its dispatch Set from it, and the proxy's /api/commands reference
-// serves it to the dashboard. It used to live as a literal inside troth.js
-// and the reference REGEXED the source text for it - which returned zero
-// commands in every shipped bundle, because shipped source is minified and
-// the pattern never matched again (release-gate behave check, 2026-08-09).
+// serves it to the dashboard. Kept as data, never as a literal regexed out
+// of troth.js source: shipped source is minified, a source-shape pattern
+// stops matching, and the reference returns zero commands.
 // Data survives minification; source-shape never has to.
 module.exports = [
   "setup", "init", "doctor", "accounts", "start", "restart", "tail", "reset",
   "service",
+  // Ground registry: which of the operator's own folders the partner may
+  // work in with the operator's environment. The only writer of that file.
+  "open", "close", "opened",
+  // Egress allowlist: which hosts a jailed install may reach. Same rule —
+  // the only writer of that file.
+  "net-allow", "net-allowed",
   "version", "help", "ui", "app",
   // `troth classic` as an explicit subcommand: force Claude-Code-through-proxy
   // for ONE run without flipping default_command (the gate below honors it).
@@ -17,10 +22,9 @@ module.exports = [
   "run", "status", "logs", "diff", "merge", "kill", "clean",
   // MCP server (stdio protocol for AI chat agents):
   "mcp",
-  // ChatGPT-subscription OAuth (cmd-codex.js). The comment pass of 2026-08-03
-  // folded this entry into the comment above it, so `troth codex login` — the
-  // command docs/SETUP_GUIDE.md tells people to run to use their own ChatGPT
-  // account — answered "Run not found: codex" in every published release.
+  // ChatGPT-subscription OAuth (cmd-codex.js). Kept as its OWN entry:
+  // folded into the comment above it, `troth codex login` — the command
+  // docs/SETUP_GUIDE.md tells people to run — answers "Run not found".
   "codex",
   // Scheduled runs (the timer is off unless TROTH_ENABLE_SCHEDULER=1):
   "schedule",

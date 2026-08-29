@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // A page the partner read must never arrive as something the operator said.
 //
-// This wall exists because of a hole opened on 2026-08-11, the same day web
+// This wall exists because of a hole: the same day web
 // capture was built. Keeping fetched pages is the point of the feature; the
 // per-turn injector renders every recall hit under one banner — "treat as
 // GROUND TRUTH, do NOT re-derive it from files" — and printed the statement

@@ -19,11 +19,10 @@ const HOME = os.homedir();
 // inference per session over HTTP, NO heavy claude-code process spawn) and record
 // them as recallable memory:chat-distilled engrams.
 // --full: BOTH halves — the raw chunk+embed archive (docs:chats, the
-// searchable record) AND the distilled identity facts. The app's import used
-// to force --distill alone, so "Import your chat history" claimed an archive
-// it never built — docs:chats sat at 0 rows while the UI said imported
-// (AUDIT-2026-08-09). The app now sends --full; the bare CLI (no flag)
-// keeps the raw-only path unchanged.
+// searchable record) AND the distilled identity facts. The app sends --full
+// so "Import your chat history" builds both; --distill alone would claim an
+// archive it never built (docs:chats at 0 rows). The bare CLI (no flag)
+// keeps the raw-only path.
 const DISTILL = process.argv.includes('--distill');
 const FULL    = process.argv.includes('--full');
 const _http = require('http');
@@ -168,7 +167,7 @@ const RAW_SCOPE = 'docs:chats', DIST_SCOPE = 'memory:chat-distilled';
 const wantRaw  = FULL || !DISTILL;
 const wantDist = FULL || DISTILL;
 // RAW provenance is PREFIX-matched: sessions live in per-project scopes
-// (docs:chats:<encoded-project-dir>) since 2026-08-09, and legacy rows sit
+// (docs:chats:<encoded-project-dir>), and legacy rows sit
 // in the flat scope — exact matching would re-import every legacy session
 // as a duplicate the moment scoping shipped.
 const exRaw  = wantRaw  ? new Set(chameleon.listIngestedSourcesPrefix(RAW_SCOPE)) : null;
@@ -195,8 +194,8 @@ async function ingestOne(cap, src, title, scope, cwd) {
 // Per-project provenance for claude-cli sessions. The projects dir encodes
 // the working directory in its NAME ('-Users-x-snap'), and the import used
 // to throw that away: every chunk was titled by session uuid with cwd null,
-// so "remember what we did in snap" had nothing to hold on to (field
-// report, 2026-08-09). Decoding the name back to a path is AMBIGUOUS when
+// so "remember what we did in snap" had nothing to hold on to.
+// Decoding the name back to a path is AMBIGUOUS when
 // the path itself contains hyphens, so: the SCOPE carries the full encoded
 // dir (unique + stable), the cwd is stored only when the naive decode
 // verifiably exists on disk, and the title gets a human tail either way.

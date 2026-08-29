@@ -55,9 +55,8 @@ const startsWith = (a, b) => (process.platform === 'win32')
 //
 // The '/memory/' requirement left the continuity files uncovered: RESUME.md and
 // progress.md sit BESIDE the memory folder, at
-// ~/.claude/projects/<key>/RESUME.md, so a handoff written there sailed past a
-// guard whose entire purpose is to stop exactly that (caught live 2026-08-12 —
-// an agent wrote a full session handoff to RESUME.md while troth was active).
+// ~/.claude/projects/<key>/RESUME.md, so a handoff written there would sail
+// past a guard that only watched the memory folder.
 // Nothing an agent legitimately authors belongs anywhere under that directory:
 // it is Claude Code's own per-project store, and continuity belongs in the
 // substrate.
@@ -65,10 +64,9 @@ const isMemoryMd =
   startsWith(abs, MEMORY_PREFIX) && abs.endsWith('.md');
 const isGlobalClaudeMd = eq(abs, GLOBAL_CLAUDE_MD);
 
-// Read side (added 2026-08-15): a FRESH session was watched pulling
-// ~/.claude memory files via Read ("Recalling 2 memories…" → Read
-// user_profile.md) instead of troth_recall — the harness's file memory wins
-// by default in EVERY session, not just careless ones. Two memory systems
+// Read side: the harness's file memory wins by default in EVERY session —
+// a fresh session pulls ~/.claude memory files via Read instead of
+// troth_recall unless the read side is guarded too. Two memory systems
 // means two truths, and only one of them is searchable. Reads of the memory
 // surface are steered to recall. Transcripts (.jsonl) stay readable: they
 // are session history, not a second memory.

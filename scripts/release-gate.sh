@@ -662,9 +662,8 @@ check_dmg() {
 }
 
 # ── open-repo parity ─────────────────────────────────────────────────────────
-# The inverse of the incident this gate was born from. The original failure
-# was a bundle carrying files the open repo does not contain; on 2026-08-15
-# a release closed with the OPPOSITE hole — DMG, CDN and site all shipped
+# The inverse hole to a bundle carrying files the open repo does not
+# contain: a release can close with the OPPOSITE gap — DMG, CDN and site all shipped
 # while the open repo still showed the previous version, because the publish
 # step lived in nobody's file and one context window's memory. A release is
 # not closed until the code the world reads IS the code that shipped, and
@@ -687,13 +686,60 @@ check_open_parity() {
   fi
 }
 
+# ── outgoing history hygiene ─────────────────────────────────────────────────────────────
+# A publish transfers whole COMMITS, not trees: author identities and every
+# historical diff travel with the push and stay readable forever. Tree-level
+# checks cannot see either class. This walks the exact range a publish
+# would transfer — the commits the open repo does not have yet.
+check_outgoing_history() {
+  echo "OUTGOING HISTORY"
+  local url="${TROTH_OPEN_REPO_URL:-https://github.com/xgre1/troth.git}"
+  if ! git fetch -q "$url" main 2>/dev/null; then
+    fail "cannot reach the open repo ($url) — outgoing range unknown"
+    return
+  fi
+  local range="FETCH_HEAD..HEAD"
+  local bad_authors
+  bad_authors="$(git log --format='%ae' "$range" | grep -vE '^(greg@troth\.one|[0-9]+\+xgre1@users\.noreply\.github\.com)$' | sort -u)"
+  if [ -z "$bad_authors" ]; then
+    pass "every outgoing commit is authored as the project identity"
+  else
+    fail "outgoing commits carry non-project author emails — identity travels with the push"
+    note "$bad_authors"
+  fi
+  local badsubj
+  badsubj="$(git log --format='%s' "$range" | grep -vE '^v[0-9]+\.[0-9]+(\.[0-9]+)?(: .+)?$|^[a-z0-9 .+-]+: .+' | head -5)"
+  if [ -z "$badsubj" ]; then
+    pass "every outgoing subject follows the commit convention (scoped or version-first)"
+  else
+    fail "outgoing subjects break the commit convention"
+    note "$badsubj"
+  fi
+  local idents hits
+  # History scans exclude the retired brand token: it appears legitimately in
+  # old diffs (the product was renamed) and removing it would rewrite
+  # historical trees. Tree-level checks keep the full identifier list.
+  idents="$(tr ',' '|' < "$HOME/.troth/gate-identifiers" 2>/dev/null | sed -E 's/(^|\|)troth(\||$)/\1\2/; s/\|\|/|/g; s/^\|//; s/\|$//')"
+  if [ -n "$idents" ]; then
+    hits="$(git log -p "$range" 2>/dev/null | grep -icE "$idents" || true)"
+    if [ "${hits:-0}" -eq 0 ]; then
+      pass "outgoing history diffs carry none of the gate identifiers"
+    else
+      fail "gate identifiers found inside outgoing history diffs ($hits lines)"
+      note 'inspect: git log -p FETCH_HEAD..HEAD | grep -inE "$(tr , "|" < ~/.troth/gate-identifiers)"'
+    fi
+  else
+    note "no gate-identifiers file — identifier history scan skipped"
+  fi
+}
+
 # ── ship reality ──────────────────────────────────────────────────────────────
 # The release as STRANGERS receive it. Nothing here reads a local build
 # product: the appcast is fetched live, the artifact is downloaded from the
 # CDN and hashed, the public CI verdict is read off the open repo's HEAD.
-# Born of 2026-08-15, when every inside-facing check was green while the
-# outside was wrong twice over (open repo a version behind; package.json a
-# version behind the site).
+# Every inside-facing check can be green while the
+# outside is wrong twice over (open repo a version behind; package.json a
+# version behind the site) — so the outside is read directly.
 check_ship() {
   echo "SHIP REALITY"
   local appcast site_ver repo_ver dmg_url site_sha
@@ -743,7 +789,7 @@ case "$MODE" in
   repo) check_repo ;;
   dmg)  check_dmg "${2:?usage: release-gate.sh dmg <path-to-dmg>}" ;;
   ship) check_ship ;;
-  release) check_repo; check_open_parity; check_ship; [ -n "${2:-}" ] && check_dmg "$2" ;;
+  release) check_repo; check_open_parity; check_outgoing_history; check_ship; [ -n "${2:-}" ] && check_dmg "$2" ;;
   --refresh-probes)
         # The stored list is what gates an export, which carries no overlay to
         # derive from. This rewrites it from the disk that does.

@@ -84,10 +84,12 @@ var MODEL_EFFECTIVE_LIMITS = {
   // 128K — the same class of bug as the Kimi ids.
   "gemini-3-flash": 1000000,
   "gemini-3.1-pro": 1000000,
+  "gemini-3-pro": 1000000,
   "gemini-2.5-pro": 1000000,
   // BYOK defaults that are actually sent, verified against vendor docs
   // qwen3-max 256K, glm-5.1 ~200K, deepseek-v4(-pro) 1M.
   "qwen3-max": 262144,
+  "qwen3-coder-480b": 262144,
   "glm-5.1": 200000,
   "deepseek-v4-pro": 1000000,
   "deepseek-v4": 1000000,
@@ -99,6 +101,8 @@ var MODEL_EFFECTIVE_LIMITS = {
   "gpt-5.5": 400000,
   "gpt-5.6-sol": 258000,
   "deepseek-ai/deepseek-v3.2": 128000,
+  "deepseek-ai/deepseek-v3-0324": 65536,
+  "deepseek-ai/deepseek-v3.1": 131072,
   "openai/gpt-oss-120b": 128000,
   "deepseek-chat": 128000,
   "llama-3.3-70b-versatile": 128000,
@@ -118,29 +122,348 @@ var MODEL_EFFECTIVE_LIMITS = {
   "kimi-k2.7-code": 262144,
   "kimi-k2.7-code-highspeed": 262144,
   "kimi-k2.6": 262144,
+  "grok-4.20": 2000000,
   "grok-4.3": 1000000,
   "grok-4.5": 500000,
-  "grok-build-0.1": 262144
+  "grok-4.6": 500000,
+  "grok-build-0.1": 262144,
+  "claude-fable-5": 1000000,
+  "claude-opus-5": 1000000,
+  "claude-opus-4-8": 1000000,
+  "claude-opus-4-7": 1000000,
+  "claude-opus-4-6": 1000000,
+  "claude-sonnet-5": 1000000,
+  "claude-sonnet-4-6": 1000000,
+  "claude-haiku-4-5": 200000
 };
 var DEFAULT_EFFECTIVE_LIMIT = 128000;
 
-// Load user-configured model limits from config
-try {
-  var _cfgLimits = JSON.parse(fs.readFileSync(path.join(process.env.HOME || require("os").homedir(), ".troth", "config.json"), "utf8"));
-  if (_cfgLimits.modelLimits) {
+var CURATED_LIMITS = Object.assign(Object.create(null), MODEL_EFFECTIVE_LIMITS);
+var OPERATOR_LIMITS = Object.create(null);
+function loadModelLimits() {
+  for (var _old in MODEL_EFFECTIVE_LIMITS) delete MODEL_EFFECTIVE_LIMITS[_old];
+  Object.assign(MODEL_EFFECTIVE_LIMITS, CURATED_LIMITS);
+  OPERATOR_LIMITS = Object.create(null);
+  _tailMemo = Object.create(null);
+  try {
+    var _cfgLimits = JSON.parse(fs.readFileSync(path.join(process.env.HOME || require("os").homedir(), ".troth", "config.json"), "utf8"));
+    if (!_cfgLimits.modelLimits) return;
     for (var _mk in _cfgLimits.modelLimits) {
-      MODEL_EFFECTIVE_LIMITS[_mk] = _cfgLimits.modelLimits[_mk];
-      console.log("[router] Custom model limit:", _mk, "→", _cfgLimits.modelLimits[_mk]);
+      var _mv = Number(_cfgLimits.modelLimits[_mk]) || 0;
+      if (_mv <= 0) continue;
+      MODEL_EFFECTIVE_LIMITS[_mk] = _mv;
+      OPERATOR_LIMITS[_mk] = _mv;
+    }
+  } catch (e) {}
+}
+loadModelLimits();
+
+var endpointWindow = require("../../shared-core/endpoint-window.js");
+var LOCAL_CTX_FALLBACK = parseInt(process.env.TROTH_CHAT_CTX || "16384", 10) || 16384;
+var _endpointCtx = Object.create(null);
+var _endpointProbedAt = Object.create(null);
+var _ctxWarned = Object.create(null);
+
+function probeEndpointWindow(key, base) {
+  var now = Date.now();
+  if (now - (_endpointProbedAt[key] || 0) < 60000) return;
+  _endpointProbedAt[key] = now;
+  endpointWindow.probe(base, function (n) {
+    if (n > 0) { _endpointCtx[key] = n; _saveCtxCache(); }
+  });
+}
+
+function _baseOf(prov) {
+  if (prov && prov.base_url) {
+    try {
+      var u = new URL(prov.base_url);
+      return { protocol: u.protocol, host: u.hostname, port: u.port || (u.protocol === "https:" ? 443 : 80) };
+    } catch (_) { /* fall through to host/port */ }
+  }
+  return {
+    protocol: "http:",
+    host: (prov && prov.host) || "127.0.0.1",
+    port: (prov && prov.port) || 1234
+  };
+}
+
+function warnUnresolvedWindow(model, providerName) {
+  if (_ctxWarned[model]) return;
+  _ctxWarned[model] = true;
+  console.log(
+    "[router] No context window published for \"" + model + "\"; using " +
+    DEFAULT_EFFECTIVE_LIMIT + ". Set providers." + (providerName || "<provider>") +
+    ".context_window in ~/.troth/config.json to make this exact."
+  );
+}
+
+function localContextSize() {
+  if (MODEL_EFFECTIVE_LIMITS.local) return MODEL_EFFECTIVE_LIMITS.local;
+  _seedEndpoint("local");
+  probeEndpointWindow("local", _baseOf(providers.local));
+  return _endpointCtx.local || LOCAL_CTX_FALLBACK;
+}
+
+function customEndpointSize() {
+  _seedEndpoint("custom_openai");
+  probeEndpointWindow("custom_openai", _baseOf(providers.custom_openai));
+  return _endpointCtx.custom_openai || 0;
+}
+
+// A lane carries a faculty id and a model id, and a config field can end up
+// holding the wrong one. Recording the faculty would attribute real tokens to
+// something that is not a model and has no price, so it is swapped for the
+// lane's own default before it reaches the ledger.
+function _asModelName(candidate, fallback) {
+  var s = String(candidate || '').trim();
+  if (!s) return fallback;
+  try {
+    var names = require("../../shared-core/engine-names.js");
+    if (names.toProvider(s) !== s) return fallback;
+  } catch (_) {}
+  return s;
+}
+
+function isLocalModelId(m) {
+  return /\.gguf(\b|$)/i.test(m) || m.charAt(0) === "/" || /^[A-Za-z]:\\/.test(m);
+}
+
+function providerDeclaredLimit(model) {
+  for (var name in providers) {
+    var p = providers[name];
+    if (!p || !p.enabled) continue;
+    var n = Number(p.context_window || p.contextWindow || 0);
+    if (n > 0 && String(p.model || "") === model) return n;
+  }
+  return 0;
+}
+
+var _discovered = Object.create(null);
+var _discoveredAt = 0;
+
+function probeOpenRouterCatalogue() {
+  var now = Date.now();
+  if (now - _discoveredAt < 24 * 60 * 60 * 1000) return;
+  _discoveredAt = now;
+  try {
+    var req = https.get({
+      host: "openrouter.ai",
+      path: "/api/v1/models",
+      timeout: 4000,
+      headers: { "accept": "application/json" }
+    }, function (res) {
+      if (res.statusCode !== 200) { res.resume(); return; }
+      var buf = "";
+      res.on("data", function (c) { if (buf.length < 4 * 1024 * 1024) buf += c; });
+      res.on("end", function () {
+        try {
+          var rows = (JSON.parse(buf) || {}).data || [];
+          for (var i = 0; i < rows.length; i++) {
+            var id = rows[i] && rows[i].id;
+            var n = Number(rows[i] && rows[i].context_length) || 0;
+            if (id && n > 0) _discovered[id] = n;
+          }
+          _tailMemo = Object.create(null);
+          _saveCtxCache();
+        } catch (_) {}
+      });
+    });
+    req.on("timeout", function () { req.destroy(); });
+    req.on("error", function () {});
+  } catch (_) {}
+}
+
+var CTX_CACHE_PATH = path.join(process.env.HOME || require("os").homedir(), ".troth", "context-windows.json");
+var CTX_CACHE_TTL = 24 * 60 * 60 * 1000;
+var _ctxSeed = Object.create(null);
+var _ctxSaveTimer = null;
+
+function _laneFingerprint(name) {
+  var p = providers[name] || {};
+  var b = _baseOf(p);
+  return name + "|" + b.host + ":" + b.port + "|" + String(p.model || "");
+}
+
+function _seedEndpoint(name) {
+  if (_endpointCtx[name] != null) return;
+  var row = _ctxSeed[_laneFingerprint(name)];
+  var n = Number(row && row.n) || 0;
+  if (n > 0) _endpointCtx[name] = n;
+}
+
+function _saveCtxCache() {
+  if (_ctxSaveTimer) return;
+  _ctxSaveTimer = setTimeout(function () {
+    _ctxSaveTimer = null;
+    try {
+      var now = Date.now();
+      var eps = Object.create(null);
+      for (var f in _ctxSeed) {
+        if (now - _ctxSeed[f].at <= CTX_CACHE_TTL) eps[f] = _ctxSeed[f];
+      }
+      for (var k in _endpointCtx) eps[_laneFingerprint(k)] = { n: _endpointCtx[k], at: now };
+      var tmp = CTX_CACHE_PATH + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify({ saved_at: now, endpoints: eps, catalogue: _discovered }));
+      fs.renameSync(tmp, CTX_CACHE_PATH);
+    } catch (_) {}
+  }, 1000);
+  if (_ctxSaveTimer.unref) _ctxSaveTimer.unref();
+}
+
+function _loadCtxCache() {
+  try {
+    var raw = JSON.parse(fs.readFileSync(CTX_CACHE_PATH, "utf8"));
+    var savedAt = Number(raw && raw.saved_at) || 0;
+    if (!savedAt || Date.now() - savedAt > CTX_CACHE_TTL) return;
+    if (raw.endpoints) {
+      for (var f in raw.endpoints) {
+        var row = raw.endpoints[f] || {};
+        var e = Number(row.n) || 0;
+        var at = Number(row.at) || 0;
+        if (e > 0 && at && Date.now() - at <= CTX_CACHE_TTL) _ctxSeed[f] = { n: e, at: at };
+      }
+    }
+    if (raw.catalogue) {
+      var any = false;
+      for (var id in raw.catalogue) {
+        var n = Number(raw.catalogue[id]) || 0;
+        if (n > 0) { _discovered[id] = n; any = true; }
+      }
+      if (any) { _discoveredAt = savedAt; _tailMemo = Object.create(null); }
+    }
+  } catch (_) {}
+}
+_loadCtxCache();
+
+function warmContextWindows() {
+  try { loadModelLimits(); } catch (_) {}
+  try { probeOpenRouterCatalogue(); } catch (_) {}
+  try {
+    if (providers.local && providers.local.enabled) probeEndpointWindow("local", _baseOf(providers.local));
+  } catch (_) {}
+  try {
+    if (providers.custom_openai && providers.custom_openai.enabled) probeEndpointWindow("custom_openai", _baseOf(providers.custom_openai));
+  } catch (_) {}
+}
+
+function isLocalModelId(m) {
+  return /\.gguf(\b|$)/i.test(m) || m.charAt(0) === "/" || /^[A-Za-z]:\\/.test(m);
+}
+
+var _tailMemo = Object.create(null);
+
+function _tailOf(id) {
+  var s = String(id || "");
+  var at = s.lastIndexOf("/");
+  return (at === -1 ? s : s.slice(at + 1)).toLowerCase();
+}
+
+function _tailWindow(m) {
+  var t = _tailOf(m);
+  if (!t) return { window: 0, source: "" };
+  if (_tailMemo[t]) return _tailMemo[t];
+  var best = 0, src = "";
+  for (var k in MODEL_EFFECTIVE_LIMITS) {
+    if (_tailOf(k) !== t) continue;
+    var n = MODEL_EFFECTIVE_LIMITS[k];
+    if (n > 0 && (best === 0 || n < best)) {
+      best = n;
+      src = OPERATOR_LIMITS[k] ? "operator" : "table";
     }
   }
-} catch (e) {}
+  if (!best) {
+    for (var d in _discovered) {
+      if (_tailOf(d) !== t) continue;
+      var dn = _discovered[d];
+      if (dn > 0 && (best === 0 || dn < best)) { best = dn; src = "catalogue"; }
+    }
+  }
+  _tailMemo[t] = { window: best, source: src };
+  return _tailMemo[t];
+}
 
-// Scale reported tokens so Claude Code's auto-compaction triggers
-// at the right percentage for the target model's actual capacity.
-// Claude Code assumes 200K context and triggers compaction at ~83.5%.
-function scaleTokens(actualTokens, model) {
-  var limit = MODEL_EFFECTIVE_LIMITS[model] || DEFAULT_EFFECTIVE_LIMIT;
-  return Math.ceil(actualTokens * (200000 / limit));
+function resolveContextWindow(model) {
+  var m = String(model || "");
+  if (!m) return { window: DEFAULT_EFFECTIVE_LIMIT, source: "default" };
+  if (MODEL_EFFECTIVE_LIMITS[m]) {
+    return {
+      window: MODEL_EFFECTIVE_LIMITS[m],
+      source: OPERATOR_LIMITS[m] ? "operator" : "table"
+    };
+  }
+  var ml = m.toLowerCase();
+  var declared = providerDeclaredLimit(m);
+  if (declared > 0) return { window: declared, source: "declared" };
+  if (isLocalModelId(m) || (providers.local && String(providers.local.model || "") === m)) {
+    var lw = localContextSize();
+    return { window: lw, source: _endpointCtx.local ? "endpoint" : "fallback" };
+  }
+  probeOpenRouterCatalogue();
+  if (_discovered[m]) return { window: _discovered[m], source: "catalogue" };
+  var tail = _tailWindow(m);
+  if (tail.window > 0) return tail;
+  var best = 0, bestLen = 0;
+  for (var k in MODEL_EFFECTIVE_LIMITS) {
+    var kl = k.toLowerCase();
+    if (ml.indexOf(kl) === 0 && kl.length > bestLen) {
+      best = MODEL_EFFECTIVE_LIMITS[k];
+      bestLen = kl.length;
+    }
+  }
+  if (best) return { window: best, source: "family" };
+  var cp = providers.custom_openai;
+  if (cp && cp.enabled && String(cp.model || "") === m) {
+    var probed = customEndpointSize();
+    if (probed > 0) return { window: probed, source: "endpoint" };
+    warnUnresolvedWindow(m, "custom_openai");
+    return { window: DEFAULT_EFFECTIVE_LIMIT, source: "default" };
+  }
+  warnUnresolvedWindow(m, null);
+  return { window: DEFAULT_EFFECTIVE_LIMIT, source: "default" };
+}
+
+function effectiveLimitFor(model) {
+  return resolveContextWindow(model).window;
+}
+
+const CLIENT_1M = 1000000;
+const CLIENT_DEFAULT = 200000;
+const BETA_1M_RE = /context-1m/i;
+function believedContextWindow(requestedModel, headers) {
+  var m = String(requestedModel || "");
+  if (/\[1m\]/i.test(m)) return CLIENT_1M;
+  var beta = headers && (headers["anthropic-beta"] || headers["Anthropic-Beta"]);
+  if (beta && BETA_1M_RE.test(String(beta))) return CLIENT_1M;
+  return CLIENT_DEFAULT;
+}
+
+function scaleTokens(actualTokens, servedModel, believed) {
+  var to = Number(believed) > 0 ? Number(believed) : CLIENT_DEFAULT;
+  return Math.ceil(actualTokens * (to / effectiveLimitFor(servedModel)));
+}
+
+function scaleUsage(usage, servedModel, believed) {
+  if (!usage) return usage;
+  var fields = ["input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"];
+  for (var i = 0; i < fields.length; i++) {
+    var f = fields[i];
+    if (Number(usage[f]) > 0) usage[f] = scaleTokens(usage[f], servedModel, believed);
+  }
+  return usage;
+}
+
+function scaleUsageInSSE(sseText, servedModel, believed) {
+  return String(sseText).replace(/^data: (\{.*\})$/gm, function (line, json) {
+    try {
+      var ev = JSON.parse(json);
+      var u = (ev.message && ev.message.usage) || ev.usage;
+      if (!u) return line;
+      scaleUsage(u, servedModel, believed);
+      return 'data: ' + JSON.stringify(ev);
+    } catch (_) {
+      return line;
+    }
+  });
 }
 
 // ── Tool result hollowing ──
@@ -685,8 +1008,6 @@ var routingPrefs = {
   // consulted by the chain), pin IS enforced in callFallbackChain.
   pin: "",
   // Operator-declared engine ORDER (array of provider names). Empty = let the
-  // cost/tier logic decide. The operator asked to be able to say which engine
-  // is first, second, third. Applied as a REORDER of the chain
   // the router already resolved, never as an expansion, so a stale entry can
   // never resurrect a disabled or unhealthy engine.
   order: [],
@@ -1123,7 +1444,7 @@ function callOpenAICompatible(bodyStr, providerOpts) {
           var inT  = usage.prompt_tokens || 0;
           var outT = usage.completion_tokens || 0;
           var cachT = (usage.prompt_tokens_details && usage.prompt_tokens_details.cached_tokens) || 0;
-          costMod.recordUsage(providerOpts.model, inT, outT, cachT);
+          costMod.recordUsage(_asModelName(providerOpts.model, providerOpts.model), inT, outT, cachT);
           // P4.1 — feed the per-model cache HIT-RATIO tracker for OpenAI-shape
           // providers too (was Anthropic-only, so the dashboard showed 0% cache
           // for DeepSeek/Gemini/Qwen even when their implicit prefix-cache hit).
@@ -1438,7 +1759,7 @@ function callKimiSub(bodyStr, opts) {
             // vanished on every proxy restart and the usage surfaces showed
             // three lanes out of four.
             try {
-              require('./cost').recordUsage(_sentModel, u.input_tokens || 0, u.output_tokens || 0,
+              require('./cost').recordUsage(_sentModel + ' (plan)', u.input_tokens || 0, u.output_tokens || 0,
                 (u.cache_read_input_tokens || 0));
             } catch (_) {}
           } catch (_) {}
@@ -1943,8 +2264,8 @@ function callOpenAISubscription(bodyStr, headers) {
               var cachTsub = (u.input_tokens_details && u.input_tokens_details.cached_tokens) || 0;
               stats.tokens.openai_sub.input  += inTsub;
               stats.tokens.openai_sub.output += outTsub;
-              var modelSub = providers.openai_sub.model || 'gpt-5.5';
-              try { require('./cost').recordUsage(modelSub, inTsub, outTsub, cachTsub); } catch (_) {}
+              var modelSub = _asModelName(providers.openai_sub.model, 'gpt-5.5');
+              try { require('./cost').recordUsage(modelSub + ' (plan)', inTsub, outTsub, cachTsub); } catch (_) {}
               try { require('./cacheratio').record(modelSub, { input_tokens: Math.max(0, inTsub - cachTsub), cache_read_input_tokens: cachTsub, cache_creation_input_tokens: 0 }); } catch (_) {}
             } catch (_) {}
             console.log('[router] OpenAI subscription OK');
@@ -3029,8 +3350,8 @@ var PLAN_PROMPT_PREFIX =
 
 // The architect is an internal enhancement, and an enhancement must never
 // bill a flat-rate subscription the operator bought for their own turns —
-// 18 of the 46 Kimi calls in the 2026-08-04 burn analysis were this helper
-// riding a kimi_sub pin through the general chain. The architect chain in
+// left on the general chain, this helper rides any subscription pin it
+// finds there. The architect chain in
 // generatePlan already names every lane it is allowed to spend: per-token
 // BYOK keys the operator chose to meter, or a live local box. When none of
 // those exists — or the operator pinned a subscription lane, which
@@ -3210,6 +3531,12 @@ function _fireAuthExpired(provider, detail) {
 }
 
 module.exports = { onAuthEvent: onAuthEvent, getEffectiveChain: getEffectiveChain, callFallbackChain: callFallbackChain, callAnthropic: callAnthropic, callOpenAISubscription: callOpenAISubscription, callAlibaba: callAlibaba, callZai: callZai, callMoonshot: callMoonshot, callXai: callXai, callCustomOpenai: callCustomOpenai, callFlash: callFlash, handleCompaction: handleCompaction, preprocessAnthropicBody: preprocessAnthropicBody, scaleTokens: scaleTokens, forwardToLocal: forwardToLocal, getStats: getStats, analyzeImage: analyzeImage, getProviders: getProviders, getRoutingPrefs: getRoutingPrefs, loadProviders: loadProviders, generatePlan: generatePlan, injectPlan: injectPlan, continueIfTruncated: continueIfTruncated, moaRefine: moaRefine, ALIBABA_HARD_CAP_TOKENS: ALIBABA_HARD_CAP_TOKENS, detectPhase: detectPhase, filterAndTrimTools: filterAndTrimTools, isLocalAvailable: isLocalAvailable, makeFidelityJudge: makeFidelityJudge, buildPinFailure: buildPinFailure, buildNoEngineFailure: buildNoEngineFailure,
+  effectiveLimitFor: effectiveLimitFor,
+  resolveContextWindow: resolveContextWindow,
+  believedContextWindow: believedContextWindow,
+  scaleUsage: scaleUsage,
+  scaleUsageInSSE: scaleUsageInSSE,
+  warmContextWindows: warmContextWindows,
   // Test-only surface (used by tests/suite-19-router-pin-failfast.js). These
   // expose the in-memory provider/routing/health state so a test can drive a
   // pinned-provider-in-cooldown scenario without writing a config file or

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // A memory that cannot start must not look like a memory that is empty.
 //
-// Field report (2026-08-10): an operator asked about work discussed months
+// Field report: an operator asked about work discussed months
 // earlier and explicitly told the agent to use the router. The agent tried,
 // got a bare transport error, concluded the substrate held nothing, and spent
 // ~100k tokens grepping uploaded files instead. The router.json on that

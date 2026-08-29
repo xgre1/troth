@@ -23,21 +23,23 @@ const errortax = require(pluginRoot + '/../shared-core/errortax-hook.js');
 function extractErrorText(payload) {
   const r = payload.tool_response;
   if (!r) return '';
-  if (typeof r === 'string') return r;
+  if (typeof r === 'string') {
+    // A bare string carries no verdict. Only shell-shaped markers count;
+    // prose that merely mentions an error is not an error report.
+    return /^\s*(?:Error|error):|\bENOENT\b|\bEACCES\b|command not found/m.test(r) ? r : '';
+  }
   if (r.is_error === true || r.isError === true) {
     if (typeof r.content === 'string') return r.content;
     if (typeof r.output === 'string') return r.output;
     if (Array.isArray(r.content)) return r.content.map(c => c && (c.text || c.content)).filter(Boolean).join('\n');
   }
-  // Sometimes the tool succeeded but stderr contains a real error.
-  // Heuristic: if content includes obvious error markers, still classify.
-  const joined = [
-    typeof r.output === 'string' ? r.output : '',
-    typeof r.stderr === 'string' ? r.stderr : '',
-    typeof r.content === 'string' ? r.content : '',
-    Array.isArray(r.content) ? r.content.map(c => c && (c.text || c.content)).filter(Boolean).join('\n') : ''
-  ].join('\n');
-  if (/\b(Error:|error:|ENOENT|EACCES|not found)\b/i.test(joined)) return joined;
+  // A call that SUCCEEDED is not an error report, and its content is answer
+  // text: a memory, a page, a file — material that may discuss errors without
+  // being one. Classifying it would tell the model its own tool failed and
+  // shelve that as precedent. On success only stderr is read, and only for
+  // markers a shell actually emits.
+  const err = typeof r.stderr === 'string' ? r.stderr : '';
+  if (/\bENOENT\b|\bEACCES\b|command not found|permission denied|no such file or directory/i.test(err)) return err;
   return '';
 }
 

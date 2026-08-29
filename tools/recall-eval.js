@@ -90,7 +90,7 @@ const GUARD = [
       check('rule surfaces for "' + q.slice(0, 34) + '"', at !== -1 && at < 3,
             at === -1 ? 'not in top 5' : ('rank #' + (at + 1) + ' at ' + hits[at].score));
     }
-    // The failure mode measured on 2026-08-11: rules filling slots on
+    // The failure mode this checks for: rules filling slots on
     // questions that have nothing to do with them.
     const unrelated = await topFor('what is the keychain profile used for notarizing', 5);
     const ruleTexts = new Set(rules.map(r => String(r.text || '')));

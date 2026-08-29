@@ -4676,9 +4676,9 @@ console.log('\ndesign phase universal fs:do executor:');
   });
 
   test('L4-FS-2: _pathInsideRoot defeats path-traversal escapes', () => {
-    const root = '/tmp/troth-test-root';
+    const root = require('os').tmpdir() + '/troth-test-root';
     assert.strictEqual(fsDo._pathInsideRoot('/tmp/troth-test-root/x.txt', root), true);
-    assert.strictEqual(fsDo._pathInsideRoot('/tmp/troth-test-root', root), true);
+    assert.strictEqual(fsDo._pathInsideRoot(require('os').tmpdir() + '/troth-test-root', root), true);
     assert.strictEqual(fsDo._pathInsideRoot('/tmp/troth-test-root-evil/x', root), false);
     assert.strictEqual(fsDo._pathInsideRoot('/tmp/other/x', root), false);
     // Traversal attempt — resolve normalizes;../ escapes are caught.
@@ -6496,11 +6496,11 @@ console.log('\ndesign phase dormancy + WAL replicate tasks:');
     const saved = process.env.TROTH_WAL_DEST;
     let calledWith = null;
     try {
-      process.env.TROTH_WAL_DEST = '/tmp/troth-test-wal.db';
+      process.env.TROTH_WAL_DEST = require('os').tmpdir() + '/troth-test-wal.db';
       const r = await bw.tasks.walReplicate.run({
         _deps: { wal: { runOnce: async (opts) => { calledWith = opts; return { ok: true, dest: opts.dest, bytes: 1024 }; } } }
       });
-      assert.strictEqual(calledWith.dest, '/tmp/troth-test-wal.db');
+      assert.strictEqual(calledWith.dest, require('os').tmpdir() + '/troth-test-wal.db');
       assert.strictEqual(r.events.length, 1);
       assert.ok(/ok \(1024B/.test(r.notes[0]), r.notes[0]);
     } finally {
@@ -6512,7 +6512,7 @@ console.log('\ndesign phase dormancy + WAL replicate tasks:');
   test('L4-5_2C-WAL-RUN-3: dest set + runOnce fails → event empty, note carries error', async () => {
     const saved = process.env.TROTH_WAL_DEST;
     try {
-      process.env.TROTH_WAL_DEST = '/tmp/troth-test-wal.db';
+      process.env.TROTH_WAL_DEST = require('os').tmpdir() + '/troth-test-wal.db';
       const r = await bw.tasks.walReplicate.run({
         _deps: { wal: { runOnce: async () => ({ ok: false, error: 'disk_full' }) } }
       });
@@ -7078,8 +7078,7 @@ console.log('\nL4 active_project draft + confirm pipeline:');
 // ─────────────────────────────────────────────────────────────────────────
 
 test('IRM-MEM-1: every memory-shaped question mounts full recall — the two classifiers may never disagree', () => {
-  // Measured 2026-08-15: six of ten memory-shaped phrasings — the most
-  // natural Greek forms among them ("τι είχαμε πει", "πού είχαμε μείνει") —
+  // Memory-shaped phrasings — the natural Greek forms among them most of all —
   // fell to default/dmn_slot: the turn reached the model with NO query-
   // driven memory mounted, and the model had to PULL via tools or answer
   // blind. On owned lanes memory is PUSHED; the same classifier that

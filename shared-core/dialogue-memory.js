@@ -88,20 +88,22 @@ function recordTurn(opts) {
   // can scope the injected working window to one thread. Null = unscoped
   // surface (bare CLI, legacy rows).
   const conversation_id = opts.conversation_id || null;
+  const event_ts = Number.isFinite(opts.timestamp) ? opts.timestamp : null;
   if (!agent_id) return false;
 
   if (_isRecentDuplicate(agent_id, user_id, user_text, assistant_text)) return false;
   try {
     const rec = {
       // A replicated turn carries its author's id — one record fleet-wide.
-      id: (typeof opts.id === 'string' && /^[0-9a-f][0-9a-f-]{15,}$/i.test(opts.id)) ? opts.id : actionRec.uuidv7(),
-      timestamp: Date.now(),
+      id: (typeof opts.id === 'string' && /^[0-9a-f][0-9a-f-]{15,}$/i.test(opts.id)) ? opts.id : actionRec.uuidv7(event_ts != null ? event_ts : undefined),
+      timestamp: event_ts != null ? event_ts : Date.now(),
       type: 'tool_call',
       agent_id,
       cwd,
       user_id,
       parent_id,
       session_id: conversation_id,
+      context_id: opts.context_id || null,
       //  dialogue turns ARE the conversation thread,
       // model needs to recall them. Audience model_visible, episodic class.
       audience: 'model_visible',

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 // Runs as npm `postinstall`. Prints the next step, because the step people
-// actually skip is the one after the install: two first-day users on
-// 2026-08-04 ran `npm ci` from a clone and then typed `troth setup` into
+// actually skip is the one after the install: first-day users run
+// `npm ci` from a clone and then type `troth setup` into
 // "command not found" — the `npm link` line between them never happened.
 // npm shows root-project script output, so this lands exactly where the
 // eyes already are. Global installs hide it; those users have `troth` on

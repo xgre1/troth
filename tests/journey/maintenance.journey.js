@@ -2,8 +2,8 @@
 'use strict';
 // The dashboard-only topology, healed — the exact install that froze at
 // "28 memories still indexing / 20,682 archive chunks still embedding" for
-// two days (Linux, `troth start` + browser, no entity daemon anywhere,
-// 2026-08-09). The proxy now hosts the maintenance worker, so THIS journey
+// two days (Linux, `troth start` + browser, no entity daemon anywhere).
+// The proxy hosts the maintenance worker, so THIS journey
 // is the product promise: a proxy alone produces a drain heartbeat the
 // readiness surface can prove, and the "where do I SEE the memories" page
 // answers. Runs identically on the checkout, the DMG bundle's core, and

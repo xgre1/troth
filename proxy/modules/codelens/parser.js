@@ -381,9 +381,8 @@ function walkFiles(dir, onFile, opts) {
     if (stop || depth > maxDepth) return;
     // Timed PER DIRECTORY, not only per matched file: a tree of candidate-
     // free directories (cloud-backed mounts under a home — every readdir
-    // there can block on network) otherwise walks forever with the time
-    // cap never consulted. Observed live 2026-08-08: minutes inside
-    // readdir on ~/Library/CloudStorage while the cap sat at 10s.
+    // there can block on network) otherwise walks for minutes with the time
+    // cap never consulted.
     if (maxMs && (Date.now() - startedAt) > maxMs) { stop = 'time limit (' + maxMs + 'ms)'; return; }
     let entries;
     try { entries = fs.readdirSync(currentDir, { withFileTypes: true }); }

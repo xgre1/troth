@@ -53,9 +53,9 @@ function patterns() {
       /^\s*(?:ναι|όχι|οκ|εντάξει|ντάξει|ευχαριστώ|ευχαριστω|τέλεια|μπράβο)/i
     ],
     // Epistemic: timeless trivia the substrate has no privileged answer for.
-    // Date/time, arithmetic, units, weather. Dumping memory on these is the
-    // exact failure mode the operator flagged ("τι μέρα έχουμε σήμερα" →
-    // brain says "I know, in <project> we did X" — wrong). LLM answers
+    // Date/time, arithmetic, units, weather. Dumping memory on these is wrong
+    // in both languages ("τι μέρα έχουμε σήμερα" must not pull a project
+    // memory). LLM answers
     // from world knowledge, no retrieval block injected. Bilingual EL+EN.
     epistemic: [
       // Date / time / day-of-week — English. Cover both word orders:
@@ -270,11 +270,11 @@ function mountPolicyForIntent(intent) {
 // what KIND of memory section should attach to this turn (see comment above).
 function route(text) {
   let intent = classifyIntent(text);
-  // The memory-question classifier outranks the default bucket. Measured
-  // 2026-08-15: six of ten memory-shaped phrasings — including the most
-  // natural Greek forms ("τι είχαμε πει", "πού είχαμε μείνει") — fell to
-  // default/dmn_slot, so the turn went to the model with NO query-driven
-  // memory mounted and the model had to PULL via tools (or answer blind).
+  // The memory-question classifier outranks the default bucket: left to
+  // the default, most memory-shaped phrasings — including the most
+  // natural Greek forms ("τι είχαμε πει", "πού είχαμε μείνει") — fall to
+  // default/dmn_slot, so the turn reaches the model with NO query-driven
+  // memory mounted and the model has to PULL via tools (or answer blind).
   // On owned lanes memory is PUSHED; the same classifier that forces
   // recall on the proxy lane and dispatches pre-LLM decides the mount
   // here — one source of truth, or the surfaces drift apart again.

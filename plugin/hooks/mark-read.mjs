@@ -30,9 +30,8 @@ if (!session) { allow(); }
 // exact match, so tagging a page as untrusted would delete it from every
 // answer. It comes back, and it says where it came from.
 //
-// Measured 2026-08-11: WebFetch had 0 records in the entire substrate because
-// no hook matched it. Five months of arXiv, DeepMind and Google Ads reading
-// left nothing behind but a summary sentence, truncated at 8,000 chars.
+// Without a hook matching it, WebFetch leaves no record at all: months of
+// reading reduce to one summary sentence, truncated at 8,000 chars.
 if (tool === 'WebFetch') {
   try {
     const url = String(input.url || input.prompt_url || '').trim();
@@ -123,9 +122,9 @@ if (isSearch) {
   // app, the CLI and voice. It does NOT cover Claude Code launched directly:
   // `bin/troth.js` sets ANTHROPIC_BASE_URL at the proxy only when it starts
   // Claude Code itself, and a session started with a bare `claude` talks to
-  // Anthropic without ever passing through. Measured 2026-08-11: the proxy's
-  // request counter sat unchanged at 1,088 across a whole working day in this
-  // very session, so everything read here would have been invisible.
+  // Anthropic without ever passing through, leaving the proxy's request counter
+  // unchanged for a whole working day — everything read in such a session would
+  // be invisible.
   //
   // No sixth hook: this one already runs on every Read and already has the
   // path. The five PostToolUse hooks on Read cost 488ms per call as it is.
@@ -142,9 +141,9 @@ if (isSearch) {
       if (!isKnowledgeFile(abs)) continue;
       const sha = createHash('sha256').update(readFileSync(abs)).digest('hex').slice(0, 32);
       // No "have we ingested this already?" check here, deliberately. That
-      // question costs 144ms — json_extract(input,'$.source') has no index, so
-      // it is a full scan of 587,000 rows — and asking it on every Read added
-      // more latency than the whole rest of this hook. The queue's UNIQUE
+      // question has no index behind it — json_extract(input,'$.source') forces
+      // a full table scan, which on a grown substrate costs more than the whole
+      // rest of this hook. The queue's UNIQUE
       // index on (kind, ref, sha) already refuses a duplicate row, and the
       // drain asks properly before doing the expensive part. The cheap guard
       // belongs where the work is, not on the operator's turn.

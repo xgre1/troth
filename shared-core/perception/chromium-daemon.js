@@ -31,8 +31,8 @@ const HOST = '127.0.0.1';
 // PRIVATE Troth CDP port — NOT Chrome's well-known 9222. Security:
 // on 9222, ensure() would silently ATTACH to whatever Chrome already listens there
 // including the operator's REAL browser (every logged-in session) or another
-// agent's instance. That confused-deputy footgun was observed live (two Chromes
-// fighting over 9222). A private port means: a live instance on it is OURS, so
+// agent's instance — a confused-deputy attach. A private port means: a live
+// instance on it is OURS, so
 // attach is safe. To DELIBERATELY drive the operator's own browser ("do a job in
 // my account"), set TROTH_BROWSER_CDP_PORT=9222 explicitly — that, and only that,
 // is the opt-in path to the real session. (Mode-2 VM body uses 19222; host
@@ -45,6 +45,14 @@ const DEFAULT_PORT = parseInt(process.env.TROTH_BROWSER_CDP_PORT || '18222', 10)
 // a second copy of this path in the reaper is a second place to get it wrong.
 function defaultProfileDir() {
   return path.join(process.env.HOME || os.homedir(), '.troth', 'agent-browser-profile');
+}
+
+// The pre-hardening SHARED directory (agent and operator opt-in both used it,
+// usually on port 9222). Nothing launches it anymore; the reaper needs its
+// name to recognise an orphan of an older install — same single-source rule
+// as above. See browser-reap.js for the rule it feeds.
+function legacyProfileDir() {
+  return path.join(process.env.HOME || os.homedir(), '.troth', 'chrome-profile');
 }
 
 // Chromium-family browsers, in preference order. CDP is identical across them.
@@ -125,9 +133,9 @@ async function ensure(opts) {
       return { ok: false, error: 'no_chromium_browser_found',
         detail: 'no Chrome/Chromium/Brave/Edge found — install one or set TROTH_BROWSER_BIN' };
     }
-    // PRIVATE profile, the twin of the private port above. This used to be
-    // ~/.troth/chrome-profile, the same directory the operator's own opt-in
-    // browser uses, which quietly handed the agent every session that
+    // PRIVATE profile, the twin of the private port above — NEVER
+    // ~/.troth/chrome-profile, the directory the operator's own opt-in
+    // browser uses: sharing it quietly hands the agent every session that
     // operator was logged into: mail, bank, everything, with nobody having
     // agreed to it. Worse, both instances fought over one profile lock, and
     // reaping one could kill a window a human was typing in.
@@ -179,4 +187,4 @@ async function ensure(opts) {
   return _spawning;
 }
 
-module.exports = { ensure, alive, aliveHost, findBrowser, DEFAULT_PORT, defaultProfileDir };
+module.exports = { ensure, alive, aliveHost, findBrowser, DEFAULT_PORT, defaultProfileDir, legacyProfileDir };

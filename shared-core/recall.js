@@ -71,6 +71,34 @@ function buildFtsQuery(query) {
   return tokens.map(t => '"' + t.replace(/"/g, '') + '"').join(' OR ');
 }
 
+const _PROFILE = process.env.TROTH_RECALL_PROFILE === '1';
+let _phases = null;
+function _phase(name, fn) {
+  if (!_PROFILE) return fn();
+  const t = Date.now();
+  try { return fn(); } finally { if (_phases) _phases.push(name + ':' + (Date.now() - t)); }
+}
+async function _phaseAsync(name, fn) {
+  if (!_PROFILE) return await fn();
+  const t = Date.now();
+  try { return await fn(); } finally { if (_phases) _phases.push(name + ':' + (Date.now() - t)); }
+}
+
+function _envNum(name, dflt) {
+  const v = parseFloat(process.env[name]);
+  return Number.isFinite(v) ? v : dflt;
+}
+
+function stemLight(t) {
+  if (t.length <= 3 || /[^a-z]/.test(t)) return t;
+  if (t.length > 5 && t.endsWith('ies')) return t.slice(0, -3) + 'y';
+  if (t.length > 5 && t.endsWith('ing')) { const s = t.slice(0, -3); return s.length >= 4 ? s : t; }
+  if (t.length > 4 && t.endsWith('ed')) { const s = t.slice(0, -2); return s.length >= 4 ? s : t; }
+  if (t.length > 4 && t.endsWith('es') && /[sxzh]es$/.test(t)) return t.slice(0, -2);
+  if (t.endsWith('s') && !t.endsWith('ss')) return t.slice(0, -1);
+  return t;
+}
+
 function audienceOk(rowAudience, want) {
   if (want === 'all') return true;
   // Legacy rows (audience IS NULL) treated as substrate_internal at read,
@@ -373,8 +401,7 @@ function recallIdentity(opts) {
 // exactly as docs:chats rows declare themselves archive-only a few lines
 // below. One item's own scope, not a partition over the whole store.
 //
-// Measured 2026-08-11: without this, a project rule written in one repo
-// ("migrations are applied by hand here, never by the deploy script") came
+// Without this, a project rule written in one repo comes
 // back while working in a different repo. The listing road already honoured
 // the scope; the road the partner walks on its own did not — which is how a
 // partner ends up giving confident advice that is true somewhere else.
@@ -430,8 +457,8 @@ function recallSemantic(opts) {
       // recall pool (conversational fragments out-match curated research/facts).
       // Excluded here from the default recall; still fully retrievable via an
       // EXPLICIT scoped query (chameleon_query scope='docs:chats[:project]').
-      // PREFIX match since 2026-08-09: sessions land in per-project scopes
-      // (docs:chats:<encoded-dir>) — exact equality would have let every
+      // PREFIX match, not equality: sessions land in per-project scopes
+      // (docs:chats:<encoded-dir>), and exact equality would let every
       // scoped chunk flood the very pool this exclusion protects.
       if (String(out.scope || '').startsWith('docs:chats')) return null;
       // A rule the operator scoped to one project answers only there.
@@ -440,7 +467,7 @@ function recallSemantic(opts) {
       const text = String(out.text || out.statement || '').toLowerCase();
       if (!text) return null;
       let hits = 0;
-      for (const t of qt) if (text.indexOf(t) >= 0) hits++;
+      for (const t of qt) { if (text.indexOf(t) >= 0) { hits++; continue; } const s = stemLight(t); if (s !== t && text.indexOf(s) >= 0) hits++; }
       if (!hits) return null; // min_overlap floor: zero-overlap can't be saved by topic alone
       const overlap = hits / qt.length;
       const topic = topicBoost(text, opts.topicTokens);
@@ -466,11 +493,11 @@ function recallSemantic(opts) {
     .slice(0, opts.limit);
   return scored.map(({ r, out, score }) => ({
     id: r.id,
-    // The statement travels WHOLE. A 600-char cap sat on all three arms from
-    // 2026-06-08 to 2026-08-14 — a prompt budget applied at the data layer —
-    // and the surfaces that pass text through untouched inherited it: the
-    // recall tool handed the model amputated memories and the dashboard search
-    // showed the same cut, so a long engram could not be read back whole by
+    // The statement travels WHOLE. A char cap here is a prompt budget
+    // applied at the data layer,
+    // and the surfaces that pass text through untouched inherit it: the
+    // recall tool hands the model amputated memories and the dashboard search
+    // shows the same cut, so a long engram cannot be read back whole by
     // anyone. Every consumer that spends context clips at its own edge (the
     // injector to its block sizes, the voice prefix to its session budget);
     // the data layer answering short just teaches the reader that the memory
@@ -552,7 +579,7 @@ function recallEpisodic(opts) {
       if (!statement) return null;
       const blob = String(statement).toLowerCase();
       let hits = 0;
-      for (const t of qt) if (blob.indexOf(t) >= 0) hits++;
+      for (const t of qt) { if (blob.indexOf(t) >= 0) { hits++; continue; } const s = stemLight(t); if (s !== t && blob.indexOf(s) >= 0) hits++; }
       if (!hits) return null; // min_overlap floor
       const overlap = hits / qt.length;
       const ageDays = Math.max(0, (Date.now() - r.timestamp) / (1000 * 60 * 60 * 24));
@@ -611,11 +638,12 @@ function recallProcedural(opts) {
       catch (_) { return null; }
       // Step B — TMMA tier='flagged' filter for procedural class.
       if (!_includeFlaggedProc && out && out.tier === 'flagged') return null;
-      const triggers = (out && Array.isArray(out.triggers)) ? out.triggers.join(' ') : '';
+      const _trg = (out && (out.trigger_keywords || out.triggers)) || null;
+      const triggers = Array.isArray(_trg) ? _trg.join(' ') : '';
       const name = (out && (out.name || out.statement)) || '';
       const blob = (triggers + ' ' + name).toLowerCase();
       let hits = 0;
-      for (const t of qt) if (blob.indexOf(t) >= 0) hits++;
+      for (const t of qt) { if (blob.indexOf(t) >= 0) { hits++; continue; } const s = stemLight(t); if (s !== t && blob.indexOf(s) >= 0) hits++; }
       if (!hits) return null; // min_overlap floor
       const overlap = hits / qt.length;
       const topic = topicBoost(blob, opts.topicTokens);
@@ -734,6 +762,8 @@ async function recall(opts) {
   const subOpts = { query: q, audience, limit, cwd: opts.cwd || null, topicTokens,
     include_superseded: !!opts.include_superseded,
     include_flagged:    !!opts.include_flagged };
+  const _t0 = Date.now();
+  if (_PROFILE) _phases = [];
 
   // Candidate POOL is wider than the final `limit` so the semantic rerank
   // below can RESCUE a genuinely-relevant engram that lexical/recency
@@ -755,14 +785,11 @@ async function recall(opts) {
   else {
     // 'all' — score-fused across every class.
     //
-    // Previously this ran in priority order (identity → procedural →
-    // semantic → episodic) and stopped as soon as `limit` was filled.
-    // That starved episodic content: a query like "what did we say
-    // about the btc puzzle yesterday" returns procedural rows with
-    // score 0.1 BEFORE the episodic dialogue.turn rows with score 1.0
-    // are even queried, because the queue was already full. Result was
-    // the model honestly reporting "no memory" of conversations it had
-    // verbatim stored episodes for.
+    // Priority order (identity → procedural → semantic → episodic) stopping at
+    // `limit` starves episodic content: procedural rows scoring 0.1 fill the
+    // queue before the episodic dialogue.turn rows scoring 1.0 are queried at
+    // all, so the model reports no memory of conversations it has stored
+    // verbatim.
     //
     // Fix: gather ALL classes' top candidates (wider pool than limit),
     // dedup by id, sort by score, take top `limit`. Per-class trust
@@ -802,9 +829,9 @@ async function recall(opts) {
     // outranked genuinely-relevant semantic/procedural hits with higher cosine.
     // Drop it from query-driven 'all'; the entity still surfaces identity via the
     // envelope, and explicit class:'identity' callers are unaffected.
-    pull(recallProcedural({ ...subOpts, limit: poolLimit }));
-    pull(recallSemantic({ ...subOpts, limit: poolLimit }));
-    pull(recallEpisodic({ ...subOpts, limit: poolLimit }));
+    pull(_phase('procedural', () => recallProcedural({ ...subOpts, limit: poolLimit })));
+    pull(_phase('semantic', () => recallSemantic({ ...subOpts, limit: poolLimit })));
+    pull(_phase('episodic', () => recallEpisodic({ ...subOpts, limit: poolLimit })));
     fused.sort((a, b) => b.score - a.score);
     results = fused.slice(0, poolLimit);
   }
@@ -836,26 +863,26 @@ async function recall(opts) {
   // Graceful degrade: embedder down / query unembeddable → keep the lexical pool
   // order (sliced to limit). Dense-ONLY hits below COS_FLOOR are dropped as noise;
   // lexical hits are always kept (they matched keywords).
-  const W_COS = 0.60, W_BASE = 0.40;
-  const COS_FLOOR = 0.35;
-  // NOT gated on results.length. The dense arm used to run only when the
-  // lexical arm had already found something, so a query sharing no words with
-  // any memory returned NOTHING — the exact case this arm exists to serve, and
-  // the one its own comment above promises ("NO lexical-overlap requirement").
-  // Measured 2026-08-10: "what did we decide about our data storage engine?"
-  // returned 0 hits while pure cosine ranked the right memory second at 0.353.
+  const W_COS = _envNum('TROTH_RECALL_W_COS', 0.60), W_BASE = 1 - W_COS;
+  const COS_FLOOR = _envNum('TROTH_RECALL_COS_FLOOR', 0.35);
+  // NOT gated on results.length. Running the dense arm only when the lexical
+  // arm has already found something makes a query sharing no words with any
+  // memory return NOTHING — the exact case this arm exists to serve, and the
+  // one its own comment above promises ("NO lexical-overlap requirement").
+  // Pure cosine ranks the right memory where lexical overlap finds none.
   // With an empty lexical pool every dense hit is dense-only, scores on cosine
   // alone (base 0), and the COS_FLOOR still keeps weak matches out.
   if (q && q.length >= 3 && opts.skip_embedding_rerank !== true) {
     try {
       const localEmbedder = require('./local-embedder.js');
-      const qVec = await localEmbedder.embed(q, { role: 'query' }).catch(() => null);
+      const qVec = await _phaseAsync('embed', () => localEmbedder.embed(q, { role: 'query' }).catch(() => null));
       if (qVec && Array.isArray(qVec) && qVec.length) {
         const qNorm = Math.sqrt(qVec.reduce((a, v) => a + v * v, 0)) || 1;
         const lexIds = new Set(results.map(r => r.id));
         // DENSE ARM as candidate SOURCE — bring in semantically-similar engrams
         // the lexical FTS gate excluded (this is what enables pure-semantic recall).
-        const denseHits = denseArm(qVec, qNorm, audience, poolLimit);
+        const denseWindow = Math.max(poolLimit, _envNum('TROTH_RECALL_DENSE_WINDOW', poolLimit));
+        const denseHits = denseArm(qVec, qNorm, audience, denseWindow);
         const cosById = new Map(denseHits.map(h => [h.id, h.cos]));
         const denseOnly = denseHits.filter(h => !lexIds.has(h.id));
         if (denseOnly.length) {
@@ -870,9 +897,9 @@ async function recall(opts) {
           // Unfiltered, it pulled cosine neighbors from the WHOLE corpus,
           // and the massively-embedded dialogue turns entered EVERY class's
           // results in a tight 0.7–0.82 band — near-tied rows that buried
-          // real content memories (measured 2026-08-15: a query naming the
-          // decision record returned three dialogue rows within 0.034 of
-          // each other while the record itself never surfaced) and starved
+          // real content memories — a query naming a decision record returns
+          // near-tied dialogue rows while the record itself never surfaces — and
+          // starved
           // the memory-dispatch dominance gate. class='all' stays unfiltered
           // here; its raw-dialogue flood is handled by the demotion below.
           const _denseAllowed = cls === 'all' ? null : new Set(
@@ -909,7 +936,7 @@ async function recall(opts) {
               // Raw turns that arrived through the dense door alone (no
               // keyword match) are context, not knowledge — marked so the
               // fusion can seat curated memories above them at equal cosine.
-              _rawDialogueDense: row.type === 'dialogue.turn'
+              _rawDialogueDense: row.type === 'tool_call'
             });
           }
         }
@@ -918,9 +945,9 @@ async function recall(opts) {
         // SELF-ECHO demotion. Asking a question retrieves the asking of it:
         // the operator's own near-verbatim recent question (mirrored as a
         // dialogue turn) scores near-perfect lexical AND cosine against
-        // itself and seats above the memory that ANSWERS it (measured
-        // 2026-08-15: the just-asked app question + its manifest reply took
-        // #0/#1 over the actual decision-record engram). A turn whose USER
+        // itself and seats above the memory that ANSWERS it — the just-asked
+        // question and its reply take
+        // #0/#1 over the actual decision-record engram. A turn whose USER
         // half IS the query is the question repeated, not knowledge —
         // halved, not dropped: "what did I ask before" queries legitimately
         // want their echoes.
@@ -959,7 +986,19 @@ async function recall(opts) {
         }
         // Floor: drop dense-ONLY hits with weak similarity (keep every lexical
         // hit — they matched keywords). Never empty the set if anything matched.
-        const kept = results.filter(r => lexIds.has(r.id) || (typeof r._semantic_cos === 'number' && r._semantic_cos >= COS_FLOOR));
+        // Relative floor. A fixed COS_FLOOR tuned for the production flood
+        // band (top cos ~0.7-0.8) silently starves paraphrase evidence that
+        // peaks at ~0.36: with the whole dense field weak, 0.35 absolute kept
+        // 2 of 40 candidates. Scaling by the field's own top keeps the fixed
+        // value whenever topDenseCos >= 0.565 (every flood case — behavior
+        // there is provably unchanged) and only lowers the bar when the best
+        // available match is itself weak. 0.18 is the noise floor.
+        let topDenseCos = 0;
+        for (const r of results) {
+          if (!lexIds.has(r.id) && typeof r._semantic_cos === 'number' && r._semantic_cos > topDenseCos) topDenseCos = r._semantic_cos;
+        }
+        const effFloor = Math.min(COS_FLOOR, Math.max(0.18, 0.62 * topDenseCos));
+        const kept = results.filter(r => lexIds.has(r.id) || (typeof r._semantic_cos === 'number' && r._semantic_cos >= effFloor));
         results = kept.length ? kept : results;
         results.sort((a, b) => b.score - a.score);
       }
@@ -976,7 +1015,7 @@ async function recall(opts) {
   if (opts.rerank && results.length > 1 && q && q.length >= 3) {
     try {
       const reranker = require('./local-reranker.js');
-      const scores = await reranker.rerank(q, results.map(r => String(r.statement || '').slice(0, 1200)));
+      const scores = await _phaseAsync('rerank', () => reranker.rerank(q, results.map(r => String(r.statement || '').slice(0, 1200))));
       if (Array.isArray(scores)) {
         for (let i = 0; i < results.length; i++) {
           if (typeof scores[i] === 'number') results[i]._rerank = Number(scores[i].toFixed(4));
@@ -1002,16 +1041,62 @@ async function recall(opts) {
     const _seenStmt = new Set();
     const _deduped = [];
     for (const r of results) {
-      const nt = String(r.statement || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      let nt = String(r.statement || '').toLowerCase().replace(/\s+/g, ' ').trim();
+      // Dialogue mirrors dedup on their USER half: the app-mirror era wrote
+      // the same exchange many times with micro-variant assistant halves
+      // (seven copies of one turn measured in a single top-10), so whole-
+      // statement equality never collapses them. Highest-ranked copy wins;
+      // content engrams keep whole-statement keys.
+      const _uh = /^user:\s*([\s\S]{4,}?)(?:\s*\/\s*asst:|$)/.exec(nt);
+      if (_uh && _uh[1]) nt = 'u:' + _uh[1].slice(0, 80);
       if (nt && _seenStmt.has(nt)) continue;
       if (nt) _seenStmt.add(nt);
       _deduped.push(r);
     }
     results = _deduped;
   }
+  if (opts.context_id && process.env.TROTH_CONTEXT_BINDING === '1' && results.length) {
+    try {
+      const _ctxRows = state.getActionsByIds(results.map((r) => r.id)) || [];
+      const _ctxById = new Map(_ctxRows.map((r) => [r.id, r.context_id || null]));
+      results = results.filter((r) => r.class === 'identity' || _ctxById.get(r.id) === opts.context_id);
+    } catch (_) { /* filter unavailable → unfiltered pool stands */ }
+  }
   // Collapse the (wider) candidate pool back to the requested `limit`.
-  results = results.slice(0, limit);
-  // Archive arm (2026-08-09): "what did we do in <project>" must reach the
+  if (results.length > limit) {
+    let convById = null;
+    try {
+      const _rows = state.getActionsByIds(results.map((r) => r.id)) || [];
+      convById = new Map(_rows.map((r) => [r.id, r.session_id || null]));
+    } catch (_) { convById = null; }
+    if (convById) {
+      // ≤2 slots per conversation, and ONLY for rows that carry a non-null
+      // session_id: unstamped rows (the bulk of production) bypass the cap
+      // entirely, so behavior there is unchanged until threads are stamped.
+      // Score order is preserved; spill refills leftover slots.
+      const perConv = new Map();
+      const picked = [];
+      const spill = [];
+      for (const r of results) {
+        if (picked.length >= limit) break;
+        const conv = convById.get(r.id) || null;
+        if (conv == null) { picked.push(r); continue; }
+        const n = perConv.get(conv) || 0;
+        if (n < 2) { perConv.set(conv, n + 1); picked.push(r); }
+        else spill.push(r);
+      }
+      for (const r of spill) {
+        if (picked.length >= limit) break;
+        picked.push(r);
+      }
+      results = picked;
+    } else {
+      results = results.slice(0, limit);
+    }
+  } else {
+    results = results.slice(0, limit);
+  }
+  // Archive arm: "what did we do in <project>" must reach the
   // imported archive WITHOUT unleashing it into the general pool — the
   // IMPORT-FIX exclusion above stands, because raw fragments out-match
   // curated facts. When a query token names a known per-project archive
@@ -1019,6 +1104,7 @@ async function recall(opts) {
   // to 3 labeled hits AFTER the curated results: depth on request, never
   // flood. Additive + fail-open — losing the arm costs depth, not recall.
   if (q && (cls === 'all' || cls === 'semantic')) {
+    await _phaseAsync('archive', async () => {
     try {
       const scopes = state._dbForQuery().prepare(
         "SELECT DISTINCT json_extract(output,'$.scope') AS s FROM action_records WHERE json_extract(output,'$.scope') LIKE 'docs:chats:%'").all()
@@ -1037,6 +1123,7 @@ async function recall(opts) {
         }
       }
     } catch (_) { /* additive arm; see above */ }
+    });
   }
   // bump retrieval counter on returned hits.
   // Fire-and-forget; bumpRetrievalBatch is wrapped in try/catch so a
@@ -1047,6 +1134,13 @@ async function recall(opts) {
       const ids = results.map(r => r.id).filter(Boolean);
       if (ids.length) state.bumpRetrievalBatch(ids);
     } catch (_) { /* never block recall on stats write */ }
+  }
+  if (_PROFILE && _phases) {
+    try {
+      process.stderr.write('[recall-profile] total:' + (Date.now() - _t0) +
+        ' ' + _phases.join(' ') + ' n:' + results.length + '\n');
+    } catch (_) { /* a profile line never breaks a recall */ }
+    _phases = null;
   }
   return results;
 }

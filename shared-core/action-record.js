@@ -401,6 +401,12 @@ function toSearchText(record) {
   };
   flatten(record.input, 'input');
   flatten(record.output, 'output');
+  if (record.type === 'tool_call' && record.input && record.input.tool_name === 'dialogue.turn') {
+    const a = record.input.args;
+    if (a && typeof a.user_text === 'string' && a.user_text) parts.push(a.user_text);
+    const at = record.output && record.output.assistant_text;
+    if (typeof at === 'string' && at.length >= 500) parts.push(at);
+  }
   return parts.filter(Boolean).join(' ');
 }
 

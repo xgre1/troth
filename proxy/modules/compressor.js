@@ -80,12 +80,12 @@ function compressRequest(bodyStr) {
 
     const beforeBytes = bodyStr.length;
     const toolUseIndex = indexToolUses(data.messages);
-    // The boundary must not move every turn. This used to be
-    // (length - KEEP_RECENT_TURNS) directly, which advances by one on every
-    // request: each turn ONE more block crossed it, that block's bytes
-    // changed, and every provider prompt-cache entry from that point onward
-    // was re-billed — measured at ~50K uncached tokens per turn, seven
-    // consecutive turns, on a near-window session (2026-08-04). Quantized to
+    // The boundary must not move every turn. A boundary at
+    // (length - KEEP_RECENT_TURNS) directly advances by one on every
+    // request: each turn ONE more block crosses it, that block's bytes
+    // change, and every provider prompt-cache entry from that point onward
+    // is re-billed — ~50K uncached tokens per turn on a near-window
+    // session. Quantized to
     // steps of 20 MESSAGES (a turn adds ~3: user text, tool_use, tool_result,
     // so 20 ≈ six-seven turns), the boundary holds still between batches:
     // blocks truncate in groups, the prefix stays byte-stable in the gap, and

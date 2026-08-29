@@ -3,7 +3,7 @@
 // Sections: RATELIMIT (behavior) | PLUGIN HOOKS (behavior) | PROXY ↔ PLUGIN COEXISTENCE (behavior) | CRITIC ↔ REFLEXION LOOP (behavior) | ERRORTAX (behavior) | CRITIC (behavior) | TASK TIER CLASSIFIER (behavior) | DANGER CLASSIFIER (behavior) | REPOMAP (behavior) | EDIT MATCHER (behavior) | INJECTOR (behavior) 
 module.exports = function run({ test }) {
 const assert = require('assert');
-const TMP = '/tmp/troth-validator-test-' + Date.now();
+const TMP = require('os').tmpdir() + '/troth-validator-test-' + Date.now();
 const dedup = require('../proxy/modules/dedup');
 const { parseHeaders, parseRetryAfter } = require('../proxy/modules/ratelimit');
 const { record, getRecent } = require('../proxy/modules/perflog');
@@ -211,9 +211,8 @@ console.log('\nPlugin hooks (behavior):');
   test('MD-GUARD-5: blocks the continuity files that sit BESIDE the memory folder', () => {
     // RESUME.md and progress.md live at ~/.claude/projects/<key>/, one level
     // above memory/. The guard required '/memory/' in the path, so a full
-    // session handoff written to RESUME.md sailed past the guard whose entire
-    // purpose is to stop exactly that — observed live 2026-08-12 while troth
-    // was active. Nothing an agent authors belongs anywhere under that
+    // session handoff written to RESUME.md sails past the guard whose entire
+    // purpose is to stop exactly that. Nothing an agent authors belongs anywhere under that
     // directory: it is Claude Code's own store, and continuity is the
     // substrate's job.
     const os5 = require('os');
@@ -235,7 +234,7 @@ console.log('\nPlugin hooks (behavior):');
     // onto troth-hashline, and this guard\'s matcher listed only
     // Write|Edit|MultiEdit. So the product\'s PREFERRED editor was the one
     // path into the operator\'s memory files that nothing checked — proven
-    // live on 2026-08-12 by editing ~/.claude/CLAUDE.md, a file this guard
+    // live by editing ~/.claude/CLAUDE.md, a file this guard
     // names explicitly, with no block. A guard every real edit routes around
     // is decoration.
     const fsG = require('fs');
@@ -414,6 +413,76 @@ console.log('\nPlugin hooks (behavior):');
     assert.strictEqual(msg.error.code, -32602);
   });
 
+  // ── The read wall stands on every road ───────────────────────────────
+  //
+  // path-policy decides what may be read: key material, credential files,
+  // the substrate database. A retrieval tool that skips it is a way around
+  // the wall, and these two are the tools the servers tell the model to
+  // PREFER over the native Read.
+  function driveMcp(serverRel, call) {
+    const McpFile = pathMod2.join(PLUGIN, 'mcp-servers', serverRel, 'server.mjs');
+    const script = [
+      { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
+      { jsonrpc: '2.0', id: 2, method: 'tools/call', params: call }
+    ].map(m => JSON.stringify(m)).join('\n') + '\n';
+    const out = childProcess.execFileSync('node', [McpFile], {
+      input: script,
+      env: Object.assign({}, process.env, { CLAUDE_PLUGIN_ROOT: PLUGIN, CLAUDE_PLUGIN_DATA: TMP_DATA }),
+      encoding: 'utf8', timeout: 8000,
+    });
+    return out.trim().split('\n').map(l => { try { return JSON.parse(l); } catch (_) { return null; } })
+      .filter(Boolean).find(m => m.id === 2);
+  }
+
+  test('WALL-1: cached_read refuses a credential file and says why', () => {
+    const dir = pathMod2.join(TMP_DATA, 'wall-' + process.pid);
+    fsMod2.mkdirSync(dir, { recursive: true });
+    const secretish = pathMod2.join(dir, '.env');
+    fsMod2.writeFileSync(secretish, 'DECOY_TOKEN=not-a-real-secret\n');
+    const msg = driveMcp('troth-cache', { name: 'cached_read', arguments: { file_path: secretish } });
+    assert.ok(msg && msg.error, 'a refused read is an error, not content');
+    assert.ok(/blocked_secret_read/.test(JSON.stringify(msg.error)), JSON.stringify(msg.error).slice(0, 160));
+    assert.ok(!/not-a-real-secret/.test(JSON.stringify(msg)), 'the value must not appear anywhere in the reply');
+    try { fsMod2.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+  });
+
+  test('WALL-2: cached_grep withholds matches from files the policy refuses', () => {
+    const dir = pathMod2.join(TMP_DATA, 'wall2-' + process.pid);
+    fsMod2.mkdirSync(dir, { recursive: true });
+    fsMod2.writeFileSync(pathMod2.join(dir, '.env'), 'DECOY_TOKEN=not-a-real-secret\n');
+    fsMod2.writeFileSync(pathMod2.join(dir, 'normal.txt'), 'ordinary line mentioning DECOY_TOKEN\n');
+    const msg = driveMcp('troth-cache', { name: 'cached_grep', arguments: { pattern: 'DECOY_TOKEN', path: dir } });
+    const blob = JSON.stringify(msg);
+    assert.ok(!/not-a-real-secret/.test(blob), 'the credential line must be withheld');
+    assert.ok(/ordinary line mentioning/.test(blob), 'the ordinary match still comes back');
+    assert.ok(/withheld/.test(blob), 'and the withholding is stated, not silent');
+    try { fsMod2.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+  });
+
+  test('WALL-3: hashline_read refuses a credential file', () => {
+    const dir = pathMod2.join(TMP_DATA, 'wall3-' + process.pid);
+    fsMod2.mkdirSync(dir, { recursive: true });
+    const secretish = pathMod2.join(dir, '.env');
+    fsMod2.writeFileSync(secretish, 'DECOY_TOKEN=not-a-real-secret\n');
+    const msg = driveMcp('troth-hashline', { name: 'hashline_read', arguments: { file_path: secretish } });
+    const blob = JSON.stringify(msg);
+    assert.ok(/blocked_secret_read/.test(blob), blob.slice(0, 200));
+    assert.ok(!/not-a-real-secret/.test(blob), 'the value must not appear anywhere in the reply');
+    try { fsMod2.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+  });
+
+  test('WALL-4: an ordinary file still reads through both roads', () => {
+    const dir = pathMod2.join(TMP_DATA, 'wall4-' + process.pid);
+    fsMod2.mkdirSync(dir, { recursive: true });
+    const ok = pathMod2.join(dir, 'notes.txt');
+    fsMod2.writeFileSync(ok, 'plain content\n');
+    const a = driveMcp('troth-cache', { name: 'cached_read', arguments: { file_path: ok } });
+    const b = driveMcp('troth-hashline', { name: 'hashline_read', arguments: { file_path: ok } });
+    assert.ok(/plain content/.test(JSON.stringify(a)), 'cached_read still serves ordinary files');
+    assert.ok(/plain content/.test(JSON.stringify(b)), 'hashline_read still serves ordinary files');
+    try { fsMod2.rmSync(dir, { recursive: true, force: true }); } catch (_) {}
+  });
+
   test('cache-populate: skips uncacheable Edit tool entirely', () => {
     const out = runHook('cache-populate.mjs', {
       session_id: 'cache-f-4', tool_name: 'Edit',
@@ -533,6 +602,39 @@ console.log('\nCritic ↔ Reflexion loop (behavior):');
     assert.ok(ctx.includes('[troth/lessons]'), 'lesson block present');
     assert.ok(ctx.includes('file_not_found') || ctx.includes('ENOENT') || ctx.includes('Recovery:'),
       'lesson mentions the errortax recovery hint');
+  });
+
+  // A hook that speaks every turn only says what it can attest. A recall
+  // result is answer text and may contain the vocabulary of failure without
+  // being one; reported as a failed call it becomes precedent the model
+  // carries for days.
+  test('errortax stays silent when the call succeeded and only the prose sounds bad', () => {
+    const out = runHook('errortax.mjs', {
+      session_id: 'errortax-truth-1',
+      cwd: REPO,
+      tool_name: 'mcp__troth-substrate__troth_recall',
+      tool_input: { query: 'open repo' },
+      tool_response: {
+        content: 'every component presented as an organ toward that destination; the repo exists and is private'
+      }
+    });
+    const ctx = (out.hookSpecificOutput && out.hookSpecificOutput.additionalContext) || '';
+    assert.ok(!ctx.includes('[troth/errortax]'),
+      'a successful call must never be reported as failed; got ' + JSON.stringify(ctx.slice(0, 160)));
+  });
+
+  // The goal line exists to carry an EARLIER commitment forward. When intent
+  // capture falls back to the prompt itself (language-agnostic capture), the
+  // line renders as "Working on: <what you just typed>" — noise the model
+  // already has, at the top of every turn.
+  test('the goal line is not the prompt echoed back', () => {
+    const session_id = 'goal-echo-1';
+    const prompt = 'bro prepei na doume pos tha ftiaxoume ta issues sto proion xoris malakies';
+    runHook('intent-capture.mjs', { session_id, cwd: REPO, user_prompt: prompt });
+    const injOut = runHook('injector.mjs', { session_id, cwd: REPO, user_prompt: prompt });
+    const ctx = (injOut.hookSpecificOutput && injOut.hookSpecificOutput.additionalContext) || '';
+    assert.ok(!ctx.includes('[troth/goal] Working on: ' + prompt.slice(0, 40)),
+      'the fallback goal must not be spoken back; got ' + JSON.stringify(ctx.slice(0, 200)));
   });
 
   test('loopbreaker block records a lesson, next injector surfaces it', () => {
@@ -1127,7 +1229,7 @@ console.log('\nEdit matcher (behavior):');
     const fE = require('fs');
     const REPO2 = pE.resolve(__dirname, '..');
     const PLUGIN2 = pE.join(REPO2, 'plugin');
-    const tmp = pE.join('/tmp', 'troth-editmatch-sample.js');
+    const tmp = pE.join(require('os').tmpdir(), 'troth-editmatch-sample.js');
 
     // File where trim-strategy rescue would put a dangling "{" inside a
     // function, breaking syntax. Anchor-strategy should find the whole
@@ -1185,7 +1287,7 @@ console.log('\nEdit matcher (behavior):');
     const fE2 = require('fs');
     const REPO3 = pE2.resolve(__dirname, '..');
     const PLUGIN3 = pE2.join(REPO3, 'plugin');
-    const tmp = pE2.join('/tmp', 'troth-editmatch-multi.js');
+    const tmp = pE2.join(require('os').tmpdir(), 'troth-editmatch-multi.js');
     fE2.writeFileSync(tmp,
       'function alpha() {\n  return 1;\n}\n\n' +
       'function beta() {\n  return 2;\n}\n\n' +
@@ -1715,7 +1817,7 @@ console.log('\nHashline edit format (behavior):');
     const fMCP = require('fs');
     const REPO_HL = pMCP.resolve(__dirname, '..');
     const SERVER = pMCP.join(REPO_HL, 'plugin/mcp-servers/troth-hashline/server.mjs');
-    const tmp = pMCP.join('/tmp', 'troth-hl-ast-' + Date.now() + '.js');
+    const tmp = pMCP.join(require('os').tmpdir(), 'troth-hl-ast-' + Date.now() + '.js');
     fMCP.writeFileSync(tmp, 'function f() {\n  return 1;\n}\n');
 
     // Spawn server, exchange init + read + edit that breaks syntax.
@@ -1862,7 +1964,7 @@ console.log('\nActionRecord substrate:');
   // A2 — SQLite layer (uses isolated data dir)
   const pathMod = require('path');
   const fsMod = require('fs');
-  const TMP_A = pathMod.join('/tmp', 'gc-substrate-a-' + Date.now());
+  const TMP_A = pathMod.join(require('os').tmpdir(), 'gc-substrate-a-' + Date.now());
   fsMod.mkdirSync(TMP_A, { recursive: true });
   const savedEnv = process.env.CLAUDE_PLUGIN_DATA;
   process.env.CLAUDE_PLUGIN_DATA = TMP_A;
@@ -2015,7 +2117,7 @@ console.log('\nHook migration (behavior):');
   const fA = require('fs');
   const REPO_A = pA.resolve(__dirname, '..');
   const PLUGIN_A = pA.join(REPO_A, 'plugin');
-  const TMP_A5 = pA.join('/tmp', 'gc-a5-' + Date.now());
+  const TMP_A5 = pA.join(require('os').tmpdir(), 'gc-a5-' + Date.now());
   fA.mkdirSync(TMP_A5, { recursive: true });
 
   function runHookA(script, payload) {
@@ -3646,7 +3748,7 @@ console.log('\nMind state:');
   }
 
   test('A6.H1: pre-compact hook persists a mind_snapshot for the cwd', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h1-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h1-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     runHookA6('pre-compact.mjs', {
       session_id: 'a6h1-' + Date.now(),
@@ -3663,7 +3765,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H2: session-start emits additionalContext with orientation when snapshot exists', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h2-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h2-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const cwd = REPO_A6;
     // Seed a mind_snapshot with a meaningful focus + project so the
@@ -3704,7 +3806,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H3: session-start emits cache tip only when no snapshot exists', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h3-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h3-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const out = runHookA6('session-start.mjs', {
       session_id: 'a6h3-' + Date.now(),
@@ -3732,7 +3834,7 @@ console.log('\nMind state:');
   }
 
   test('A6.H_VOICE: session-start adds voice greeting directive when TROTH_VOICE_MODE=1 AND substrate has content', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6hvoice-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6hvoice-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const cwd = REPO_A6;
     // Seed a mind_snapshot so the orientation block has content. The
@@ -3773,7 +3875,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H_VOICE_OFF: session-start does NOT add voice greeting directive when TROTH_VOICE_MODE is unset', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6hvoiceoff-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6hvoiceoff-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const cwd = REPO_A6;
     // Seed snapshot so orientation has content — confirms the gating is
@@ -3811,7 +3913,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H4: topic-shift-detect is a no-op when TROTH_TOPIC_SHIFT is not set', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h4-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h4-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const sessId = 'a6h4-' + Date.now();
     runHookA6('topic-shift-detect.mjs', {
@@ -3830,7 +3932,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H5: topic-shift-detect writes a decision record on hard topic switch', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h5-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h5-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const sessId = 'a6h5-' + Date.now();
     const cwdHere = REPO_A6;
@@ -3881,7 +3983,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H7: topic-shift-detect emits re-orientation additionalContext when shift fires', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h7-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h7-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const sessId = 'a6h7-' + Date.now();
     const cwdHere = REPO_A6;
@@ -3979,7 +4081,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H8: stop-mind-persist writes a mind_snapshot with trigger=stop', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h8-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h8-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     runHookA6('stop-mind-persist.mjs', {
       session_id: 'a6h8-' + Date.now(),
@@ -3996,7 +4098,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H12: dmn-push is a no-op when TROTH_DMN_PUSH is not set', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h12-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h12-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const out = runHookA6('dmn-push.mjs', {
       session_id: 'a6h12-' + Date.now(),
@@ -4009,7 +4111,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H13: dmn-push emits cross-project relevance addContext', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h13-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h13-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const cwdHere = REPO_A6;
     // Seed snapshot with two projects; ar has a guided onboarding decision
@@ -4055,7 +4157,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H14: dmn-push rate-limits within window', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h14-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h14-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const cwdHere = REPO_A6;
     // Same setup as H13.
@@ -4100,7 +4202,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H10: stop-mind-persist deduplicates back-to-back no-change runs', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h10-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h10-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const cwdHere = REPO_A6;
     // First run: writes one snapshot.
@@ -4126,7 +4228,7 @@ console.log('\nMind state:');
   });
 
   test('A6.CLI1: troth mind list reports empty when no snapshots exist', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6cli1-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6cli1-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const out = childA6.execFileSync('node',
       [pA6.join(REPO_A6, 'bin', 'troth.js'), 'mind', 'list'], {
@@ -4139,9 +4241,9 @@ console.log('\nMind state:');
   });
 
   test('A6.CLI2: troth mind list shows snapshots after persist', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6cli2-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6cli2-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
-    const cwdHere = '/tmp/gc-cli-test-' + Date.now();
+    const cwdHere = require('os').tmpdir() + '/gc-cli-test-' + Date.now();
     // Persist via the hook so the schema validates end-to-end.
     runHookA6('stop-mind-persist.mjs', {
       session_id: 'a6cli2-' + Date.now(),
@@ -4159,9 +4261,9 @@ console.log('\nMind state:');
   });
 
   test('A6.CLI4: troth mind set-project bootstraps a project then list shows it', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6cli4-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6cli4-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
-    const cwdHere = '/tmp/gc-cli-bootstrap-' + Date.now();
+    const cwdHere = require('os').tmpdir() + '/gc-cli-bootstrap-' + Date.now();
     childA6.execFileSync('node',
       [pA6.join(REPO_A6, 'bin', 'troth.js'), 'mind', 'set-project',
         '--id', 'gc', '--name', 'troth v11',
@@ -4186,9 +4288,9 @@ console.log('\nMind state:');
   });
 
   test('A6.CLI5: troth mind set-project upserts existing project', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6cli5-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6cli5-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
-    const cwdHere = '/tmp/gc-cli-upsert-' + Date.now();
+    const cwdHere = require('os').tmpdir() + '/gc-cli-upsert-' + Date.now();
     // First call: create.
     childA6.execFileSync('node', [pA6.join(REPO_A6, 'bin', 'troth.js'),
       'mind', 'set-project', '--id', 'p', '--name', 'V1', '--stage', 's1', '--cwd', cwdHere],
@@ -4209,9 +4311,9 @@ console.log('\nMind state:');
   });
 
   test('A6.CLI6: troth mind decision writes a mind_decision substrate record', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6cli6-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6cli6-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
-    const cwdHere = '/tmp/gc-cli-dec-' + Date.now();
+    const cwdHere = require('os').tmpdir() + '/gc-cli-dec-' + Date.now();
     childA6.execFileSync('node',
       [pA6.join(REPO_A6, 'bin', 'troth.js'), 'mind', 'decision',
         '--project', 'gc', '--summary', 'lock decision X',
@@ -4232,9 +4334,9 @@ console.log('\nMind state:');
   });
 
   test('A6.CLI9: troth mind compact archives old snapshots beyond keep-last', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6cli9-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6cli9-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
-    const cwdHere = '/tmp/gc-cli-compact-' + Date.now();
+    const cwdHere = require('os').tmpdir() + '/gc-cli-compact-' + Date.now();
     // Seed 8 snapshots, oldest first; we'll then compact with keep-last=2
     // and older-than-days=0 so everything past the keep set is eligible.
     {
@@ -4268,9 +4370,9 @@ console.log('\nMind state:');
   });
 
   test('A6.CLI10: troth mind list filters out archived snapshots', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6cli10-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6cli10-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
-    const cwdHere = '/tmp/gc-cli-list-archived-' + Date.now();
+    const cwdHere = require('os').tmpdir() + '/gc-cli-list-archived-' + Date.now();
     // Seed 4 snapshots and archive 2 of them.
     let snapIds = [];
     {
@@ -4317,9 +4419,9 @@ console.log('\nMind state:');
   });
 
   test('A6.CLI8: troth mind distill exits 2 when no LLM endpoint is configured', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6cli8-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6cli8-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
-    const cwdHere = '/tmp/gc-cli-distill-' + Date.now();
+    const cwdHere = require('os').tmpdir() + '/gc-cli-distill-' + Date.now();
     // Bootstrap project so distill has something to find.
     childA6.execFileSync('node',
       [pA6.join(REPO_A6, 'bin', 'troth.js'), 'mind', 'set-project',
@@ -4353,7 +4455,7 @@ console.log('\nMind state:');
   });
 
   test('A6.CLI7: troth mind set-project rejects missing required args', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6cli7-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6cli7-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     let exited = 0;
     try {
@@ -4371,9 +4473,9 @@ console.log('\nMind state:');
   });
 
   test('A6.CLI3: troth mind show emits JSON containing the mind_state', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6cli3-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6cli3-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
-    const cwdHere = '/tmp/gc-cli-show-' + Date.now();
+    const cwdHere = require('os').tmpdir() + '/gc-cli-show-' + Date.now();
     runHookA6('stop-mind-persist.mjs', {
       session_id: 'a6cli3-' + Date.now(),
       cwd: cwdHere
@@ -4392,7 +4494,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H11: stop-mind-persist DOES persist when there is a real delta', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h11-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h11-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const cwdHere = REPO_A6;
     // First run: empty substrate → writes one snapshot (empty content).
@@ -4469,7 +4571,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H9: stop-mind-persist no-ops when TROTH_STOP_MIND_PERSIST=0', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h9-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h9-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     runHookWithEnv('stop-mind-persist.mjs', {
       session_id: 'a6h9-' + Date.now(),
@@ -4591,7 +4693,7 @@ console.log('\nMind state:');
   // ── Hook integration: decision-capture spawn tests ───────────────────
 
   test('A6.H15: decision-capture is no-op when TROTH_DECISION_CAPTURE not set', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h15-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h15-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     runHookA6('decision-capture.mjs', {
       session_id: 'a6h15', cwd: REPO_A6,
@@ -4605,7 +4707,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H16: decision-capture writes mind_decision on lock marker', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h16-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h16-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const cwd = REPO_A6;
     // Seed a snapshot with a project so resolution succeeds.
@@ -4640,7 +4742,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H17: decision-capture skips when no project resolvable from snapshot', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h17-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h17-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     runHookWithEnv('decision-capture.mjs', {
       session_id: 'a6h17',
@@ -4655,7 +4757,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H18: decision-capture dedups identical lock markers within 24h window', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h18-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h18-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const cwd = REPO_A6;
     {
@@ -4782,7 +4884,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H19: intent-decisions hook is no-op when env not set', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h19-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h19-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     runHookA6('intent-decisions.mjs', { session_id: 'a6h19', cwd: REPO_A6 }, TMP);
     const s = loadStateForDir(TMP);
@@ -4792,7 +4894,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H20: intent-decisions writes mind_decision pair on supersession', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h20-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h20-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const cwd = REPO_A6;
     {
@@ -4842,7 +4944,7 @@ console.log('\nMind state:');
   });
 
   test('A6.H6: topic-shift-detect does NOT fire when prompt is on-topic', () => {
-    const TMP = pA6.join('/tmp', 'gc-a6h6-' + Date.now());
+    const TMP = pA6.join(require('os').tmpdir(), 'gc-a6h6-' + Date.now());
     fA6.mkdirSync(TMP, { recursive: true });
     const sessId = 'a6h6-' + Date.now();
     const cwdHere = REPO_A6;

@@ -210,6 +210,7 @@ function makeLlamaCppTransport(opts) {
         model,
         messages,
         stream: true,
+        stream_options: { include_usage: true },
         cache_prompt: cachePrompt,
         // n_predict — generation token budget.: raised from
         // 512 to 2048 because Qwen3+ / DeepSeek-R1 / Gemma3-thinking
@@ -322,7 +323,7 @@ function makeLlamaCppTransport(opts) {
             error = new Error('llamacpp http ' + res.statusCode + ': ' + chunks.slice(0, 500));
             error.code = 'http_status';
             ended = true;
-            while (waiters.length) waiters.shift()({ done: true, _abort_reason: 'http_error' });
+            while (waiters.length) waiters.shift()({ done: true, _abort_reason: 'http_error', _status: res.statusCode, _detail: String(chunks).slice(0, 400) });
           });
           return;
         }
@@ -452,10 +453,23 @@ function makeLlamaCppTransport(opts) {
             // Token accounting: some llama.cpp builds attach usage to the
             // final chunk (stream_options or server default) — pass it up.
             if (msg && msg.usage) {
-              emit({ usage: {
-                input_tokens:  msg.usage.prompt_tokens     || msg.usage.input_tokens  || 0,
+              const prompt = msg.usage.prompt_tokens || msg.usage.input_tokens || 0;
+              const u = {
+                input_tokens:  prompt,
                 output_tokens: msg.usage.completion_tokens || msg.usage.output_tokens || 0
-              } });
+              };
+              if (prompt > 0) u.context_used = prompt;
+              let served = 0;
+              try {
+                served = require('../endpoint-window.js').windowFor({
+                  protocol: url.protocol,
+                  host:     url.hostname,
+                  port:     url.port || (url.protocol === 'https:' ? 443 : 80),
+                  model:    (msg && msg.model) || model
+                });
+              } catch (_) { served = 0; }
+              if (served > 0) u.context_window = served;
+              emit({ usage: u });
             }
             // OpenAI-compatible delta path. Two streams may arrive
             // interleaved on Qwen3+ / DeepSeek-R1 / o-series:

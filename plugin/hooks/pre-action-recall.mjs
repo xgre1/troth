@@ -41,9 +41,9 @@ const session = payload.session_id || null;
 // The session-start directive covers prompts phrased as "do you remember",
 // but nothing covered the moment the model decides to go read CLAUDE.md or a
 // memory/*.md instead of asking the substrate — and that decision is where
-// the cost lands (a field report burned ~100k tokens walking files while the
-// answer sat one recall away; the same trap caught this assistant on
-// 2026-08-10, grepping source to answer "have we built X").
+// the cost lands: a file walk burns ~100k tokens while the answer sits one
+// recall away, and grepping source to answer "have we built X" is the same
+// trap.
 //
 // A steer alone was measured insufficient: 48 memory-file walks in seven
 // days on a machine where recall was being auto-served every turn. So the
@@ -57,8 +57,26 @@ const session = payload.session_id || null;
 // steer; memory-md-guard still owns the write side.
 const _targetPath = String(input.file_path || input.path || input.notebook_path || '');
 const _pattern    = String(input.pattern || input.query || '');
+// The shell is the same question in different clothes again. This hook's
+// matcher already lists Bash, but nothing here read the field a shell call
+// actually carries, so a hunt for prior work through `find`/`grep` walked past
+// a guard that stops the identical hunt through Read.
+const _command    = String(input.command || '');
 const MEMORY_SURFACE = /(^|\/)CLAUDE\.md$|\/\.claude\/.*memory\/.*\.md$|(^|\/)MEMORY\.md$|\/memory\/[^/]+\.md$/;
-if (MEMORY_SURFACE.test(_targetPath) || /CLAUDE\.md|MEMORY\.md/.test(_pattern)) {
+// Two shell shapes count. Naming a memory file is obvious. The second is the
+// one that slipped: a search sweeping the home document folders for documents,
+// which is what looking for someone's earlier work looks like when the answer
+// is in the substrate. Deliberately not every `find` — a repo-scoped search is
+// ordinary work and must stay silent.
+const MEMORY_SHELL_NAMED = /CLAUDE\.md|MEMORY\.md|\/memory\/[^/\s]*\.md|\.claude\/projects/i;
+const HUNT_CMD   = /(^|[;&|\s])(find|fd|rg|grep|ls)\s/i;
+const DOC_TARGET = /\*\.(md|txt|json|pdf|docx?)\b/i;
+const HOME_DOCS  = /(~|\$HOME|\/Users\/[^/\s]+)\/(Desktop|Downloads|Documents)/i;
+const _shellIsMemoryHunt = _command && (
+  MEMORY_SHELL_NAMED.test(_command) ||
+  (HUNT_CMD.test(_command) && DOC_TARGET.test(_command) && HOME_DOCS.test(_command))
+);
+if (MEMORY_SURFACE.test(_targetPath) || /CLAUDE\.md|MEMORY\.md/.test(_pattern) || _shellIsMemoryHunt) {
   const STEER =
     '[troth/memory-surface] This path is a MEMORY file. The substrate is the source of truth for ' +
     'what was decided, preferred, built or ruled out, and it holds far more than these files do. ' +

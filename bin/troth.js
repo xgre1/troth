@@ -91,11 +91,11 @@ function checkHealth(host, port) {
 // requires the body to identify itself, which is what a port SWEEP needs:
 // a bare 200 there would adopt any dev server on a neighbouring port.
 //
-// Every exit path is explicit. An earlier version destroyed the request on an
-// oversized body and let the child fall off the end of the event loop, which
-// exits 0 — reporting the exact impostor it meant to reject — and a response
-// that dripped bytes slower than the idle timeout never ended at all, hanging
-// the parent forever with no execFileSync timeout to stop it.
+// Every exit path is explicit. Destroying the request on an oversized body
+// lets the child fall off the end of the event loop, which exits 0 and reports
+// the exact impostor it meant to reject; a response that drips bytes slower
+// than the idle timeout never ends at all, and execFileSync has no timeout to
+// stop it.
 function checkHealthSync(host, port, opts) {
   var wantTroth = !!(opts && opts.troth);
   try {
@@ -660,6 +660,8 @@ if (command === "help" || args.indexOf("-h") !== -1 || args.indexOf("--help") !=
     "Setup & health",
     "  troth setup               guided setup   troth doctor           environment checks",
     "  troth codex login         sign in with your own ChatGPT subscription",
+    "  troth open [dir]          work in that folder with your own environment (default: here)",
+    "  troth opened              list them        troth close [dir]      withdraw one",
     "  troth start / restart     proxy control  troth tail             follow proxy logs",
     "  troth service [install]   start at login (launchd on macOS, systemd on Linux)",
     "",
@@ -810,6 +812,9 @@ if (command === "lock") {
   process.exit(0);
 }
 
+require('./cmd-ground.js')(__cliCtx);
+require('./cmd-net-allow.js')(__cliCtx);
+
 require('./cmd-drafts.js')(__cliCtx);
 
 require('./cmd-activity.js')(__cliCtx);
@@ -943,10 +948,10 @@ if (command === "audit") {
   process.exit(2);
 }
 
-// bin/cmd-help.js used to be required here. The help block higher up in this
-// file answers and exits first, so it never ran once — proven by instrumenting
-// it across help, --help, -h and help --advanced. It carried a second copy of
-// the help text that had drifted, still pointing at localhost:8000.
+// No help module is required here: the help block higher up in this file
+// answers and exits first for help, --help, -h and help --advanced, so a
+// second module would never run and its copy of the help text could only
+// drift.
 
 // ===== v6.0 — Autonomous run lifecycle =====
 //
@@ -1575,24 +1580,45 @@ require('./cmd-stats.js')(__cliCtx);
 require('./cmd-telemetry.js')(__cliCtx);
 
 if (command === "checkpoint") {
-  // Manually create a checkpoint
+  // Photograph the current ground by hand (photographs also happen before
+  // every command and write). `troth checkpoint list` shows what is held.
   try {
-    var checkpoint = require('../proxy/modules/checkpoint');
-    var msg = passthrough.join(' ') || 'manual';
-    var id = checkpoint.checkpoint(process.cwd(), msg, []);
-    if (id) console.log('Checkpoint created: ' + id);
-    else console.log('No checkpoint needed (no changes or not a git repo)');
-    process.exit(0);
+    var undoShadow = require('../shared-core/tools/undo-shadow.js');
+    if ((passthrough[0] || '') === 'list') {
+      var photos = undoShadow.list(process.cwd(), 15);
+      if (!photos.length) console.log('No photographs of this ground yet.');
+      for (var pi = 0; pi < photos.length; pi++) {
+        console.log('  ' + (pi + 1) + '. ' + photos[pi].id + '  '
+          + new Date(photos[pi].ts * 1000).toISOString().replace('T', ' ').slice(0, 19)
+          + '  ' + photos[pi].label);
+      }
+      process.exit(0);
+    }
+    var snapMsg = passthrough.join(' ') || 'manual';
+    var snap = undoShadow.snapshot(process.cwd(), 'manual:' + snapMsg, { allowShallow: true });
+    if (snap.ok && snap.unchanged) console.log('Already photographed as ' + snap.id + ' — nothing changed since.');
+    else if (snap.ok) console.log('Photograph taken: ' + snap.id);
+    else console.log('No photograph: ' + (snap.skipped || snap.degraded || 'unknown'));
+    process.exit(snap.ok ? 0 : 1);
   } catch (e) { console.error('Checkpoint failed:', e.message); process.exit(1); }
 }
 
 if (command === "rollback") {
+  // Restore the ground to a photograph. The present is photographed first,
+  // so a rollback can itself be rolled back.
   try {
-    var checkpoint = require('../proxy/modules/checkpoint');
-    var ok = checkpoint.rollback(process.cwd(), 1);
-    if (ok) console.log('Rolled back to last checkpoint.');
-    else console.log('Rollback failed (no checkpoints or not a git repo).');
-    process.exit(ok ? 0 : 1);
+    var undoRestore = require('../shared-core/tools/undo-shadow.js');
+    var nBack = parseInt(passthrough[0], 10) || 1;
+    var res = undoRestore.restore(process.cwd(), nBack);
+    if (res.ok) {
+      console.log('Restored photograph ' + res.restored + ' (' + res.filesChanged + ' path'
+        + (res.filesChanged === 1 ? '' : 's') + ' changed).');
+      console.log('The state before this restore is photograph ' + res.safety + ' — undo is reversible.');
+      if (res.overBudget > 0) {
+        console.log('Note: ' + res.overBudget + ' file(s) were beyond the photo budget and are not covered.');
+      }
+    } else console.log('Rollback failed: ' + (res.error || res.degraded || 'unknown'));
+    process.exit(res.ok ? 0 : 1);
   } catch (e) { console.error('Rollback failed:', e.message); process.exit(1); }
 }
 
@@ -1726,8 +1752,8 @@ if (command === "doctor") {
   // with bare `node` from PATH, and those hooks load native better-sqlite3;
   // on a node whose ABI mismatches the built binding they FAIL OPEN — no
   // auto-recall, no orientation, no error anywhere — and the model falls
-  // back to grepping files for memory questions (the Linux friend-install
-  // find, 2026-08-09). Probe with the exact resolution a hook gets: bare
+  // back to grepping files for memory questions. Probe with the exact
+  // resolution a hook gets: bare
   // `node` + this tree's node_modules.
   try {
     var _hp = require("child_process").spawnSync("node",
@@ -3075,7 +3101,13 @@ function effectiveModelName() {
   var rd = function (p) { try { return JSON.parse(fs.readFileSync(p, "utf8")); } catch (e) { return {}; } };
   var c = rd(path.join(home, ".troth", "config.json"));
   var d = rd(path.join(home, ".troth", "desktop-config.json"));
-  var pin = String(((c.routing || {}).pin) || d.engine_pin || "").trim();
+  // The pin arrives in either vocabulary: config.routing.pin holds a provider
+  // id, desktop-config.engine_pin holds the faculty id the app writes. Both
+  // are normalised to the provider key this table is indexed by — matching only
+  // one of them drops through to `return m || pin` and the raw identifier is
+  // rendered as the model name.
+  var pin = require("../shared-core/engine-names.js")
+    .toProvider(String(((c.routing || {}).pin) || d.engine_pin || "").trim());
   if (!pin) return "auto";
   var provs = c.providers || {};
   if (pin === "kimi_sub") {
@@ -3213,9 +3245,8 @@ function localBackendReachable() {
 
 // Has the operator already chosen ONE engine? The app writes that choice to
 // desktop-config as engine_pin; the proxy reads config.routing.pin. They are
-// two different fields, so a pin set in the app was invisible here and this
-// CLI happily forced a routing mode on top of it (operator,: "I had
-// set Kimi only, why did it go local"). An explicit pin outranks any default
+// two different fields, so a pin set in the app is invisible to a reader that
+// consults only one of them. An explicit pin outranks any default
 // we would pick, so read BOTH and let the pin govern.
 function operatorEnginePin() {
   var home = process.env.HOME || require("os").homedir();
@@ -3260,7 +3291,8 @@ function syncEnginePinFromApp() {
 }
 var _syncedPin = syncEnginePinFromApp();
 if (_syncedPin) {
-  console.log("\x1b[2m  engine pin → " + _syncedPin + " (from your app setting)\x1b[0m");
+  var _pinName = require("../shared-core/engine-names.js").labelFor(_syncedPin) || _syncedPin;
+  console.log("\x1b[2m  engine pin → " + _pinName + " (from your app setting)\x1b[0m");
 }
 // Writing the config is not enough for a proxy that is ALREADY running: it
 // reads routing prefs on load/reload, not per request, so a freshly written pin

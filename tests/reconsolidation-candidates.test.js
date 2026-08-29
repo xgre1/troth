@@ -6,11 +6,10 @@
 // path (currently 0)." The lability-reconsolidation module reads recent
 // engram_retrieval decision records, scores each retrieved engram against
 // the new action text, and returns candidates whose contradiction_kind is
-// set (polarity_flip OR topic_mismatch). An earlier version of the
-// retrieval query was cwd-scoped, which silently dropped every
-// markRetrieved call that omitted a cwd (engram.js:_triggerPLR), making
-// the candidate count permanently 0 — an internal audit
-// post-fix behavior so any future cwd-partitioning regression is caught.
+// set (polarity_flip OR topic_mismatch). A cwd-scoped retrieval query silently
+// drops every markRetrieved call that omits a cwd (engram.js:_triggerPLR),
+// holding the candidate count at 0. This pins the unscoped behaviour so any
+// future cwd-partitioning is caught.
 //
 // Hermetic via tests/hermetic-db.js — temp HOME, fresh state.db. action-
 // record schema is the same as production.

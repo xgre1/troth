@@ -3,7 +3,7 @@
 // Sections: IDENTITY-EXTRACT | ENGRAM-VERIFY | PROCEDURE COMPILER | PROCEDURE MATCHER | IDENTITY BOOTSTRAP | INJECTOR + COMPILED PROCEDURES | INJECTOR + Δ9 THROUGH-LINE (P16 current_goal anchor)
 module.exports = function run({ test }) {
 const assert = require('assert');
-const TMP = '/tmp/troth-validator-test-' + Date.now();
+const TMP = require('os').tmpdir() + '/troth-validator-test-' + Date.now();
 const { record, getRecent } = require('../proxy/modules/perflog');
 // --- IDENTITY-EXTRACT ---
 console.log('\nIdentity extract:');
@@ -82,7 +82,7 @@ console.log('\nIdentity extract:');
     // operator cryptographic confirmation. Capture now flows through
     // update_identity (llm_inferred) or Phase 3 reflection-tick backfill.
     const sourceAgent = 'pf7-source-' + Date.now();
-    const cwd = '/tmp/pf7-' + Date.now();
+    const cwd = require('os').tmpdir() + '/pf7-' + Date.now();
     const state = require('../shared-core/state.js');
     const actionRec = require('../shared-core/action-record.js');
     function recordAt(ts, user_text) {
@@ -466,7 +466,7 @@ console.log('\nProcedure matcher:');
 
   test('PMatch2: matchProcedure picks best by trigger overlap + occurrence boost', () => {
     const agent_id = 'pmatch2-' + Date.now();
-    const cwd = '/tmp/pmatch2';
+    const cwd = require('os').tmpdir() + '/pmatch2';
     // Procedure A: 2 trigger overlap, low occurrences.
     writeProcedure({ agent_id, cwd, signature: 'A → B', triggers: ['edit', 'run'], occurrences: 2, name: 'proc-a' });
     // Procedure B: 2 trigger overlap, much higher occurrences (boost).
@@ -490,7 +490,7 @@ console.log('\nProcedure matcher:');
 
   test('PMatch3: matchProcedure skips deprecated and prefers approved over detected at equal overlap', () => {
     const agent_id = 'pmatch3-' + Date.now();
-    const cwd = '/tmp/pmatch3';
+    const cwd = require('os').tmpdir() + '/pmatch3';
     writeProcedure({ agent_id, cwd, signature: 'DEP', triggers: ['edit', 'run'], occurrences: 999, status: 'deprecated', name: 'proc-dep' });
     writeProcedure({ agent_id, cwd, signature: 'DET', triggers: ['edit', 'run'], occurrences: 5,   status: 'detected',   name: 'proc-det' });
     writeProcedure({ agent_id, cwd, signature: 'APP', triggers: ['edit', 'run'], occurrences: 5,   status: 'approved',   name: 'proc-app' });
@@ -569,7 +569,7 @@ console.log('\nIdentity bootstrap (substrate-side end-to-end):');
 
   test('PFB1: bootstrap dry_run reports stable facts WITHOUT writing to identity pool', () => {
     const sourceAgent = 'pfb1-source-' + Date.now();
-    const cwd = '/tmp/pfb1-' + Date.now();
+    const cwd = require('os').tmpdir() + '/pfb1-' + Date.now();
     const day1 = new Date('2026-04-01T10:00:00Z').getTime();
     const day2 = new Date('2026-04-03T10:00:00Z').getTime();
     // Both turns must produce the SAME normalized predicate after the
@@ -602,7 +602,7 @@ console.log('\nIdentity bootstrap (substrate-side end-to-end):');
     // cryptographic confirmation. Capture flows through update_identity
     // (llm_inferred) or Phase 3 reflection-tick backfill.
     const sourceAgent = 'pfb2-source-' + Date.now();
-    const cwd = '/tmp/pfb2-' + Date.now();
+    const cwd = require('os').tmpdir() + '/pfb2-' + Date.now();
     const day1 = new Date('2026-04-01T10:00:00Z').getTime();
     const day2 = new Date('2026-04-03T10:00:00Z').getTime();
     seedTurn({ agent_id: sourceAgent, cwd, ts: day1, user_text: 'I prefer terse code reviews and I love qwen for local inference.' });
@@ -656,9 +656,9 @@ console.log('\nInjector procedure-hint wiring:');
   }
 
   test('PCI1: injector surfaces compiled_procedure hint when prompt verbs match triggers', () => {
-    const TMP = pPi.join('/tmp', 'gc-pci1-' + Date.now());
+    const TMP = pPi.join(require('os').tmpdir(), 'gc-pci1-' + Date.now());
     fPi.mkdirSync(TMP, { recursive: true });
-    const cwd = '/tmp/pci1-cwd';
+    const cwd = require('os').tmpdir() + '/pci1-cwd';
 
     const s = loadStateForPi(TMP);
     // Seed a compiled_procedure with triggers that overlap a code-y prompt.
@@ -714,9 +714,9 @@ console.log('\nInjector procedure-hint wiring:');
   });
 
   test('PCI2: injector skips procedure hint when prompt has fewer than 2 trigger overlaps', () => {
-    const TMP = pPi.join('/tmp', 'gc-pci2-' + Date.now());
+    const TMP = pPi.join(require('os').tmpdir(), 'gc-pci2-' + Date.now());
     fPi.mkdirSync(TMP, { recursive: true });
-    const cwd = '/tmp/pci2-cwd';
+    const cwd = require('os').tmpdir() + '/pci2-cwd';
 
     const s = loadStateForPi(TMP);
     const procRec = {
@@ -813,9 +813,9 @@ console.log('\nInjector goal/through-line wiring:');
   }
 
   test('PG1: injector surfaces [troth/goal] with the latest in-cwd intent', () => {
-    const TMP = pPg.join('/tmp', 'gc-pg1-' + Date.now());
+    const TMP = pPg.join(require('os').tmpdir(), 'gc-pg1-' + Date.now());
     fPg.mkdirSync(TMP, { recursive: true });
-    const cwd = '/tmp/pg1-cwd';
+    const cwd = require('os').tmpdir() + '/pg1-cwd';
     const sessionId = 'pg1-' + Date.now();
     const s = loadStateForPg(TMP);
     // Older intent then newer — newer wins.
@@ -843,10 +843,10 @@ console.log('\nInjector goal/through-line wiring:');
   });
 
   test('PG2: injector does NOT surface intent from a different cwd', () => {
-    const TMP = pPg.join('/tmp', 'gc-pg2-' + Date.now());
+    const TMP = pPg.join(require('os').tmpdir(), 'gc-pg2-' + Date.now());
     fPg.mkdirSync(TMP, { recursive: true });
-    const sessionCwd = '/tmp/pg2-current';
-    const otherCwd   = '/tmp/pg2-elsewhere';
+    const sessionCwd = require('os').tmpdir() + '/pg2-current';
+    const otherCwd   = require('os').tmpdir() + '/pg2-elsewhere';
     const s = loadStateForPg(TMP);
     // Intent recorded under a DIFFERENT cwd — must not leak into the
     // current session's prompt.
@@ -869,9 +869,9 @@ console.log('\nInjector goal/through-line wiring:');
   });
 
   test('PG3: injector skips goal block when intent is older than 24h', () => {
-    const TMP = pPg.join('/tmp', 'gc-pg3-' + Date.now());
+    const TMP = pPg.join(require('os').tmpdir(), 'gc-pg3-' + Date.now());
     fPg.mkdirSync(TMP, { recursive: true });
-    const cwd = '/tmp/pg3-cwd';
+    const cwd = require('os').tmpdir() + '/pg3-cwd';
     const sessionId = 'pg3-' + Date.now();
     const s = loadStateForPg(TMP);
     // Intent from 30h ago — outside the 24h recency window.
@@ -901,9 +901,9 @@ console.log('\nInjector goal/through-line wiring:');
   // to surface in EVERY session — observed  with "coupons" /
   // "price exploit" goals appearing in unrelated chats.
   test('PG4: injector does NOT surface intent from a different session in same cwd', () => {
-    const TMP = pPg.join('/tmp', 'gc-pg4-' + Date.now());
+    const TMP = pPg.join(require('os').tmpdir(), 'gc-pg4-' + Date.now());
     fPg.mkdirSync(TMP, { recursive: true });
-    const cwd = '/tmp/pg4-cwd';
+    const cwd = require('os').tmpdir() + '/pg4-cwd';
     const currentSession = 'pg4-current-' + Date.now();
     const otherSession   = 'pg4-other-'   + Date.now();
     const s = loadStateForPg(TMP);
@@ -927,9 +927,9 @@ console.log('\nInjector goal/through-line wiring:');
   });
 
   test('PG5: injector surfaces current-session intent even when another session also wrote one in same cwd', () => {
-    const TMP = pPg.join('/tmp', 'gc-pg5-' + Date.now());
+    const TMP = pPg.join(require('os').tmpdir(), 'gc-pg5-' + Date.now());
     fPg.mkdirSync(TMP, { recursive: true });
-    const cwd = '/tmp/pg5-cwd';
+    const cwd = require('os').tmpdir() + '/pg5-cwd';
     const currentSession = 'pg5-current-' + Date.now();
     const otherSession   = 'pg5-other-'   + Date.now();
     const s = loadStateForPg(TMP);
@@ -1007,9 +1007,9 @@ console.log('\nInjector entity-recall wiring:');
   }
 
   test('PDI1: entity-recall hint surfaces when extracted entity has ≥3 in-cwd records', () => {
-    const TMP = pPd.join('/tmp', 'gc-pdi1-' + Date.now());
+    const TMP = pPd.join(require('os').tmpdir(), 'gc-pdi1-' + Date.now());
     fPd.mkdirSync(TMP, { recursive: true });
-    const cwd = '/tmp/pdi1-cwd';
+    const cwd = require('os').tmpdir() + '/pdi1-cwd';
     const s = loadStateForPd(TMP);
     // Seed 4 records mentioning the same file path entity.
     for (let i = 0; i < 4; i++) writeMentionRecord(s, cwd, 'src/foo.ts', i);
@@ -1033,9 +1033,9 @@ console.log('\nInjector entity-recall wiring:');
   });
 
   test('PDI2: entity-recall hint does NOT surface when prompt entities have <3 records', () => {
-    const TMP = pPd.join('/tmp', 'gc-pdi2-' + Date.now());
+    const TMP = pPd.join(require('os').tmpdir(), 'gc-pdi2-' + Date.now());
     fPd.mkdirSync(TMP, { recursive: true });
-    const cwd = '/tmp/pdi2-cwd';
+    const cwd = require('os').tmpdir() + '/pdi2-cwd';
     const s = loadStateForPd(TMP);
     // Seed only 2 records — below the ≥3 threshold.
     writeMentionRecord(s, cwd, 'src/bar.ts', 0);
@@ -1116,9 +1116,9 @@ console.log('\nInjector replay-plan wiring:');
   }
 
   test('PR1: injector surfaces [troth/replay-plan] with filled steps when match confidence is high', () => {
-    const TMP = pPr.join('/tmp', 'gc-pr1-' + Date.now());
+    const TMP = pPr.join(require('os').tmpdir(), 'gc-pr1-' + Date.now());
     fPr.mkdirSync(TMP, { recursive: true });
-    const cwd = '/tmp/pr1-cwd';
+    const cwd = require('os').tmpdir() + '/pr1-cwd';
     const s = loadStateForPr(TMP);
     // High-confidence: status=approved (+0.30), occurrences=200 (+~0.20),
     // 4-of-4 trigger overlap with the test prompt (overlap ≥ 0.50).
@@ -1158,9 +1158,9 @@ console.log('\nInjector replay-plan wiring:');
   });
 
   test('PR2: replay-plan does NOT fire when match is below 0.50 confidence threshold', () => {
-    const TMP = pPr.join('/tmp', 'gc-pr2-' + Date.now());
+    const TMP = pPr.join(require('os').tmpdir(), 'gc-pr2-' + Date.now());
     fPr.mkdirSync(TMP, { recursive: true });
-    const cwd = '/tmp/pr2-cwd';
+    const cwd = require('os').tmpdir() + '/pr2-cwd';
     const s = loadStateForPr(TMP);
     // Low-confidence: status=detected (+0), occurrences=1 (~+0.03), and
     // trigger overlap is small relative to the prompt's token surface so
@@ -1192,9 +1192,9 @@ console.log('\nInjector replay-plan wiring:');
   });
 
   test('PR3: when replay-plan fires, the weaker [troth/procedure] hint is suppressed', () => {
-    const TMP = pPr.join('/tmp', 'gc-pr3-' + Date.now());
+    const TMP = pPr.join(require('os').tmpdir(), 'gc-pr3-' + Date.now());
     fPr.mkdirSync(TMP, { recursive: true });
-    const cwd = '/tmp/pr3-cwd';
+    const cwd = require('os').tmpdir() + '/pr3-cwd';
     const s = loadStateForPr(TMP);
     // Same high-confidence procedure as PR1 — both PR and P15 would
     // fire on this prompt, but PR's `replayPlanFired` flag must
@@ -1262,7 +1262,7 @@ console.log('\nInjector identity-pool wiring:');
   }
 
   test('PFI1: injector promotes scope=identity engram into foundational slot', () => {
-    const TMP = pIp.join('/tmp', 'gc-pfi1-' + Date.now());
+    const TMP = pIp.join(require('os').tmpdir(), 'gc-pfi1-' + Date.now());
     fIp.mkdirSync(TMP, { recursive: true });
 
     // Seed an identity engram + a normal operator-pool engram. The
@@ -1315,7 +1315,7 @@ console.log('\nInjector identity-pool wiring:');
   });
 
   test('PFI2: flagged-tier identity engrams are NOT surfaced as foundational', () => {
-    const TMP = pIp.join('/tmp', 'gc-pfi2-' + Date.now());
+    const TMP = pIp.join(require('os').tmpdir(), 'gc-pfi2-' + Date.now());
     fIp.mkdirSync(TMP, { recursive: true });
 
     const s = loadStateForIp(TMP);
@@ -1442,7 +1442,7 @@ console.log('\nEntity axis (MAGMA-style):');
 
   test('PD7: multiAxisQuery fuses entity + temporal scoring with axis_hits annotation', () => {
     const agent_id = 'pd7-' + Date.now();
-    const cwd = '/tmp/pd7-' + Date.now();
+    const cwd = require('os').tmpdir() + '/pd7-' + Date.now();
 
     // Two records mentioning the same entity, one fresh one stale.
     // Fixture-unique path keeps PD7 from collapsing into the accumulated
@@ -1654,7 +1654,7 @@ console.log('\nPredictive write filter (PRWF):');
     const ed = require('../shared-core/epistemic-density.js');
     const ar = require('../shared-core/action-record.js');
     const state = require('../shared-core/state.js');
-    const cwd = '/tmp/pev3-' + Date.now();
+    const cwd = require('os').tmpdir() + '/pev3-' + Date.now();
     const knownPath = 'src/known-pev3.ts';
     // Seed 3 records mentioning the known path.
     for (let i = 0; i < 3; i++) {
@@ -1682,7 +1682,7 @@ console.log('\nPredictive write filter (PRWF):');
     const ed = require('../shared-core/epistemic-density.js');
     const ar = require('../shared-core/action-record.js');
     const state = require('../shared-core/state.js');
-    const cwd = '/tmp/pev4-' + Date.now();
+    const cwd = require('os').tmpdir() + '/pev4-' + Date.now();
     // Heavy density on one path, none on another.
     for (let i = 0; i < 25; i++) {
       const rec = {
@@ -1728,7 +1728,7 @@ console.log('\nPredictive write filter (PRWF):');
     const hg = require('../shared-core/hypothesis-generator.js');
     const ar = require('../shared-core/action-record.js');
     const state = require('../shared-core/state.js');
-    const cwd = '/tmp/phg2-' + Date.now();
+    const cwd = require('os').tmpdir() + '/phg2-' + Date.now();
     const agent_id = 'phg2-agent';
     function write(input, output) {
       const r = {
@@ -1751,7 +1751,7 @@ console.log('\nPredictive write filter (PRWF):');
   test('PHG3: recordHypothesis writes a decision record with kind=hypothesis', () => {
     const hg = require('../shared-core/hypothesis-generator.js');
     const state = require('../shared-core/state.js');
-    const cwd = '/tmp/phg3-' + Date.now();
+    const cwd = require('os').tmpdir() + '/phg3-' + Date.now();
     const id = hg.recordHypothesis({
       state, agent_id: 'phg3-agent', cwd,
       candidate: { a_id: 'aaa', b_id: 'bbb', similarity: 0.75, a_type: 'edit', b_type: 'read' }
@@ -1786,7 +1786,7 @@ console.log('\nPredictive write filter (PRWF):');
     const lr = require('../shared-core/lability-reconsolidation.js');
     const ar = require('../shared-core/action-record.js');
     const state = require('../shared-core/state.js');
-    const cwd = '/tmp/plr3-' + Date.now();
+    const cwd = require('os').tmpdir() + '/plr3-' + Date.now();
     // Seed an engram (a commitment) with a stable opinion.
     const engRec = {
       id: ar.uuidv7(), timestamp: Date.now(), type: 'commitment',
@@ -1813,7 +1813,7 @@ console.log('\nPredictive write filter (PRWF):');
     const lr = require('../shared-core/lability-reconsolidation.js');
     const ar = require('../shared-core/action-record.js');
     const state = require('../shared-core/state.js');
-    const cwd = '/tmp/plr4-' + Date.now();
+    const cwd = require('os').tmpdir() + '/plr4-' + Date.now();
     const engRec = {
       id: ar.uuidv7(), timestamp: Date.now(), type: 'commitment',
       agent_id: 'plr4-agent', cwd, user_id: 'default',

@@ -114,9 +114,9 @@ test('PAUSE-5: every surface that reports the drain knows about the pause', () =
 
 test('QUEUE-1: the queue is searchable by the file AND by what was being asked', () => {
   const stamp = 'q' + Date.now();
-  assert.ok(state.spoolKnowledge({ kind: 'file', ref: '/tmp/' + stamp + '/harbour-tariffs.pdf', sha: stamp + 'a', bytes: 4096,
+  assert.ok(state.spoolKnowledge({ kind: 'file', ref: require('os').tmpdir() + '/' + stamp + '/harbour-tariffs.pdf', sha: stamp + 'a', bytes: 4096,
     why: 'what does the bonded warehouse schedule cost' }), 'queued a document');
-  assert.ok(state.spoolKnowledge({ kind: 'file', ref: '/tmp/' + stamp + '/lease-appendix.docx', sha: stamp + 'b', bytes: 8192,
+  assert.ok(state.spoolKnowledge({ kind: 'file', ref: require('os').tmpdir() + '/' + stamp + '/lease-appendix.docx', sha: stamp + 'b', bytes: 8192,
     why: 'when does the reconciliation window close' }), 'queued a second');
   assert.ok(state.spoolKnowledge({ kind: 'web', ref: 'https://example.test/' + stamp + '/rates', sha: stamp + 'c', bytes: 2048,
     payload: 'body', why: 'current transhipment rates' }), 'queued a page');
@@ -145,7 +145,7 @@ test('QUEUE-1: the queue is searchable by the file AND by what was being asked',
 
 test('QUEUE-2: dropping one takes it out of the queue and keeps the reason', () => {
   const stamp = 'd' + Date.now();
-  const ref = '/tmp/' + stamp + '/vendor-manual.pdf';
+  const ref = require('os').tmpdir() + '/' + stamp + '/vendor-manual.pdf';
   assert.ok(state.spoolKnowledge({ kind: 'file', ref, sha: stamp, bytes: 128 }), 'queued');
   const before = state.searchPendingKnowledge({ q: stamp });
   assert.strictEqual(before.rows.length, 1, 'it is waiting');

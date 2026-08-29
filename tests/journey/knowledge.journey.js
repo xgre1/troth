@@ -4,7 +4,7 @@
 // rules they gave it. Both fetch when the view opens, and both were shipped
 // with no test pressing them.
 //
-// What that cost, measured 2026-08-11: the knowledge shelf called an `esc`
+// What that costs: the knowledge shelf called an `esc`
 // helper that is declared INSIDE another function. ReferenceError. The fetch
 // .catch() then printed "Could not read the corpora" — a data-shaped message
 // for a code fault, so it read as an empty substrate and sent the operator

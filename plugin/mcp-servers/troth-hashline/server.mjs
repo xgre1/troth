@@ -109,6 +109,17 @@ function handleRead(args) {
   const fp = args.file_path;
   if (!fp) return errorReply({ error: 'missing_file_path' });
   const abs = resolve(fp);
+
+  // Source policy, before the file is opened or its existence reported. The
+  // edit road below refuses destinations the partner has no business writing;
+  // the same wall decides what it has no business reading — key material,
+  // credential files, the substrate database — or an editor becomes the way
+  // around it.
+  const src = pathPolicy.isReadablePath(abs, {});
+  if (!src.allowed) {
+    return errorReply({ error: 'refused', reason: src.reason, detail: src.detail || null, path: abs });
+  }
+
   if (!existsSync(abs)) return errorReply({ error: 'not_found', path: abs });
 
   let content;
@@ -234,6 +245,14 @@ function handleEdit(args) {
       hint: 'The proposed edits would leave the file in a syntactically invalid state. Review the error and submit a corrected batch.'
     });
   }
+
+  // Photograph the file's ground before the edit lands — the undo net,
+  // never a gate: a failed photo is recorded in undo stats and the edit
+  // proceeds. Ground = nearest enclosing repository, else the folder.
+  try {
+    require(serverDir + '../../../shared-core/tools/undo-shadow.js')
+      .snapshotForFile(abs, 'edit:hashline');
+  } catch (e) { /* recorded in undo stats */ }
 
   // 3. Commit.
   try { writeFileSync(abs, result.content); }
