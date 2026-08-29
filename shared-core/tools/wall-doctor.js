@@ -11,10 +11,11 @@
 //   1. Does the ssh agent socket still answer through a profile that denies
 //      reading the ssh directory? (If yes, agent-backed git-over-ssh keeps
 //      working while key files become unreadable.)
-//   2. Do keychain lookups still answer through a profile that denies
-//      reading the keychain database directory? (If yes, the credential
-//      helper for git-over-https keeps working while the database files
-//      become unreadable.)
+//   2. Is the stored git credential still SERVED through the wall? Serving
+//      an item reads the keychain database from the client process, which
+//      is why the keychain is write-refused but never read-refused: a read
+//      rule there starves the credential helper and kills agent https
+//      pushes while answering harmlessly for absent items.
 //
 // Runs ONLY from unwalled ground (the proxy under its service manager).
 // Inside a wall, profiles do not nest and sandbox-exec is refused; every
@@ -76,7 +77,6 @@ function _dirBytes(dir, depth) {
 const CANDIDATE_LINES = [
   ';; --- candidate additions under measurement ---',
   '(deny file-read* (subpath (param "CAND_SSH")))',
-  '(deny file-read* (subpath (param "CAND_KEYCHAINS")))',
   '(deny file-read* (subpath (param "CAND_TROTH")))'
 ];
 const CARVE_LINES = [
@@ -92,7 +92,6 @@ function _candidateParams() {
   const h = _home();
   return [
     ['CAND_SSH', path.join(h, '.ssh')],
-    ['CAND_KEYCHAINS', path.join(h, 'Library', 'Keychains')],
     ['CAND_TROTH', t],
     ['CAND_JAILS', path.join(t, 'jails')],
     ['CAND_PROFILES', path.join(t, 'sandbox-profiles')],
@@ -170,6 +169,14 @@ function runProbes() {
     undoStoreBytes: _dirBytes(path.join(_troth(), 'undo'), 6)
   };
 
+  // Whether the stored git credential is actually served, host-side vs
+  // through the wall — the availability question behind every agent https
+  // push. Presence is reduced to an exit code in the pipeline; the secret
+  // itself never leaves the pipe.
+  const CRED_CMD = 'printf "protocol=https\\nhost=github.com\\n\\n" | git credential-osxkeychain get | grep -q "^password="';
+  out.hostSees.gitCredentialHost = _exec('/bin/sh', ['-c', CRED_CMD]) === 0;
+  out.hostSees.gitCredentialWalled = _sh(base, CRED_CMD) === 0;
+
   const KEYCHAIN_CMD = 'security find-generic-password -s troth-wall-probe-absent';
 
   // Workflow availability under the live base profile (controls).
@@ -177,6 +184,10 @@ function runProbes() {
     'exit 1 = socket answered, no identities loaded; exit 2 = unreachable');
   add('base keychain lookup', _sh(base, KEYCHAIN_CMD), [44],
     'exit 44 = keychain answered: searched and found nothing');
+  if (out.hostSees.gitCredentialHost) {
+    add('base serves the git credential', out.hostSees.gitCredentialWalled ? 0 : 1, [0],
+      'the credential helper answers through the wall, so agent https pushes keep working');
+  }
 
   // The promoted rules, exercised through the LIVE base profile — these are
   // green only once the promotion is in the wall builder, and they are the
@@ -264,11 +275,9 @@ function runProbes() {
       'host inventory stays readable so ssh keeps connecting');
   }
 
-  // THE two gating measurements, under the bare candidate.
+  // The gating measurement, under the bare candidate.
   add('candidate agent socket', _sh(bare, 'ssh-add -l'), [0, 1],
     'socket lives outside every denied path; must still answer');
-  add('candidate keychain lookup', _sh(bare, KEYCHAIN_CMD), [44],
-    '44 = lookups answer over IPC while database files are unreadable');
 
   const get = (n) => out.probes.find((p) => p.name === n);
   const engaged = ['candidate denies ssh dir read', 'candidate denies substrate config read']
@@ -276,7 +285,7 @@ function runProbes() {
   out.verdicts = {
     controlsEngaged: engaged,
     agentSocketSurvives: engaged && !!get('candidate agent socket') && get('candidate agent socket').ok,
-    keychainSurvives: engaged && !!get('candidate keychain lookup') && get('candidate keychain lookup').ok,
+    credentialRoadOpen: !out.hostSees.gitCredentialHost || !!get('base serves the git credential') && get('base serves the git credential').ok,
     carvesWork: ['carve reopens jails', 'carve reopens known_hosts', 'carved candidate still denies substrate config read']
       .map(get).filter(Boolean).every((p) => p.ok),
     promotionLive: ['base denies substrate config read', 'base keeps known_hosts readable',

@@ -15,7 +15,7 @@ const { spawnSync } = require('child_process');
 
 const sb = require(path.join(__dirname, '..', 'shared-core', 'tools', 'sandbox-seatbelt.js'));
 
-console.log('\nGround walls (SBG-1..17):');
+console.log('\nGround walls (SBG-1..18):');
 
 function withTrothDir(fn) {
   const saved = process.env.TROTH_CONFIG_DIR;
@@ -507,5 +507,21 @@ test('SBG-17: the read carves stay host-inventory-shaped, never key-shaped', () 
     assert.ok(allowedNames.indexOf(path.basename(c)) > -1, 'unexpected carve: ' + c);
     assert.ok(!keyShape.test(path.basename(c)), 'a carve names key material: ' + c);
   }
+});
+
+test('SBG-18: the keychain is write-refused but never read-refused', () => {
+  const sb2 = require('../shared-core/tools/sandbox-seatbelt.js');
+  const os2 = require('os');
+  const h = process.env.HOME || os2.homedir();
+  const kc = path.join(h, 'Library', 'Keychains');
+  // Serving a stored credential reads the keychain database from the client
+  // process. A read rule here answers harmlessly for absent items and
+  // starves the credential helper for real ones — killing agent https
+  // pushes — so the read side must stay open while the write side closes.
+  assert.ok(sb2._secretStoreWriteOnlyPaths().indexOf(kc) > -1, 'keychain missing from the write-refused list');
+  assert.ok(sb2._secretStorePaths().indexOf(kc) === -1, 'keychain in the read-refused list would starve the credential helper');
+  const body = sb2._groundProfile('thin', 1, 1, 1, 0, 0, 2, 1, 1);
+  assert.ok(body.indexOf('(deny file-write* (subpath (param "SECRETW0")))') > -1, 'write deny for the write-only store missing');
+  assert.ok(body.indexOf('(deny file-read* (subpath (param "SECRETW0")))') === -1, 'a read deny appeared on the write-only store');
 });
 };

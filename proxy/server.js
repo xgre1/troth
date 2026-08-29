@@ -1179,7 +1179,7 @@ const server = http.createServer((req, res) => {
           add('Ground walls', null, 'not measurable from here (' + wd.context + '), skipped');
         } else {
           const v = wd.verdicts || {};
-          const okAll = !!(v.controlsEngaged && v.agentSocketSurvives && v.keychainSurvives && v.carvesWork && v.promotionLive && v.jailHolds);
+          const okAll = !!(v.controlsEngaged && v.agentSocketSurvives && v.credentialRoadOpen && v.carvesWork && v.promotionLive && v.jailHolds);
           const failed = (wd.probes || []).filter(function (p) { return !p.ok; }).map(function (p) { return p.name; });
           add('Ground walls', okAll,
             okAll ? ((wd.probes || []).length + ' probes: credential stores dark, agent socket and keychain answering')
