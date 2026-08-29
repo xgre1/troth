@@ -1127,7 +1127,13 @@ function main() {
                 // "we know" (semantic) — provenance helps it reason about
                 // what kind of memory it's looking at.
                 const _d = Number.isFinite(h.ts) ? ' ' + new Date(h.ts).toISOString().slice(0, 10) : '';
-                const item = '- [' + h.class + _d + '] ' + String(h.statement || '').slice(0, 600);
+                // An episode that lived on another project's ground says so:
+                // continuity may cross projects, silence may not.
+                let _from = '';
+                try {
+                  if (h.class === 'episodic' && h.cwd && CWD && path.resolve(h.cwd) !== path.resolve(CWD)) _from = ' · another project';
+                } catch (_) {}
+                const item = '- [' + h.class + _d + _from + '] ' + String(h.statement || '').slice(0, 600);
                 if (sessUsed + item.length > SESSION_CHAR_BUDGET) break;
                 lines.push(item);
                 sessUsed += item.length + 1;

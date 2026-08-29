@@ -70,7 +70,7 @@ module.exports.run = async (ctx, check) => {
   // project's words appear, the prompt has to say where they came from.
   const crossedProjects = p2.indexOf(OTHER_USER_CANARY) !== -1;
   if (crossedProjects) {
-    const labelled = /another surface|earlier exchange|this thread is new|stale/i.test(p2);
+    const labelled = /another project|another surface|earlier exchange|this thread is new|stale/i.test(p2);
     check('another project\'s words arrive labelled, if they arrive', labelled,
       'project A text surfaced in project B with no provenance note');
   } else {

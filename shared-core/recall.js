@@ -605,7 +605,10 @@ function recallEpisodic(opts) {
     class: 'episodic',
     score: Number(score.toFixed(3)),
     source: r.type === 'tool_call' ? 'dialogue' : ((typeof r.output === 'string' ? (JSON.parse(r.output).source || null) : null)),
-    ts: r.timestamp
+    ts: r.timestamp,
+    // The ground the episode lived on — mounts label continuity that
+    // arrives from another project instead of serving it as the present.
+    cwd: r.cwd || null
   }));
 }
 
