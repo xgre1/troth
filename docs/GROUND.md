@@ -1,0 +1,52 @@
+# The ground your commands run on
+
+troth's hands — the shell behind its tools — do real work on your real
+machine. On macOS, every command they run is wrapped in a kernel sandbox
+profile built for the ground it stands on. No prompt asks you to approve
+anything, and nothing depends on someone judging a command correctly at the
+moment it runs: the wall is the kernel's answer.
+
+## The grounds
+
+- **Your own folders.** Work the operator opened runs as your own machine —
+  ordinary reads, ordinary writes — minus the short list of walls below.
+- **Partner project ground.** A project the partner manages is deny-default:
+  writes land in the project and its scratch, nothing else. A path that
+  claims to be inside the project and is not is refused, never run bare.
+- **The substrate.** `~/.troth` — the partner's own memory — takes no writes
+  from any walled command, and its contents stay dark behind a stat pinhole,
+  so path walks and installs survive without reading it.
+
+## What is always dark
+
+ssh key material and cloud credential stores (`~/.aws`, `~/.gnupg` and their
+kin) are unreadable on every ground. The keychain takes no writes while the
+stored git credential keeps serving ordinary pushes, and the ssh agent keeps
+answering — agent-side git works untouched. The host inventory everyday
+connections need (`known_hosts`, the ssh client config) stays readable
+through literal read-only carves; the keys beside it never travel with it.
+
+## What is always open
+
+Your work. A wall that blocks a legitimate workflow is treated as a bug in
+the wall: builds, installs, tests and pushes run to completion inside the
+walls, and the release checks themselves run from the partner's own hand.
+
+## Undo rides along
+
+Before a command or an edit lands, the files it stands to change are
+photographed into a content-addressed shadow repository. `troth checkpoint`
+photographs by hand, `troth checkpoint list` shows what is held, and
+`troth rollback` restores — reversibly, because the restore first
+photographs the state it replaces. Retention keeps the footprint bounded.
+
+## Where the walls do not reach
+
+A host without the sandbox runtime — Linux today — runs the same commands
+with no kernel wall, and the tool output says so. What remains are the
+tool-layer guards (path policy, bash judgment, STVC). A kernel wall for
+Linux is an open item, not a promise.
+
+The walls prove themselves on every proxy boot — engagement, the credential
+road, the read carves, the jail — and the verdicts ride the health board at
+`/api/doctor`.
