@@ -544,6 +544,43 @@ function _jewelPaths() {
           path.join(t, 'audit-keys')];
 }
 
+// Read-refused on operator ground: stores whose CONTENTS are credentials.
+// The tool road and the shell road already refuse commands that NAME these
+// paths, but both judge text, and a read carried inside an interpreter
+// argument is not command text. These are the kernel's copies of the path
+// policy's read rules — spelled relative to HOME and resolved per call for
+// the same reason the persistence list is, and pinned against that policy
+// by the suite so the two lists cannot drift apart unnoticed.
+//
+// The ssh agent socket and keychain lookups answer over IPC, so they keep
+// working while every path here is unreadable — agent-backed ssh and the
+// git credential helper survive; credential FILES stop being readable or
+// writable.
+function _secretStorePaths() {
+  const h = process.env.HOME || os.homedir();
+  return [path.join(h, '.ssh'),
+          path.join(h, 'Library', 'Keychains'),
+          path.join(h, '.aws'),
+          path.join(h, '.config', 'gcloud'),
+          path.join(h, '.gnupg'),
+          path.join(h, '.kube'),
+          path.join(h, '.docker', 'config.json'),
+          path.join(h, '.config', 'gh', 'hosts.yml'),
+          path.join(h, '.claude', '.credentials.json')];
+}
+
+// Readable pinholes inside the stores above: host inventory and client
+// configuration, which ssh reads on every connection. Without these, every
+// agent-backed git-over-ssh push dies on an unreadable known_hosts. Key
+// material is never carved — the carve is by literal path, read-only, and
+// the suite pins that no entry here ever names a private-key shape.
+function _secretStoreCarves() {
+  const h = process.env.HOME || os.homedir();
+  return [path.join(h, '.ssh', 'known_hosts'),
+          path.join(h, '.ssh', 'known_hosts.old'),
+          path.join(h, '.ssh', 'config')];
+}
+
 // Write-denied: files that decide what the partner is allowed to do. A
 // partner that can edit these widens its own walls, so they are refused by
 // the kernel and not only by the tool that would normally write them.
@@ -624,13 +661,45 @@ function _cachePaths() {
 // Later rules win in SBPL, so order carries meaning: the blanket write deny
 // comes first, the work and scratch allowances reopen exactly two subtrees,
 // and the denies that must survive a writable tree come LAST.
-function _groundProfile(kind, jewelCount, policyCount, persistCount, cacheCount, extraCount) {
+function _groundProfile(kind, jewelCount, policyCount, persistCount, cacheCount, extraCount, secretCount, carveCount) {
   const confined = (kind === 'confine' || kind === 'home');
   const lines = ['(version 1)', '(allow default)',
                  '(deny file-read* (subpath (param "WORKSPACE")))'];
   for (let i = 0; i < jewelCount; i++) {
     lines.push('(deny file-read* (subpath (param "JEWEL' + i + '")))');
   }
+  // The kernel's copies of the read policy (_secretStorePaths). Every allow
+  // below them is a deliberate pinhole, never a default.
+  for (let i = 0; i < (secretCount || 0); i++) {
+    lines.push('(deny file-read* (subpath (param "SECRET' + i + '")))');
+  }
+  // The substrate directory as a whole, inverted: nothing inside is
+  // readable except the two subtrees a session legitimately stands on —
+  // its own jail scratch and the wall's own profile files. This is what
+  // closes the provider-key configuration and the engine's stored
+  // credential at the kernel, whatever spelling carries the read. The
+  // sanctioned ways into substrate data — the router tools, the doctor —
+  // run outside session walls and keep working; the substrate CLI run from
+  // inside a session stops working, and that is accepted: daemon
+  // administration is operator surface.
+  lines.push('(deny file-read* (subpath (param "TROTHDIR")))');
+  // The directory NODE itself answers stat — metadata only, contents stay
+  // dark: ls and reads inside are still refused. Without this, every
+  // mkdir -p whose path passes through the substrate dir walks its
+  // components, finds the node unstattable, tries to create it and dies on
+  // the write deny — and npm's cache makes exactly that walk on every
+  // install.
+  lines.push('(allow file-read-metadata (literal (param "TROTHDIR")))');
+  lines.push('(allow file-read* (subpath (param "TROTHJAILS")))');
+  lines.push('(allow file-read* (subpath (param "TROTHPROFILES")))');
+  // Host inventory and ssh client configuration: read-only literals, so
+  // agent-backed git-over-ssh keeps connecting while key files stay dark.
+  for (let i = 0; i < (carveCount || 0); i++) {
+    lines.push('(allow file-read* (literal (param "CARVE' + i + '")))');
+  }
+  // Restated after every carve: no pinhole above may become the last word
+  // on partner ground.
+  lines.push('(deny file-read* (subpath (param "WORKSPACE")))');
   if (confined) {
     lines.push('(deny file-write*)');
     lines.push('(allow file-write* (subpath (param "SCRATCH")))');
@@ -665,6 +734,17 @@ function _groundProfile(kind, jewelCount, policyCount, persistCount, cacheCount,
   for (let i = 0; i < jewelCount; i++) {
     lines.push('(deny file-write* (subpath (param "JEWEL' + i + '")))');
   }
+  for (let i = 0; i < (secretCount || 0); i++) {
+    lines.push('(deny file-write* (subpath (param "SECRET' + i + '")))');
+  }
+  // The substrate tree closes for writing too — an unreadable profile or
+  // policy file that a session could still overwrite would let the next
+  // spawn's walls be authored from inside the current ones. The jail
+  // subtree reopens after it: that is where TMPDIR and every scratch home
+  // live, and denying a session its own scratch is not a wall, it is a
+  // broken build.
+  lines.push('(deny file-write* (subpath (param "TROTHDIR")))');
+  lines.push('(allow file-write* (subpath (param "TROTHJAILS")))');
   lines.push(HOOK_DIR_RULE);
   return lines.join('\n') + '\n';
 }
@@ -717,13 +797,16 @@ function groundSpawnSpec(opts) {
   const jewels   = _jewelPaths();
   const policies = _policyPaths();
   const persist  = _persistencePaths();
+  const secrets  = _secretStorePaths();
+  const carves   = _secretStoreCarves();
   const caches   = (kind === 'confine' || kind === 'home') ? _cachePaths() : [];
   const extraWritable = (kind === 'confine' && Array.isArray(opts.alsoWritable))
     ? opts.alsoWritable.filter((p) => typeof p === 'string' && p).map(_realOr)
     : [];
   const profilePath = path.join(PROFILE_DIR,
     'ground-' + kind + '-' + jewels.length + '-' + policies.length
-    + '-' + persist.length + '-' + caches.length + '-' + extraWritable.length + '.sb');
+    + '-' + persist.length + '-' + caches.length + '-' + extraWritable.length
+    + '-' + secrets.length + '-' + carves.length + '.sb');
 
   let scratch = _scratchDirFor(work || (opts.cwd || _trothDir()));
   const args = [];
@@ -731,7 +814,8 @@ function groundSpawnSpec(opts) {
     fs.mkdirSync(PROFILE_DIR, { recursive: true, mode: 0o700 });
     fs.writeFileSync(profilePath,
       _groundProfile(kind, jewels.length, policies.length, persist.length,
-                     caches.length, extraWritable.length),
+                     caches.length, extraWritable.length,
+                     secrets.length, carves.length),
       { mode: 0o600 });
     fs.mkdirSync(path.join(scratch, 'tmp'), { recursive: true, mode: 0o700 });
     scratch = fs.realpathSync(scratch);
@@ -741,6 +825,11 @@ function groundSpawnSpec(opts) {
     policies.forEach((p, i) => args.push('-D', 'POLICY' + i + '=' + _realOr(p)));
     persist.forEach((p, i)  => args.push('-D', 'PERSIST' + i + '=' + _realOr(p)));
     caches.forEach((p, i)   => args.push('-D', 'CACHE' + i + '=' + _realOr(p)));
+    secrets.forEach((p, i)  => args.push('-D', 'SECRET' + i + '=' + _realOr(p)));
+    carves.forEach((p, i)   => args.push('-D', 'CARVE' + i + '=' + _realOr(p)));
+    args.push('-D', 'TROTHDIR=' + _realOr(_trothDir()));
+    args.push('-D', 'TROTHJAILS=' + _realOr(path.join(_trothDir(), 'jails')));
+    args.push('-D', 'TROTHPROFILES=' + _realOr(PROFILE_DIR));
     if (kind === 'confine' || kind === 'home') args.push('-D', 'SCRATCH=' + scratch);
     if (kind === 'confine') args.push('-D', 'WORK=' + work);
     extraWritable.forEach((p, i) => args.push('-D', 'EXTRA' + i + '=' + p));
@@ -780,6 +869,8 @@ module.exports = {
   _profile,
   _groundProfile,
   _jewelPaths,
+  _secretStorePaths,
+  _secretStoreCarves,
   _policyPaths,
   _cachePaths,
   CACHE_RELATIVE,

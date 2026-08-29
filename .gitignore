@@ -107,3 +107,7 @@ vmm/
 /extract_*.mjs
 /queries.json
 benchmarks/fixtures/
+
+# transient wall measurement artifacts (wall-doctor boot road)
+.wall-doctor-request
+.wall-doctor-results.json

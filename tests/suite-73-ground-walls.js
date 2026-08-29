@@ -15,7 +15,7 @@ const { spawnSync } = require('child_process');
 
 const sb = require(path.join(__dirname, '..', 'shared-core', 'tools', 'sandbox-seatbelt.js'));
 
-console.log('\nGround walls (SBG-1..14):');
+console.log('\nGround walls (SBG-1..17):');
 
 function withTrothDir(fn) {
   const saved = process.env.TROTH_CONFIG_DIR;
@@ -57,6 +57,8 @@ test('SBG-2: a restricting profile cannot be applied inside an existing sandbox,
   if (process.platform !== 'darwin') return skip('macOS-only');
   const plain = '(version 1)(allow default)';
   const restricting = '(version 1)(allow default)(deny file-read* (literal "/.troth-suite-probe"))';
+  const outer = spawnSync('/usr/bin/sandbox-exec', ['-p', plain, '/usr/bin/true'], { encoding: 'utf8', timeout: 20000 }).status;
+  if (outer !== 0) return skip('already inside a sandbox: even a plain profile is refused here');
   const nest = (inner) => spawnSync('/usr/bin/sandbox-exec',
     ['-p', plain, '/usr/bin/sandbox-exec', '-p', inner, '/usr/bin/true'],
     { encoding: 'utf8', timeout: 20000 }).status;
@@ -442,6 +444,68 @@ test('SBG-14: what the next tool operation obeys is not writable either, and the
     });
   } finally {
     if (savedHome === undefined) delete process.env.HOME; else process.env.HOME = savedHome;
+  }
+});
+
+test('SBG-15: the promoted read rules and their pinholes hold their order', () => {
+  const sb2 = require('../shared-core/tools/sandbox-seatbelt.js');
+  const body = sb2._groundProfile('thin', 2, 2, 2, 0, 0, 3, 2);
+  for (let i = 0; i < 3; i++) {
+    assert.ok(body.indexOf('(deny file-read* (subpath (param "SECRET' + i + '")))') > -1, 'SECRET' + i + ' read deny missing');
+    assert.ok(body.indexOf('(deny file-write* (subpath (param "SECRET' + i + '")))') > -1, 'SECRET' + i + ' write deny missing');
+  }
+  const denyTroth  = body.indexOf('(deny file-read* (subpath (param "TROTHDIR")))');
+  const allowJails = body.indexOf('(allow file-read* (subpath (param "TROTHJAILS")))');
+  const allowProf  = body.indexOf('(allow file-read* (subpath (param "TROTHPROFILES")))');
+  assert.ok(denyTroth > -1 && allowJails > denyTroth && allowProf > denyTroth,
+    'the substrate inversion must deny first and reopen jails and profiles after it');
+  const metaPin = body.indexOf('(allow file-read-metadata (literal (param "TROTHDIR")))');
+  assert.ok(metaPin > denyTroth,
+    'the substrate node must answer stat after the deny, or every mkdir -p walking through it dies');
+  const lastReadAllow = Math.max(body.lastIndexOf('(allow file-read*'), 0);
+  const lastWsDeny = body.lastIndexOf('(deny file-read* (subpath (param "WORKSPACE")))');
+  assert.ok(lastWsDeny > lastReadAllow, 'partner ground must be restated after every read pinhole');
+  const denyTrothW  = body.indexOf('(deny file-write* (subpath (param "TROTHDIR")))');
+  const allowJailsW = body.indexOf('(allow file-write* (subpath (param "TROTHJAILS")))');
+  assert.ok(denyTrothW > -1 && allowJailsW > denyTrothW,
+    'the substrate write inversion must reopen jail scratch after the deny, or every session loses its TMPDIR');
+  const confined = sb2._groundProfile('confine', 1, 1, 1, 1, 1, 2, 1);
+  assert.ok(confined.indexOf('(deny file-write* (subpath (param "TROTHDIR")))') > confined.indexOf('(allow file-write* (subpath (param "SCRATCH")))'),
+    'confined ground: the substrate write deny must land after the scratch allowance it overrides');
+  const legacy = sb2._groundProfile('thin', 1, 1, 1, 0, 0);
+  assert.ok(legacy.indexOf('SECRET0') === -1, 'secret rules must scale by count, and zero means none');
+  assert.ok(legacy.indexOf('TROTHDIR') > -1,
+    'the substrate inversion is structural — every ground profile carries it, whatever the caller counts');
+});
+
+test('SBG-16: every kernel-promoted store is also refused by the read policy (no drift)', () => {
+  const sb2 = require('../shared-core/tools/sandbox-seatbelt.js');
+  const pp = require('../shared-core/tools/path-policy.js');
+  const os2 = require('os');
+  // Compared as ~/ shapes, not absolute paths: the policy froze HOME at its
+  // load and the wall resolves HOME per call, and a suite neighbour that
+  // flips HOME must not be able to fake a drift between them.
+  const liveHome = process.env.HOME || os2.homedir();
+  for (const p of sb2._secretStorePaths()) {
+    assert.ok(p.startsWith(liveHome + path.sep), 'a promoted store left the home tree: ' + p);
+    const shape = '~/' + path.relative(liveHome, p).split(path.sep).join('/');
+    const direct = pp.isReadablePath(shape);
+    const under  = pp.isReadablePath(shape + '/x');
+    assert.ok(!direct.allowed || !under.allowed,
+      'kernel-denied but policy-readable — the two walls drifted apart: ' + shape);
+  }
+});
+
+test('SBG-17: the read carves stay host-inventory-shaped, never key-shaped', () => {
+  const sb2 = require('../shared-core/tools/sandbox-seatbelt.js');
+  const os2 = require('os');
+  const sshDir = path.join(process.env.HOME || os2.homedir(), '.ssh');
+  const allowedNames = ['known_hosts', 'known_hosts.old', 'config'];
+  const keyShape = /^id_(?:rsa|dsa|ecdsa|ed25519)(?:[_.-][\w.-]+)?$/i;
+  for (const c of sb2._secretStoreCarves()) {
+    assert.strictEqual(path.dirname(c), sshDir, 'a carve left the ssh client directory: ' + c);
+    assert.ok(allowedNames.indexOf(path.basename(c)) > -1, 'unexpected carve: ' + c);
+    assert.ok(!keyShape.test(path.basename(c)), 'a carve names key material: ' + c);
   }
 });
 };
