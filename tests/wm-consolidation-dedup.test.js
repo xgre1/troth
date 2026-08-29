@@ -37,7 +37,7 @@ function t(name, fn) {
 const MARK = 'WMDEDUP' + Date.now().toString(36) + Math.floor(performance.now()).toString(36);
 const EMPH = '!!! ' + MARK + ' this fragment is strongly emphasized and must promote once';
 const AGENT = 'wmdedup-' + Date.now();
-const CWD = '/tmp/wmdedup-' + Date.now();
+const CWD = require('os').tmpdir() + '/wmdedup-' + Date.now();
 
 // Record a dialogue.turn tool_call row (what the task scans). timestamp must be
 // AFTER the watermark; the task's no-watermark fallback looks back only 1h, so

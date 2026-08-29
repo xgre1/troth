@@ -781,7 +781,7 @@ console.log('\nTools (Mode A):');
     // Write now mkdir -p's a missing parent tree (matches Claude Code's Write
     // and the intent:fs:do write path) so autonomous goals without a shell
     // tool can still write into a not-yet-existing folder in one step.
-    const target = '/tmp/gc-no-such-dir-' + Date.now() + '/nested/file.txt';
+    const target = require('os').tmpdir() + '/gc-no-such-dir-' + Date.now() + '/nested/file.txt';
     const missing = JSON.parse(await tools.dispatchToolCall(
       { function: { name: 'Write', arguments: { file_path: target, content: 'x' } } }, {}
     ));
@@ -1071,7 +1071,7 @@ console.log('\nTools (Mode A):');
 
   test('TOO-34: Glob errors on non-existent path with structured error', async () => {
     const out = JSON.parse(await tools.dispatchToolCall(
-      { function: { name: 'Glob', arguments: { pattern: '**/*', path: '/tmp/gc-no-such-dir-' + Date.now() } } }, {}
+      { function: { name: 'Glob', arguments: { pattern: '**/*', path: require('os').tmpdir() + '/gc-no-such-dir-' + Date.now() } } }, {}
     ));
     assert.strictEqual(out.error, 'not_found');
   });
@@ -2601,7 +2601,7 @@ console.log('\nBackfill audience+memory_class:');
   ];
 
   // Isolated TMP DB so we don't pollute the production substrate.
-  const TMP_BA = pBA.join('/tmp', 'gc-backfill-am-' + Date.now() + '-' + Math.random().toString(36).slice(2,8));
+  const TMP_BA = pBA.join(require('os').tmpdir(), 'gc-backfill-am-' + Date.now() + '-' + Math.random().toString(36).slice(2,8));
   fBA.mkdirSync(TMP_BA, { recursive: true });
   process.env.CLAUDE_PLUGIN_DATA = TMP_BA;
   delete require.cache[require.resolve('../shared-core/state')];
@@ -2770,7 +2770,7 @@ console.log('\nUnified recall (class-routed):');
   ];
   process.on('beforeExit', () => {});  // no-op, just ensures lifecycle
 
-  const TMP_RC = pRC.join('/tmp', 'gc-recall-' + Date.now() + '-' + Math.random().toString(36).slice(2,8));
+  const TMP_RC = pRC.join(require('os').tmpdir(), 'gc-recall-' + Date.now() + '-' + Math.random().toString(36).slice(2,8));
   fRC.mkdirSync(TMP_RC, { recursive: true });
   process.env.CLAUDE_PLUGIN_DATA = TMP_RC;
   delete require.cache[require.resolve('../shared-core/state')];

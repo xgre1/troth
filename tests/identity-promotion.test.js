@@ -40,7 +40,7 @@ function t(name, fn) {
 }
 
 const AGENT = 'idprom-' + Date.now();
-const CWD   = '/tmp/idprom-' + Date.now();
+const CWD   = require('os').tmpdir() + '/idprom-' + Date.now();
 
 function recordTurn(userText) {
   const rec = {

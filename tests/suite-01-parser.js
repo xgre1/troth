@@ -164,7 +164,7 @@ const fsMod = require('fs');
 const pathMod = require('path');
 const { validateToolUse, findFirstInvalidToolUse } = require('../proxy/modules/validator');
 
-const TMP = '/tmp/troth-validator-test-' + Date.now();
+const TMP = require('os').tmpdir() + '/troth-validator-test-' + Date.now();
 fsMod.mkdirSync(TMP, { recursive: true });
 const goodFile = pathMod.join(TMP, 'good.js');
 fsMod.writeFileSync(goodFile, 'const a = 1;\nconst b = 2;\nconst c = 3;\n');
@@ -261,7 +261,7 @@ try { fsMod.rmdirSync(TMP); } catch (e) {}
 console.log('\nVision:');
 const { findImagePaths } = require('../proxy/modules/vision');
 
-const VTMP = '/tmp/troth-vision-test-' + Date.now();
+const VTMP = require('os').tmpdir() + '/troth-vision-test-' + Date.now();
 fsMod.mkdirSync(VTMP, { recursive: true });
 const realPng = pathMod.join(VTMP, 'screenshot.png');
 fsMod.writeFileSync(realPng, 'fake png header');
@@ -1706,7 +1706,7 @@ test('morphApply rejects missing file', () => {
 
 test('morphApply replaces line range', () => {
   const fs = require('fs');
-  const tmp = '/tmp/morph-test-' + Date.now() + '.js';
+  const tmp = require('os').tmpdir() + '/morph-test-' + Date.now() + '.js';
   fs.writeFileSync(tmp, 'a\nb\nc\nd\ne');
   const r = morphApply(tmp, { startLine: 2, endLine: 4 }, 'X\nY');
   fs.unlinkSync(tmp);
@@ -1981,7 +1981,7 @@ console.log('\nDepgraph:');
 const depgraph = require('../proxy/modules/depgraph');
 
 test('extractImports finds requires', () => {
-  const tmp = '/tmp/depgraph-test-' + Date.now() + '.js';
+  const tmp = require('os').tmpdir() + '/depgraph-test-' + Date.now() + '.js';
   require('fs').writeFileSync(tmp, 'const x = require("./foo"); import bar from "./bar";');
   const imps = depgraph.extractImports(tmp);
   require('fs').unlinkSync(tmp);
@@ -2033,7 +2033,7 @@ console.log('\nPreview:');
 const { previewFile } = require('../proxy/modules/preview');
 
 test('previewFile extracts top symbols', () => {
-  const tmp = '/tmp/preview-test-' + Date.now() + '.js';
+  const tmp = require('os').tmpdir() + '/preview-test-' + Date.now() + '.js';
   require('fs').writeFileSync(tmp, 'function alpha() {}\nclass Beta {}\nconst gamma = 5;');
   const p = previewFile(tmp);
   require('fs').unlinkSync(tmp);

@@ -32,7 +32,7 @@ function t(name, fn) {
 }
 
 const AGENT = 'wmproma-' + Date.now();
-const CWD   = '/tmp/wmproma-' + Date.now();
+const CWD   = require('os').tmpdir() + '/wmproma-' + Date.now();
 const MARK  = 'PROMOTE' + Date.now().toString(36) +
   Math.floor(performance.now()).toString(36);
 

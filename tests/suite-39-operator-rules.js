@@ -149,8 +149,8 @@ test('RULE-10: a rule scoped to one project does not answer in another', async (
   // repo comes back while working in
   // a different one. The listing road is the road a person walks; recall is
   // the road the partner walks on its own, and that is the one that matters.
-  const A = '/tmp/rulesuite-alpha';
-  const B = '/tmp/rulesuite-beta';
+  const A = require('os').tmpdir() + '/rulesuite-alpha';
+  const B = require('os').tmpdir() + '/rulesuite-beta';
   const HERE  = 'in the rulesuite alpha repo the harbour manifests are filed by hand, never by the nightly job';
   const ANY   = 'always re-read the rulesuite manifest before filing it anywhere';
   assert.ok((await lesson.recordRule({ text: HERE, scope: 'project', cwd: A, confirm: true })).ok, 'project rule written');
