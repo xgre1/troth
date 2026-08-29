@@ -1889,6 +1889,75 @@ console.log('\nHashline edit format (behavior):');
       fMCP.unlinkSync(tmp);
     }).catch(err => { child.kill(); throw err; });
   });
+
+  test('hashline_edit MCP serves edits when no parser can, and the server keeps answering', () => {
+    // The other half of the AST contract: a runtime whose parsers cannot
+    // load degrades to hash-anchored edits with validation skipped — the
+    // hands never go dark because a native binding died. The shim breaks
+    // every tree-sitter require in the server process; on a runtime whose
+    // parser dies at parse time instead, the boot probe reaches the same
+    // skipped road.
+    const childMCP = require('child_process');
+    const pMCP = require('path');
+    const fMCP = require('fs');
+    const osMCP = require('os');
+    const REPO_HL = pMCP.resolve(__dirname, '..');
+    const SERVER = pMCP.join(REPO_HL, 'plugin/mcp-servers/troth-hashline/server.mjs');
+    const shim = pMCP.join(osMCP.tmpdir(), 'troth-hl-noparser-shim-' + Date.now() + '.cjs');
+    fMCP.writeFileSync(shim, [
+      "const M = require('module');",
+      'const orig = M._load;', 
+      'M._load = function (req) {', 
+      "  if (/^tree-sitter/.test(req)) throw new Error('parsers unavailable (test shim)');",
+      '  return orig.apply(this, arguments);', 
+      '};'
+    ].join('\n'));
+    const tmp = pMCP.join(osMCP.tmpdir(), 'troth-hl-noparser-' + Date.now() + '.js');
+    fMCP.writeFileSync(tmp, 'function g() {\n  return 1;\n}\n');
+    const child = childMCP.spawn('node', ['--require', shim, SERVER], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let buffer = '';
+    const replies = [];
+    child.stdout.on('data', (d) => {
+      buffer += d.toString();
+      let idx;
+      while ((idx = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 1);
+        if (line.trim()) replies.push(JSON.parse(line));
+      }
+    });
+    const send = (o) => child.stdin.write(JSON.stringify(o) + '\n');
+    send({ jsonrpc: '2.0', id: 1, method: 'initialize' });
+    send({ jsonrpc: '2.0', id: 2, method: 'tools/call',
+      params: { name: 'hashline_read', arguments: { file_path: tmp } } });
+    function waitFor(n, timeoutMs) {
+      const deadline = Date.now() + (timeoutMs || 3000);
+      return new Promise((res, rej) => {
+        const tick = setInterval(() => {
+          if (replies.length >= n) { clearInterval(tick); res(); }
+          else if (Date.now() > deadline) { clearInterval(tick); rej(new Error('timeout — the server went dark without parsers')); }
+        }, 20);
+      });
+    }
+    return waitFor(2, 60000).then(() => {
+      const decorated = replies[1].result.content[replies[1].result.content.length - 1].text;
+      const tag3 = decorated.split('\n')[2].match(/^3#([A-Z]{2})\|/)[1];
+      send({ jsonrpc: '2.0', id: 3, method: 'tools/call',
+        params: { name: 'hashline_edit', arguments: {
+          file_path: tmp,
+          edits: [{ op: 'replace', pos: '3#' + tag3, lines: 'return 2;' }]
+        } } });
+      return waitFor(3, 10000);
+    }).then(() => {
+      const r = replies[2].result;
+      child.kill();
+      assert.ok(!r.isError, 'without parsers the hash-anchored edit must apply: ' + JSON.stringify(r).slice(0, 200));
+      const after = fMCP.readFileSync(tmp, 'utf8');
+      assert.strictEqual(after, 'function g() {\n  return 1;\nreturn 2;\n',
+        'the edit must land exactly as anchored');
+      fMCP.unlinkSync(tmp); fMCP.unlinkSync(shim);
+    }).catch(err => { child.kill(); try { fMCP.unlinkSync(shim); } catch (_) {} throw err; });
+  });
 })();
 
 // --- ACTIONRECORD / SUBSTRATE PHASE A (behavior) ---

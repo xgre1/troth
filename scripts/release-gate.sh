@@ -178,6 +178,13 @@ PYKEY
     note 'export TROTH_GATE_IDENTIFIERS="firstname,handle,city,otherproduct"'
   fi
 
+  # 5b′. Personal mail domains are identifiers too, whoever they belong to:
+  #      a fixture address lives on invented domains, never on a real inbox.
+  local pmail
+  pmail=$(git grep -lIiE '@(gmail|yahoo|hotmail|outlook|icloud)\.' -- . 2>/dev/null | head -3)
+  [ -z "$pmail" ] && pass "no personal mail domains in the tree" \
+    || { fail "personal mail domains in:"; note "$pmail"; }
+
   # 5c. Working-language text stays out of the tree. A handful of files carry
   #     Greek phrases ON PURPOSE — language pins and detection vocabularies,
   #     features for an operator who works in Greek — but a comment quoting
@@ -789,10 +796,54 @@ check_ship() {
   fi
 }
 
+# ── bundle tree ───────────────────────────────────────────────────────────────────
+# The image carries whatever the staged bundle carries, and creating or
+# mounting an image is a device operation session walls refuse — so the
+# bundle is judged as a TREE, before it is ever wrapped. Same stoppers as
+# the image checks: a closed module, a database, an env file or an operator
+# identifier inside the bundle ships to every customer.
+check_bundle_tree() {
+  echo "BUNDLE TREE"
+  local app="$1"
+  [ -d "$app" ] || { fail "no such bundle: $app"; return; }
+  local core="$app/Contents/Resources/core"
+  [ -d "$core" ] || { fail "no staged core inside the bundle"; return; }
+  local present=0 total=0 p
+  for p in "${CLOSED_PROBES[@]:-}"; do
+    [ -n "$p" ] || continue
+    total=$((total+1))
+    [ -e "$core/$p" ] && { present=$((present+1)); note "present: $p"; }
+  done
+  if [ "$total" -eq 0 ]; then fail "no closed-overlay probes to judge the bundle against"
+  elif [ "$present" -eq 0 ]; then pass "no closed-overlay module inside the bundle ($total probed)"
+  else fail "closed-overlay modules inside the bundle: $present"; fi
+  local junk; junk=$(find "$core" \( -name '.env*' -o -name '*.db' -o -name '*.local.*' \) 2>/dev/null | head -3)
+  [ -z "$junk" ] && pass "no databases or env files inside the bundle" \
+    || { fail "databases or env files inside the bundle:"; note "$junk"; }
+  if [ -n "$IDENTIFIERS" ]; then
+    local w hits=""
+    IFS=',' read -ra BWORDS <<< "$IDENTIFIERS"
+    for w in "${BWORDS[@]}"; do
+      w="$(echo "$w" | xargs)"; [ -z "$w" ] && continue
+      grep -rqiIE "(^|[^A-Za-z0-9_])${w}([^A-Za-z0-9_]|$)" "$core" 2>/dev/null && hits="$hits $w"
+    done
+    [ -z "$hits" ] && pass "no operator identifiers inside the bundle" || fail "operator identifiers inside the bundle:$hits"
+  else
+    fail "TROTH_GATE_IDENTIFIERS unset: the bundle identifier check did not run"
+  fi
+  # Third-party package metadata carries its maintainers' own inboxes;
+  # only OUR files must carry none, so the mail sweep alone skips
+  # node_modules while every other bundle check keeps them in scope.
+  local pm; pm=$(grep -rlIiE --exclude-dir=node_modules '@(gmail|yahoo|hotmail|outlook|icloud)\.' "$core" 2>/dev/null | head -3)
+  [ -z "$pm" ] && pass "no personal mail domains inside the bundle" \
+    || { fail "personal mail domains inside the bundle:"; note "$pm"; }
+}
+
 MODE="${1:-all}"
 case "$MODE" in
   repo) check_repo ;;
   dmg)  check_dmg "${2:?usage: release-gate.sh dmg <path-to-dmg>}" ;;
+  bundle) check_bundle_tree "${2:?usage: release-gate.sh bundle <path-to-.app>}" ;;
   ship) check_ship ;;
   release) check_repo; check_open_parity; check_outgoing_history; check_ship; [ -n "${2:-}" ] && check_dmg "$2" ;;
   --refresh-probes)
@@ -807,7 +858,7 @@ case "$MODE" in
         echo "wrote $(grep -vc '^#' "$HOME/.troth/gate-closed-probes") probe paths to ~/.troth/gate-closed-probes"
         exit 0 ;;
   all)  check_repo; [ -n "${2:-}" ] && check_dmg "$2" ;;
-  *)    echo "usage: release-gate.sh [repo|dmg <path>|all <path>|ship|release [dmg]]"; exit 2 ;;
+  *)    echo "usage: release-gate.sh [repo|dmg <path>|bundle <app>|all <path>|ship|release [dmg]]"; exit 2 ;;
 esac
 
 echo
