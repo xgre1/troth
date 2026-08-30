@@ -99,4 +99,44 @@ test('WHOLE-4: the model-facing edge budgets honestly — clipped says so, with 
   assert.ok((srv.match(/edgeStatement\(/g) || []).length >= 5,
     'every statement map goes through the one edge function');
 });
+
+test('RV-1: a count-shaped lookup mounts the understanding stratum', async () => {
+  // The instance pool is written by consolidation; the fixture writes the
+  // same shape by hand: a scoped instance engram over two raw sightings.
+  const NON = 'kayak' + Date.now().toString(36);
+  engram.recordEngram({ agent_id: 'default', user_id: 'default', statement: 'Booked the ' + NON + ' trip to the lake for June.', memory_class: 'episodic', audience: 'model_visible' });
+  engram.recordEngram({ agent_id: 'default', user_id: 'default', statement: 'The ' + NON + ' trip happened and the paddles held.', memory_class: 'episodic', audience: 'model_visible' });
+  engram.recordEngram({
+    agent_id: 'default', user_id: 'default',
+    statement: 'event: ' + NON + ' trip — completed',
+    scope: 'instance:event', audience: 'substrate_internal', memory_class: 'operational',
+    source: 'instance_consolidation', auto_verify: false,
+    extra_output: { payload: { instance: { kind: 'event', entity_slug: null } }, provenance_ref: [] }
+  });
+  const hits = await engram.retrieveRelevant({ query: 'how many ' + NON + ' trips did I take', k: 12 });
+  assert.ok(hits.some((h) => h.source === 'instance-pool' && /^\[instance\]/.test(h.statement)),
+    'the typed instance mounts beside the raw statements: ' + hits.map((h) => h.source).join(','));
+});
+
+test('RV-2: the reconciled view shows one truth with receipts', () => {
+  const { buildReconciledView } = require(path.join(ROOT, 'shared-core', 'reconciled-view.js'));
+  const items = [
+    { id: 'a1', ts: 1, statement: 'Saw the heron at the pier.', source: 'x' },
+    { id: 'a2', ts: 2, statement: 'Another heron sighting by the dock.', source: 'x' },
+    { id: 'i1', ts: 3, statement: '[instance] event: heron sighting (attested ×1)', source: 'instance-pool', refs: ['dialogue.turn:a1'] },
+  ];
+  const v = buildReconciledView(items, { noun_head: 'sightings' }).render();
+  assert.ok(/Consolidated ledger/.test(v), 'the ledger legend heads the view');
+  assert.ok(/\[=L1\]/.test(v), 'a covered raw statement is marked already counted');
+  assert.ok(/\[\+\]/.test(v), 'an uncovered raw statement is offered for judgment');
+});
+
+test('RV-3: the recall tool rides the measured road and hands back the view', () => {
+  const fs = require('fs');
+  const srv = fs.readFileSync(path.join(ROOT, 'plugin', 'mcp-servers', 'troth-substrate', 'server.mjs'), 'utf8');
+  const block = srv.slice(srv.indexOf('troth_recall: {'), srv.indexOf('troth_engram_search: {'));
+  assert.ok(/retrieveRelevant\(/.test(block), 'the cross-type default rides retrieveRelevant');
+  assert.ok(/buildReconciledView/.test(block), 'the view rides along when the stratum is present');
+  assert.ok(/rerank: args\.rerank !== false/.test(block), 'the precision tier stays default-on');
+});
 };

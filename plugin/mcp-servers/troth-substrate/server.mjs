@@ -366,23 +366,50 @@ const TOOLS = {
       required: ['query']
     },
     run: async (args) => {
-      // Phase K: recall is async now (optional embedding rerank).
-      const items = await recallMod.recall({
-        query: args.query,
-        class: args.class || 'all',
-        audience: args.audience || 'model_visible',
-        limit: args.limit || 5,
-        cwd:   args.cwd || null,
-        // Cross-encoder precision tier ON for deliberate /recall lookups (the
-        // every-turn injector path stays OFF for latency). Graceful-degrades if
-        // the reranker model isn't present (recall.js:857). Default on; opt out.
-        rerank: args.rerank !== false
-      });
-      return {
+      const wantAll = !args.class || args.class === 'all';
+      const limit = args.limit || 5;
+      let items;
+      if (wantAll && limit <= 20) {
+        // The cross-type default rides the same road every answering surface
+        // is measured on: recall + the between/counted sub-queries + semantic
+        // fusion + the understanding stratum (typed instances, cast,
+        // provenance completion). Explicit single-class scoping and wide
+        // pulls (limit > 20, past that road's k cap) keep the direct road.
+        items = await engram.retrieveRelevant({
+          query: args.query,
+          audience: args.audience || 'model_visible',
+          cwd: args.cwd || null,
+          k: Math.max(1, limit),
+          // Cross-encoder precision tier ON for deliberate lookups (the
+          // every-turn injector path stays OFF for latency). Graceful-degrades
+          // if the reranker model is absent. Default on; opt out.
+          rerank: args.rerank !== false
+        });
+      } else {
+        items = await recallMod.recall({
+          query: args.query,
+          class: args.class || 'all',
+          audience: args.audience || 'model_visible',
+          limit,
+          cwd:   args.cwd || null,
+          rerank: args.rerank !== false
+        });
+      }
+      const out = {
         items: items.map((i) => Object.assign({}, i, edgeStatement(i.statement))),
         class_filter: args.class || 'all',
         audience_filter: args.audience || 'model_visible'
       };
+      // One truth with its receipts: when the set carries the understanding
+      // stratum, the reconciled view rides along, so the reader never
+      // arbitrates between a ledger line and the raw statements beneath it.
+      if (items.some((i) => i.source === 'instance-pool' || i.source === 'identity-cast')) {
+        try {
+          const { buildReconciledView } = require(serverDir + '../../../shared-core/reconciled-view.js');
+          out.view = buildReconciledView(items, { noun_head: engram.countNounHead(args.query) }).render();
+        } catch (_) { /* the items alone remain a complete answer */ }
+      }
+      return out;
     }
   },
 

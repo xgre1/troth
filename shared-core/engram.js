@@ -997,6 +997,9 @@ function _parseTimeWindow(query, referenceTs) {
       class:    'all',
       audience: opts.audience || 'model_visible',
       cwd:      opts.cwd || null,
+      // The caller's precision tier rides through: a deliberate lookup that
+      // asked for the cross-encoder gets it on this road too.
+      rerank:   opts.rerank,
       // Wider candidate pool than k so embedding boost (below) has material
       // to re-rank. Cap at recall's max (50).
       limit:    Math.min(50, Math.max(k * 5, 10))
@@ -1022,7 +1025,7 @@ function _parseTimeWindow(query, referenceTs) {
         try {
           const extra = await recall.recall({
             query: part, class: 'all', audience: opts.audience || 'model_visible',
-            cwd: opts.cwd || null, limit: Math.max(4, Math.ceil(k / 2))
+            cwd: opts.cwd || null, rerank: opts.rerank, limit: Math.max(4, Math.ceil(k / 2))
           });
           for (const it of extra) {
             if (seen.has(it.id)) continue;
