@@ -20,11 +20,11 @@
 
 **Everything in this repository is AGPL open source and free forever.**
 
-This repository runs on macOS and Linux. It uses the Claude, ChatGPT or Kimi subscription you already pay for, any provider with your own key, or a fully local model. Your substrate never leaves your machine; what does leave is exactly what you send to the provider you picked, and nothing else. (The desktop app is macOS only; everything below works without it.)
+This repository runs on macOS and Linux. It uses the Claude, ChatGPT or Kimi subscription you already pay for, any provider with your own key, or a fully local model. Your substrate never leaves your machine. What does leave is exactly what you send to the provider you picked, and nothing else. (The desktop app is macOS only. Everything below works without it.)
 
 troth is a persistent AI partner. Its identity, memory, goals and refusal walls live in a local SQLite substrate (`~/.troth/state.db`) that you own. Nothing about the partner is stored in any vendor's account, and swapping engines never resets it.
 
-**This is not a memory plugin.** A memory plugin remembers text for one vendor's model. troth keeps the whole relationship — memory, identity, goals, refusal walls checked before the model is consulted, and a signed record of what it learned and what it forgot — in a file you own, and rents whichever model happens to be available to do the talking.
+**This is not a memory plugin.** A memory plugin remembers text for one vendor's model. troth keeps the whole relationship in a file you own: memory, identity, goals, refusal walls checked before the model is consulted, and a signed record of what it learned and what it forgot. The model is rented help, whichever one happens to be available to do the talking.
 
 ### The move, in thirty seconds
 
@@ -56,7 +56,7 @@ $ troth
 
 Nothing was pasted back in. No project file was open. Different vendor, different model, three days later, and the answer came out of `~/.troth/state.db` on your own disk. That is the whole product in one exchange.
 
-**It is for you if** you already pay for an AI plan, you are tired of re-explaining your own project every time you open a session or change model, and you would rather the memory sat on your disk than in someone's account. It runs in a terminal and a local dashboard. Day one it knows nothing about you; it starts learning from the first conversation, and `troth memory import` gives it a past by reading the Claude Code and Codex history already on your machine.
+**It is for you if** you already pay for an AI plan, you are tired of re-explaining your own project every time you open a session or change model, and you would rather the memory sat on your disk than in someone's account. It runs in a terminal and a local dashboard. Day one it knows nothing about you. It starts learning from the first conversation, and `troth memory import` gives it a past by reading the Claude Code and Codex history already on your machine.
 
 ---
 
@@ -64,13 +64,13 @@ Nothing was pasted back in. No project file was open. Different vendor, differen
 
 ```bash
 npm install -g github:xgre1/troth    # puts the `troth` command on your PATH
-troth setup                          # guided: engine, memory, routing — opens the dashboard
+troth setup                          # guided: engine, memory, routing, dashboard
 troth                                # talk to your partner
 ```
 
-About two minutes to the first reply if you have Node 22 and a subscription already. The memory models (roughly 1 GB, embedding and reranking) download in the background on first use; recall works on word-matching until they land and tells you so rather than pretending to be sharper than it is.
+About two minutes to the first reply if you have Node 22 and a subscription already. The memory models (roughly 1 GB, embedding and reranking) download in the background on first use. Until they land, recall works on word-matching and tells you so rather than pretending to be sharper than it is.
 
-`troth setup` starts the proxy and walks you through the rest in the dashboard: pick an engine (your ChatGPT, Claude or Kimi subscription, or an API key that is tested before it counts), turn on memory, decide where turns route. `troth doctor` tells you what is configured; `troth help` lists everything else.
+`troth setup` starts the proxy and walks you through the rest in the dashboard: pick an engine (your ChatGPT, Claude or Kimi subscription, or an API key that is tested before it counts), turn on memory, decide where turns route. `troth doctor` tells you what is configured, and `troth help` lists everything else.
 
 **Requirements:** Node.js >= 22 and, for the Claude engine, the Claude Code CLI (troth offers to install it on first run). The installer checks both and prints the fix when something is missing.
 
