@@ -345,7 +345,7 @@ function _callProvider(prompt, timeoutMs) {
   return j.result != null ? String(j.result) : '';
 }
 
-function composeAnswer(prompt, retrieved, timeoutMs) {
+function _composeOnce(prompt, retrieved, timeoutMs) {
   if (ANSWER === 'llamacpp') {
     const boost = retrieved.map((it) => it.statement).filter(Boolean);
     // Both clocks agree: the child's internal abort gets the same budget as
@@ -368,6 +368,18 @@ function composeAnswer(prompt, retrieved, timeoutMs) {
     return String(res.stdout || '');
   }
   return callClaudeP(prompt, timeoutMs);
+}
+
+// An empty compose is a transport outcome, not a memory verdict — the model
+// never spoke. One retry on the same arm; a persistent blank stays in the
+// row and scores as the failure it is, never excluded.
+function composeAnswer(prompt, retrieved, timeoutMs) {
+  let text = _composeOnce(prompt, retrieved, timeoutMs);
+  if (!String(text || '').trim()) {
+    process.stdout.write(' [empty compose retry]');
+    text = _composeOnce(prompt, retrieved, timeoutMs);
+  }
+  return text;
 }
 
 const JUDGE_PROMPTS_VERSION = 'longmemeval-official-v1';
