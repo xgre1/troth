@@ -814,6 +814,7 @@ if (command === "lock") {
 
 require('./cmd-ground.js')(__cliCtx);
 require('./cmd-net-allow.js')(__cliCtx);
+require('./cmd-guard.js')(__cliCtx);
 
 require('./cmd-drafts.js')(__cliCtx);
 

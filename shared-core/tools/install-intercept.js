@@ -24,10 +24,12 @@
 // refusal. Those keep their ground's ordinary treatment.
 
 const MANAGER_VERBS = {
-  npm:  ['install', 'i', 'ci', 'add', 'update', 'upgrade', 'dedupe', 'rebuild', 'link'],
+  npm:  ['install', 'i', 'ci', 'add', 'update', 'upgrade', 'dedupe', 'rebuild', 'link',
+         // fetch-and-execute spelled as a subcommand; same act as npx
+         'exec', 'x'],
   pnpm: ['install', 'i', 'add', 'update', 'up', 'dedupe', 'rebuild', 'link', 'dlx'],
   yarn: ['install', 'add', 'up', 'upgrade', 'dedupe', 'rebuild', 'link', 'dlx'],
-  bun:  ['install', 'i', 'add', 'update', 'link'],
+  bun:  ['install', 'i', 'add', 'update', 'link', 'x'],
   uv:   ['add', 'sync'],
   cargo: ['add', 'update', 'fetch'],
   composer: ['install', 'require', 'update', 'create-project']
@@ -82,7 +84,16 @@ function _words(segment) {
 function _argv(segment) {
   const words = _words(segment);
   let i = 0;
-  while (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i])) i++;
+  // Wrappers that do not change what runs: env-var assignments, `env` with
+  // its own assignments, and `command`. A flagged wrapper spelling (env -i)
+  // is exotic enough to take the documented fail-open instead.
+  for (let hops = 0; hops < 4; hops++) {
+    while (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i])) i++;
+    const b = i < words.length ? _base(words[i]) : '';
+    if ((b === 'env' || b === 'command') &&
+        i + 1 < words.length && words[i + 1][0] !== '-') { i++; continue; }
+    break;
+  }
   return words.slice(i);
 }
 

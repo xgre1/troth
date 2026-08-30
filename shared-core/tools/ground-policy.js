@@ -218,6 +218,10 @@ function openedFolders() {
 // in. It is passed in by the caller and never persisted: an in-memory grant
 // has no expiry to get wrong, leaves nothing behind to go stale, and gives
 // the partner no road that writes to the operator's registry.
+// opts.sessionOpens carries the same in-memory shape for folders the partner
+// opened for itself mid-session (session-grants.js): witnessed, photographed,
+// gone with the process — and checked here against the same two grounds no
+// open may ever cover.
 // opts.opened and opts.workspaceRoot exist so the decision can be exercised
 // against declared inputs instead of live machine state.
 function classifyGround(cwd, opts) {
@@ -273,6 +277,16 @@ function classifyGround(cwd, opts) {
     const realFolder = realOrNull(folder);
     if (realFolder !== null && under(real, realFolder)) {
       return { ground: 'opened', root: realFolder, via: 'registry' };
+    }
+  }
+
+  const sessionOpens = Array.isArray(opts.sessionOpens) ? opts.sessionOpens : [];
+  for (const folder of sessionOpens) {
+    const realFolder = realOrNull(folder);
+    if (realFolder !== null && under(real, realFolder)
+        && !under(realFolder, troth) && !under(troth, realFolder)
+        && !(realWs !== null && (under(realFolder, realWs) || under(realWs, realFolder)))) {
+      return { ground: 'opened', root: realFolder, via: 'session-open' };
     }
   }
 

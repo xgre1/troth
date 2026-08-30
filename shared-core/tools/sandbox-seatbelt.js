@@ -615,7 +615,8 @@ function _policyPaths() {
           path.join(t, 'opened-folders.json'),
           path.join(t, 'mcp-clients.json'),
           path.join(t, 'router.json'),
-          path.join(t, 'net-allowlists.json')];
+          path.join(t, 'net-allowlists.json'),
+          path.join(t, 'guarded-remotes.json')];
 }
 
 // Write-denied on operator ground: files the shell or the agent host EXECUTES

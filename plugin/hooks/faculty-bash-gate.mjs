@@ -13,20 +13,23 @@
 //
 // So the faculty home gets its own PreToolUse hook (subprocess-cli.js
 // provisions settings.json pointing here), and the hook asks the SAME
-// bash-safety.isCommandSafe the troth-bash MCP server asks — one wall,
-// one test suite (TPW/TBS), two doors. No steering here: troth-bash is not
-// mounted in this session (--strict-mcp-config keeps the faculty to the
-// substrate server only), so the honest options are allow or refuse.
+// wall modules the troth-bash MCP server asks — bash-safety.isCommandSafe
+// and publish-gate.preflight — one wall, one test suite (TPW/TBS/GUARD),
+// two doors. No steering here: troth-bash is not mounted in this session
+// (--strict-mcp-config keeps the faculty to the substrate server only), so
+// the honest options are allow or refuse.
 //
 // STANDALONE ON PURPOSE: no ./_lib.mjs import (that loads better-sqlite3,
 // ABI-locked to the bundled node). bash-safety.js + path-policy.js +
-// web-allowlist.js are stdlib-only, so THIS hook runs on any node.
+// web-allowlist.js + publish-gate.js and its require chain are stdlib-only,
+// so THIS hook runs on any node.
 //
-// FAIL-OPEN CONTRACT: the ONLY path that denies is "tool is exactly Bash
-// AND bash-safety loaded AND its verdict is a refusal AND gating not opted
-// out". Every error, malformed payload, or missing module → allow. A broken
-// gate must never strand the partner's shell; the wall module itself is
-// where refusal logic lives.
+// FAIL-OPEN CONTRACT: the ONLY paths that deny are "tool is exactly Bash
+// AND a wall module loaded AND its verdict is a refusal AND gating not
+// opted out" — bash-safety's refusal or publish-gate's blocked preflight.
+// Every error, malformed payload, or missing module → allow. A broken
+// gate must never strand the partner's shell; the wall modules are where
+// refusal logic lives.
 //
 // Opt-out: env TROTH_FACULTY_BASH_GATE=0|false|off, or ~/.troth/config.json
 // { "features": { "faculty_bash_gate": false } }. Default ON.
@@ -75,22 +78,45 @@ try {
   const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
   const safety = require(join(root, 'shared-core', 'tools', 'bash-safety.js'));
   const verdict = safety.isCommandSafe(command, {});
-  if (!verdict || verdict.allowed !== false) allow();
+  if (verdict && verdict.allowed === false) {
+    out({
+      hookSpecificOutput: {
+        hookEventName: payload.hook_event_name || 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: (() => {
+          const what = String(verdict.detail || verdict.why || 'this command crosses a substrate wall');
+          return 'REFUSED ' + (verdict.pattern || verdict.reason || 'wall') + ': ' +
+            what + (/[.!?]$/.test(what) ? '' : '.') +
+            ' This wall is policy, not a permission prompt; do not retry variants of the same ' +
+            'command. Tell the operator exactly what was refused and why; they can run it ' +
+            'themselves in their own shell if they truly want it.';
+        })(),
+      },
+    });
+  }
 
-  out({
-    hookSpecificOutput: {
-      hookEventName: payload.hook_event_name || 'PreToolUse',
-      permissionDecision: 'deny',
-      permissionDecisionReason: (() => {
-        const what = String(verdict.detail || verdict.why || 'this command crosses a substrate wall');
-        return 'REFUSED ' + (verdict.pattern || verdict.reason || 'wall') + ': ' +
-          what + (/[.!?]$/.test(what) ? '' : '.') +
-          ' This wall is policy, not a permission prompt; do not retry variants of the same ' +
-          'command. Tell the operator exactly what was refused and why; they can run it ' +
-          'themselves in their own shell if they truly want it.';
-      })(),
-    },
+  // The publish wall, through the same module the troth-bash door asks
+  // (publish-gate.js): a guarded destination needs its gate green from this
+  // door too. run_gate is not mounted in the faculty session, so the road
+  // sentence names what IS reachable from here. An empty guarded list costs
+  // one stat; module trouble lands in the outer catch and allows, per the
+  // contract above.
+  const pub = require(join(root, 'shared-core', 'tools', 'publish-gate.js'));
+  const pf = pub.preflight(command, String(payload.cwd || process.cwd()), {
+    road: 'This faculty shell does not mount run_gate; report the refusal — the '
+        + 'partner session can run the gate and rerun the push, and the operator '
+        + 'can always push from their own shell.'
   });
+  if (pf && pf.blocked === true) {
+    out({
+      hookSpecificOutput: {
+        hookEventName: payload.hook_event_name || 'PreToolUse',
+        permissionDecision: 'deny',
+        permissionDecisionReason: String(pf.message || 'a guarded publish destination needs its gate green first'),
+      },
+    });
+  }
+  allow();
 } catch {
   // Any failure whatsoever: never block the partner's shell.
   try { allow(); } catch { process.exit(0); }

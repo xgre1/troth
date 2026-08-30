@@ -570,9 +570,10 @@ function _checkEgress(command, isAllowedFn) {
         reason:   'egress_not_allowlisted',
         pattern:  'outbound_payload',
         severity: 'block',
-        detail:   'this command carries data out to ' + host + ', which the operator has not '
-                + 'allowlisted (https only). Fetching is not gated — sending is. Add the host '
-                + 'deliberately with `troth config web allowlist add ' + host + '`.'
+        detail:   'this command carries data out to ' + host + ', which is not on the outbound '
+                + 'allowlist (https only). Fetching is not gated — sending is. The list is the '
+                + 'operator\'s own: they add the host from their shell with '
+                + '`troth config web allowlist add ' + host + '` (partner ground takes no policy writes).'
       };
     }
   }

@@ -16,6 +16,11 @@ moment it runs: the wall is the kernel's answer.
 - **The substrate.** `~/.troth` — the partner's own memory — takes no writes
   from any walled command, and its contents stay dark behind a stat pinhole,
   so path walks and installs survive without reading it.
+- **Ground nobody declared.** Writes confine to the folder itself. When the
+  folder is your own work, the partner opens it for the session from its own
+  hand — a one-line purpose on record, the tree photographed for undo first —
+  and your permanent registry never takes a write from it. Foreign code and
+  the substrate never open, by anyone's hand.
 
 ## What is always dark
 
@@ -31,6 +36,10 @@ through literal read-only carves; the keys beside it never travel with it.
 Your work. A wall that blocks a legitimate workflow is treated as a bug in
 the wall: builds, installs, tests and pushes run to completion inside the
 walls, and the release checks themselves run from the partner's own hand.
+A refusal is never a dead end — it says which wall spoke and names a road
+the partner can take itself: opening your own folder for the session,
+widening one project's install registry list with the reason on record,
+per-repo configuration for the files no ground writes.
 
 ## Undo rides along
 

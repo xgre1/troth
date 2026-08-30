@@ -219,6 +219,7 @@ export function wrapFor(cwd, opts) {
 
   const c = gp.classifyGround(cwd, {
     sessionRoot:    opts.sessionRoot,
+    sessionOpens:   opts.sessionOpens,
     workspaceRoot:  opts.workspaceRoot
   });
   if (c.ground === 'escape') return { refuse: c.reason, ground: 'escape' };

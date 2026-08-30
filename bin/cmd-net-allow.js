@@ -4,9 +4,10 @@
 //
 // An install runs jailed and reaches the public package registries. A company
 // registry, or a project whose artifacts are served from a code host, needs
-// one more name — and an entry here widens the only road out of that jail, so
-// the partner must never write it. This command is the only writer, and it
-// runs as the operator in the operator's own shell.
+// one more name. Two writers exist, and the split is the point: the partner's
+// witnessed road (the net_allow tool) widens ONE project's list with a purpose
+// on record, while --everywhere — every project at once — stays this command,
+// run as the operator in the operator's own shell.
 module.exports = function run(ctx) {
 const { args, command } = ctx;
 if (command !== 'net-allow' && command !== 'net-allowed') return;

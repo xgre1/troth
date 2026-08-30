@@ -29,6 +29,12 @@ const PURPOSES = {
   // The parser self-test: one node child requiring the native bindings, so
   // an ABI that dies at parse time dies in the child, never in the server.
   'parser-probe': { kind: 'trusted-plumbing' },
+  // Publish pre-flight: read-only git plumbing (remote URL, HEAD tree) with
+  // argv shapes validated before any model-derived name may travel as a key.
+  'publish-preflight': { kind: 'trusted-plumbing' },
+  // The operator-configured gate command a guarded destination demands;
+  // authored in guarded-remotes.json by the operator, never by a model.
+  'release-gate': { kind: 'trusted-plumbing' },
   // ground-walled purposes; adopters pick one consciously and the profile
   // tightens per purpose without touching call sites again.
   'inference':   { kind: 'ground', ground: 'confine' },

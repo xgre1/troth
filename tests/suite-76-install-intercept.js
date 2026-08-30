@@ -186,4 +186,16 @@ test('II-4: through the real server, an install says it ran jailed and ordinary 
     try { proc.kill('SIGKILL'); } catch (_) {}
   }
 });
+
+test('II-5: fetch-and-execute subcommands and benign wrappers still land in the jail', () => {
+  const ic = require('../shared-core/tools/install-intercept.js');
+  for (const c of ['npm exec cowsay', 'npm x cowsay', 'bun x cowsay',
+                   'env NODE_ENV=dev npm install', 'command npm install',
+                   'FOO=1 env BAR=2 pnpm add left-pad']) {
+    assert.strictEqual(ic.classifyInstall(c).install, true, 'missed: ' + c);
+  }
+  for (const c of ['command -v npm', 'env', 'env -i npm install']) {
+    assert.strictEqual(ic.classifyInstall(c).install, false, 'over-caught: ' + c);
+  }
+});
 };

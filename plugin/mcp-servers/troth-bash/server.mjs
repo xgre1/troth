@@ -150,6 +150,41 @@ const TOOLS = [
     inputSchema: { type: 'object', properties: {} }
   },
   {
+    name: 'open_ground',
+    description: 'Open a folder of the operator\'s own work as opened ground for THIS session: commands there run with the operator\'s environment instead of confined walls. Requires a one-line purpose (kept on record), and the tree is photographed for undo before the grant applies. Refused for partner project ground (the workspace) and for the tree holding the substrate. The grant dies with the session; the permanent registry stays the operator\'s own road (`troth open`).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'The folder to open, absolute or ~-relative.' },
+        purpose: { type: 'string', description: 'One line: why this ground opens.' }
+      },
+      required: ['path', 'purpose']
+    }
+  },
+  {
+    name: 'net_allow',
+    description: 'Add a host to THIS project\'s install-egress allowlist (the registries an install jail may reach). Per-project only — the every-project list stays the operator\'s own road (`troth net-allow --everywhere`). Requires a one-line purpose (kept on record); the addition is announced and applies to the next install.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        host: { type: 'string', description: 'Host to allow, e.g. npm.example.com or *.example.com.' },
+        purpose: { type: 'string', description: 'One line: why this project needs the host.' }
+      },
+      required: ['host', 'purpose']
+    }
+  },
+  {
+    name: 'run_gate',
+    description: 'Run the gate a guarded destination demands, from the partner\'s own hand: executes the operator-configured gate command for the given match (in the persistent cwd), and a green exit records a pass bound to the exact tree at HEAD — the guarded push then proceeds. Red returns the gate\'s tail so the failure is actionable. No operator involved.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        match: { type: 'string', description: 'The guarded destination entry to satisfy, exactly as listed (e.g. github.com/owner/repo).' }
+      },
+      required: ['match']
+    }
+  },
+  {
     name: 'browse',
     description: 'Drive a real Chrome page over CDP: navigate, read the DOM, click and fill through eval JS, screenshot. Steps in order: goto url → wait_ms → eval JS (JSON result returned) → screenshot to a PNG path. With no port it uses the troth browser and starts it if needed (private profile, never your own session). With an explicit port it only attaches: port 9222 reaches a browser the operator started with --remote-debugging-port=9222.',
     inputSchema: {
@@ -269,6 +304,17 @@ function requireUndo() {
   return _undoMod;
 }
 
+// Session-open grants: ground the partner opened for itself, this process
+// only. Reached lazily like the undo net; absent shared-core leaves the
+// shell exactly as it was.
+let _grantsMod;
+function requireGrants() {
+  if (_grantsMod !== undefined) return _grantsMod;
+  try { _grantsMod = require(fileURLToPath(new URL('../../../shared-core/tools/session-grants.js', import.meta.url))); }
+  catch (e) { _grantsMod = null; }
+  return _grantsMod;
+}
+
 function runCommand(command, timeoutMs, overrideCwd) {
   return new Promise((resolve) => {
     let effectiveCwd = overrideCwd || cwd;
@@ -285,7 +331,9 @@ function runCommand(command, timeoutMs, overrideCwd) {
     // Which ground this command stands on decides which walls it runs
     // behind. The note keeps the agent oriented so a "permission denied"
     // reads as the wall rather than a bug.
-    const wrap = wrapFor(effectiveCwd, { sessionRoot: SESSION_ROOT });
+    const _grants = requireGrants();
+    const wrap = wrapFor(effectiveCwd, { sessionRoot: SESSION_ROOT,
+                                         sessionOpens: _grants ? _grants.list() : [] });
     if (wrap && wrap.refuse) {
       // A cwd that claims one ground but resolves into another. Running it
       // bare would be the one fail-open the whole design exists to avoid.
@@ -425,8 +473,10 @@ function runCommand(command, timeoutMs, overrideCwd) {
             ? 'this directory holds the substrate: writes land in scratch, not here.'
               + ' cd into a project to work.'
             : 'writes here are scoped to ' + active.root + ', so a path outside it is'
-              + ' refused. If that is wrong, `troth open ' + active.root + '` and it'
-              + ' runs with your own environment.') + '\n';
+              + ' refused. If this folder is the operator\'s own work, open it yourself:'
+              + ' call open_ground with the path and a one-line purpose (recorded,'
+              + ' photographed for undo), then rerun. The permanent road stays the'
+              + ' operator\'s own: `troth open ' + active.root + '`.') + '\n';
         }
       }
       // What the egress proxy turned away while this command ran, named on
@@ -438,8 +488,8 @@ function runCommand(command, timeoutMs, overrideCwd) {
           stderrOut += '\n[troth-bash] egress refused during this install: '
             + refused.slice(0, 8).join(', ')
             + ' — an install jail reaches the package registries only.'
-            + ' If this project genuinely needs one of these, `troth net-allow <host>`'
-            + ' from the project adds it for that project alone.\n';
+            + ' If this project genuinely needs one of these, call net_allow with the'
+            + ' host and a one-line purpose — it widens THIS project alone, on record.\n';
         }
         try { egress.revoke(iw.token); } catch (_) {}
       }
@@ -568,6 +618,114 @@ async function handleTool(name, args) {
     cwd = dir;
     return { content: [{ type: 'text', text: 'cwd → ' + cwd }] };
   }
+  if (name === 'open_ground') {
+    const grants = requireGrants();
+    if (!grants) {
+      return { isError: true, content: [{ type: 'text', text: 'open_ground unavailable: shared-core not found from this install' }] };
+    }
+    const r = grants.grant(args.path, args.purpose);
+    if (!r.ok) {
+      return { isError: true, content: [{ type: 'text', text: '[troth-bash] open refused: ' + r.error }] };
+    }
+    // The photograph precedes the grant taking effect: opened ground is safe
+    // because it is reversible, so the tree is captured before the first
+    // command can stand on it.
+    let photo = 'no undo module on this install';
+    const undo = requireUndo();
+    if (undo) {
+      try {
+        const s = undo.snapshot(r.root, 'session-open', { allowShallow: true });
+        photo = (s && s.skipped) ? 'photograph skipped: ' + s.skipped : 'photographed for undo';
+      } catch (e) { photo = 'photograph failed: ' + (e && e.message || e); }
+    }
+    try {
+      if (state && state.archiveToolOutput) {
+        state.archiveToolOutput(process.env.CLAUDE_SESSION_ID || null, 'open_ground',
+          'session-open ' + r.root + ' — ' + r.purpose, 'session-open ' + r.root);
+      }
+    } catch (_) { /* best-effort record; the grant text below is the loud part */ }
+    return { content: [{ type: 'text', text:
+      '[troth-bash] opened for this session: ' + r.root + ' (' + photo + '). '
+      + 'Purpose on record: ' + r.purpose + '. Commands there now run with the '
+      + 'operator\'s environment; the permanent registry is untouched.' }] };
+  }
+  if (name === 'net_allow') {
+    const why = String(args.purpose === undefined || args.purpose === null ? '' : args.purpose)
+      .replace(/\s+/g, ' ').trim().slice(0, 300);
+    if (!why) {
+      return { isError: true, content: [{ type: 'text', text: '[troth-bash] refused: a one-line purpose is required — it is the record of why this host opened' }] };
+    }
+    let net = null, gp = null;
+    try {
+      net = require(fileURLToPath(new URL('../../../shared-core/tools/net-allowlist.js', import.meta.url)));
+      gp = require(fileURLToPath(new URL('../../../shared-core/tools/ground-policy.js', import.meta.url)));
+    } catch (e) {
+      return { isError: true, content: [{ type: 'text', text: 'net_allow unavailable: shared-core not found from this install' }] };
+    }
+    // Per-project only, scoped by the same walk the install jail uses; the
+    // every-project list stays the operator's own road.
+    let project = null;
+    try { project = gp.projectRoot(cwd); } catch (_) { project = null; }
+    project = project || cwd;
+    const r = net.addHost(args.host, project);
+    if (!r.ok) {
+      return { isError: true, content: [{ type: 'text', text: '[troth-bash] refused: ' + r.error }] };
+    }
+    try {
+      if (state && state.archiveToolOutput) {
+        state.archiveToolOutput(process.env.CLAUDE_SESSION_ID || null, 'net_allow',
+          'net-allow ' + r.host + ' for ' + (r.project || project) + ' — ' + why, 'net-allow ' + r.host);
+      }
+    } catch (_) { /* best-effort record; the result below is the loud part */ }
+    return { content: [{ type: 'text', text:
+      '[troth-bash] ' + r.host + ' allowed for installs in ' + (r.project || project)
+      + ' (this project alone). Purpose on record: ' + why + '.' }] };
+  }
+  if (name === 'run_gate') {
+    let pub = null, spawnPurpose = null;
+    try {
+      pub = require(fileURLToPath(new URL('../../../shared-core/tools/publish-gate.js', import.meta.url)));
+      spawnPurpose = require(fileURLToPath(new URL('../../../shared-core/tools/spawn-purpose.js', import.meta.url)));
+    } catch (e) {
+      return { isError: true, content: [{ type: 'text', text: 'run_gate unavailable: shared-core not found from this install' }] };
+    }
+    const wanted = String(args.match || '').trim();
+    const entry = pub.loadGuarded().find((g) => g.match === wanted);
+    if (!entry) {
+      const listed = pub.loadGuarded().map((g) => g.match).join(', ') || '(nothing guarded)';
+      return { isError: true, content: [{ type: 'text', text: '[troth-bash] no guarded entry matches "' + wanted + '". Guarded: ' + listed }] };
+    }
+    const t0 = Date.now();
+    const out = await new Promise((resolveGate) => {
+      let child;
+      try {
+        child = spawnPurpose.spawn('release-gate', '/bin/bash', ['-lc', entry.gate],
+          { cwd, env: partnerEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
+      } catch (e) { return resolveGate({ code: -1, tail: 'spawn failed: ' + (e && e.message || e) }); }
+      const buf = makeBoundedBuffer(64 * 1024, 64 * 1024);
+      child.stdout.on('data', (c) => buf.push(c.toString('utf8')));
+      child.stderr.on('data', (c) => buf.push(c.toString('utf8')));
+      const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch (_) {} }, 25 * 60 * 1000);
+      child.on('exit', (code) => { clearTimeout(timer); resolveGate({ code, tail: buf.get() }); });
+      child.on('error', (e) => { clearTimeout(timer); resolveGate({ code: -1, tail: 'spawn error: ' + (e && e.message || e) }); });
+    });
+    const secs = Math.round((Date.now() - t0) / 1000);
+    if (out.code !== 0) {
+      return { isError: true, content: [{ type: 'text', text:
+        '[troth-bash] gate RED for ' + entry.match + ' (exit ' + out.code + ', ' + secs + 's). Tail:\n'
+        + String(out.tail || '').slice(-4000) }] };
+    }
+    const tree = pub.headTree(cwd);
+    if (!tree) {
+      return { isError: true, content: [{ type: 'text', text:
+        '[troth-bash] gate was green but ' + cwd + ' is not a git repository — run it from the repo the push leaves from, so the pass binds to that tree.' }] };
+    }
+    const rec = pub.recordPass(entry.match, tree, entry.gate);
+    return { content: [{ type: 'text', text:
+      '[troth-bash] gate GREEN for ' + entry.match + ' (' + secs + 's) — pass recorded for tree '
+      + tree.slice(0, 12) + '. The guarded push proceeds while HEAD stays this tree.'
+      + (rec.ok ? '' : ' (pass write failed: ' + rec.error + ')') }] };
+  }
   if (name === 'env_set' || name === 'env_keys') {
     if (!envdoor) {
       return { isError: true, content: [{ type: 'text', text: 'env door unavailable: shared-core not found from this install' }] };
@@ -613,12 +771,28 @@ async function handleTool(name, args) {
               '[troth-bash] REFUSED ' + verdict.reason
               + (verdict.pattern ? ' (' + verdict.pattern + ')' : '') + '. '
               + (verdict.detail || '')
-              + ' This destination is operator-only by policy; acknowledge_danger does not override it.'
+              + (verdict.reason === 'egress_not_allowlisted' || verdict.reason === 'credential_in_command'
+                  ? ''
+                  : verdict.reason === 'dangerous_pattern'
+                    ? ' This shape has no partner road; acknowledge_danger does not override it.'
+                    : ' This destination is operator-only by policy; acknowledge_danger does not override it.')
           }],
           isError: true
         };
       }
     }
+
+    // Guarded destinations: a push toward one passes only while a green gate
+    // pass covers the exact tree at HEAD. Independent of every judgment
+    // below and not ack-able — the road it names (run_gate) is the
+    // partner's own hand, never the operator's.
+    try {
+      const pub = require(fileURLToPath(new URL('../../../shared-core/tools/publish-gate.js', import.meta.url)));
+      const pg = pub.preflight(args.command || '', resolveDir(args.cwd) || cwd);
+      if (pg && pg.blocked) {
+        return { content: [{ type: 'text', text: '[troth-bash] GUARDED: ' + pg.message }], isError: true };
+      }
+    } catch (_) { /* absent shared-core leaves the shell as it was */ }
 
     // Operator-freeze gate. An active "don't" in the ledger blocks outward
     // commands (push / upload / notarize) HERE, at the one chokepoint both

@@ -96,6 +96,13 @@ const BLOCKED_PREFIXES = Object.freeze([
   // through the CLI, never the partner through a tool.
   { name: 'opened_folders',     prefix: _expandHome('~/.troth/opened-folders.json'), why: 'ground registry — an entry here decides where the partner runs unconfined; operator-only' },
   { name: 'opened_folders_tmp', prefix: _expandHome('~/.troth/opened-folders.json.tmp'), why: 'ground registry temp file (atomic-write target)' },
+  // Which pushes need a green gate first, and which command IS that gate. An
+  // entry decides when the partner's own publishes wait on a check, and the
+  // pass files record a gate having run green for an exact tree — both are
+  // enforcement surface, so neither takes a partner write.
+  { name: 'guarded_remotes',     prefix: _expandHome('~/.troth/guarded-remotes.json'), why: 'guarded publish destinations — an entry decides which pushes need a green gate; operator-only' },
+  { name: 'guarded_remotes_tmp', prefix: _expandHome('~/.troth/guarded-remotes.json.tmp'), why: 'guarded destinations temp file (atomic-write target)' },
+  { name: 'gate_pass_dir',       prefix: _expandHome('~/.troth/gate-pass/'), why: 'publish-gate passes — written by the gate road alone; a partner-written pass is self-authorization' },
   // Which hosts a jailed install may reach. An entry here widens the one
   // road out of the jail, so it belongs beside the other policy files:
   // the operator adds a host through the CLI, never the partner through a
