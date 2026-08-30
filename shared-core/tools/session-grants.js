@@ -12,6 +12,7 @@
 'use strict';
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const _grants = new Map();   // realpath → { purpose, at }
@@ -35,6 +36,10 @@ function grant(dir, purpose) {
   if (!why) {
     return { ok: false,
              error: 'a one-line purpose is required — it is the record of why this ground opened' };
+  }
+  // The callers' contract accepts ~-relative spellings; expand before resolving.
+  if (dir === '~' || dir.startsWith('~/') || dir.startsWith('~' + path.sep)) {
+    dir = path.join(os.homedir(), dir.slice(1));
   }
   const real = _realOrNull(dir);
   if (real === null) return { ok: false, error: 'no such directory: ' + dir };

@@ -12,7 +12,7 @@ const os = require('os');
 const path = require('path');
 const url = require('url');
 
-console.log('\nSession-open road (SOPEN-1..10):');
+console.log('\nSession-open road (SOPEN-1..11):');
 
 const grants = require('../shared-core/tools/session-grants.js');
 const gp = require('../shared-core/tools/ground-policy.js');
@@ -148,7 +148,7 @@ test('SOPEN-9: the refusal texts name roads the partner can take', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'plugin', 'mcp-servers', 'troth-bash', 'server.mjs'), 'utf8');
   assert.ok(src.includes("name: 'open_ground'"), 'the session-open tool is declared');
   assert.ok(src.includes("name: 'net_allow'"), 'the per-project egress tool is declared');
-  assert.ok(src.includes('call open_ground with the path'), 'the confine refusal names the session-open road');
+  assert.ok(src.includes("call open_ground with ' + active.root"), 'the confine refusal names the ground it stands on');
   assert.ok(src.includes('call net_allow with the'), 'the install egress refusal names the per-project road');
   const safe = fs.readFileSync(path.join(__dirname, '..', 'shared-core', 'tools', 'bash-safety.js'), 'utf8');
   assert.ok(safe.includes('they add the host from their shell'), 'the outbound allowlist refusal is honest about its addressee');
@@ -167,5 +167,17 @@ test('SOPEN-10: a partner addition widens one project alone, never the every-pro
     const other = tmpdir('sopen-net-other-');
     assert.ok(!net.allowFor(other).includes('npm.example.com'));
   });
+});
+
+test('SOPEN-11: a ~-relative spelling reaches the real judgment, not a parse dead end', () => {
+  // The tool contract accepts ~-relative paths. Before the expansion landed,
+  // '~' died as 'no such directory' — a wrong answer wearing a right shape.
+  const r = grants.grant('~', 'live check that tilde expands');
+  assert.strictEqual(r.ok, false);
+  assert.ok(!/no such directory/.test(r.error), 'tilde must expand before resolving: ' + r.error);
+  assert.ok(/substrate/.test(r.error), 'home holds the substrate tree, and the refusal says which wall spoke');
+  const sub = grants.grant('~/this-folder-does-not-exist-sopen11', 'x');
+  assert.strictEqual(sub.ok, false);
+  assert.ok(sub.error.includes(os.homedir()), 'the refusal shows the expanded path: ' + sub.error);
 });
 };

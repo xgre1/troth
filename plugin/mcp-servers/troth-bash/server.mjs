@@ -473,8 +473,8 @@ function runCommand(command, timeoutMs, overrideCwd) {
             ? 'this directory holds the substrate: writes land in scratch, not here.'
               + ' cd into a project to work.'
             : 'writes here are scoped to ' + active.root + ', so a path outside it is'
-              + ' refused. If this folder is the operator\'s own work, open it yourself:'
-              + ' call open_ground with the path and a one-line purpose (recorded,'
+              + ' refused. If this ground is the operator\'s own work, open it yourself:'
+              + ' call open_ground with ' + active.root + ' and a one-line purpose (recorded,'
               + ' photographed for undo), then rerun. The permanent road stays the'
               + ' operator\'s own: `troth open ' + active.root + '`.') + '\n';
         }
