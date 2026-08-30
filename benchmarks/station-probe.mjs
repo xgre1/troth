@@ -21,6 +21,33 @@ const ONLY = argVal('--only', '');
 const N = parseInt(argVal('--n', '17'), 10);
 const VERDICTS = argVal('--verdicts', '');
 
+// --selftest: the attribution classes, pinned on fixture rows. Exits before
+// the dataset loads, so it costs nothing and touches nothing.
+if (args.includes('--selftest')) {
+  const _content = 'The user booked the pottery class for Saturday morning at the studio downtown.';
+  const q = { answer_session_ids: ['s1'], haystack_session_ids: ['s1'],
+    haystack_sessions: [[{ role: 'user', content: _content }]] };
+  const found = { retrieved: [{ statement: _content }] };
+  const cases = [
+    ['worker error → 0',                        q, { error: 'boom' }, null, '0 worker-error'],
+    ['nothing retrieved → 3',                   q, { retrieved: [] }, { verdict: 'WRONG', answer: 'x.' }, '3 unretrieved'],
+    ['correct → ok',                            q, found, { verdict: 'CORRECT', answer: 'whatever' }, 'ok'],
+    ['empty answer → 4',                        q, found, { verdict: 'WRONG', answer: '' }, '4 late/cut'],
+    ['mid-clause stop → 4',                     q, found, { verdict: 'WRONG', answer: 'The class was booked for Saturday and the' }, '4 late/cut'],
+    ['complete sentence, no Answer line → 5',   q, found, { verdict: 'WRONG', answer: 'Two: the boots and the blazer.' }, '5 composed'],
+    ['Answer line present, wrong → 5',          q, found, { verdict: 'WRONG', answer: 'First the list.\nAnswer: 3' }, '5 composed'],
+    ['bare unknown, no punctuation → 5',        q, found, { verdict: 'WRONG', answer: 'unknown' }, '5 composed'],
+  ];
+  let bad = 0;
+  for (const [name, qq, oo, pp, want] of cases) {
+    const got = attribute(qq, oo, pp).station;
+    if (got !== want) bad++;
+    console.log((got === want ? '  ok    ' : '  FAIL  ') + name + (got === want ? '' : ' (got ' + got + ')'));
+  }
+  console.log(bad === 0 ? 'station-probe selftest: all classes hold' : 'station-probe selftest FAILED: ' + bad + ' case(s)');
+  process.exit(bad === 0 ? 0 : 1);
+}
+
 const data = JSON.parse(readFileSync(DATASET, 'utf8'));
 const pool = ONLY
   ? ONLY.split(',').map(s => s.trim()).filter(Boolean).map(id => data.find(q => q.question_id === id)).filter(Boolean)
@@ -99,9 +126,22 @@ function attribute(q, out, prior) {
 
   if (!prior) return { station: '≥4 present-outcome-unknown', hits, ledger, of: sentences.length };
   if (prior.verdict === 'CORRECT') return { station: 'ok', hits, ledger, of: sentences.length };
-  const unfinished = prior.answer && !/^\s*Answer:/mi.test(prior.answer);
-  if (unfinished) return { station: '4 late/cut', hits, ledger, of: sentences.length };
+  if (!looksFinished(prior.answer)) return { station: '4 late/cut', hits, ledger, of: sentences.length };
   return { station: '5 composed', hits, ledger, of: sentences.length };
+}
+
+// The verdicts join carries only the answer text, so the 4-vs-5 split rests
+// on what the text itself proves. A missing "Answer:" line proves nothing:
+// the compose prompt (longmemeval-smoke.mjs) asks for that line only on the
+// counting and knowledge-update shapes, so its absence elsewhere is the
+// template working as written. What DOES prove a cut: an empty answer, or
+// text that stops mid-clause with no terminal punctuation.
+function looksFinished(text) {
+  const t = String(text || '').trim();
+  if (!t) return false;
+  if (/^unknown[.!]?$/i.test(t)) return true;   // the template's own give-up word, complete by definition
+  if (/^\s*Answer:\s*\S/mi.test(t)) return true;
+  return /[.!?…]["')\]]?$/.test(t);
 }
 
 console.log('═ station probe ═');
