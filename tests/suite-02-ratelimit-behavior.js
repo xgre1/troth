@@ -1947,7 +1947,10 @@ console.log('\nHashline edit format (behavior):');
           file_path: tmp,
           edits: [{ op: 'replace', pos: '3#' + tag3, lines: 'return 2;' }]
         } } });
-      return waitFor(3, 10000);
+      // The same window the boot gets: the contract is that the server
+      // answers without parsers, not that it answers in 10s while the
+      // async flush cohort saturates the machine.
+      return waitFor(3, 60000);
     }).then(() => {
       const r = replies[2].result;
       child.kill();
