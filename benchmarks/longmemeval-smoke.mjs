@@ -358,7 +358,7 @@ function _composeOnce(prompt, retrieved, timeoutMs) {
       env: { ...process.env, TROTH_BENCH_LOCAL_TIMEOUT_MS: String(timeoutMs) },
     });
     let res = run();
-    const transportFail = (r) => r.error || (r.status !== 0 && /ETIMEDOUT|ECONNREFUSED|aborted|socket hang up/i.test(String(r.stderr || '') + String(r.error && r.error.message || '')));
+    const transportFail = (r) => r.error || (r.status !== 0 && /ETIMEDOUT|ECONNREFUSED|ECONNRESET|EPIPE|fetch failed|aborted|socket hang up/i.test(String(r.stderr || '') + String(r.error && r.error.message || '')));
     if (transportFail(res)) {
       process.stdout.write(' [transport retry]');
       res = run();
@@ -444,7 +444,15 @@ function officialJudgePrompt(q, ourAnswer) {
 // verdicts on identical input flipped between runs. enable_thinking:false is
 // load-bearing for reasoning models — with it on, the tiny max_tokens budget
 // is consumed by thinking and the visible content comes back empty.
+// One retry on a connection-class failure: under concurrent load a fetch can
+// fail before the server ever sees it, and that is a transport outcome, not
+// a grading verdict. A second consecutive failure surfaces as the error it is.
 async function judgeLocal(prompt) {
+  try { return await _judgeLocalOnce(prompt); }
+  catch (_) { return await _judgeLocalOnce(prompt); }
+}
+
+async function _judgeLocalOnce(prompt) {
   const res = await fetch(JUDGE_HOST + '/v1/chat/completions', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
