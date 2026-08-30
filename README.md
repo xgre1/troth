@@ -26,6 +26,8 @@ troth is a persistent AI partner. Its identity, memory, goals and refusal walls 
 
 **This is not a memory plugin.** A memory plugin remembers text for one vendor's model. troth keeps the whole relationship in a file you own: memory, identity, goals, refusal walls checked before the model is consulted, and a signed record of what it learned and what it forgot. The model is rented help, whichever one happens to be available to do the talking.
 
+**Its hands are governed, not merely capable.** Every shell command runs inside a kernel wall shaped to the ground it stands on, package installs land in a jail that cannot see your home, and everything the hands touch is photographed for undo before it changes.
+
 ### The move, in thirty seconds
 
 Monday, on your Claude plan:
