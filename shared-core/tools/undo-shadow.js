@@ -78,6 +78,31 @@ function _trothDir() {
 function _undoRoot() { return path.join(_trothDir(), 'undo'); }
 function _home() { return process.env.HOME || os.homedir(); }
 
+// Comparisons against the target's realpath must themselves be realpaths:
+// a symlinked spelling (macOS /var vs /private/var, a linked config dir)
+// must not slip a guarded tree past the string comparison below.
+function _realOrResolve(p) {
+  try { return fs.realpathSync(p); } catch (_) { return path.resolve(p); }
+}
+
+// realpath for a path that may no longer exist: realpath the nearest living
+// ancestor and re-append the missing tail, so a deleted ground still matches
+// the spelling its photographs were recorded under.
+function _realpathDeep(p) {
+  let head = path.resolve(p);
+  const tail = [];
+  for (;;) {
+    try { head = fs.realpathSync(head); break; }
+    catch (_) {
+      const parent = path.dirname(head);
+      if (parent === head) break;
+      tail.unshift(path.basename(head));
+      head = parent;
+    }
+  }
+  return tail.length ? path.join(head, ...tail) : head;
+}
+
 function _degrade(reason, detail) {
   stats.degraded++;
   stats.lastDegradation = { reason, detail: detail || '', ts: Date.now() };
@@ -94,11 +119,11 @@ function _guard(dir, allowShallow) {
   let st;
   try { st = fs.statSync(real); } catch (e) { return 'ground-missing'; }
   if (!st.isDirectory()) return 'not-a-directory';
-  const home = path.resolve(_home());
+  const home = _realOrResolve(_home());
   if (real === '/' || real === path.sep) return 'ground-too-broad';
   if (real === home) return 'ground-too-broad';
   if (home.startsWith(real + path.sep)) return 'ground-too-broad'; // above home
-  const troth = path.resolve(_trothDir());
+  const troth = _realOrResolve(_trothDir());
   const workspace = path.join(troth, 'workspace');
   if (real === troth || real.startsWith(troth + path.sep)) {
     // The substrate tree is never photographed — except the workspace,
@@ -350,7 +375,7 @@ function _resolveShadow(dir) {
     const p = _paths(realDir);
     if (fs.existsSync(p.shadow)) return { p, realDir };
   }
-  const want = path.resolve(dir);
+  const want = _realpathDeep(dir);
   let names = [];
   try { names = fs.readdirSync(_undoRoot()); } catch (e) { return null; }
   for (const n of names) {
