@@ -272,9 +272,34 @@ function preflight(command, cwd, opts) {
   return null;
 }
 
+// Runs the armed gate command for one guarded entry, through the seam as
+// release-gate plumbing. Resolves { code, tail } and never throws; the tail
+// keeps only the last stretch of output, so a chatty gate cannot flood the
+// caller. The gate command is the operator's own — they armed it.
+function runGate(entry, opts) {
+  const cwd = (opts && opts.cwd) || process.cwd();
+  const env = (opts && opts.env) || process.env;
+  const timeoutMs = (opts && opts.timeoutMs) || 25 * 60 * 1000;
+  const cap = (opts && opts.tailBytes) || 64 * 1024;
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawnPurpose.spawn('release-gate', '/bin/bash', ['-lc', entry.gate],
+        { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (e) { return resolve({ code: -1, tail: 'spawn failed: ' + (e && e.message || e) }); }
+    let tail = '';
+    const keep = (c) => { tail = (tail + c).slice(-cap); };
+    child.stdout.on('data', (c) => keep(c.toString('utf8')));
+    child.stderr.on('data', (c) => keep(c.toString('utf8')));
+    const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch (_) {} }, timeoutMs);
+    child.on('exit', (code) => { clearTimeout(timer); resolve({ code, tail }); });
+    child.on('error', (e) => { clearTimeout(timer); resolve({ code: -1, tail: 'spawn error: ' + (e && e.message || e) }); });
+  });
+}
+
 module.exports = {
   guardedPath, passDir, loadGuarded, addGuard, removeGuard,
   normalizeUrl, matchesGuard, recordPass, readPass, headTree,
-  preflight,
+  preflight, runGate,
   _parsePush, _passFile
 };

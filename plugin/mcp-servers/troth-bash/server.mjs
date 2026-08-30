@@ -682,10 +682,9 @@ async function handleTool(name, args) {
       + ' (this project alone). Purpose on record: ' + why + '.' }] };
   }
   if (name === 'run_gate') {
-    let pub = null, spawnPurpose = null;
+    let pub = null;
     try {
       pub = require(fileURLToPath(new URL('../../../shared-core/tools/publish-gate.js', import.meta.url)));
-      spawnPurpose = require(fileURLToPath(new URL('../../../shared-core/tools/spawn-purpose.js', import.meta.url)));
     } catch (e) {
       return { isError: true, content: [{ type: 'text', text: 'run_gate unavailable: shared-core not found from this install' }] };
     }
@@ -696,19 +695,7 @@ async function handleTool(name, args) {
       return { isError: true, content: [{ type: 'text', text: '[troth-bash] no guarded entry matches "' + wanted + '". Guarded: ' + listed }] };
     }
     const t0 = Date.now();
-    const out = await new Promise((resolveGate) => {
-      let child;
-      try {
-        child = spawnPurpose.spawn('release-gate', '/bin/bash', ['-lc', entry.gate],
-          { cwd, env: partnerEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
-      } catch (e) { return resolveGate({ code: -1, tail: 'spawn failed: ' + (e && e.message || e) }); }
-      const buf = makeBoundedBuffer(64 * 1024, 64 * 1024);
-      child.stdout.on('data', (c) => buf.push(c.toString('utf8')));
-      child.stderr.on('data', (c) => buf.push(c.toString('utf8')));
-      const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch (_) {} }, 25 * 60 * 1000);
-      child.on('exit', (code) => { clearTimeout(timer); resolveGate({ code, tail: buf.get() }); });
-      child.on('error', (e) => { clearTimeout(timer); resolveGate({ code: -1, tail: 'spawn error: ' + (e && e.message || e) }); });
-    });
+    const out = await pub.runGate(entry, { cwd, env: partnerEnv() });
     const secs = Math.round((Date.now() - t0) / 1000);
     if (out.code !== 0) {
       return { isError: true, content: [{ type: 'text', text:
