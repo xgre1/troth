@@ -65,3 +65,37 @@ benchmarks/
 ## Adding Tasks
 
 Create `seeds/<id>/` with intentionally broken/incomplete code. Include `test.js` that defines success criteria.
+
+## LongMemEval (conversational memory)
+
+[`longmemeval-smoke.mjs`](longmemeval-smoke.mjs) measures the substrate's
+long-term conversational memory on [LongMemEval-S](https://github.com/xiaowu0162/LongMemEval):
+per question it ingests the whole haystack through the real write path in a
+hermetic throwaway database, digests it question-blind (identity registry,
+typed instances), answers through the real recall path, and grades with the
+official per-type judge prompts at temperature 0. No benchmark-only shortcut
+touches the measured road; the latest run log lives in
+[`results/longmemeval-smoke-2026-08-31.md`](results/longmemeval-smoke-2026-08-31.md).
+
+Needs three local servers you point it at: an embedding server, a judge, and
+(for the local answer arm) a completion server — any llama.cpp-compatible
+hosts work. The dataset downloads separately (see
+[`datasets/README.md`](datasets/README.md)); the harness refuses to run
+without the embedder rather than silently degrade to lexical-only retrieval.
+
+```bash
+# full digestion + local reader + local judge, stratified 100-question slice
+TROTH_BENCH_FULL_SAUCE=1 \
+TROTH_EMBED_HOST=http://127.0.0.1:11437 \
+TROTH_LLAMACPP_HOST=http://127.0.0.1:1234 \
+TROTH_JUDGE_HOST=http://127.0.0.1:1234 \
+TROTH_BENCH_EXTRACT_CACHE="$HOME/.cache/troth-bench-extract" \
+node benchmarks/longmemeval-smoke.mjs --stratified 100 --answer llamacpp --judge local
+```
+
+Useful flags: `--only id1,id2` reruns specific questions; `--n` and
+`--offset` slice the set; `--answer claude --provider claude --model sonnet`
+swaps in a cloud reader over the same memory (composition only — digestion,
+retrieval and judging stay local); `--answer-timeout-ms` raises the compose
+ceiling for slow local models. Digestion results are content-addressed in
+`TROTH_BENCH_EXTRACT_CACHE`, so repeat runs only pay for extraction once.
