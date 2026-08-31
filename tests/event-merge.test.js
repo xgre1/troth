@@ -168,8 +168,8 @@ t('an ordinary visit is untouched by the occasion ladder', () => {
 });
 
 t('a late join re-opens the pool: three retellings collapse to one', () => {
-  // Arrival order used to decide: the venue-only retelling joined the
-  // anchor-sharing row first, and the named row never got re-compared.
+  // Arrival order must not decide: the venue-only retelling joins the
+  // anchor-sharing row first, and the named row still joins through closure.
   const { r, pool } = writeAll([
     inst('event', 'college roommate', "Attended college roommate's wedding in the city with a rooftop garden ceremony", 'my college roommate got married in the city', { _provenance_refs: ['dialogue.turn:cl-1'] }),
     inst('event', "Emily and Sarah's Wedding", "Attended friend Emily's wedding to partner Sarah", "I attended my friend Emily's wedding", { _provenance_refs: ['dialogue.turn:cl-2'] }),

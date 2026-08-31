@@ -712,11 +712,11 @@ function _deriveEntailed(pool, opts, stats) {
 // Closure to fixpoint. Arrival order can hide a join: three retellings of one
 // wedding arrive as R ("rooftop, city", no names), A ("Emily and Sarah's"),
 // then B ("cousin Emily's, rooftop") — B joins R on the shared venue anchors,
-// and the joined row now carries the name that matches A. But pool rows were
-// only ever compared against ARRIVING instances, never against each other, so
-// one wedding stays two ledger lines and every count over the ledger runs
-// high. Each join can enable the next; sweep pairs until none joins. A join
-// removes a row, so the sweep is bounded by pool size.
+// and the joined row then carries the name that matches A. Comparing rows
+// only against arriving instances would leave that pair standing, so pool
+// rows must also be compared against each other. Each join can enable the
+// next; sweep pairs until none joins. A join removes a row, so the sweep is
+// bounded by pool size.
 function _closePool(pool, opts, stats) {
   let joined = true;
   while (joined) {
