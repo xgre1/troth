@@ -296,10 +296,17 @@ function callClaudeP(prompt, timeoutMs) {
 }
 
 // claude -p loads the user-level ambient (global CLAUDE.md, plugins, hooks
-// that inject context blocks into every prompt). A benchmark call must run
-// in a sterile HOME holding ONLY the credential file, or the measurement
-// includes whatever the operator's environment happens to inject that day —
-// measured swing on identical inputs: tens of points.
+// that inject context blocks into every prompt). A benchmark call must not
+// see any of it, or the measurement includes whatever the operator's
+// environment happens to inject that day — measured swing on identical
+// inputs: tens of points. Two sterile shapes, same guarantee:
+//   default                       — throwaway HOME holding only the credential
+//                                   file (works where that file is readable);
+//   TROTH_BENCH_CLAUDE_KEYCHAIN=1 — real HOME so macOS Keychain auth works,
+//                                   with --setting-sources "" and
+//                                   --strict-mcp-config stripping the ambient
+//                                   instead (contamination probe on 2.1.220
+//                                   reports zero injected context).
 
 let _cleanHome = null;
 function cleanClaudeHome() {
@@ -310,6 +317,7 @@ function cleanClaudeHome() {
     const cred = join(process.env.HOME || '', '.claude', '.credentials.json');
     writeFileSync(join(dir, '.claude', '.credentials.json'), readFileSync(cred));
   } catch (_) { /* keychain-auth setups need no credential file */ }
+  writeFileSync(join(dir, 'empty-mcp.json'), '{"mcpServers":{}}');
   _cleanHome = dir;
   return _cleanHome;
 }
@@ -329,15 +337,24 @@ function _callProvider(prompt, timeoutMs) {
     if (res.status !== 0) throw new Error('codex exit ' + res.status + ': ' + String(res.stderr || '').slice(0, 1000));
     return String(res.stdout || '');
   }
+  const keychain = process.env.TROTH_BENCH_CLAUDE_KEYCHAIN === '1';
   const _claudeArgs = ['-p', '--output-format=json'];
   if (CLAUDE_MODEL) _claudeArgs.push('--model', CLAUDE_MODEL);
-  _claudeArgs.push(prompt);
+  if (keychain) {
+    // Prompt rides stdin here: --mcp-config is variadic and would swallow a
+    // trailing positional prompt as a second config path.
+    _claudeArgs.push('--setting-sources', '', '--strict-mcp-config',
+      '--mcp-config', join(cleanClaudeHome(), 'empty-mcp.json'));
+  } else {
+    _claudeArgs.push(prompt);
+  }
   const res = spawnSync('claude', _claudeArgs, {
+    ...(keychain ? { input: prompt } : {}),
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024,
     timeout: timeoutMs,
     cwd: cleanClaudeHome(),
-    env: { ...process.env, HOME: cleanClaudeHome() },
+    env: keychain ? { ...process.env } : { ...process.env, HOME: cleanClaudeHome() },
   });
   if (res.error) throw new Error('claude -p spawn error: ' + res.error.message);
   if (res.status !== 0) throw new Error('claude -p exit ' + res.status + ': ' + String(res.stderr || '').slice(0, 1000));
