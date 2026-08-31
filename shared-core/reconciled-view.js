@@ -12,6 +12,12 @@
 // silently resolved: doubt is shown, not buried.
 'use strict';
 
+// Occasion head nouns come from the consolidation ladder so the two modules
+// never disagree on what counts as an occasion. Fail-soft: without it the
+// view renders exactly as before, minus the possibly-same annotation.
+let _EVENT_HEAD = null;
+try { _EVENT_HEAD = require('./instance-consolidation.js').EVENT_HEAD || null; } catch (_) {}
+
 // items: the retrieval output - instance-pool items carry refs (dialogue
 // turn ids from provenance), raw dialogue items carry their own id.
 // Returns { ledger, cast, raw, render() }.
@@ -87,12 +93,42 @@ function buildReconciledView(items, opts) {
         if (ledger.some((l) => /^(\[instance\]\s*)?possession:/.test(l.statement))) {
           lines.push('Possessions stay owned until an explicit disposal (sold, gave away, broke, returned) - a newer similar item never replaces an older one by itself.');
         }
+        // Possibly-same annotation. The consolidation covenant refuses to
+        // join two occasions linked only by a role two identities share
+        // ("cousin's wedding" when two known people are cousins) - correctly.
+        // But a count that then treats both lines as distinct occurrences
+        // repeats the measured over-count from the raw lane. When ONE cast
+        // identity links two ledger lines carrying the SAME occasion head
+        // and neither pins a distinct date, the weaker-attested line says so
+        // out loud. Doubt is shown, not buried - and never silently merged.
+        const _headOf = (s) => { const m = _EVENT_HEAD && _EVENT_HEAD.exec(String(s)); return m ? m[1].toLowerCase() : null; };
+        const _dateOf = (s) => { const m = /\[[a-z]+, (\d{4}-\d{2}-\d{2})\]/.exec(String(s)); return m ? m[1] : null; };
+        const _possiblySame = new Map();
+        if (_EVENT_HEAD) {
+          for (const c of cast) {
+            if (!c.links || c.links.length < 2) continue;
+            for (let x = 0; x < c.links.length; x++) {
+              for (let y = x + 1; y < c.links.length; y++) {
+                const lx = ledger[c.links[x] - 1], ly = ledger[c.links[y] - 1];
+                if (!lx || !ly) continue;
+                const hx = _headOf(lx.statement), hy = _headOf(ly.statement);
+                if (!hx || hx !== hy) continue;
+                const dx = _dateOf(lx.statement), dy = _dateOf(ly.statement);
+                if (dx && dy && dx !== dy) continue;
+                const weak = lx.refs.length <= ly.refs.length ? lx : ly;
+                const anchor = weak === lx ? ly : lx;
+                if (!_possiblySame.has(weak.n)) _possiblySame.set(weak.n, anchor.n);
+              }
+            }
+          }
+        }
         for (const l of ledger) {
           let text = l.statement.replace(/^\[instance\]\s*/, '');
           if (/^possession:/.test(text)) text = text.replace('[completed', '[owned');
           lines.push('L' + l.n + '. ' + text +
             (l.refs.length ? ' (attested by ' + l.refs.map(n => 'S' + n).join(', ') + ')' : '') +
-            (l.flags.length ? ' [flag: ' + l.flags.join('; ') + ']' : ''));
+            (l.flags.length ? ' [flag: ' + l.flags.join('; ') + ']' : '') +
+            (_possiblySame.has(l.n) ? ' [possibly the same occurrence as L' + _possiblySame.get(l.n) + ' - count it separately only on explicit evidence]' : ''));
         }
         lines.push('');
       }

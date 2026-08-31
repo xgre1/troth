@@ -709,6 +709,78 @@ function _deriveEntailed(pool, opts, stats) {
   stats.derived = (stats.derived || 0) + w.written + w.strengthened;
 }
 
+// Closure to fixpoint. Arrival order can hide a join: three retellings of one
+// wedding arrive as R ("rooftop, city", no names), A ("Emily and Sarah's"),
+// then B ("cousin Emily's, rooftop") — B joins R on the shared venue anchors,
+// and the joined row now carries the name that matches A. But pool rows were
+// only ever compared against ARRIVING instances, never against each other, so
+// one wedding stays two ledger lines and every count over the ledger runs
+// high. Each join can enable the next; sweep pairs until none joins. A join
+// removes a row, so the sweep is bounded by pool size.
+function _closePool(pool, opts, stats) {
+  let joined = true;
+  while (joined) {
+    joined = false;
+    for (let i = 0; i < pool.length && !joined; i++) {
+      for (let j = i + 1; j < pool.length && !joined; j++) {
+        const a = pool[i], b = pool[j];
+        if (!a.instance || !b.instance) continue;
+        if (!_sameOccurrence(a, b.instance, b.instance.entity_slug || null, opts)) continue;
+        const oldA = a.instance, oldB = b.instance;
+        const refsA = _refsOf(a.id), refsB = _refsOf(b.id);
+        const provenance = Array.from(new Set(refsA.concat(refsB)));
+        // Same field rules as an arriving restatement: terminal never regresses,
+        // richer identity wins, every attested facet keeps its receipts.
+        let status = oldB.status;
+        if (TERMINAL_STATUS[oldA.status] && oldB.status === 'planned') status = oldA.status;
+        let facets = _mergeFacets(oldA.facets, oldA.qualifier, refsA, null, []);
+        for (const f of (Array.isArray(oldB.facets) ? oldB.facets : [])) {
+          facets = _mergeFacets(facets, null, [], f.verb, f.refs || []);
+        }
+        if (!facets.length && oldB.qualifier) facets = _mergeFacets(facets, null, [], oldB.qualifier, refsB);
+        const finalInst = {
+          kind: oldA.kind,
+          entity: oldA.canonical || oldB.canonical || oldA.entity,
+          entity_slug: oldA.entity_slug || oldB.entity_slug || null,
+          canonical: oldA.canonical || oldB.canonical || null,
+          description: _composeDescription(oldA.description, oldB.description),
+          date_iso: oldA.date_iso || oldB.date_iso || null,
+          status,
+          basis: (oldA.basis !== 'entailed' || oldB.basis !== 'entailed') ? 'stated' : 'entailed',
+          qualifier: null,
+          facets,
+          quantity: oldB.quantity != null ? oldB.quantity : (oldA.quantity != null ? oldA.quantity : null),
+          session_id: oldA.session_id || oldB.session_id || null
+        };
+        finalInst.qualifier = _primaryQualifier(facets, oldA.qualifier || oldB.qualifier || null);
+        const statement = _statementFor(finalInst);
+        const id = engram.recordEngram({
+          agent_id: opts.agent_id,
+          user_id: opts.user_id,
+          cwd: opts.cwd || null,
+          statement,
+          scope: SCOPE_PREFIX + finalInst.kind,
+          source: opts.source || 'instance_consolidation',
+          source_authority: 'plr_evolved',
+          audience: 'substrate_internal',
+          memory_class: 'operational',
+          auto_verify: false,
+          extra_output: {
+            payload: { instance: finalInst },
+            provenance_ref: provenance,
+            lifetime: { supersedes: [a.id, b.id], reason: 'closure' }
+          }
+        });
+        if (!id) continue;
+        pool.splice(j, 1);
+        pool.splice(i, 1, { id, statement, instance: finalInst });
+        stats.closures = (stats.closures || 0) + 1;
+        joined = true;
+      }
+    }
+  }
+}
+
 function writeInstances(opts) {
   const turns = opts.turns || [];
   const stats = { written: 0, dup: 0, no_provenance: 0, transitions: 0, strengthened: 0 };
@@ -824,8 +896,10 @@ function writeInstances(opts) {
       stats.written++;
     }
   }
+  _closePool(pool, opts, stats);
   if (entailmentEnabled() && !opts._entailing) {
     try { _deriveEntailed(pool, opts, stats); } catch (_) { /* derivation is additive — never fatal */ }
+    _closePool(pool, opts, stats);
   }
   return stats;
 }
@@ -1030,5 +1104,6 @@ module.exports = {
   SCOPE_PREFIX,
   WATERMARK_SCOPE,
   KINDS,
-  STATUSES
+  STATUSES,
+  EVENT_HEAD: _EVENT_HEAD
 };

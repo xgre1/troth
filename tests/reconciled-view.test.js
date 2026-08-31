@@ -130,6 +130,33 @@ t('no head supplied leaves the clause exactly as before', () => {
   assert.ok(v.render().indexOf('count over THIS list') >= 0);
 });
 
+// WEDDINGS fixture: the consolidation covenant refuses to join "cousin's
+// wedding" to a named wedding when the role could name two people - the
+// annotation keeps the refused join from silently double-counting.
+const roleLinked = [
+  { source: 'instance-pool', id: 'w1', statement: '[instance] event: attended Rachel — Attended cousin Rachel\'s wedding at a vineyard in August [completed] (attested ×2)', refs: ['dialogue.turn:v1', 'dialogue.turn:v2'] },
+  { source: 'instance-pool', id: 'w2', statement: '[instance] event: attended Cousin — Wore silver locket to cousin\'s wedding [completed] (attested ×1)', refs: ['dialogue.turn:v3'] },
+  { source: 'identity-cast', id: 'c1', statement: '[cast] Cousin — cousin', link_names: ['cousin'] },
+  { source: 'dialogue-window', id: 'v1', statement: 'user: my cousin Rachel got married at a vineyard in August.', ts: 1 },
+  { source: 'dialogue-window', id: 'v2', statement: 'user: the vineyard wedding was lovely.', ts: 2 },
+  { source: 'dialogue-window', id: 'v3', statement: 'user: I wore the silver locket to my cousin\'s wedding.', ts: 3 }
+];
+
+t('a role-linked occasion pair carries possibly-same on the weaker line', () => {
+  const out = buildReconciledView(roleLinked).render();
+  assert.ok(/L2\..*possibly the same occurrence as L1/.test(out),
+    out.split('\n').filter((l) => /^L/.test(l)).join(' || '));
+  assert.ok(!/L1\..*possibly the same/.test(out), 'the stronger line stays clean');
+});
+
+t('two date-pinned occasions never carry the annotation', () => {
+  const pinned = roleLinked.map((it) => it.source === 'instance-pool'
+    ? Object.assign({}, it, { statement: it.statement.replace('[completed]', it.id === 'w1' ? '[completed, 2023-08-05]' : '[completed, 2023-06-10]') })
+    : it);
+  const out = buildReconciledView(pinned).render();
+  assert.ok(out.indexOf('possibly the same occurrence') === -1, 'distinct dates separate the occasions');
+});
+
 console.log('');
 console.log('reconciled-view: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

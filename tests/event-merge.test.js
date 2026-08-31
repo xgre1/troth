@@ -167,5 +167,17 @@ t('an ordinary visit is untouched by the occasion ladder', () => {
   assert.strictEqual(pool.length, 2, 'two doctors stay two visits: ' + pool.map(p => p.instance.entity).join(' | '));
 });
 
+t('a late join re-opens the pool: three retellings collapse to one', () => {
+  // Arrival order used to decide: the venue-only retelling joined the
+  // anchor-sharing row first, and the named row never got re-compared.
+  const { r, pool } = writeAll([
+    inst('event', 'college roommate', "Attended college roommate's wedding in the city with a rooftop garden ceremony", 'my college roommate got married in the city', { _provenance_refs: ['dialogue.turn:cl-1'] }),
+    inst('event', "Emily and Sarah's Wedding", "Attended friend Emily's wedding to partner Sarah", "I attended my friend Emily's wedding", { _provenance_refs: ['dialogue.turn:cl-2'] }),
+    inst('event', 'Emily', "Attended cousin Emily's wedding in the city at a rooftop garden", "my cousin Emily's wedding was at a rooftop garden", { _provenance_refs: ['dialogue.turn:cl-3'] })
+  ]);
+  assert.strictEqual(pool.length, 1, 'one wedding: ' + pool.map(p => p.instance.entity).join(' | '));
+  assert.ok((r.closures || 0) >= 1, 'the join was found by closure, not arrival order: ' + JSON.stringify(r));
+});
+
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
