@@ -37,7 +37,7 @@ benchmarks/datasets/*
 !benchmarks/datasets/README.md
 !benchmarks/datasets/qasper/
 benchmarks/datasets/qasper/*
-!benchmarks/datasets/qasper/smoke-slice-20.json
+!benchmarks/datasets/qasper/slice-20.json
 
 # OS
 .DS_Store

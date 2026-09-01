@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // LongMemEval worker — runs ONE question in an ISOLATED substrate state.
 //
-// Spawned as a fresh child process per question by longmemeval-smoke.mjs.
+// Spawned as a fresh child process per question by longmemeval.mjs.
 // A fresh process is required (not just a fresh DB handle) because
 // shared-core/state.js resolves STATE_DB_PATH into a module-scope constant
 // at require() time and caches a singleton db handle — there is no

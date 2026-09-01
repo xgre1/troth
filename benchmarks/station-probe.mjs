@@ -132,7 +132,7 @@ function attribute(q, out, prior) {
 
 // The verdicts join carries only the answer text, so the 4-vs-5 split rests
 // on what the text itself proves. A missing "Answer:" line proves nothing:
-// the compose prompt (longmemeval-smoke.mjs) asks for that line only on the
+// the compose prompt (longmemeval.mjs) asks for that line only on the
 // counting and knowledge-update shapes, so its absence elsewhere is the
 // template working as written. What DOES prove a cut: an empty answer, or
 // text that stops mid-clause with no terminal punctuation.

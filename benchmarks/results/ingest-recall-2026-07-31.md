@@ -1,4 +1,4 @@
-# RESEARCH-INGEST SMOKE — troth substrate Chameleon doc-QA path
+# RESEARCH-INGEST RECALL — troth substrate Chameleon doc-QA path
 
 Run: 2026-07-31T02:00:04.877Z
 
@@ -19,13 +19,13 @@ Run: 2026-07-31T02:00:04.877Z
 
 ## What this measures (and how it differs from LongMemEval)
 
-LongMemEval (see `benchmarks/results/longmemeval-smoke-*.md`) tests **conversational memory**: dialogue turns written via `dialogueMemory.recordTurn()` and recalled via `engram.retrieveRelevant()`'s no-scope cross-type branch (`recall.recall({class:'all'})`).
+LongMemEval (see `benchmarks/results/longmemeval-*.md`) tests **conversational memory**: dialogue turns written via `dialogueMemory.recordTurn()` and recalled via `engram.retrieveRelevant()`'s no-scope cross-type branch (`recall.recall({class:'all'})`).
 
 This benchmark tests the **Chameleon L3 document-ingest path** (`shared-core/chameleon.js`) instead — a structurally different code path: a whole research paper's full text is chunked (paragraph/sentence-aware, ~800 chars/100-char overlap) and embedded via `chameleon.ingestDocument()`, persisted as engrams tagged with a per-paper `scope` (`docs:qasper-<paper_id>`), then queried via `chameleon.queryScope()`, which routes `engram.retrieveRelevant()` into its **scope-locked legacy commitment+embedding path** (`engram.js` — the "caller wants a specific commitment corpus (chameleon docs:* etc)" branch), NOT the dialogue-turn cross-type branch LongMemEval exercises. This is the same function the MCP `troth_chameleon_query` tool calls.
 
 ## Honest caveats
 
-- **20-item smoke slice**, not a full QASPER run (the dev split alone has 281 papers / ~1.3k answerable non-yes/no questions). Accuracy at n=20 has a wide confidence interval (~±20pp at 95% CI for a binomial proportion) — treat as a pipeline-works signal, not a publishable number.
+- **20-item slice**, not a full QASPER run (the dev split alone has 281 papers / ~1.3k answerable non-yes/no questions). Accuracy at n=20 has a wide confidence interval (~±20pp at 95% CI for a binomial proportion) — treat as a pipeline-works signal, not a publishable number.
 - **Dataset**: QASPER dev split (`allenai/qasper`), downloaded from the official Allen AI S3 mirror (`https://qasper-dataset.s3.us-west-2.amazonaws.com/qasper-train-dev-v0.3.tgz`) because the HuggingFace `allenai/qasper` repo only ships the dataset-loader script (`qasper.py`), not data files or a parquet mirror.
 - **Slice construction**: filtered to papers with 8k-35k chars of full text (fast-enough ingest, still a real paper — not an abstract), excluded `unanswerable` and `yes_no` questions (noisy to grade against a single free-text composed answer per the task spec), then took 15 `extractive_spans` items (gold = spans joined by "; ") + 5 short `free_form_answer` items (gold < 200 chars), one question per distinct paper, seeded random shuffle (seed 42) for selection order. Selection script: not committed (one-off, see this file's header for the exact filter/seed logic to reproduce).
 - **Ingest is the paper's real full text**: title + abstract + every section's paragraphs from QASPER's already-PDF-segmented `full_text` field, joined in document order — not a summary or truncated excerpt.
@@ -246,12 +246,12 @@ This benchmark tests the **Chameleon L3 document-ingest path** (`shared-core/cha
 
 ```bash
 # The 20-item QASPER slice this run measured ships with the repository
-# (benchmarks/datasets/qasper/smoke-slice-20.json, CC BY 4.0), so this
+# (benchmarks/datasets/qasper/slice-20.json, CC BY 4.0), so this
 # runs from a clean clone with nothing to download.
 
-# This smoke run (20 items, offset 0)
-node benchmarks/ingest-smoke.mjs --n 20 --offset 0
+# This run (20 items, offset 0)
+node benchmarks/ingest-recall.mjs --n 20 --offset 0
 
 # Fast check (first 5 only)
-node benchmarks/ingest-smoke.mjs --n 5
+node benchmarks/ingest-recall.mjs --n 5
 ```

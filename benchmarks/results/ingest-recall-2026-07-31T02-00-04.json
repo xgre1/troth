@@ -1,6 +1,6 @@
 {
  "timestamp": 1785463204876,
- "dataset": "benchmarks/datasets/qasper/smoke-slice-20.json",
+ "dataset": "benchmarks/datasets/qasper/slice-20.json",
  "dataset_source": "allenai/qasper dev split, official S3 mirror (see file header)",
  "offset": 0,
  "n": 20,

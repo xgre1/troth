@@ -1,6 +1,6 @@
 # LongMemEval-S, 100-question stratified slice — one memory, two readers
 
-Run date: 2026-08-31. Harness: [`benchmarks/longmemeval-smoke.mjs`](../longmemeval-smoke.mjs). Dataset: LongMemEval-S (`longmemeval_s_cleaned.json`, sha256 `d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442`), stratified slice of the first 100 questions in dataset order, 16-17 per question type. Trees: the local-reader pass ran on `56412d4`; five rows that hit compose timeouts were retried on `5bffc04` with a longer ceiling; all five are count-shaped and sit inside the instrument-level A/B of every count-shaped question in the slice, which confirmed the two trees mount byte-identical memory for them.
+Run date: 2026-08-31. Harness: [`benchmarks/longmemeval.mjs`](../longmemeval.mjs). Dataset: LongMemEval-S (`longmemeval_s_cleaned.json`, sha256 `d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442`), stratified slice of the first 100 questions in dataset order, 16-17 per question type. Trees: the local-reader pass ran on `56412d4`; five rows that hit compose timeouts were retried on `5bffc04` with a longer ceiling; all five are count-shaped and sit inside the instrument-level A/B of every count-shaped question in the slice, which confirmed the two trees mount byte-identical memory for them.
 
 ## What was measured
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
-// RESEARCH-INGEST SMOKE — document-QA benchmark for the Chameleon L3
+// RESEARCH-INGEST RECALL — document-QA benchmark for the Chameleon L3
 // ingest->query path (shared-core/chameleon.js), NOT the LongMemEval
 // conversational-memory path (shared-core/dialogue-memory.js +
 // engram.retrieveRelevant's no-scope branch). This is the operator's real
@@ -11,11 +11,11 @@
 // — the HF repo `allenai/qasper` only ships the dataset-loader script, no
 // data files or parquet mirror, so this harness downloads directly from
 // Allen AI's S3 bucket, the same URL qasper.py's own _split_generators use).
-// benchmarks/datasets/qasper/smoke-slice-20.json is a curated 20-item slice
+// benchmarks/datasets/qasper/slice-20.json is a curated 20-item slice
 // (15 extractive-span answers, 5 short free-form answers; unanswerable and
 // yes/no questions excluded as noisy to grade against a single-sentence
 // composed answer) — see benchmarks/datasets/qasper/README (selection
-// script logic summarized in ingest-smoke results' "Honest caveats").
+// script logic summarized in ingest-recall results' "Honest caveats").
 //
 // Per item:
 //   1. Spawn benchmarks/ingest-worker.cjs as a FRESH child process with an
@@ -23,7 +23,7 @@
 //      resolves its DB path off HOME/CLAUDE_PLUGIN_DATA into a require-time
 //      singleton, so a fresh process per paper is required, not just a
 //      fresh STATE_DB_PATH value; STATE_DB_PATH is set too, belt-and-
-//      suspenders, matching longmemeval-smoke.mjs's own pattern). Never
+//      suspenders, matching longmemeval.mjs's own pattern). Never
 //      touches the operator's real ~/.troth.
 //   2. The worker ingests the paper's FULL TEXT (title + abstract + every
 //      section's paragraphs, joined) via chameleon.ingestDocument() under
@@ -46,11 +46,11 @@
 //      regardless (never blocked on the health probe).
 //
 // Usage:
-//   node benchmarks/ingest-smoke.mjs                  # full 20-item slice
-//   node benchmarks/ingest-smoke.mjs --n 5             # first 5 (fast check)
-//   node benchmarks/ingest-smoke.mjs --n 20 --offset 0
+//   node benchmarks/ingest-recall.mjs                  # full 20-item slice
+//   node benchmarks/ingest-recall.mjs --n 5             # first 5 (fast check)
+//   node benchmarks/ingest-recall.mjs --n 20 --offset 0
 //
-// Style/report format matches benchmarks/longmemeval-smoke.mjs.
+// Style/report format matches benchmarks/longmemeval.mjs.
 
 import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -60,7 +60,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = join(__dirname, '..');
-const DATASET_PATH = join(__dirname, 'datasets/qasper/smoke-slice-20.json');
+const DATASET_PATH = join(__dirname, 'datasets/qasper/slice-20.json');
 const WORKER_PATH = join(__dirname, 'ingest-worker.cjs');
 const EMBED_HOST = process.env.TROTH_EMBED_HOST || 'http://127.0.0.1:11437';
 
@@ -110,7 +110,7 @@ function assembleFullText(paper) {
 
 // ── One paper, one isolated substrate, one fresh worker process ─────────
 function runPaper(item) {
-  const tmpHome = mkdtempSync(join(tmpdir(), 'ingest-smoke-'));
+  const tmpHome = mkdtempSync(join(tmpdir(), 'ingest-recall-'));
   const dbPath = join(tmpHome, 'state.db');
   const fullText = assembleFullText(item);
   const job = {
@@ -161,7 +161,7 @@ function runPaper(item) {
 }
 
 // ── Compose an answer from retrieved chunks ONLY ─────────────────────────
-// Same honesty contract as longmemeval-smoke.mjs's composeAnswerPrompt:
+// Same honesty contract as longmemeval.mjs's composeAnswerPrompt:
 // this is not a separate "benchmark answer path" — it hands the composer
 // exactly what a real chameleon_query MCP caller would see (the retrieved
 // chunk statements) and nothing else. No gold answer visible at compose
@@ -222,7 +222,7 @@ function judge(question, goldAnswer, ourAnswer) {
 // ── Run ────────────────────────────────────────────────────────────────
 async function main() {
   const slice = loadSlice();
-  console.log('═ RESEARCH-INGEST SMOKE (Chameleon doc-QA) ═');
+  console.log('═ RESEARCH-INGEST RECALL (Chameleon doc-QA) ═');
   console.log('  dataset:  ' + DATASET_PATH + ' (QASPER dev, 20-item curated slice)');
   console.log('  slice:    [' + OFFSET + ', ' + (OFFSET + slice.length) + ') of 20');
   console.log('  embed:    ' + EMBED_HOST);
@@ -288,7 +288,7 @@ async function main() {
   const totalWallMs = rows.reduce((s, r) => s + (r.wall_ms || 0), 0);
   const retrievalPaths = new Set(rows.map(r => r.retrieval_path).filter(Boolean));
 
-  console.log('\n═ RESEARCH-INGEST SMOKE results ═');
+  console.log('\n═ RESEARCH-INGEST RECALL results ═');
   console.log('  graded:    ' + graded + '/' + rows.length);
   console.log('  correct:   ' + correct);
   console.log('  incorrect: ' + incorrect);
@@ -298,7 +298,7 @@ async function main() {
 
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   mkdirSync(join(REPO, 'benchmarks/results'), { recursive: true });
-  const jsonOutPath = join(REPO, 'benchmarks/results/ingest-smoke-' + ts + '.json');
+  const jsonOutPath = join(REPO, 'benchmarks/results/ingest-recall-' + ts + '.json');
   writeFileSync(jsonOutPath, JSON.stringify({
     timestamp: Date.now(),
     // Relative on purpose: an absolute dataset path records the build machine
@@ -314,7 +314,7 @@ async function main() {
   }, null, 2));
   console.log('\nRaw results: ' + jsonOutPath);
 
-  const mdPath = join(REPO, 'benchmarks/results/ingest-smoke-' + ts.slice(0, 10) + '.md');
+  const mdPath = join(REPO, 'benchmarks/results/ingest-recall-' + ts.slice(0, 10) + '.md');
   writeFileSync(mdPath, renderMarkdown({
     rows, correct, incorrect, errors, graded, accuracy, totalWallMs,
     offset: OFFSET, n: N, topK: TOP_K, retrievalPaths: [...retrievalPaths], embedHost: EMBED_HOST,
@@ -324,7 +324,7 @@ async function main() {
 
 function renderMarkdown(s) {
   const lines = [];
-  lines.push('# RESEARCH-INGEST SMOKE — troth substrate Chameleon doc-QA path');
+  lines.push('# RESEARCH-INGEST RECALL — troth substrate Chameleon doc-QA path');
   lines.push('');
   lines.push('Run: ' + new Date().toISOString());
   lines.push('');
@@ -345,7 +345,7 @@ function renderMarkdown(s) {
   lines.push('');
   lines.push('## What this measures (and how it differs from LongMemEval)');
   lines.push('');
-  lines.push('LongMemEval (see `benchmarks/results/longmemeval-smoke-*.md`) tests ' +
+  lines.push('LongMemEval (see `benchmarks/results/longmemeval-*.md`) tests ' +
     '**conversational memory**: dialogue turns written via `dialogueMemory.recordTurn()` ' +
     'and recalled via `engram.retrieveRelevant()`\'s no-scope cross-type branch ' +
     '(`recall.recall({class:\'all\'})`).');
@@ -363,7 +363,7 @@ function renderMarkdown(s) {
   lines.push('');
   lines.push('## Honest caveats');
   lines.push('');
-  lines.push('- **20-item smoke slice**, not a full QASPER run (the dev split alone has 281 papers / ~1.3k answerable non-yes/no questions). Accuracy at n=20 has a wide confidence interval (~±20pp at 95% CI for a binomial proportion) — treat as a pipeline-works signal, not a publishable number.');
+  lines.push('- **20-item slice**, not a full QASPER run (the dev split alone has 281 papers / ~1.3k answerable non-yes/no questions). Accuracy at n=20 has a wide confidence interval (~±20pp at 95% CI for a binomial proportion) — treat as a pipeline-works signal, not a publishable number.');
   lines.push('- **Dataset**: QASPER dev split (`allenai/qasper`), downloaded from the official Allen AI S3 mirror (`https://qasper-dataset.s3.us-west-2.amazonaws.com/qasper-train-dev-v0.3.tgz`) because the HuggingFace `allenai/qasper` repo only ships the dataset-loader script (`qasper.py`), not data files or a parquet mirror.');
   lines.push('- **Slice construction**: filtered to papers with 8k-35k chars of full text (fast-enough ingest, still a real paper — not an abstract), excluded `unanswerable` and `yes_no` questions (noisy to grade against a single free-text composed answer per the task spec), then took 15 `extractive_spans` items (gold = spans joined by "; ") + 5 short `free_form_answer` items (gold < 200 chars), one question per distinct paper, seeded random shuffle (seed 42) for selection order. Selection script: not committed (one-off, see this file\'s header for the exact filter/seed logic to reproduce).');
   lines.push('- **Ingest is the paper\'s real full text**: title + abstract + every section\'s paragraphs from QASPER\'s already-PDF-segmented `full_text` field, joined in document order — not a summary or truncated excerpt.');
@@ -402,11 +402,11 @@ function renderMarkdown(s) {
   lines.push('## Rerun commands');
   lines.push('');
   lines.push('```bash');
-  lines.push('# This smoke run (20 items, offset 0)');
-  lines.push('node benchmarks/ingest-smoke.mjs --n 20 --offset 0');
+  lines.push('# This run (20 items, offset 0)');
+  lines.push('node benchmarks/ingest-recall.mjs --n 20 --offset 0');
   lines.push('');
   lines.push('# Fast check (first 5 only)');
-  lines.push('node benchmarks/ingest-smoke.mjs --n 5');
+  lines.push('node benchmarks/ingest-recall.mjs --n 5');
   lines.push('```');
   lines.push('');
   return lines.join('\n');

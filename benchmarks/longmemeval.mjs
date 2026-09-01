@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
-// LongMemEval SMOKE — 20-question slice of LongMemEval-S against the REAL
+// LongMemEval — a slice of LongMemEval-S against the REAL
 // troth substrate write/recall path.
 //
 // Per question:
@@ -39,9 +39,9 @@
 //      actually took — this harness never guesses.
 //
 // Usage:
-//   node benchmarks/longmemeval-smoke.mjs                 # first 20 (smoke)
-//   node benchmarks/longmemeval-smoke.mjs --n 500          # full run
-//   node benchmarks/longmemeval-smoke.mjs --n 20 --offset 20
+//   node benchmarks/longmemeval.mjs                 # first 20 (quick check)
+//   node benchmarks/longmemeval.mjs --n 500          # full run
+//   node benchmarks/longmemeval.mjs --n 20 --offset 20
 //
 // Style/report format matches benchmarks/lmdt-runner.mjs.
 
@@ -155,7 +155,7 @@ function loadSlice() {
 
 // ── One question, one isolated substrate, one fresh worker process ──────
 function runQuestion(q) {
-  const tmpHome = mkdtempSync(join(tmpdir(), 'lme-smoke-'));
+  const tmpHome = mkdtempSync(join(tmpdir(), 'lme-'));
   const dbPath = join(tmpHome, 'state.db');
   const job = {
     question_id: q.question_id,
@@ -504,7 +504,7 @@ async function judge(q, ourAnswer) {
 // ── Run ────────────────────────────────────────────────────────────────
 async function main() {
   const slice = loadSlice();
-  console.log('═ LongMemEval SMOKE ═');
+  console.log('═ LongMemEval ═');
   console.log('  dataset:  ' + DATASET_PATH);
   console.log('  slice:    ' + (STRATIFIED > 0 ? 'stratified ' + STRATIFIED + '/type = ' + slice.length + ' questions' : '[' + OFFSET + ', ' + (OFFSET + slice.length) + ') of full set'));
   console.log('  embed:    ' + EMBED_HOST);
@@ -592,7 +592,7 @@ async function main() {
   const totalWallMs = rows.reduce((s, r) => s + (r.wall_ms || 0), 0);
   const retrievalPaths = new Set(rows.map(r => r.retrieval_path).filter(Boolean));
 
-  console.log('\n═ LongMemEval SMOKE results ═');
+  console.log('\n═ LongMemEval results ═');
   console.log('  graded:    ' + graded + '/' + rows.length);
   console.log('  correct:   ' + correct);
   console.log('  incorrect: ' + incorrect);
@@ -601,7 +601,7 @@ async function main() {
   console.log('  wall time: ' + (totalWallMs / 1000).toFixed(1) + 's total');
 
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const jsonOutPath = join(REPO, 'benchmarks/results/longmemeval-smoke-' + ts + '.json');
+  const jsonOutPath = join(REPO, 'benchmarks/results/longmemeval-' + ts + '.json');
   mkdirSync(dirname(jsonOutPath), { recursive: true });
   let _commit = null;
   try { _commit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).stdout.trim(); } catch (_) {}
@@ -633,7 +633,7 @@ async function main() {
 
   // Dated by RUN, like the json next to it. A fixed name silently overwrote
   // the previous run's report.
-  const mdPath = join(REPO, 'benchmarks/results/longmemeval-smoke-' + ts + '.md');
+  const mdPath = join(REPO, 'benchmarks/results/longmemeval-' + ts + '.md');
   writeFileSync(mdPath, renderMarkdown({
     rows, correct, incorrect, errors, graded, accuracy, totalWallMs,
     offset: OFFSET, n: N, retrievalPaths: [...retrievalPaths], embedHost: EMBED_HOST,
@@ -651,7 +651,7 @@ async function main() {
 
 function renderMarkdown(s) {
   const lines = [];
-  lines.push('# LongMemEval SMOKE — troth substrate');
+  lines.push('# LongMemEval — troth substrate');
   lines.push('');
   lines.push('Run: ' + new Date().toISOString());
   lines.push('');
@@ -693,7 +693,7 @@ function renderMarkdown(s) {
   lines.push('');
   lines.push('## Honest caveats');
   lines.push('');
-  lines.push('- **' + s.rows.length + '-question sample** (' + (s.stratified > 0 ? 'stratified ' + s.stratified + '/type' : 'fixed offset slice') + '), not the full 500-question LongMemEval-S set unless n=500. Binomial CI applies — treat sub-100 samples as smoke signals, not publishable numbers.');
+  lines.push('- **' + s.rows.length + '-question sample** (' + (s.stratified > 0 ? 'stratified ' + s.stratified + '/type' : 'fixed offset slice') + '), not the full 500-question LongMemEval-S set unless n=500. Binomial CI applies — treat sub-100 samples as directional signals, not publishable numbers.');
   lines.push('- ' + (s.stratified > 0 ? 'Stratified sampling takes the first ' + s.stratified + ' questions of each question_type in dataset order — deterministic and reproducible, but within-type dataset order is arbitrary upstream.' : 'Sample is a **fixed offset slice** (dataset order), and the dataset is ordered by question_type — an offset-0 slice measures ONLY the first type(s). Check the `question_type` column below.'));
   lines.push('- Retrieval path: worker probes `' + s.embedHost + '`/health itself per question and reports `semantic+lexical` when the local embed server answered, `lexical_fallback` otherwise. See the `retrieval_path` column per row.');
   lines.push('- Ingest and recall both go through the REAL substrate write path (`dialogueMemory.recordTurn`, same function `bin/troth-entity.js` calls after every real turn) and REAL recall path (`engram.retrieveRelevant` with no `agent_id`, matching `shared-core/substrate-tools.js`\'s `troth_engram_search` MCP tool and `bin/troth-entity.js`\'s live per-turn prefix provider, both of which omit `agent_id` so cross-type episodic/semantic/procedural recall is reachable). No benchmark-only shortcut or raw SQL read. A real `taskEmbeddingBackfill` pass (`shared-core/background-worker.js`) runs between ingest and recall so semantic rerank has stored vectors to work with, mirroring what a long-running entity\'s idle-cadence backfill would have by the time an old conversation is queried.');
@@ -731,12 +731,12 @@ function renderMarkdown(s) {
   lines.push('```bash');
   lines.push('# Dataset placement (once): benchmarks/datasets/README.md');
   lines.push('');
-  lines.push('# This smoke run (20 questions, offset 0)');
-  lines.push('node benchmarks/longmemeval-smoke.mjs --n 20 --offset 0');
+  lines.push('# This run (20 questions, offset 0)');
+  lines.push('node benchmarks/longmemeval.mjs --n 20 --offset 0');
   lines.push('');
   lines.push('# Full LongMemEval-S (500 questions) — budget wall time accordingly,');
   lines.push('# see wall-time-per-question in this report to extrapolate.');
-  lines.push('node benchmarks/longmemeval-smoke.mjs --n 500 --offset 0');
+  lines.push('node benchmarks/longmemeval.mjs --n 500 --offset 0');
   lines.push('```');
   lines.push('');
   return lines.join('\n');

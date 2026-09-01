@@ -284,8 +284,8 @@ In this repo the autonomy layer is simply absent: its routes and modules are not
 
 | Property | Evidence | Status |
 |---|---|---|
-| **Conversational recall** | [`benchmarks/results/longmemeval-smoke-2026-08-31.md`](benchmarks/results/longmemeval-smoke-2026-08-31.md) | 83% (83 of 100) on a stratified 100-question LongMemEval-S slice with the whole stack local, and a Claude Sonnet cross-check over the same memory landing at 84 — within noise of each other, so the memory, not the reader, sets the score. Official per-type judge prompts at temperature 0; binomial noise at n=100 is roughly ±7 points; every caveat is written out in the run log |
-| **Document ingest recall** | [`benchmarks/results/ingest-smoke-2026-07-31.md`](benchmarks/results/ingest-smoke-2026-07-31.md) | same: a slice, graded, with the confidence interval written out |
+| **Conversational recall** | [`benchmarks/results/longmemeval-2026-08-31.md`](benchmarks/results/longmemeval-2026-08-31.md) | 83% (83 of 100) on a stratified 100-question LongMemEval-S slice with the whole stack local, and a Claude Sonnet cross-check over the same memory landing at 84 — within noise of each other, so the memory, not the reader, sets the score. Official per-type judge prompts at temperature 0; binomial noise at n=100 is roughly ±7 points; every caveat is written out in the run log |
+| **Document ingest recall** | [`benchmarks/results/ingest-recall-2026-07-31.md`](benchmarks/results/ingest-recall-2026-07-31.md) | same: a slice, graded, with the confidence interval written out |
 | **Prompt-poisoning resilience** | [`benchmarks/poisoning/`](benchmarks/poisoning/) | harness ships; run it yourself |
 | **Pre-LLM governance walls** | [`tests/standards/s4_stvc_pre_llm.js`](tests/standards/s4_stvc_pre_llm.js) | standard-enforced on every test run |
 | **Honest limits** | [`docs/HONEST-LIMITS.md`](docs/HONEST-LIMITS.md) | what it solves, what it flags, what nobody solves yet — audited every release |

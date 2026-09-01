@@ -57,7 +57,7 @@
     "benchmarks/",
     "!benchmarks/datasets",
     "benchmarks/datasets/README.md",
-    "benchmarks/datasets/qasper/smoke-slice-20.json",
+    "benchmarks/datasets/qasper/slice-20.json",
     "docs/",
     "tests/",
     "README.md",

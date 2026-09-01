@@ -68,14 +68,14 @@ Create `seeds/<id>/` with intentionally broken/incomplete code. Include `test.js
 
 ## LongMemEval (conversational memory)
 
-[`longmemeval-smoke.mjs`](longmemeval-smoke.mjs) measures the substrate's
+[`longmemeval.mjs`](longmemeval.mjs) measures the substrate's
 long-term conversational memory on [LongMemEval-S](https://github.com/xiaowu0162/LongMemEval):
 per question it ingests the whole haystack through the real write path in a
 hermetic throwaway database, digests it question-blind (identity registry,
 typed instances), answers through the real recall path, and grades with the
 official per-type judge prompts at temperature 0. No benchmark-only shortcut
 touches the measured road; the latest run log lives in
-[`results/longmemeval-smoke-2026-08-31.md`](results/longmemeval-smoke-2026-08-31.md).
+[`results/longmemeval-2026-08-31.md`](results/longmemeval-2026-08-31.md).
 
 Needs three local servers you point it at: an embedding server, a judge, and
 (for the local answer arm) a completion server — any llama.cpp-compatible
@@ -90,7 +90,7 @@ TROTH_EMBED_HOST=http://127.0.0.1:11437 \
 TROTH_LLAMACPP_HOST=http://127.0.0.1:1234 \
 TROTH_JUDGE_HOST=http://127.0.0.1:1234 \
 TROTH_BENCH_EXTRACT_CACHE="$HOME/.cache/troth-bench-extract" \
-node benchmarks/longmemeval-smoke.mjs --stratified 100 --answer llamacpp --judge local
+node benchmarks/longmemeval.mjs --stratified 100 --answer llamacpp --judge local
 ```
 
 Useful flags: `--only id1,id2` reruns specific questions; `--n` and

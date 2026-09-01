@@ -3,7 +3,7 @@
 // RESEARCH-INGEST worker — runs ONE paper (ingest + one question's recall)
 // in an ISOLATED substrate state.
 //
-// Spawned as a fresh child process per paper by benchmarks/ingest-smoke.mjs
+// Spawned as a fresh child process per paper by benchmarks/ingest-recall.mjs
 // (same reason as benchmarks/longmemeval-worker.cjs: shared-core/state.js
 // resolves its data dir off HOME/CLAUDE_PLUGIN_DATA into a require-time
 // singleton — there is no in-process way to rebind it between papers, so

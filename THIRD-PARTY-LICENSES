@@ -23,7 +23,7 @@ Copyright 2010-2023 Mike Bostock
 License: ISC (https://github.com/d3/d3/blob/main/LICENSE)
 Vendored so the dashboard's Code Map renders without network access.
 --------------------------------------------------------------------------
-QASPER v0.3 (benchmarks/datasets/qasper/smoke-slice-20.json)
+QASPER v0.3 (benchmarks/datasets/qasper/slice-20.json)
 Copyright Allen Institute for Artificial Intelligence
 License: CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/)
 A 20-item slice of the QASPER dev split, redistributed so the published
