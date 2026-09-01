@@ -139,14 +139,18 @@ check_repo() {
     # A real PEM body runs to hundreds of base64 characters. Anything shorter
     # is a fixture, and tests/suite-22 ships one on purpose to prove the
     # redactor masks it.
-    python3 - "$f" <<'PYKEY' || keys="$keys $f"
+    # Inline source, not a here-document: bash 3.2 (the macOS default) spools
+    # here-documents and here-strings through a temp file under /tmp, and a
+    # confined shell may have no /tmp to spool into. The gate must run from
+    # any shell the tree is checked out in.
+    python3 -c '
 import re, sys
 d = open(sys.argv[1], errors="ignore").read()
 for m in re.findall(r"BEGIN [A-Z ]*PRIVATE KEY-----(.*?)-----END", d, re.S):
     if len(re.sub(r"[^A-Za-z0-9+/=]", "", m)) > 200:
         sys.exit(1)
 sys.exit(0)
-PYKEY
+' "$f" || keys="$keys $f"
   done < <(git grep -lI 'BEGIN [A-Z ]*PRIVATE KEY' -- . 2>/dev/null)
   [ -z "$keys" ] && pass "no real private keys (short fixtures allowed)" \
                  || fail "private key material in:$keys"
@@ -164,7 +168,7 @@ PYKEY
   # 5. Operator identifiers, read from the environment.
   if [ -n "$IDENTIFIERS" ]; then
     local hits=""
-    IFS=',' read -ra WORDS <<< "$IDENTIFIERS"
+    IFS=',' read -ra WORDS < <(printf '%s' "$IDENTIFIERS")
     for w in "${WORDS[@]}"; do
       w="$(echo "$w" | xargs)"; [ -z "$w" ] && continue
       # Word-bounded on purpose: an unbounded match fires on every word that
