@@ -76,17 +76,23 @@ async function ensureCodexToken() {
     e.code = 'no_codex_token';
     throw e;
   }
-  if (tokenStore.isExpired(tok)) {
-    try { tok = await codexAuth.refresh(tok); }
-    catch (e) {
-      // Refresh failed — treat as a hard auth failure so the operator
-      // re-authenticates rather than silently looping retries.
-      const wrapped = new Error('codex-oauth transport: token refresh failed (' + (e && e.message || e) + ')');
-      wrapped.code = 'codex_refresh_failed';
-      throw wrapped;
-    }
-  }
+  if (tokenStore.isExpired(tok)) tok = await refreshCodexToken(tok);
   return tok;
+}
+
+// Rotate a token and persist it (codexAuth.refresh saves the rotated token).
+// Two callers: the expired-by-the-clock path above, and a consumer whose
+// request the endpoint just answered 401 while the local expiry still said
+// live — clock drift, server-side revocation, an expiry the store never
+// learned. One wrapper so both report the same failure code and the operator
+// hears one sentence: sign in again.
+async function refreshCodexToken(tok) {
+  try { return await codexAuth.refresh(tok); }
+  catch (e) {
+    const wrapped = new Error('codex-oauth transport: token refresh failed (' + (e && e.message || e) + ')');
+    wrapped.code = 'codex_refresh_failed';
+    throw wrapped;
+  }
 }
 
 // Resolve which model id the ChatGPT-account Codex endpoint will accept.
@@ -451,6 +457,7 @@ module.exports = {
   // the image_generate tool hits the endpoint with the SAME token/header/model
   // logic as chat instead of duplicating (and drifting from) it.
   ensureCodexToken,
+  refreshCodexToken,
   resolveCodexModel,
   buildCodexHeaders,
   codexUrl,

@@ -286,6 +286,106 @@ test('GEM3: google upstream error -> generation_failed with detail, no file', as
   assert.ok(!('path' in out), 'no saved path on error');
 });
 
+// --- Plan lane: sign-in and plan verdicts ----------------------------------
+// The endpoint's own answers, replayed through the driver seam: a 401 on a
+// token the local clock still called live, a rotation that dies, a 429 that
+// names the plan. Token and rotation ride ctx seams (_codexToken /
+// _codexRefresh) so no test touches the shared store or the network.
+
+function http(status, body) {
+  const e = new Error('codex image http ' + status + ': ' + body);
+  e.code = 'http_status'; e.status = status; e.body = body;
+  return e;
+}
+
+test('IMG7: 401 rotates the token once and resends with fresh headers', async () => {
+  await Promise.resolve();
+  const b64 = tinyPngBuffer().toString('base64');
+  const seen = [];
+  const driver = async ({ headers }) => {
+    seen.push(headers.authorization);
+    if (seen.length === 1) throw http(401, '{"detail":"token_expired"}');
+    return sseFrom([
+      { type: 'response.output_item.done', item: { type: 'image_generation_call', result: b64 } },
+      { type: 'response.completed' },
+    ]);
+  };
+  let rotations = 0;
+  const out = await imageGen.run({ prompt: 'again', source: 'chatgpt' }, {
+    _httpDriver: driver,
+    _codexToken: { access_token: 'at-old', account_id: 'acct-test' },
+    _codexRefresh: async (tok) => { rotations++; assert.strictEqual(tok.access_token, 'at-old'); return { access_token: 'at-new', account_id: 'acct-test' }; },
+  });
+  assert.strictEqual(out.ok, true, JSON.stringify(out));
+  assert.strictEqual(rotations, 1, 'exactly one rotation');
+  assert.deepStrictEqual(seen, ['Bearer at-old', 'Bearer at-new'], 'the resend carries the rotated token');
+});
+
+test('IMG8: 401 whose rotation dies is a sign-in that expired, not a missing link', async () => {
+  await Promise.resolve();
+  let calls = 0;
+  const out = await imageGen.run({ prompt: 'x', source: 'chatgpt' }, {
+    _httpDriver: async () => { calls++; throw http(401, '{"detail":"token_expired"}'); },
+    _codexToken: { access_token: 'at-old', account_id: 'acct-test' },
+    _codexRefresh: async () => { throw Object.assign(new Error('refresh_token revoked'), { code: 'codex_refresh_failed' }); },
+  });
+  assert.strictEqual(out.ok, false);
+  assert.strictEqual(out.error, 'chatgpt_signin_expired');
+  assert.strictEqual(out.hint, 'Sign in to ChatGPT again in Settings to generate images with your plan.');
+  assert.ok(/revoked/.test(out.detail || ''), 'carries the rotation error');
+  assert.strictEqual(calls, 1, 'no second request without a token');
+  assert.ok(!('path' in out), 'no saved path on error');
+});
+
+test('IMG9: a saved sign-in that cannot be renewed at load reports expiry, not "not linked"', async () => {
+  await Promise.resolve();
+  let hit = false;
+  const out = await imageGen.run({ prompt: 'x', source: 'chatgpt' }, {
+    _httpDriver: async () => { hit = true; return ''; },
+    _codexToken: Object.assign(new Error('token refresh failed (invalid_grant)'), { code: 'codex_refresh_failed' }),
+  });
+  assert.strictEqual(out.ok, false);
+  assert.strictEqual(out.error, 'chatgpt_signin_expired');
+  assert.ok(/invalid_grant/.test(out.detail || ''), 'carries the load error');
+  assert.strictEqual(hit, false, 'never reaches the endpoint');
+  // A load failure that is NOT a dead refresh still reads as never linked.
+  const never = await imageGen.run({ prompt: 'x', source: 'chatgpt' }, {
+    _httpDriver: async () => '',
+    _codexToken: Object.assign(new Error('no token saved'), { code: 'no_codex_token' }),
+  });
+  assert.strictEqual(never.error, 'chatgpt_sub not linked');
+});
+
+test('IMG10: 429 names its cause (free account vs a plan at its limit); auto mode still reaches Google', async () => {
+  await Promise.resolve();
+  const tok = { access_token: 'at', account_id: 'acct-test' };
+  const free = await imageGen.run({ prompt: 'x', source: 'chatgpt' }, {
+    _httpDriver: async () => { throw http(429, '{"detail":{"type":"usage_limit_reached","plan_type":"free"}}'); },
+    _codexToken: tok,
+  });
+  assert.strictEqual(free.error, 'chatgpt_plan_required');
+  assert.ok(/plan_type/.test(free.detail || ''), 'carries the endpoint body');
+  const capped = await imageGen.run({ prompt: 'x', source: 'chatgpt' }, {
+    _httpDriver: async () => { throw http(429, '{"detail":{"type":"usage_limit_reached","plan_type":"plus"}}'); },
+    _codexToken: tok,
+  });
+  assert.strictEqual(capped.error, 'chatgpt_usage_limit');
+  // Auto mode: the plan lane's 429 hands over to the Google key.
+  const png = tinyPngBuffer();
+  const lanes = [];
+  const auto = await imageGen.run({ prompt: 'x' }, {
+    _httpDriver: async ({ url }) => {
+      lanes.push(String(url).indexOf('generateContent') !== -1 ? 'google' : 'chatgpt');
+      if (lanes.length === 1) throw http(429, '{"plan_type":"free"}');
+      return JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: png.toString('base64') } }] } }] });
+    },
+    _codexToken: tok, _googleKey: 'gk',
+  });
+  assert.strictEqual(auto.ok, true, JSON.stringify(auto));
+  assert.strictEqual(auto.source, 'google');
+  assert.deepStrictEqual(lanes, ['chatgpt', 'google']);
+});
+
 // Cleanup MUST run AFTER the async bodies above, not at registration time. This
 // harness invokes each test fn synchronously and defers promise-returning bodies
 // to a serial flush at the end — so a synchronous teardown here would restore

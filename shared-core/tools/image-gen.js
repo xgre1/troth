@@ -220,6 +220,8 @@ function realHttpDriver({ url, headers, body, signal }) {
         if (res.statusCode < 200 || res.statusCode >= 300) {
           const e = new Error('codex image http ' + res.statusCode + ': ' + chunks.slice(0, 400));
           e.code = 'http_status';
+          e.status = res.statusCode;
+          e.body = chunks.slice(0, 400);
           return reject(e);
         }
         resolve(chunks);
@@ -242,6 +244,28 @@ function realHttpDriver({ url, headers, body, signal }) {
 // ctx._httpDriver still wins per-call so a single test can override in isolation.
 const opts = { httpDriver: realHttpDriver };
 
+// Status code of a driver rejection: the real driver stamps e.status; a fake
+// that only wrote the message still resolves through the 'http NNN' text.
+function httpStatus(e) {
+  if (e && typeof e.status === 'number') return e.status;
+  const m = String((e && e.message) || '').match(/\bhttp (\d{3})\b/);
+  return m ? Number(m[1]) : 0;
+}
+
+// The plan-side failures an operator can act on. 'not linked' means no sign-in
+// was ever saved; these mean one was, and the endpoint said no.
+function signinExpiredFail(detail) {
+  const out = { ok: false, error: 'chatgpt_signin_expired', hint: 'Sign in to ChatGPT again in Settings to generate images with your plan.' };
+  if (detail) out.detail = String(detail);
+  return out;
+}
+function planRequiredFail(detail) {
+  return { ok: false, error: 'chatgpt_plan_required', hint: 'The linked ChatGPT account has no plan that includes Codex. Upgrade it, or add a Google AI key in Settings.', detail: String(detail || '') };
+}
+function usageLimitFail(detail) {
+  return { ok: false, error: 'chatgpt_usage_limit', hint: 'The linked ChatGPT plan has reached its usage limit for now. Wait for the window to reset, or add a Google AI key in Settings.', detail: String(detail || '') };
+}
+
 // run(args, ctx) — the tool entrypoint. NEVER throws: every failure path returns
 // a structured {ok:false, error, hint} object (the registry's dispatchToolCall
 // contract — see shared-core/tools/index.js). On success writes the PNG and
@@ -263,14 +287,18 @@ async function run(args, ctx) {
   // '_codexToken' in ctx is the plan-side test seam (twin of _googleKey /
   // _httpDriver): the shared token store is process-global state, and the test
   // harness interleaves async bodies, so a per-call injection is the only
-  // deterministic way to pin "linked"/"not linked" in a scenario.
+  // deterministic way to pin "linked"/"not linked" in a scenario. An Error in
+  // that slot plays a load-time failure the way ensureCodexToken would throw it.
   let token = null;
+  let signinExpired = null;   // the rotation error, when a saved sign-in could not be renewed
   if (explicit !== 'google') {
+    let loadErr = null;
     if ('_codexToken' in ctx) {
-      token = ctx._codexToken;
+      if (ctx._codexToken instanceof Error) loadErr = ctx._codexToken; else token = ctx._codexToken;
     } else {
-      try { token = await codexOAuth.ensureCodexToken(); } catch (_) { token = null; }
+      try { token = await codexOAuth.ensureCodexToken(); } catch (e) { loadErr = e; }
     }
+    if (loadErr && loadErr.code === 'codex_refresh_failed') signinExpired = loadErr;
   }
   // '_googleKey' in ctx is the test seam (same philosophy as _httpDriver):
   // process.env mutations race in the test harness (async bodies interleave),
@@ -278,6 +306,9 @@ async function run(args, ctx) {
   const googleKey = ('_googleKey' in ctx) ? ctx._googleKey : readGoogleKey();
   let source = explicit || (token ? 'chatgpt' : (googleKey ? 'google' : null));
   if (source === 'chatgpt' && !token) {
+    // A sign-in that was saved but could not be renewed is not "never linked":
+    // the operator signs in again rather than linking for the first time.
+    if (signinExpired) return signinExpiredFail(signinExpired.message);
     return { ok: false, error: 'chatgpt_sub not linked', hint: 'Link ChatGPT in Settings to generate images with your plan.' };
   }
   if (source === 'google' && !googleKey) {
@@ -358,9 +389,10 @@ async function run(args, ctx) {
   let lastFail = null;
 
   for (const src of order) {
-    const request = buildRequestFor(src);
+    let request = buildRequestFor(src);
     let raw = null;
     let attempt = 0;
+    let rotated = false;   // one token rotation per lane per call
     let transportFail = null;
     for (;;) {
       try {
@@ -369,6 +401,25 @@ async function run(args, ctx) {
         if ((e && e.code) !== 'timeout' && isOverloaded(e && e.message) && attempt < RETRY_WAITS_MS.length) {
           await new Promise(r => setTimeout(r, RETRY_WAITS_MS[attempt++]));
           continue;
+        }
+        const status = httpStatus(e);
+        // 401 on a token the local expiry still called live: rotate once and
+        // resend with fresh headers. A rotation that dies is a sign-in that
+        // expired; the operator signs in again, nothing else helps.
+        // '_codexRefresh' in ctx is the rotation's test seam.
+        if (src === 'chatgpt' && status === 401 && !rotated) {
+          rotated = true;
+          try { token = await (ctx._codexRefresh || codexOAuth.refreshCodexToken)(token); }
+          catch (re) { transportFail = signinExpiredFail(re && re.message); break; }
+          request = buildRequestFor(src);
+          continue;
+        }
+        // 429 from the plan lane names its cause in the body: a free account
+        // has no Codex at all; a paid one has a window that resets.
+        if (src === 'chatgpt' && status === 429) {
+          const said = String((e && e.body) || (e && e.message) || '');
+          transportFail = /plan_type["']?\s*:\s*["']?free/i.test(said) ? planRequiredFail(e && e.message) : usageLimitFail(e && e.message);
+          break;
         }
         transportFail = {
           ok: false,
