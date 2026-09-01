@@ -191,13 +191,31 @@ act. It does exactly what you wrote in `~/.troth/schedules.json`, at the times
 you wrote.
 
 **Don't use troth if you need:**
-- An agent that reliably pushes back with conviction during a
-  conversation. No zero-training stack solves this today.
-- An agent that reliably refuses to hallucinate on complex reasoning.
-  Same — open research problem.
-- A turnkey "AGI partner" experience. No shipping product is this yet.
-- Hands-off magic. troth works best when you actively use the
-  substrate primitives rather than treating it as black-box memory.
+- **A team substrate.** One substrate serves one person by design; there is
+  no multi-tenant isolation inside a single `~/.troth`.
+- **A kernel wall on Linux today.** The per-command sandbox is macOS
+  (Seatbelt). On Linux the same commands run behind the tool-layer guards
+  only — path policy, bash judgment, STVC — and the tool output says so.
+- **An encrypted substrate at rest today.** `troth init --seal` seals
+  operator-confirmed memories; the rest of `state.db` is readable by anyone
+  with disk access until whole-substrate encryption lands.
+- **A hosted service with nothing on your machine.** The mind is a file on
+  your disk; that is the point, and there is no cloud copy of it.
+- **Unattended autonomy from the open tree.** The open tree is the governed
+  partner in manual use. Background autonomy belongs to the paid app layer,
+  and today it is not shipped there either.
+
+Conviction under pressure and knowing-what-it-knows are deliberately not on
+this list: no product on the market delivers them, so they are not a reason
+to choose a different one. They are documented at the top of this page as
+the field-wide limits they are.
+
+And troth is not black-box memory you install and forget: the substrate
+reads, digests and recalls on its own every turn, and a fleet of background
+passes — contradiction and drift scans, instance consolidation, identity
+extraction, embedding backfill, backups — runs on cadence with nobody
+watching. It still rewards a partner who names goals and saves decisions:
+unattended it works; with named intent it works better.
 
 ---
 
