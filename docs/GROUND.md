@@ -49,12 +49,13 @@ photographs by hand, `troth checkpoint list` shows what is held, and
 `troth rollback` restores — reversibly, because the restore first
 photographs the state it replaces. Retention keeps the footprint bounded.
 
-## Where the walls do not reach
+## Where the kernel wall stops
 
 A host without the sandbox runtime — Linux today — runs the same commands
-with no kernel wall, and the tool output says so. What remains are the
-tool-layer guards (path policy, bash judgment, STVC). A kernel wall for
-Linux is an open item, not a promise.
+without the kernel wall; the tool-layer guards stay on — path policy, bash
+judgment, STVC, undo photographs, guarded publish destinations — and the
+tool output says which layer answered. A kernel wall for Linux is an open
+item, not a promise.
 
 The walls prove themselves on every proxy boot — engagement, the credential
 road, the read carves, the jail — and the verdicts ride the health board at

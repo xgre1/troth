@@ -1,4 +1,4 @@
-# Honest limits — what troth does NOT solve
+# Honest limits — what troth solves, what it flags, and what nobody solves yet
 
 troth is substrate-as-mind: persistent identity, memory continuity,
 drift detection, compiled procedures, multi-axis retrieval. Real
@@ -39,7 +39,7 @@ helpfulness, which produces sycophantic agreement under sustained
 pressure. The substrate detects drift after the fact, but cannot
 prevent the model from folding mid-turn.
 
-What troth offers that helps marginally:
+What troth does about it:
 - A drift signal that flags suspected agreement-without-evidence in
   conversation history; it surfaces in the next prompt's context.
 - Optional base models with less aggressive helpfulness tuning produce
@@ -54,7 +54,7 @@ write-time integrity catches contradictory or near-duplicate notes and
 flags them; it does not catch pattern-match-presented-as-analysis on
 complex reasoning.
 
-What troth offers that helps narrowly:
+What troth does about it:
 - Write-time verification flags contradictory engram writes so the
   substrate stops silently accumulating contradictions.
 - A critic hook catches some "promise without follow-through" patterns
@@ -119,9 +119,10 @@ but they measure specific properties:
   lands, disk access equals memory access. Treat backups accordingly.
 - **Single operator by design.** One substrate serves one person. There is
   no multi-tenant isolation inside a single `~/.troth`.
-- **Primary testing is macOS + Node 22.** The suite runs green there;
-  Linux is expected to work (CI covers it) but has had less real-world use.
-- **Version 0.1.x bootstrap.** Interfaces can still move before 1.0.
+- **Tested on macOS and Linux.** The full suite runs green on both in CI on
+  every push (Node 22). The kernel wall is macOS today; on Linux the same
+  commands run behind the tool-layer guards.
+- **Version 0.1.x.** Interfaces can still move before 1.0.
 
 ---
 

@@ -265,8 +265,8 @@ The line is deliberate: **this repo is the full governed partner when you drive 
 | Proxy, dashboard, benchmarks | yes | yes |
 | Providers: BYOK cloud + local (llama.cpp / Ollama) | yes | yes |
 | Response cache + failover across providers (spends less of your quota) | yes | yes |
-| **Autonomy**: goal pursuit, heartbeat, reactive self-operation | not in this tree | not yet shipped |
-| **VM body**: sandboxed embodiment | no | not yet shipped |
+| **Autonomy**: goal pursuit, heartbeat, reactive self-operation | not in this tree | paid app layer — arrives as an update |
+| **VM body**: sandboxed embodiment | no | designed — arrives as an update |
 | Voice: spoken conversation, and dictation into any macOS app | no | yes |
 | Zero-setup install: Node runtime, dependencies and local models bundled | no | yes |
 | Signed, notarized build with automatic updates | no | yes |
@@ -286,9 +286,9 @@ In this repo the autonomy layer is simply absent: its routes and modules are not
 |---|---|---|
 | **Conversational recall** | [`benchmarks/results/longmemeval-smoke-2026-08-31.md`](benchmarks/results/longmemeval-smoke-2026-08-31.md) | 83% (83 of 100) on a stratified 100-question LongMemEval-S slice with the whole stack local, and a Claude Sonnet cross-check over the same memory landing at 84 — within noise of each other, so the memory, not the reader, sets the score. Official per-type judge prompts at temperature 0; binomial noise at n=100 is roughly ±7 points; every caveat is written out in the run log |
 | **Document ingest recall** | [`benchmarks/results/ingest-smoke-2026-07-31.md`](benchmarks/results/ingest-smoke-2026-07-31.md) | same: a slice, graded, with the confidence interval written out |
-| **Prompt-poisoning resilience** | [`benchmarks/poisoning/`](benchmarks/poisoning/) | harness ships, run it yourself; we publish no score |
+| **Prompt-poisoning resilience** | [`benchmarks/poisoning/`](benchmarks/poisoning/) | harness ships; run it yourself |
 | **Pre-LLM governance walls** | [`tests/standards/s4_stvc_pre_llm.js`](tests/standards/s4_stvc_pre_llm.js) | standard-enforced on every test run |
-| **Honest limits** | [`docs/HONEST-LIMITS.md`](docs/HONEST-LIMITS.md) | unsolved properties named publicly |
+| **Honest limits** | [`docs/HONEST-LIMITS.md`](docs/HONEST-LIMITS.md) | what it solves, what it flags, what nobody solves yet — audited every release |
 
 Every claim on this page has a check that catches it if it stops being true, and the release gate refuses to ship when a number here has drifted from what the tree actually prints. Run `npm test` yourself; the accounting is below if you want it.
 
