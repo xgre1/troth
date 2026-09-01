@@ -10,12 +10,25 @@ so users and contributors can decide whether the actual deliverables
 match what they need. Better to under-promise than to ship a "fake
 partner" experience.
 
+Audited against: 0.1.18 (2026-09-01). The release gate refuses to ship a
+newer version until this line moves with it: an honesty page that stops
+being re-read stops being honest.
+
+Two different questions live on this page, and they have different answers.
+What the *mind* does — holding a position under pressure, knowing what it
+knows — is detected, not prevented; no shipped stack prevents it. What the
+*hands* do — files, shell, network — is prevented at the kernel on macOS and
+guarded at the tool layer everywhere else. Read "does not prevent" below as
+a statement about the first, never about the second.
+
 ---
 
 ## Two genuinely unsolved properties
 
 These are open research problems across the whole field, not only here.
-troth flags them for the operator; it does not prevent them.
+troth flags them for the operator; it does not prevent them. This is about
+the model's judgment, not about what its hands may touch — that is governed
+separately, and described further down.
 
 ### Conviction — holding a position under pressure
 
@@ -69,6 +82,13 @@ Different category of problem, all real and measurable:
   suggestions, and procedure detection run in the background.
 - **Drift / sycophancy detection** — surfaced as insights after the
   fact (detection, not prevention — see "Conviction" above).
+- **Governed hands** — on macOS every shell command runs inside a
+  per-command kernel sandbox shaped to the ground it stands on; package
+  installs land in a jail that cannot see your home; everything a command
+  or an edit stands to change is photographed for undo before it lands;
+  publishing destinations can be guarded behind a gate that must pass on
+  the exact tree being pushed. Prevention, not detection — the one place
+  on this page where that word applies.
 
 ---
 
@@ -91,9 +111,12 @@ but they measure specific properties:
 
 ## Operational limits (current release)
 
-- **The substrate is plaintext at rest.** `~/.troth/state.db` is a normal
-  SQLite file on your disk. At-rest encryption is planned; until then,
-  disk access equals memory access. Treat backups accordingly.
+- **Not encrypted at rest.** `~/.troth/state.db` is a normal SQLite file on
+  your disk. What it holds is structured engrams with provenance, not
+  transcripts — but anyone with disk access can read it all the same.
+  `troth init --seal` adds an encrypted vault for operator-confirmed
+  memories; encryption of the whole substrate is an open item, and until it
+  lands, disk access equals memory access. Treat backups accordingly.
 - **Single operator by design.** One substrate serves one person. There is
   no multi-tenant isolation inside a single `~/.troth`.
 - **Primary testing is macOS + Node 22.** The suite runs green there;
@@ -130,11 +153,21 @@ When Docker is NOT running, and that is the default state of most machines,
 it falls back to a plain subprocess on your host and launches the worker with
 `--dangerously-skip-permissions`, which turns off Claude Code's own approval
 prompts for that process. The status line says `mode: subprocess (no Docker)`
-and now says what that means. This is the honest shape of it: a real
-unattended worker with host access, one command away, and the sentence
-elsewhere in our docs about "Docker isolation" describes the container path
-only. If that is more autonomy than you want, run it with Docker up, or do
-not use `troth run` at all; nothing else in the open tree starts a worker.
+and says what that means. What that worker can touch depends on one thing:
+whether troth is connected to your Claude Code. The worker inherits your
+`~/.claude` as it is. If troth is connected — the step that installs
+troth-bash and its steer hook — the hook refuses the worker's native shell
+and routes every command through troth-bash: on macOS that is the same
+per-command kernel wall the interactive shell gets, with the same install
+jail, undo photographs and guarded publish destinations; on Linux it is the
+same tool-layer guards. If troth is NOT connected, the worker has ordinary
+host access with no wall, and that is the shape to assume until you have
+checked. `--dangerously-skip-permissions` removes Claude Code's prompts; it
+does not remove troth's wall, because the wall never depended on a prompt.
+The sentence elsewhere in our docs about "Docker isolation" describes the
+container path only. If that is more autonomy than you want, run it with
+Docker up, or do not use `troth run` at all; nothing else in the open tree
+starts an unattended worker.
 
 The interactive shell is a different lane with a different answer. On macOS
 every command the partner's hands run is wrapped in a per-command kernel

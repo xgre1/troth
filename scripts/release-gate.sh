@@ -457,6 +457,18 @@ print("\n".join(sorted(out)))' \
     fail "version drift: package.json=$vpkg lock=$vlock plugin=$vplug"
   fi
 
+  # 10b. The honesty page is re-read every release, or it stops being honest.
+  #      Its "Audited against" line must name the version the manifests
+  #      report; a page describing an older tree's limits undersells the
+  #      current one exactly where a careful reader looks first.
+  local audited
+  audited=$(grep -oE 'Audited against: [0-9]+\.[0-9]+\.[0-9]+' docs/HONEST-LIMITS.md 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+  if [ -n "$audited" ] && [ "$audited" = "$vpkg" ]; then
+    pass "HONEST-LIMITS audited against the shipping version ($audited)"
+  else
+    fail "HONEST-LIMITS says audited against '${audited:-nothing}', manifests say '$vpkg': re-read the page, then move the line"
+  fi
+
   # 11. Internal planning vocabulary. The identifier list is operator-supplied
   #     because it is personal; this list is not, because it is the same
   #     everywhere: roadmap milestones and phase codes that mean nothing to a
