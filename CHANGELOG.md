@@ -9,6 +9,23 @@ All notable changes to troth are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Image generation keeps the ChatGPT plan lane usable across a sign-in the
+  endpoint has stopped honouring. A request the plan answers 401 rotates the
+  saved token once, through the same refresh the chat lane uses, and resends
+  with fresh headers; a rotation the vendor refuses reports that the sign-in
+  expired, with the sentence that helps: sign in again in Settings. A 429
+  names its cause: a free account with no Codex is told so, a paid plan at
+  its limit is told to wait for the window, and in auto mode either one hands
+  over to the Google key.
+
+- The ledger merges retellings of the same occasion. Two statements that name
+  one event, the same head and the same cast with no date pinning them apart,
+  close to a single line; a pair the ledger declines to merge carries a mark
+  telling the reader to count them separately only on explicit evidence.
+
 ## [0.1.18] — 2026-08-29
 
 ### Added
