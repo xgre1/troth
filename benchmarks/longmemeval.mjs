@@ -342,8 +342,33 @@ function composeAnswerPrompt(q, retrieved, shape) {
   );
 }
 
+// claude -p itself, whatever --provider says: the answer lane and the judge
+// lane are chosen separately (ANSWER and PROVIDER), and a reader named
+// claude is claude, never the judge's engine.
 function callClaudeP(prompt, timeoutMs) {
-  return _callProvider(prompt, timeoutMs);
+  const keychain = process.env.TROTH_BENCH_CLAUDE_KEYCHAIN === '1';
+  const _claudeArgs = ['-p', '--output-format=json'];
+  if (CLAUDE_MODEL) _claudeArgs.push('--model', CLAUDE_MODEL);
+  if (keychain) {
+    // Prompt rides stdin here: --mcp-config is variadic and would swallow a
+    // trailing positional prompt as a second config path.
+    _claudeArgs.push('--setting-sources', '', '--strict-mcp-config',
+      '--mcp-config', join(cleanClaudeHome(), 'empty-mcp.json'));
+  } else {
+    _claudeArgs.push(prompt);
+  }
+  const res = spawnSync('claude', _claudeArgs, {
+    ...(keychain ? { input: prompt } : {}),
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+    timeout: timeoutMs,
+    cwd: cleanClaudeHome(),
+    env: keychain ? { ...process.env } : { ...process.env, HOME: cleanClaudeHome() },
+  });
+  if (res.error) throw new Error('claude -p spawn error: ' + res.error.message);
+  if (res.status !== 0) throw new Error('claude -p exit ' + res.status + ': ' + String(res.stderr || '').slice(0, 1000));
+  const j = JSON.parse(res.stdout);
+  return j.result != null ? String(j.result) : '';
 }
 
 // claude -p loads the user-level ambient (global CLAUDE.md, plugins, hooks
@@ -388,6 +413,7 @@ function _spawnOneshot(script, prompt, timeoutMs, label) {
   return String(res.stdout || '');
 }
 
+// The judge's engine, by --provider: codex, the operator's proxy, or claude -p.
 function _callProvider(prompt, timeoutMs) {
   if (PROVIDER === 'codex') {
     // Prompt rides stdin (can be large: memory statements), same one-process-
@@ -395,29 +421,7 @@ function _callProvider(prompt, timeoutMs) {
     return _spawnOneshot(CODEX_ONESHOT, prompt, timeoutMs, 'codex');
   }
   if (PROVIDER === 'proxy') return _spawnOneshot(PROXY_ONESHOT, prompt, timeoutMs, 'proxy');
-  const keychain = process.env.TROTH_BENCH_CLAUDE_KEYCHAIN === '1';
-  const _claudeArgs = ['-p', '--output-format=json'];
-  if (CLAUDE_MODEL) _claudeArgs.push('--model', CLAUDE_MODEL);
-  if (keychain) {
-    // Prompt rides stdin here: --mcp-config is variadic and would swallow a
-    // trailing positional prompt as a second config path.
-    _claudeArgs.push('--setting-sources', '', '--strict-mcp-config',
-      '--mcp-config', join(cleanClaudeHome(), 'empty-mcp.json'));
-  } else {
-    _claudeArgs.push(prompt);
-  }
-  const res = spawnSync('claude', _claudeArgs, {
-    ...(keychain ? { input: prompt } : {}),
-    encoding: 'utf8',
-    maxBuffer: 16 * 1024 * 1024,
-    timeout: timeoutMs,
-    cwd: cleanClaudeHome(),
-    env: keychain ? { ...process.env } : { ...process.env, HOME: cleanClaudeHome() },
-  });
-  if (res.error) throw new Error('claude -p spawn error: ' + res.error.message);
-  if (res.status !== 0) throw new Error('claude -p exit ' + res.status + ': ' + String(res.stderr || '').slice(0, 1000));
-  const j = JSON.parse(res.stdout);
-  return j.result != null ? String(j.result) : '';
+  return callClaudeP(prompt, timeoutMs);
 }
 
 function _composeOnce(prompt, retrieved, timeoutMs) {
@@ -442,7 +446,9 @@ function _composeOnce(prompt, retrieved, timeoutMs) {
     if (res.status !== 0) throw new Error('llamacpp exit ' + res.status + ': ' + String(res.stderr || '').slice(0, 500));
     return String(res.stdout || '');
   }
+  // The answer lane, by --answer alone: never the judge's engine by accident.
   if (ANSWER === 'proxy') return _spawnOneshot(PROXY_ONESHOT, prompt, timeoutMs, 'proxy');
+  if (ANSWER === 'codex') return _spawnOneshot(CODEX_ONESHOT, prompt, timeoutMs, 'codex');
   return callClaudeP(prompt, timeoutMs);
 }
 
@@ -550,7 +556,7 @@ async function _judgeLocalOnce(prompt) {
 async function judge(q, ourAnswer) {
   const raw = JUDGE === 'local'
     ? await judgeLocal(officialJudgePrompt(q, ourAnswer))
-    : callClaudeP(officialJudgePrompt(q, ourAnswer), JUDGE_TIMEOUT_MS);
+    : _callProvider(officialJudgePrompt(q, ourAnswer), JUDGE_TIMEOUT_MS);
   const m = String(raw).trim().match(/^\W*(yes|no)\b/i);
   if (!m) throw new Error('judge returned non-yes/no: ' + String(raw).slice(0, 300));
   const yes = m[1].toLowerCase() === 'yes';
