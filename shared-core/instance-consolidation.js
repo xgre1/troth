@@ -700,6 +700,14 @@ function _sameOccurrence(entry, inst, entity_slug, opts) {
       return true;
     }
   }
+  // A visit inferred to a bare role ("ENT specialist") and a stated visit to
+  // the clinician who holds that role are one visit: the role resolves to
+  // the person through the registry's relation or the visit's own words.
+  if (e.kind === 'visit' && inst.kind === 'visit' && (e.basis === 'entailed') !== (inst.basis === 'entailed')) {
+    const roleSide = e.basis === 'entailed' ? e : inst;
+    const named = roleSide === e ? inst : e;
+    if (_roleResolvesTo(roleSide.entity, named, opts) && _roleTokens(roleSide.entity).length) return true;
+  }
   if (SELF_ENTITY.has(_normEntity(inst.entity))) return false;
   const entityMatch = (e.entity_slug && entity_slug)
     ? e.entity_slug === entity_slug
@@ -736,7 +744,9 @@ const _FOLLOWUP_RE = /\b(follow[\s-]?up|another appointment with|again with)\b/i
 // Smith" is a visit to Dr. Smith. The agent must be a clinician: a role
 // word, or a Dr. name after one.
 const _CLINICIAN = '(?:physician|doctor|dentist|specialist|dermatologist|therapist|surgeon|pediatrician|optometrist|chiropractor|cardiologist|neurologist|psychiatrist|allergist|orthopedist|podiatrist|urologist|gynecologist|ophthalmologist|oncologist|gp|ent|nurse practitioner|pcp)';
-const _ISSUED_BY_RE = new RegExp('\\b(prescribed|referred|diagnosed|examined|treated)\\b[^.;]{0,60}?\\bby\\s+(?:my\\s+|the\\s+|a\\s+|an\\s+)?((?:[a-z][a-z-]*\\s+){0,3}' + _CLINICIAN + ')(?:,?\\s+(Dr\\.?\\s*[A-Z][\\w.]*(?:\\s+[A-Z][a-z]+)?))?', 'i');
+const _ISSUED_BY_RE = new RegExp('\\b(prescribed|referred|diagnosed|examined|treated)\\b[^.;]{0,60}?\\bby\\s+(?:my\\s+|the\\s+|a\\s+|an\\s+)?((?:[a-z][a-z-]*\\s+){0,3}' + _CLINICIAN + ')(?:,?\\s+(Dr\\.?\\s*[A-Z][\\w.]*(?:\\s+[A-Z][a-z]+)?))?', 'ig');
+// The agent first: "my primary care physician, Dr. Smith, had diagnosed me".
+const _AGENT_FIRST_RE = new RegExp('\\b(?:my|the)\\s+((?:[a-z][a-z-]*\\s+){0,3}' + _CLINICIAN + ')(?:,?\\s+(Dr\\.?\\s*[A-Z][\\w.]*(?:\\s+[A-Z][a-z]+)?),?)?\\s+(?:had\\s+|has\\s+|recently\\s+|just\\s+)?(prescribed|referred|diagnosed|examined|treated)\\b', 'ig');
 
 function entailmentEnabled() {
   // On unless the operator turns it off: a referral, a prescription or a
@@ -744,46 +754,110 @@ function entailmentEnabled() {
   return process.env.TROTH_INSTANCE_ENTAILMENT !== '0';
 }
 
-function _hasStatedCompletedVisit(pool, entity) {
+// A bare role names a person when exactly one visit could be them: the
+// registry knows the clinician by that relation ("Dr. Patel, ENT
+// specialist"), or the visit's own words carry the role's specific word
+// ("ent", "dermatologist"; never "doctor" or "specialist" alone).
+const _ROLE_GENERIC = new Set(['doctor', 'physician', 'specialist', 'gp', 'therapist', 'surgeon', 'nurse', 'practitioner', 'my', 'the', 'a', 'an', 'care', 'primary']);
+const _registryMemo = new WeakMap();
+function _registryFor(opts) {
+  const load = () => { try { return require('./entity-identity.js').loadRegistry({ agent_id: opts && opts.agent_id }) || []; } catch (_) { return []; } };
+  if (!opts || typeof opts !== 'object') return load();
+  let r = _registryMemo.get(opts);
+  if (!r) { r = load(); _registryMemo.set(opts, r); }
+  return r;
+}
+function _roleTokens(role) {
+  const words = String(role || '').toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  const toks = words.filter((w) => w.length > 1 && !_ROLE_GENERIC.has(w));
+  if (toks.length) return toks;
+  // A role made of generic words only ("primary care physician") is still a
+  // role when it has more than one of them: it is matched as a phrase.
+  return words.length >= 2 ? [words.join(' ')] : [];
+}
+function _roleResolvesTo(role, named, opts) {
+  const toks = _roleTokens(role);
+  if (!toks.length || !named) return false;
+  const has = (text, t) => new RegExp('\\b' + t + '\\b', 'i').test(String(text || ''));
+  if (toks.some((t) => has(_eventText(named), t))) return true;
+  const nameNorm = _normEntity(named.entity);
+  for (const r of _registryFor(opts)) {
+    const names = [r.canonical].concat(Array.isArray(r.aliases) ? r.aliases : []).map(_normEntity);
+    if (!names.includes(nameNorm)) continue;
+    if (toks.some((t) => has(r.relation, t))) return true;
+  }
+  return false;
+}
+
+function _hasStatedCompletedVisit(pool, entity, opts) {
   const norm = _normEntity(entity);
+  const roleOnly = !/\b(?:Dr\.?|[A-Z][a-z]+)\b/.test(String(entity || '').replace(/\b(?:ENT|GP|PCP)\b/g, ''));
   return pool.some((p) => {
     const e = p.instance;
-    return e && e.kind === 'visit' && e.status === 'completed' && e.basis !== 'entailed' && _normEntity(e.entity) === norm;
+    if (!e || e.kind !== 'visit' || e.status !== 'completed' || e.basis === 'entailed') return false;
+    if (_normEntity(e.entity) === norm) return true;
+    return roleOnly && _roleResolvesTo(entity, e, opts);
   });
+}
+
+// The name a role goes by, when one statement said both ("my primary care
+// physician, Dr. Smith"): the role told bare elsewhere is that person. A
+// Dr. name is the name alone, never the words that follow it.
+const _NAME_RE = /^(Dr\.?\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/;
+function _rolePairs(pool) {
+  const pairs = new Map();
+  for (const p of pool) {
+    const e = p.instance;
+    if (!e) continue;
+    const text = String(e.description || '') + ' ' + String(p.statement || '');
+    for (const m of text.matchAll(_ISSUED_BY_RE)) { const nm = m[3] && _NAME_RE.exec(String(m[3]).trim()); if (nm && m[2]) pairs.set(String(m[2]).trim().toLowerCase(), nm[1]); }
+    for (const m of text.matchAll(_AGENT_FIRST_RE)) { const nm = m[2] && _NAME_RE.exec(String(m[2]).trim()); if (nm && m[1]) pairs.set(String(m[1]).trim().toLowerCase(), nm[1]); }
+  }
+  return pairs;
 }
 
 function _deriveEntailed(pool, opts, stats) {
   const derived = [];
+  const pairs = _rolePairs(pool);
+  // A named clinician, or a specific role ("primary care physician",
+  // "dermatologist"). A bare "doctor" names nobody: it would count as one
+  // more doctor beside the named one it usually is.
+  const generic = /^(?:doctor|physician|specialist|gp|therapist|surgeon|nurse practitioner)$/i;
+  const personOf = (who) => {
+    const w = String(who || '').trim();
+    if (!w) return '';
+    if (/^dr\b/i.test(w)) { const nm = _NAME_RE.exec(w); return nm ? nm[1] : ''; }
+    if (generic.test(w)) return '';
+    return pairs.get(w.toLowerCase()) || w;
+  };
   for (const p of pool.slice()) {
     const e = p.instance;
     if (!e || e.basis === 'entailed') continue;
     const text = String(e.description || '') + ' ' + String(p.statement || '');
-    if (e.kind === 'visit' && _FOLLOWUP_RE.test(text) && !_hasStatedCompletedVisit(pool, e.entity)) {
+    const seen = new Set();
+    const mintFor = (who, verb, description) => {
+      const w = personOf(who);
+      if (!w || seen.has(w.toLowerCase())) return;
+      seen.add(w.toLowerCase());
+      if (_hasStatedCompletedVisit(pool, w, opts)) return;
       derived.push({
-        kind: 'visit', entity: e.entity,
-        description: 'prior visit implied by the follow-up being arranged',
+        kind: 'visit', entity: w,
+        description: description || ('visit implied by being ' + String(verb).toLowerCase() + ' by them'),
         date_iso: null, status: 'completed', basis: 'entailed',
         qualifier: 'visited', quantity: null,
         _provenance_refs: _refsOf(p.id)
       });
-    }
-    const by = _ISSUED_BY_RE.exec(text);
-    if (by) {
-      // A named clinician, or a specific role ("primary care physician",
-      // "dermatologist"). A bare "doctor" names nobody: it would count as one
-      // more doctor beside the named one it usually is.
-      const generic = /^(?:doctor|physician|specialist|gp|therapist|surgeon|nurse practitioner)$/i;
+    };
+    if (e.kind === 'visit' && _FOLLOWUP_RE.test(text)) mintFor(e.entity, 'followed up', 'prior visit implied by the follow-up being arranged');
+    // "was prescribed antibiotics by my primary care physician, Dr. Smith"
+    for (const by of text.matchAll(_ISSUED_BY_RE)) {
       const role = String(by[2] || '').trim();
-      const who = by[3] ? String(by[3]).trim() : (generic.test(role) ? '' : role);
-      if (who && !_hasStatedCompletedVisit(pool, who)) {
-        derived.push({
-          kind: 'visit', entity: who,
-          description: 'visit implied by being ' + by[1].toLowerCase() + ' by them',
-          date_iso: null, status: 'completed', basis: 'entailed',
-          qualifier: 'visited', quantity: null,
-          _provenance_refs: _refsOf(p.id)
-        });
-      }
+      mintFor(by[3] ? by[3] : (generic.test(role) ? '' : role), by[1]);
+    }
+    // "my primary care physician, Dr. Smith, had diagnosed me with a UTI"
+    for (const ag of text.matchAll(_AGENT_FIRST_RE)) {
+      const role = String(ag[1] || '').trim();
+      mintFor(ag[2] ? ag[2] : (generic.test(role) ? '' : role), ag[3]);
     }
     if (e.kind === 'possession' || e.kind === 'purchase') {
       const m = _ARTIFACT_RE.exec(String(e.description || ''));

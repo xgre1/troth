@@ -37,7 +37,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   such as a primary care physician, is a visit the memory keeps. A cousin's
   wedding and cousin Rachel's wedding are one wedding while one cousin is
   known. The counted phrase drops its determiners and numerals, so "the three
-  trips" measures every line against trips alone.
+  trips" measures every line against trips alone. Occasion nouns fall in
+  narrow classes: an order or count of trips keeps hikes and camping trips
+  and leaves stamps, commutes and dinners aside; a gala or a bachelor party
+  is never a wedding. A clinician's role and name said together pair, so
+  the role told bare elsewhere is that person, and a visit inferred to a
+  bare role folds into the stated visit to the clinician who holds it. A
+  wedding named by a role alone beside one named with a person of that role
+  is shown as possibly the same, never counted as new on its own.
 - A request that names a `gpt-5` model reaches the ChatGPT plan lane on its
   own. The model id inside the request picks the lane, the way a Kimi id
   already does, so a harness, a tool or one pane can use the plan for a call

@@ -95,6 +95,26 @@ t('being prescribed by a named clinician is a visit to them, whatever kind the s
   assert.strictEqual(smith.length, 1, pool.map((p) => p.statement).join(' || '));
   assert.strictEqual(smith[0].instance.basis, 'entailed');
   assert.strictEqual(smith[0].instance.status, 'completed');
+  // The follow-up with the bare role is the same person: one inferred row.
+  const inferred = pool.filter((p) => p.instance.basis === 'entailed');
+  assert.strictEqual(inferred.length, 1, inferred.map((p) => p.statement).join(' || '));
+  // The agent first: "my primary care physician, Dr. Smith, had diagnosed me".
+  const pool3 = [];
+  ic.writeInstances({
+    instances: [{ kind: 'activity', entity: 'chronic sinusitis', description: 'my primary care physician, Dr. Smith, had diagnosed me with a UTI; diagnosed with chronic sinusitis by an ENT specialist', date_iso: null, status: 'completed', qualifier: 'diagnosed', quantity: null, turn_idxs: [0] }],
+    turns, agent_id: 'claude-code', user_id: 'default', _pool: pool3, session_id: 'S1'
+  });
+  const ents = pool3.filter((p) => p.instance.basis === 'entailed').map((p) => p.instance.entity).sort();
+  assert.deepStrictEqual(ents, ['Dr. Smith', 'ENT specialist'], ents.join(' | '));
+  // A stated visit to the clinician who holds the role absorbs the bare-role row.
+  ic.writeInstances({
+    instances: [{ kind: 'visit', entity: 'Dr. Patel', description: 'saw Dr. Patel, my ENT, about the sinusitis', date_iso: null, status: 'completed', qualifier: 'saw', quantity: null, turn_idxs: [1] }],
+    turns, agent_id: 'claude-code', user_id: 'default', _pool: pool3, session_id: 'S2'
+  });
+  const patel = pool3.filter((p) => p.instance.kind === 'visit' && /patel|ent specialist/i.test(p.instance.entity));
+  assert.strictEqual(patel.length, 1, patel.map((p) => p.statement).join(' || '));
+  assert.strictEqual(patel[0].instance.basis, 'stated');
+  assert.ok(/Patel/.test(patel[0].instance.entity), patel[0].instance.entity);
   // A bare role is not a person: "referred by my doctor" mints nothing.
   const pool2 = [];
   ic.writeInstances({

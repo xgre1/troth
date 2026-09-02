@@ -35,6 +35,8 @@
 // view renders exactly as before, minus the possibly-same annotation.
 let _EVENT_HEAD = null;
 try { _EVENT_HEAD = require('./instance-consolidation.js').EVENT_HEAD || null; } catch (_) {}
+let _occ = null;
+try { _occ = require('./occasions.js'); } catch (_) {}
 let _parseTimeWindow = null;
 try { _parseTimeWindow = require('./time-window.js').parseTimeWindow; } catch (_) {}
 let _selfStatements = null;
@@ -51,6 +53,8 @@ const OCCURRENCE_FLOOR = 0.45;       // occurrences: a barbecue is not a wedding
 const COUNT_ASK = /\b(how many|how much|number of|total|count|order of|first to last|earliest to latest)\b/i;
 const OCCURRENCE_KINDS = new Set(['event', 'visit', 'activity']);
 const DAY_MS = 86400000;
+// Role words: a person named by relation alone ("cousin's wedding").
+const _ROLE_WORD = /\b(cousin|sister|brother|mother|father|mom|dad|aunt|uncle|niece|nephew|grandm\w*|grandp\w*|roommate|friend|partner|neighbou?r|colleague|boss|wife|husband|spouse|sibling|parent|son|daughter|buddy|classmate|coworker)\b/gi;
 const _isoOf = (ts) => { try { return new Date(ts).toISOString().slice(0, 10); } catch (_) { return null; } };
 // The date a statement pins: "[completed, 2023-02-05]" / "[completed, inferred, 2023-02-05]".
 const _statedDate = (s) => { const m = /\[[a-z]+(?:, inferred)?, (\d{4}-\d{2}-\d{2})\]/.exec(String(s)); return m ? m[1] : null; };
@@ -249,18 +253,42 @@ function buildReconciledView(items, opts) {
     // "trip"; boots 0.32 against "clothing item".
     const ENTITY_FLOOR = 0.30, VISIT_ENTITY_FLOOR = 0.35, EVENT_ENTITY_FLOOR = 0.40;
     const headStem = head ? head.replace(/s$/, '') : null;
-    const occasionOf = (it) => {
-      const m = _EVENT_HEAD && _EVENT_HEAD.exec(String(it.statement || ''));
-      return m ? m[1].toLowerCase().replace(/s$/, '') : null;
+    // The occasion words a line carries: the ladder's heads anywhere in the
+    // statement, and any occasion noun in the line's own head (kind,
+    // qualifier, entity). A hike is a trip; a dinner, a gala or a bachelor
+    // party is not a wedding, whatever its cosine.
+    const occsOf = (it) => {
+      const s = String(it.statement || '').replace(/^\[instance\]\s*/, '');
+      const set = new Set();
+      const m = _EVENT_HEAD && _EVENT_HEAD.exec(s);
+      if (m) set.add(m[1].toLowerCase().replace(/s$/, ''));
+      if (_occ) for (const w of _occ.occasionsIn(s.split(' — ')[0])) set.add(w);
+      return [...set];
     };
+    const sameOcc = (occ) => _occ ? _occ.sameOccasion(occ, headStem) : (occ === headStem || headStem.indexOf(occ) >= 0 || occ.indexOf(headStem) >= 0);
+    const headClass = (_occ && headStem) ? _occ.classOf(headStem) : null;
+    const OCC_KINDS = new Set(['visit', 'event']);
     const entityNames = (it) => {
       const e = String(it._entity || '').toLowerCase();
       return !!e && ((phraseRe && phraseRe.test(e)) || (headRe && headRe.test(e)));
     };
-    const subjectTest = (barOf) => (it) => {
+    // The occasion rules belong to the strict test; the relaxed floor that
+    // stands in when strictness would leave the reader under three lines
+    // judges on cosine alone.
+    const subjectTest = (barOf, occasionRules) => (it) => {
+      if (occasionRules && headStem && it._kind) {
+        const occs = occsOf(it);
+        if (occs.length) return !occs.some(sameOcc);
+        // The asked head is an occasion: a line that is no occasion at all (an
+        // activity, a purchase, with no occasion word of that kind anywhere in
+        // it) is not one of them, whatever its cosine (measured: stamps and a
+        // commute rode into a trips order on entity cosine).
+        if (headClass && !OCC_KINDS.has(String(it._kind))) {
+          const anywhere = _occ.occasionsIn(String(it.statement || ''));
+          if (!anywhere.some(sameOcc)) return true;
+        }
+      }
       if (typeof it._entity_cos === 'number') {
-        const occ = headStem ? occasionOf(it) : null;
-        if (occ) return occ !== headStem && !(headStem.indexOf(occ) >= 0 || occ.indexOf(headStem) >= 0);
         if (entityNames(it)) return false;
         const kind = String(it._kind);
         const bar = kind === 'event' ? EVENT_ENTITY_FLOOR : (kind === 'visit' ? VISIT_ENTITY_FLOOR : ENTITY_FLOOR);
@@ -273,11 +301,11 @@ function buildReconciledView(items, opts) {
       const named = (phraseRe && phraseRe.test(s)) || (headRe && headRe.test(s));
       return !named && cos < barOf(it);
     };
-    const strict = subjectTest((it) => OCCURRENCE_KINDS.has(String(it._kind)) ? Math.max(floor, OCCURRENCE_FLOOR) : floor);
+    const strict = subjectTest((it) => OCCURRENCE_KINDS.has(String(it._kind)) ? Math.max(floor, OCCURRENCE_FLOOR) : floor, true);
     const remaining = instances.filter((it) => !reasonOf.has(it));
     const keptStrict = remaining.filter((it) => !strict(it)).length;
     const anyEntityCos = remaining.some((it) => typeof it._entity_cos === 'number');
-    apply('not about the asked subject', (keptStrict >= 3 || anyEntityCos) ? strict : subjectTest(() => floor));
+    apply('not about the asked subject', (keptStrict >= 3 || anyEntityCos) ? strict : subjectTest(() => floor, false));
   }
 
   const kept = instances.filter((it) => !reasonOf.has(it));
@@ -466,6 +494,22 @@ function buildReconciledView(items, opts) {
                 if (!_possiblySame.has(weak.n)) _possiblySame.set(weak.n, anchor.n);
               }
             }
+          }
+          // A line that names its occasion by a role alone ("cousin's wedding")
+          // beside a line that names the same occasion with a person of that
+          // role ("cousin Rachel's wedding") is possibly that one, never a
+          // new one on its own: the reader counts it separately only on
+          // explicit evidence.
+          const rolesIn = (s) => new Set([...String(s).matchAll(_ROLE_WORD)].map((m) => m[1].toLowerCase()));
+          const properIn = (s) => /\b[A-Z][a-z]{2,}\b/.test(String(s).replace(/^\[instance\]\s*/, '').replace(/\[[^\]]*\]/g, '').replace(/\((?:attested|qty)[^)]*\)/g, ''));
+          for (const weak of ledger) {
+            if (weak.folded_into || _possiblySame.has(weak.n)) continue;
+            const hw = _headOf(weak.statement); if (!hw) continue;
+            const body = String(weak.statement).split(' — ').slice(0, 2).join(' — ');
+            if (properIn(body)) continue;
+            const roles = rolesIn(body); if (!roles.size) continue;
+            const anchor = ledger.find((o) => o !== weak && !o.folded_into && _headOf(o.statement) === hw && [...rolesIn(o.statement)].some((r) => roles.has(r)));
+            if (anchor) _possiblySame.set(weak.n, anchor.n);
           }
         }
         for (const l of ledger) {

@@ -110,5 +110,21 @@ t('the same object out of one telling is one line: the later folds into the earl
   assert.ok(!/\[=L\d,L\d\]/.test(out), out.split('\n').filter(l => /^S\d/.test(l)).join('\n'));
 });
 
+t('an order of trips keeps the occasions of that kind: a hike and a camping trip stay, stamps, a commute and a dinner leave', () => {
+  const asked = Date.UTC(2023, 5, 1);
+  const rows = [
+    ev('o1', 'Muir Woods National Monument', 'day hike there with family', '2023-03-10', { _kind: 'visit', _entity_cos: 0.39 }),
+    ev('o2', 'Big Sur and Monterey', 'got back from a road trip with friends', '2023-04-20', { _kind: 'visit', _entity_cos: 0.45 }),
+    Object.assign(ev('o3', 'Yosemite National Park', 'started a solo camping trip to Yosemite National Park today', '2023-05-15', { _kind: 'activity', _qualifier: 'started', _entity_cos: 0.47 }), { statement: '[instance] activity: started Yosemite National Park — started a solo camping trip to Yosemite National Park today [completed, 2023-05-15] (attested ×1)' }),
+    Object.assign(ev('o4', 'stamps', 'has been collecting stamps for three months', '2023-05-15', { _kind: 'activity', _entity_cos: 0.36 }), { statement: '[instance] activity: collecting stamps — has been collecting stamps for three months [recurring, 2023-05-15] (attested ×1)' }),
+    Object.assign(ev('o5', 'daily commute', 'usually has a daily commute to and from work', '2023-04-20', { _kind: 'activity', _entity_cos: 0.34 }), { statement: '[instance] activity: daily commute — usually has a daily commute to and from work [recurring, 2023-04-20] (attested ×1)' }),
+    Object.assign(ev('o6', 'pasta dishes', 'tried new pasta dishes at dinner', '2023-03-09', { _kind: 'activity', _entity_cos: 0.33 }), { statement: '[instance] activity: tried pasta dishes at dinner — tried new pasta dishes at dinner [completed, 2023-03-09] (attested ×1)' }),
+  ];
+  const v = buildReconciledView(rows, { noun_head: 'trips', head_phrase: 'trips', question: 'What is the order of the three trips I took in the past three months, from earliest to latest?', reference_ts: asked });
+  const kept = v.ledger.map(l => l.entity).sort();
+  assert.deepStrictEqual(kept, ['Big Sur and Monterey', 'Muir Woods National Monument', 'Yosemite National Park'], kept.join(' | '));
+  assert.ok(v.aside.every(a => /asked subject/.test(a.reason)), v.aside.map(a => a.reason).join(' | '));
+});
+
 console.log('\nreconciled-view-subject: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

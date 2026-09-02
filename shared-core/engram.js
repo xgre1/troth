@@ -1262,12 +1262,12 @@ const _parseTimeWindow = (query, referenceTs) => require('./time-window.js').par
                 // hike as much as about Muir Woods): the line's cosine to the
                 // head is the larger of the two. English nouns are the fallback
                 // detector; a line without one is judged on its entity alone.
-                const OCCASION = /\b(hike|trip|camping|road trip|cruise|tour|concert|gala|ceremony|conference|workshop|class|retreat|marathon|race|tournament|parade|exhibition|screening|premiere|fair|meetup|picnic|dinner|brunch|party|festival|wedding|birthday|funeral|graduation|anniversary|shower|reunion|appointment|checkup|visit)\b/i;
+                const _occ = require('./occasions.js');
                 const ents = candidates.map((c) => String((c.r.payload && c.r.payload.instance && c.r.payload.instance.entity) || '').trim());
                 // The occasion is read off the line's own head (kind, qualifier,
                 // entity), never off its description: "looking at backpacks for a
                 // 3-day trip" is about backpacks, not a trip.
-                const occs = candidates.map((c) => { const m = OCCASION.exec(String(c.r.statement || '').split(' — ')[0]); return m ? m[1].toLowerCase() : ''; });
+                const occs = candidates.map((c) => _occ.occasionIn(String(c.r.statement || '').split(' — ')[0]) || '');
                 const texts = ents.map((e) => e || '-').concat(occs.map((o) => o || '-'));
                 const vecs = hv ? await _emb.embedBatch(texts, { role: 'document' }) : null;
                 if (hv && Array.isArray(vecs)) candidates.forEach((c, i) => {
