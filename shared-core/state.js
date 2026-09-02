@@ -113,6 +113,10 @@ function db() {
   try {
     _db.prepare("UPDATE action_records SET audience='substrate_internal' WHERE audience IS NULL").run();
     _db.prepare("UPDATE action_records SET memory_class='operational' WHERE memory_class IS NULL").run();
+    // Entity registry rows written before 2026-09-02 carry the episodic class
+    // and compete in the general pool; recordEngram now derives identity for
+    // scope entity:*. Re-stamp the old rows once per open (indexed on scope).
+    _db.prepare("UPDATE action_records SET memory_class='identity' WHERE memory_class='episodic' AND json_extract(output,'$.scope') LIKE 'entity:%'").run();
   } catch (_) { /* columns not yet there (very first run before migrate) */ }
   return _db;
 }
@@ -3006,6 +3010,7 @@ function listRecallableMissingEmbeddings(limit, currentModel) {
           AND (ar.audience IS NULL OR ar.audience = 'model_visible'))
           OR json_extract(ar.output,'$.scope') LIKE 'instance:%')
           AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'docs:chats%')  -- skip recall-EXCLUDED docs:chats (never recalled; embedding them = wasted CPU + 45GB logs)
+          AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'entity:%')     -- the registry is matched by name, never by vector
           AND (ee.engram_id IS NULL OR ee.model IS NULL OR ee.model <> ?)
           AND ${EMBEDDABLE_SQL}
         ORDER BY ar.timestamp DESC
@@ -3020,6 +3025,7 @@ function listRecallableMissingEmbeddings(limit, currentModel) {
         AND (ar.audience IS NULL OR ar.audience = 'model_visible'))
         OR json_extract(ar.output,'$.scope') LIKE 'instance:%')
         AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'docs:chats%')  -- skip recall-EXCLUDED docs:chats
+        AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'entity:%')     -- the registry is matched by name, never by vector
         AND ee.engram_id IS NULL
         AND ${EMBEDDABLE_SQL}
       ORDER BY ar.timestamp DESC
@@ -3450,6 +3456,11 @@ function streamRecallableEmbeddings() {
     JOIN action_records ar ON ar.id = ee.engram_id
     WHERE ar.memory_class IN ('episodic','semantic','identity','procedural')
       AND (ar.principal_id IS NULL OR ar.principal_id NOT IN ('bench','partner-loop-test'))
+      -- The entity registry (scope entity:*) is the cast: matched by name through
+      -- entity-identity.lookupFromText, mounted by the identity-cast arm. As
+      -- dense candidates its rows took up to 10 of 52 mount slots on identity-
+      -- shaped questions (measured 2026-09-02); they never answer anything.
+      AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'entity:%')
   `).iterate();
 }
 // Fetch full action rows for an id set — used to build dense-hit result objects

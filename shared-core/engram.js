@@ -245,6 +245,14 @@ function recordEngram(opts) {
     const _isHandoff  = typeof _scope === 'string' && _scope.indexOf('handoff:') === 0;
     const _isInternal = typeof _scope === 'string' && _scope.indexOf('internal:') === 0;
     const _isIdentity = _scope === 'identity';
+    // Entity registry rows (entity-identity.js, scope entity:<slug>) are the
+    // cast, not episodes: read by loadRegistry (scope prefix) and mounted by
+    // the identity-cast arm. As episodic-class rows they competed in the
+    // general pool and took up to 5 of 10 mount slots on identity-shaped
+    // questions (measured 2026-09-02, 23-question probe). Identity class
+    // keeps them out of class:'all' ranking without touching how the cast
+    // is read.
+    const _isEntity   = typeof _scope === 'string' && _scope.indexOf('entity:') === 0;
     const _isDocs     = typeof _scope === 'string' && _scope.indexOf('docs:') === 0;
     const _isResearch = typeof _scope === 'string' && _scope.indexOf('research:') === 0;
     // Operator-curated memory (migrated ~/.claude memory/*.md, scope memory:*).
@@ -310,14 +318,14 @@ function recordEngram(opts) {
     // output.requested_memory_class for audit visibility.
     const _hasHardDerivation = (
       _isHandoff || _isInternal || _isOrchestration ||
-      _isIdentity || _isDocs || _isResearch || _isDecision || _isMemory
+      _isIdentity || _isEntity || _isDocs || _isResearch || _isDecision || _isMemory
     );
     const _derivedAudience = (
       (_isHandoff || _isInternal || _isOrchestration) ? 'substrate_internal' : 'model_visible'
     );
     const _derivedClass = (
       (_isHandoff || _isInternal || _isOrchestration) ? 'operational' :
-      _isIdentity                  ? 'identity' :
+      (_isIdentity || _isEntity)   ? 'identity' :
       (_isDocs || _isResearch || _isMemory) ? 'semantic' :
       _isDecision                  ? 'procedural' :
                                      'episodic'
