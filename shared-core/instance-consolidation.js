@@ -670,7 +670,7 @@ function _sameEvent(e, inst, opts) {
   return true; // nothing separates them - the same occasion, retold
 }
 
-function _sameOccurrence(entry, inst, entity_slug, opts) {
+function _sameOccurrence(entry, inst, entity_slug, opts, instRefs) {
   const e = entry.instance;
   if (!e) return false;
   // An occasion is an occasion whatever the extractor typed it: the same
@@ -682,15 +682,27 @@ function _sameOccurrence(entry, inst, entity_slug, opts) {
     if (!(occasionKind(e.kind) && occasionKind(inst.kind) && _headNoun(e) && _headNoun(inst))) return false;
   }
   // An entailed occurrence and a stated one with DIFFERENT statuses are
-  // different occurrences by construction: the derived prior visit must
-  // never absorb the scheduled follow-up it was inferred from.
-  if ((e.basis === 'entailed') !== (inst.basis === 'entailed') && e.status !== inst.status) return false;
+  // different occurrences by construction, and an inferred row that stands
+  // apart from its source telling never joins that telling whatever status
+  // it reaches: the prior visit implied by a follow-up is not the
+  // follow-up, even once the follow-up has happened.
+  if ((e.basis === 'entailed') !== (inst.basis === 'entailed')) {
+    if (e.status !== inst.status) return false;
+    const entSide = e.basis === 'entailed' ? e : inst;
+    const from = Array.isArray(entSide.apart_from) ? entSide.apart_from : [];
+    if (from.length) {
+      const otherRefs = entSide === e ? (Array.isArray(instRefs) ? instRefs : []) : _refsOf(entry.id);
+      if (otherRefs.some((r) => from.includes(r))) return false;
+    }
+  }
   // An occasion is an occasion whatever the extractor typed it: "attended
   // Jen's wedding" comes back an event from one pass and a visit from the
   // next, and one wedding must never become two because a label drifted.
   // The ladder judges rows whose head noun names an occasion and returns
   // null for everything else, so an ordinary visit is untouched.
-  if (e.kind === 'event' || e.kind === 'visit') {
+  // An activity whose words name an occasion ("attended Jen's wedding")
+  // meets the same ladder: names and dates decide, never a shared word.
+  if (e.kind === 'event' || e.kind === 'visit' || (e.kind === 'activity' && inst.kind === 'activity' && _headNoun(e) && _headNoun(inst))) {
     const verdict = _sameEvent(e, inst, opts);
     if (verdict === false) return false;
     if (verdict === true) {
@@ -721,12 +733,19 @@ function _sameOccurrence(entry, inst, entity_slug, opts) {
   // dates is not the same object unless the descriptions agree too.
   if (inst.kind === 'possession' && _descOverlap(e.description, inst.description) < 0.5) return false;
   // An activity or an event on a generic entity (a project, a tool, a
-  // repository) is one occurrence only when the two tellings agree on what
-  // was done: eleven different things done "on troth" are eleven lines, not
-  // one. Two tellings pinned to the same day are the same day's doing; the
-  // rest must share their words. A named occasion already passed the
-  // ladder above; this guards the plain kinds.
-  if ((inst.kind === 'activity' || inst.kind === 'event') && !(e.date_iso && inst.date_iso) && _descOverlap(e.description, inst.description) < 0.35) return false;
+  // repository). The same ongoing thing accumulates its tellings: a project
+  // still in progress or a habit (planned, recurring), or a stance told
+  // beside a doing (played it for thirty hours; interested in the DLC).
+  // Two finished doings told in different words are two doings: eleven
+  // different things done "on troth" are eleven lines, not one. Two
+  // tellings pinned to the same day are the same day's doing. A named
+  // occasion already passed the ladder above; this guards the plain kinds.
+  if ((inst.kind === 'activity' || inst.kind === 'event') && !(e.date_iso && inst.date_iso)) {
+    const ongoing = (s) => s === 'planned' || s === 'recurring';
+    const stance = (q) => _verbClass(q) === 'prospective';
+    const sameThing = ongoing(e.status) || ongoing(inst.status) || stance(e.qualifier) !== stance(inst.qualifier);
+    if (!sameThing && _descOverlap(e.description, inst.description) < 0.35) return false;
+  }
   return true;
 }
 
@@ -860,7 +879,7 @@ function _deriveEntailed(pool, opts, stats) {
     const e = s.inst;
     const text = s.text;
     const seen = new Set();
-    const mintFor = (who, verb, description) => {
+    const mintFor = (who, verb, description, apart) => {
       const w = personOf(who);
       if (!w || seen.has(w.toLowerCase())) return;
       seen.add(w.toLowerCase());
@@ -870,10 +889,14 @@ function _deriveEntailed(pool, opts, stats) {
         description: description || ('visit implied by being ' + String(verb).toLowerCase() + ' by them'),
         date_iso: null, status: 'completed', basis: 'entailed',
         qualifier: 'visited', quantity: null,
+        // A prior visit implied by a follow-up stands apart from the
+        // follow-up's own telling; a visit implied by a prescription is the
+        // visit that telling may also state outright, so it carries nothing.
+        apart_from: apart ? s.refs() : undefined,
         _provenance_refs: s.refs()
       });
     };
-    if (e && e.kind === 'visit' && _FOLLOWUP_RE.test(text)) mintFor(e.entity, 'followed up', 'prior visit implied by the follow-up being arranged');
+    if (e && e.kind === 'visit' && _FOLLOWUP_RE.test(text)) mintFor(e.entity, 'followed up', 'prior visit implied by the follow-up being arranged', true);
     // "was prescribed antibiotics by my primary care physician, Dr. Smith"
     for (const by of text.matchAll(_ISSUED_BY_RE)) {
       const role = String(by[2] || '').trim();
@@ -923,7 +946,7 @@ function _closePool(pool, opts, stats) {
       for (let j = i + 1; j < pool.length && !joined; j++) {
         const a = pool[i], b = pool[j];
         if (!a.instance || !b.instance) continue;
-        if (!_sameOccurrence(a, b.instance, b.instance.entity_slug || null, opts)) continue;
+        if (!_sameOccurrence(a, b.instance, b.instance.entity_slug || null, opts, _refsOf(b.id))) continue;
         const oldA = a.instance, oldB = b.instance;
         const refsA = _refsOf(a.id), refsB = _refsOf(b.id);
         const provenance = Array.from(new Set(refsA.concat(refsB)));
@@ -945,6 +968,8 @@ function _closePool(pool, opts, stats) {
           date_iso: oldA.date_iso || oldB.date_iso || null,
           status,
           basis: (oldA.basis !== 'entailed' || oldB.basis !== 'entailed') ? 'stated' : 'entailed',
+          apart_from: (oldA.basis === 'entailed' && oldB.basis === 'entailed')
+            ? Array.from(new Set((oldA.apart_from || []).concat(oldB.apart_from || []))) : undefined,
           qualifier: null,
           facets,
           quantity: oldB.quantity != null ? oldB.quantity : (oldA.quantity != null ? oldA.quantity : null),
@@ -1023,7 +1048,11 @@ function writeInstances(opts) {
       }
     } catch (_) {}
 
-    const match = pool.find(p => _sameOccurrence(p, inst, entity_slug, opts));
+    // A stated row is the anchor; an inferred one is a merge target only
+    // when nothing stated matches. The follow-up that went well lands on
+    // the scheduled follow-up, never on the prior visit inferred from it.
+    const matches = pool.filter(p => _sameOccurrence(p, inst, entity_slug, opts, refs));
+    const match = matches.find(p => !(p.instance && p.instance.basis === 'entailed')) || matches[0] || null;
     let finalInst, supersedes = null, reason = null, provenance = refs;
     if (match) {
       const old = match.instance;
@@ -1058,6 +1087,8 @@ function writeInstances(opts) {
         date_iso: inst.date_iso || old.date_iso || null,
         status,
         basis: (inst.basis !== 'entailed' || old.basis !== 'entailed') ? 'stated' : 'entailed',
+        apart_from: (inst.basis === 'entailed' && old.basis === 'entailed')
+          ? Array.from(new Set((old.apart_from || []).concat(inst.apart_from || []))) : undefined,
         qualifier: _primaryQualifier(facets, inst.qualifier || old.qualifier || null),
         facets,
         quantity: Number.isFinite(inst.quantity) ? inst.quantity : (old.quantity != null ? old.quantity : null),
@@ -1079,6 +1110,7 @@ function writeInstances(opts) {
         date_iso: inst.date_iso,
         status: inst.status,
         basis: inst.basis === 'entailed' ? 'entailed' : 'stated',
+        apart_from: inst.basis === 'entailed' && Array.isArray(inst.apart_from) && inst.apart_from.length ? inst.apart_from.slice() : undefined,
         qualifier: inst.qualifier,
         facets: inst.qualifier ? [{ verb: inst.qualifier, class: _verbClass(inst.qualifier), refs: refs.slice() }] : [],
         quantity: inst.quantity,

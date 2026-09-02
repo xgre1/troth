@@ -380,9 +380,11 @@ await t('composition: the clause cap holds and degradation is the primary unchan
   assert.ok(seps <= 2, 'at most three clauses: ' + rows[0].statement);
 });
 
-await t('composition: a fused chimera keeps every wedding recoverable', () => {
-  // The S1 lesson: when the merge layer wrongly fuses distinct events, the
-  // row must still carry every ingredient — recoverable, not destroyed.
+await t('composition: three weddings told in different words are three occurrences, each recoverable', () => {
+  // The S1 lesson, kept from the other side: three finished doings on one
+  // generic entity with nothing in common but the word "wedding" are three
+  // lines, and every ingredient survives on its own line. (Fusing them and
+  // keeping the ingredients inside one row was the earlier, weaker guard.)
   const AG = 'compose-chimera';
   const T = (x) => [{ id: x, user_text: 'context turn' }];
   const mk = (desc, qual) => ({ kind: 'activity', entity: 'wedding season', description: desc, date_iso: null, status: 'completed', qualifier: qual, quantity: null, turn_idxs: [0] });
@@ -390,9 +392,9 @@ await t('composition: a fused chimera keeps every wedding recoverable', () => {
   ic.writeInstances({ instances: [mk('Attended wedding of friend Emily and her partner Sarah', 'went')], turns: T('cw-2'), agent_id: AG, user_id: 'default', session_id: 'cw-s2', source: 'test' });
   ic.writeInstances({ instances: [mk("Attended friend Jen's wedding at a rustic barn in the countryside", 'joined')], turns: T('cw-3'), agent_id: AG, user_id: 'default', session_id: 'cw-s3', source: 'test' });
   const rows = engram.listEngrams({ scope_prefix: 'instance:', audience: 'all', agent_id: AG, limit: 10 });
-  assert.strictEqual(rows.length, 1);
-  const s = rows[0].statement;
-  assert.ok(/roommate/.test(s) && /Emily and her partner Sarah/.test(s) && /rustic barn/.test(s), 'all three weddings recoverable: ' + s);
+  assert.strictEqual(rows.length, 3, rows.map((r) => r.statement).join(' || '));
+  const all = rows.map((r) => r.statement).join('\n');
+  assert.ok(/roommate/.test(all) && /Emily and her partner Sarah/.test(all) && /rustic barn/.test(all), 'all three weddings recoverable: ' + all);
 });
 
 console.log('');

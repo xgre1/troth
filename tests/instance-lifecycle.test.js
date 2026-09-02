@@ -64,10 +64,18 @@ await t('window 1: a planned visit lands as status planned', async () => {
       { kind: 'visit', entity: 'Dr. Patel', description: 'ENT follow-up for chronic sinusitis', date_iso: null, status: 'planned', qualifier: 'scheduled', quantity: null, turn_idxs: [0], quote: 'schedule a follow-up with Dr. Patel' }
     ]))
   });
+  // A follow-up implies a prior visit: the stated row lands planned, and
+  // one inferred row (completed, basis entailed) stands beside it. Only
+  // the stated row counts as written; the inferred one is derived.
   assert.strictEqual(s.written, 1, JSON.stringify(s));
   const v = currentVisits();
-  assert.strictEqual(v.length, 1);
-  assert.strictEqual(v[0].payload.instance.status, 'planned');
+  assert.strictEqual(v.length, 2, v.map((x) => x.statement).join(' || '));
+  const stated = v.filter((x) => x.payload.instance.basis !== 'entailed');
+  const inferred = v.filter((x) => x.payload.instance.basis === 'entailed');
+  assert.strictEqual(stated.length, 1);
+  assert.strictEqual(stated[0].payload.instance.status, 'planned');
+  assert.strictEqual(inferred.length, 1);
+  assert.strictEqual(inferred[0].payload.instance.status, 'completed');
 });
 
 let transitionedId = null;
@@ -81,8 +89,10 @@ await t('window 2: "the appointment went well" TRANSITIONS planned→completed, 
   });
   assert.strictEqual(s.transitions, 1, JSON.stringify(s));
   assert.strictEqual(s.written, 0, 'a transition is not a new occurrence');
-  const v = currentVisits();
-  assert.strictEqual(v.length, 1, 'supersession must leave ONE current instance, got ' + v.length);
+  // The completion lands on the scheduled follow-up, not on the prior
+  // visit inferred from it: one current stated row, the inferred one beside.
+  const v = currentVisits().filter((x) => x.payload.instance.basis !== 'entailed');
+  assert.strictEqual(v.length, 1, 'supersession must leave ONE current stated instance, got ' + v.length);
   assert.strictEqual(v[0].payload.instance.status, 'completed');
   transitionedId = v[0].id;
   const out = rawOf(transitionedId);
@@ -98,7 +108,9 @@ await t('terminal guard: a stale "planned" retelling cannot downgrade completed'
       { kind: 'visit', entity: 'Dr. Patel', description: 'sinus follow-up', date_iso: null, status: 'planned', qualifier: 'planning', quantity: null, turn_idxs: [0], quote: 'planning to see Dr. Patel' }
     ]))
   });
-  const v = currentVisits();
+  // The inferred prior visit stands beside the stated one; the guard is
+  // about the stated row.
+  const v = currentVisits().filter((x) => x.payload.instance.basis !== 'entailed');
   assert.strictEqual(v.length, 1);
   assert.strictEqual(v[0].payload.instance.status, 'completed', 'terminal status must not regress');
   assert.strictEqual(s.transitions, 0, 'no transition happened: ' + JSON.stringify(s));
