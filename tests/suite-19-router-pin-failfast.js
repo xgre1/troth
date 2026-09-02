@@ -191,4 +191,81 @@ module.exports = function run({ test }) {
       restore(s);
     }
   });
+
+  // MODEL-LANE-2: an id with a vendor prefix names an OpenRouter model and
+  // routes to that lane with that model, without the pin and ahead of one.
+  // The lane's own call is pointed at a closed local port so nothing leaves
+  // the machine; the routing decision is read off the router's log line.
+  test('MODEL-LANE-2: a vendor/model id is routed to openrouter with that model, without the pin and ahead of a local pin', async () => {
+    const s = snapshot();
+    const orBefore = JSON.parse(JSON.stringify(T.providers.openrouter));
+    const origLog = console.log, origErr = console.error;
+    const lines = [];
+    const arm = () => { errortax.reset(); T.markProviderHealthy('openrouter'); lines.length = 0; };
+    try {
+      T.providers.openrouter.enabled = true;
+      T.providers.openrouter.apiKey = 'stub-key';
+      T.providers.openrouter.endpoint = '127.0.0.1';
+      T.providers.local.enabled = false;
+      console.log = (...a) => { lines.push(a.join(' ')); };
+      console.error = (...a) => { lines.push(a.join(' ')); };
+      const orBody = JSON.stringify({ model: 'z-ai/glm-5.2:free', max_tokens: 64, stream: false, messages: [{ role: 'user', content: 'ping' }] });
+
+      arm();
+      T.routingPrefs.pin = '';
+      await router.callFallbackChain(orBody, { pinFailure: null });
+      assert.ok(lines.some((l) => /model "z-ai\/glm-5\.2:free" → openrouter lane \(model-addressed/.test(l)),
+        'no pin: the vendor/model id must route to openrouter on its own; log: ' + lines.join(' | '));
+
+      arm();
+      T.routingPrefs.pin = 'llamacpp';
+      await router.callFallbackChain(orBody, { pinFailure: null });
+      assert.ok(lines.some((l) => /→ openrouter lane \(model-addressed/.test(l)), 'local pin: the id must still reach openrouter; log: ' + lines.join(' | '));
+      assert.ok(!lines.some((l) => /\[router\] pin → /.test(l)), 'the pin must not be applied to a model-addressed request');
+
+      // A gpt-5 id is not an OpenRouter id, and a bare name is not one either.
+      arm();
+      T.routingPrefs.pin = '';
+      await router.callFallbackChain(body, { pinFailure: null });
+      assert.ok(!lines.some((l) => /openrouter lane \(model-addressed/.test(l)), 'a claude id must not be model-addressed to openrouter');
+    } finally {
+      console.log = origLog; console.error = origErr;
+      T.providers.openrouter = orBefore;
+      T.markProviderHealthy('openrouter');
+      restore(s);
+    }
+  });
+
+  // MODEL-LANE-3: a lane in cooldown does not hand a model-addressed request
+  // to another engine. The request still goes to its own lane and fails there,
+  // visibly, instead of being answered by the pinned engine under a
+  // borrowed name.
+  test('MODEL-LANE-3: a model-addressed request in a cooling lane fails in that lane, never on the pin', async () => {
+    const s = snapshot();
+    const orBefore = JSON.parse(JSON.stringify(T.providers.openrouter));
+    const origLog = console.log, origErr = console.error;
+    const lines = [];
+    try {
+      T.providers.openrouter.enabled = true;
+      T.providers.openrouter.apiKey = 'stub-key';
+      T.providers.openrouter.endpoint = '127.0.0.1';
+      T.providers.local.enabled = false;
+      T.routingPrefs.pin = 'openai_sub';
+      errortax.reset();
+      T.markProviderFailed('openrouter');
+      assert.strictEqual(T.isProviderHealthy('openrouter'), false, 'setup: openrouter must be in cooldown');
+      console.log = (...a) => { lines.push(a.join(' ')); };
+      console.error = (...a) => { lines.push(a.join(' ')); };
+      const orBody = JSON.stringify({ model: 'z-ai/glm-5.2:free', max_tokens: 64, stream: false, messages: [{ role: 'user', content: 'ping' }] });
+      const result = await router.callFallbackChain(orBody, { pinFailure: null });
+      assert.ok(lines.some((l) => /→ openrouter lane \(model-addressed/.test(l)), 'the request must still be routed to its own lane; log: ' + lines.join(' | '));
+      assert.ok(!lines.some((l) => /\[router\] pin → /.test(l)), 'the pinned engine must not answer a model-addressed request');
+      assert.strictEqual(result, null, 'the lane fails visibly (null up the stack), it is not answered elsewhere');
+    } finally {
+      console.log = origLog; console.error = origErr;
+      T.providers.openrouter = orBefore;
+      T.markProviderHealthy('openrouter');
+      restore(s);
+    }
+  });
 };

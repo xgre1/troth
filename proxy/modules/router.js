@@ -2789,8 +2789,11 @@ function callFallbackChain(bodyStr, cfcOpts) {
   // model id travels inside each request, so a harness or a tool can use the
   // operator's plan for one call while every other turn keeps its engine.
   var subLaneForced = false;
+  // A model-addressed request is answered by its lane or fails visibly: a
+  // lane in cooldown is not a reason to hand the call to another engine
+  // under the requested model's name.
   if (!kimiLaneForced && /^gpt-5(\.|-|$)/i.test(reqModelForLane) && !/codex/i.test(reqModelForLane)
-      && providers.openai_sub && providers.openai_sub.enabled && isProviderHealthy('openai_sub')) {
+      && providers.openai_sub && providers.openai_sub.enabled) {
     var _subTok = null;
     try { _subTok = require('../../shared-core/codex-token-store.js').load(); } catch (_) { _subTok = null; }
     if (_subTok) {
@@ -2799,8 +2802,21 @@ function callFallbackChain(bodyStr, cfcOpts) {
       console.log('[router] model "' + reqModelForLane + '" → openai_sub lane (model-addressed, no pin needed)');
     }
   }
+  // Model-addressed OpenRouter membership: an id with a vendor prefix
+  // ("z-ai/glm-5.2:free", "nvidia/nemotron-3-ultra-550b-a55b:free") names an
+  // OpenRouter model and nothing else, so it routes to that lane with that
+  // model, without the global pin. The key stays in the core; a caller only
+  // ever names the model.
+  var orLaneForced = false;
+  if (!kimiLaneForced && !subLaneForced && /^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.:-]*$/i.test(reqModelForLane)
+      && providers.openrouter && providers.openrouter.enabled && providers.openrouter.apiKey) {
+    var _orModel = reqModelForLane;
+    chain = [{ name: 'openrouter', fn: function(b) { return callOpenRouter(b, { model: _orModel }); } }];
+    orLaneForced = true;
+    console.log('[router] model "' + reqModelForLane + '" → openrouter lane (model-addressed, no pin needed)');
+  }
   var pinApplied = false;
-  if (kimiLaneForced || subLaneForced) {
+  if (kimiLaneForced || subLaneForced || orLaneForced) {
     pinApplied = true; // suppress the tier/dispatcher reorders below — the lane is decided
   } else if (routingPrefs.pin) {
     var pinnedEntry = null;
@@ -2996,11 +3012,11 @@ function callFallbackChain(bodyStr, cfcOpts) {
   try { _lastEffectiveChain = chain.map(function (c) { return c.name; }); } catch (_) {}
   return Promise.resolve(tryNext()).then(function (result) {
     if (result == null && pinApplied && cfcOpts && typeof cfcOpts === "object" && !(cfcOpts.pinFailure && cfcOpts.pinFailure.set)) {
-      // Name the lane that actually failed. The model-addressed kimi lane sets
-      // pinApplied WITHOUT a routing pin, so this used to render "Pinned
-      // engine '' is unavailable" — an empty name and a wrong instruction
-      // ("switch engines in Settings") for what is really a Kimi quota 403.
-      try { cfcOpts.pinFailure = buildPinFailure(kimiLaneForced ? 'kimi_sub' : routingPrefs.pin); } catch (_) {}
+      // Name the lane that actually failed. A model-addressed lane (kimi_sub,
+      // openai_sub, openrouter) sets pinApplied WITHOUT a routing pin, so the
+      // failure names that lane and its own reason, never the pin's.
+      var _failedLane = kimiLaneForced ? 'kimi_sub' : (subLaneForced ? 'openai_sub' : (orLaneForced ? 'openrouter' : routingPrefs.pin));
+      try { cfcOpts.pinFailure = buildPinFailure(_failedLane); } catch (_) {}
     }
     return result;
   });

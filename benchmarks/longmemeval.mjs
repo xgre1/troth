@@ -126,6 +126,9 @@ const CLAUDE_MODEL = argVal('--model', '');
 const CODEX_ONESHOT = join(__dirname, 'codex-oneshot.mjs');
 const PROXY_ONESHOT = join(__dirname, 'proxy-oneshot.mjs');
 const PROXY_MODEL = process.env.TROTH_PROXY_MODEL || 'gpt-5.5';
+// The judge through the proxy may be a different model than the reader:
+// TROTH_PROXY_JUDGE_MODEL names it, else the reader's model serves both.
+const PROXY_JUDGE_MODEL = process.env.TROTH_PROXY_JUDGE_MODEL || PROXY_MODEL;
 // 'openrouter' = any OpenAI-compatible endpoint (OpenRouter by default), the
 // key read from the harness's own environment. The reader model and the
 // judge model are named separately so the judge is never the reader by
@@ -428,7 +431,7 @@ function _callProvider(prompt, timeoutMs) {
     // per-call shape as claude -p so the sync harness loop is unchanged.
     return _spawnOneshot(CODEX_ONESHOT, prompt, timeoutMs, 'codex');
   }
-  if (PROVIDER === 'proxy') return _spawnOneshot(PROXY_ONESHOT, prompt, timeoutMs, 'proxy');
+  if (PROVIDER === 'proxy') return _spawnOneshot(PROXY_ONESHOT, prompt, timeoutMs, 'proxy', { TROTH_PROXY_MODEL: PROXY_JUDGE_MODEL });
   if (PROVIDER === 'openrouter') return _spawnOneshot(OAI_ONESHOT, prompt, timeoutMs, 'openrouter', { TROTH_OAI_MODEL: OAI_JUDGE_MODEL });
   return callClaudeP(prompt, timeoutMs);
 }
@@ -720,7 +723,7 @@ async function main() {
     datasetSha256: datasetSha256(),
     offset: OFFSET, n: N, stratified: STRATIFIED || null,
     judge_provider: JUDGE === 'local' ? 'local-llamacpp' : PROVIDER,
-    judge_model: JUDGE === 'local' ? 'local-temp0-thinking-off' : (PROVIDER === 'claude' ? (CLAUDE_MODEL || 'claude-default') : (PROVIDER === 'proxy' ? 'proxy:' + PROXY_MODEL : (PROVIDER === 'openrouter' ? 'openrouter:' + OAI_JUDGE_MODEL : 'codex-oauth'))),
+    judge_model: JUDGE === 'local' ? 'local-temp0-thinking-off' : (PROVIDER === 'claude' ? (CLAUDE_MODEL || 'claude-default') : (PROVIDER === 'proxy' ? 'proxy:' + PROXY_JUDGE_MODEL : (PROVIDER === 'openrouter' ? 'openrouter:' + OAI_JUDGE_MODEL : 'codex-oauth'))),
     answer_transport: _answerTransportLabel(),
     answer_model: _answerModelLabel(),
     judge_prompts: JUDGE_PROMPTS_VERSION,
@@ -742,7 +745,7 @@ async function main() {
     offset: OFFSET, n: N, retrievalPaths: [...retrievalPaths], embedHost: EMBED_HOST,
     stratified: STRATIFIED,
     judgeProvider: JUDGE === 'local' ? 'local-llamacpp' : PROVIDER,
-    judgeModel: JUDGE === 'local' ? 'local-temp0-thinking-off' : (PROVIDER === 'claude' ? (CLAUDE_MODEL || 'claude-default') : (PROVIDER === 'proxy' ? 'proxy:' + PROXY_MODEL : (PROVIDER === 'openrouter' ? 'openrouter:' + OAI_JUDGE_MODEL : 'codex-oauth'))),
+    judgeModel: JUDGE === 'local' ? 'local-temp0-thinking-off' : (PROVIDER === 'claude' ? (CLAUDE_MODEL || 'claude-default') : (PROVIDER === 'proxy' ? 'proxy:' + PROXY_JUDGE_MODEL : (PROVIDER === 'openrouter' ? 'openrouter:' + OAI_JUDGE_MODEL : 'codex-oauth'))),
     answerTransport: _answerTransportLabel(),
     answerModel: _answerModelLabel(),
     judgePrompts: JUDGE_PROMPTS_VERSION,

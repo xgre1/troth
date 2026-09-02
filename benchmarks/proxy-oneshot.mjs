@@ -28,13 +28,23 @@ process.stdin.on('end', async () => {
       system: SYSTEM + '\n\n' + input,
       messages: [{ role: 'user', content: 'Respond now, following the instructions above exactly.' }],
     };
-    const res = await fetch(HOST + '/v1/messages', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-troth-source': 'longmemeval-harness', 'x-troth-raw': '1' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    const text = await res.text();
+    // A rate-limited lane answers 429, or 400 when the engine is pinned and
+    // cooling down; one wait and one retry, then the failure is reported.
+    let res, text;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      res = await fetch(HOST + '/v1/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-troth-source': 'longmemeval-harness', 'x-troth-raw': '1' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      text = await res.text();
+      if (attempt === 0 && (res.status === 429 || (res.status === 400 && /rate limit/i.test(text)))) {
+        await new Promise((r) => setTimeout(r, 20000));
+        continue;
+      }
+      break;
+    }
     if (res.status !== 200) {
       process.stderr.write('proxy-oneshot HTTP ' + res.status + ': ' + text.slice(0, 600));
       process.exit(1);

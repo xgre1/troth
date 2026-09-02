@@ -49,6 +49,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `benchmarks/prewarm-extract.mjs` fills the cache for a slice ahead of a
   run, through the operator's proxy or a llama.cpp host; a worker set to
   `TROTH_BENCH_EXTRACTOR=proxy` extracts the rest the same way.
+- A request that names an OpenRouter model (`vendor/model`, `:free` or not)
+  reaches the OpenRouter lane with that model on its own, the way a Kimi id
+  or a `gpt-5` id reaches its lane; the key stays in the core and a caller
+  only ever names the model. A model-addressed request is answered by its
+  lane or fails visibly: a lane cooling down after a rate limit never hands
+  the call to another engine under the requested model's name.
+- The LongMemEval harness names the judge's model separately from the
+  reader's on the proxy lane (`TROTH_PROXY_JUDGE_MODEL`) and on any
+  OpenAI-compatible endpoint (`--provider openrouter`, `--answer openrouter`,
+  `TROTH_OAI_MODEL`, `TROTH_OAI_JUDGE_MODEL`), and waits once through a
+  rate-limit answer before reporting it.
 
 ### Changed
 - Image generation keeps the ChatGPT plan lane usable across a sign-in the
