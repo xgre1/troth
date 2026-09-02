@@ -124,16 +124,28 @@ function statedTotals(raw, head, headPhrase) {
     const w = m[1].toLowerCase();
     const v = (kind === 'running' ? ORD_WORDS[w] : NUM_WORDS[w]);
     const value = v != null ? v : parseInt(w, 10);
-    const after = m.input.slice(m.index + m[0].length).replace(/^\s+/, '');
     if (!Number.isFinite(value) || value <= 0 || value > 100) return;
     if (UNIT_AFTER.test(m[0].slice(m[1].length).replace(/^\s+/, ''))) return;
-    void after;
+    // A total is the user speaking of themselves: the sentence the number
+    // sits in carries a first person. "The clinic has 2 doctors" is about
+    // the clinic.
+    const s = m.input;
+    const start = Math.max(s.lastIndexOf('. ', m.index), s.lastIndexOf('! ', m.index), s.lastIndexOf('? ', m.index), s.lastIndexOf('\n', m.index), s.lastIndexOf('; ', m.index)) + 1;
+    const endCandidates = ['. ', '! ', '? ', '\n', '; '].map((d) => s.indexOf(d, m.index + m[0].length)).filter((i) => i >= 0);
+    const end = endCandidates.length ? Math.min(...endCandidates) : s.length;
+    const sentence = s.slice(start, end);
+    if (!/\b(?:i|i've|i'd|i'm|i’ve|i’d|i’m|we|we've|we’ve|my|me|our|myself)\b/i.test(sentence)) return;
     out.push({ value, kind, n: r.n, ts: Number.isFinite(r.ts) ? r.ts : null, text: m[0] });
   };
+  // Words the user pasted for correction, translation or rewriting are not
+  // the user's own claims: a clinic notice naming "2 doctors" states nothing
+  // about the doctors the user has seen.
+  const PASTED = /\b(correct (?:my|the|this) (?:grammar|text|message|email)|proofread|the (?:message|text|email|letter)s? below|rewrite (?:this|the)|translate (?:this|the)|paraphrase|fix (?:my|the) grammar)\b/i;
   for (const r of raw) {
     const text = String(r.statement || '');
     // Only the user's own words state a total; the assistant restating is not a claim.
     const userPart = text.indexOf(' / asst:') >= 0 ? text.slice(0, text.indexOf(' / asst:')) : text;
+    if (PASTED.test(userPart)) continue;
     let m;
     while ((m = card.exec(userPart))) push(r, m, 'total');
     while ((m = ord.exec(userPart))) push(r, m, 'running');

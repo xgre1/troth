@@ -280,5 +280,16 @@ t('a question naming two verbs keeps both families, from the model and from the 
   assert.deepStrictEqual(shapeByPatterns('How many model kits have I worked on or bought?').families, ['acquire', 'work']);
 });
 
+t('a total is the user speaking of themselves: pasted text and third-party sentences state nothing', () => {
+  const items = [
+    { source: 'instance-pool', id: 'i1', statement: '[instance] visit: visited Dr. Lee — follow-up with dermatologist Dr. Lee [completed] (attested ×1)', refs: ['dialogue.turn:r1'], _kind: 'visit', _qualifier: 'visited', _status: 'completed', _entity: 'Dr. Lee', _cos: 0.5 },
+    { source: 'dialogue-window', id: 'r1', statement: 'user: I just got back from a follow-up with my dermatologist, Dr. Lee.', ts: ASKED - 10 * DAY },
+    { source: 'dialogue-window', id: 'r2', statement: 'user: Please correct my grammar below, the message below is from us ("As Clinic") to the provider: "Our clinic has 2 doctors and 1 doctor is on leave, so bookings for 1 doctor only."', ts: ASKED - 5 * DAY },
+    { source: 'dialogue-window', id: 'r3', statement: 'user: The clinic next door has 4 doctors, by the way. So far I have seen 2 doctors about this.', ts: ASKED - 3 * DAY },
+  ];
+  const v = buildReconciledView(items, { noun_head: 'doctors', question: 'How many different doctors did I visit?', reference_ts: ASKED });
+  assert.deepStrictEqual(v.totals.map(t => t.value), [2], 'only "I have seen 2 doctors" is a total: ' + JSON.stringify(v.totals));
+});
+
 console.log('\nreconciled-view-question: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

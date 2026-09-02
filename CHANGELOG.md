@@ -44,7 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the role told bare elsewhere is that person, and a visit inferred to a
   bare role folds into the stated visit to the clinician who holds it. A
   wedding named by a role alone beside one named with a person of that role
-  is shown as possibly the same, never counted as new on its own.
+  is shown as possibly the same, never counted as new on its own. A stated
+  total is the user speaking of themselves; a number inside text pasted for
+  correction, or about somebody else's clinic, states nothing.
 - A request that names a `gpt-5` model reaches the ChatGPT plan lane on its
   own. The model id inside the request picks the lane, the way a Kimi id
   already does, so a harness, a tool or one pane can use the plan for a call
