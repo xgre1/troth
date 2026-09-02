@@ -7129,7 +7129,11 @@ console.log('\nVault capture (vault-capture.js):');
     assert.strictEqual(r.ok, true, JSON.stringify(r));
     assert.strictEqual(r.key, 'github');
     assert.strictEqual(r.scope, 'capability:http:do:*.github.com');
-    assert.deepStrictEqual(calls, [['gh', 'auth token']], 'reads the gh session, nothing else');
+    // The binary is resolved on PATH or in the known tool dirs, so the
+    // spawned command is gh itself or its full path, never anything else.
+    assert.strictEqual(calls.length, 1, 'one command');
+    assert.ok(/(^|\/)gh$/.test(calls[0][0]), 'spawns gh (resolved): ' + calls[0][0]);
+    assert.strictEqual(calls[0][1], 'auth token', 'reads the gh session, nothing else');
     assert.strictEqual(v.writes.length, 1);
     assert.strictEqual(v.writes[0].value, SECRET, 'the vault receives the trimmed value');
     assert.deepStrictEqual(v.writes[0].injection, { kind: 'bearer' });

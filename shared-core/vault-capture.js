@@ -14,11 +14,25 @@ const spawnPurpose = require('./tools/spawn-purpose.js');
 
 const READ_TIMEOUT_MS = 10 * 1000;
 
+// The proxy often runs from launchd or a service shell whose PATH stops at
+// /usr/bin, while the operator's tools live under Homebrew or ~/.local. A
+// name is resolved on PATH first, then in those known places; only a
+// binary that exists is ever spawned, and the argv stays product-authored.
+const KNOWN_BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', path.join(process.env.HOME || os.homedir(), '.local', 'bin'), '/opt/local/bin'];
+function resolveBinary(name) {
+  const dirs = String(process.env.PATH || '').split(path.delimiter).filter(Boolean).concat(KNOWN_BIN_DIRS);
+  for (const d of dirs) {
+    const p = path.join(d, name);
+    try { fs.accessSync(p, fs.constants.X_OK); return p; } catch (_) { /* next */ }
+  }
+  return name;   // the spawn then reports ENOENT as tool_missing
+}
+
 const SOURCES = {
   gh: {
     describe: 'gh session token',
     defaults: () => ({ key: 'github', host: 'github.com' }),
-    read: (p, run) => run('gh', ['auth', 'token'])
+    read: (p, run) => run(resolveBinary('gh'), ['auth', 'token'])
   },
   keychain: {
     describe: 'keychain item',
@@ -170,4 +184,4 @@ async function run(args, ctx) {
   }
 }
 
-module.exports = { schema, run, captureFromSource, proxyBase, SOURCES, runCommand, hostOf, READ_TIMEOUT_MS };
+module.exports = { schema, run, captureFromSource, proxyBase, resolveBinary, SOURCES, runCommand, hostOf, READ_TIMEOUT_MS };
