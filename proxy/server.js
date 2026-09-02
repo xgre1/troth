@@ -711,6 +711,18 @@ const server = http.createServer((req, res) => {
   let url = req.url.split('?')[0];
   const query = req.url.includes('?') ? new URLSearchParams(req.url.split('?')[1]) : new URLSearchParams();
 
+  // ===== One door for the network =====
+  // A request that did not arrive over loopback carries the remote token or
+  // gets nothing: not a page, not a stat, not an index. The per-route checks
+  // below stay as defence in depth; this is the wall, so a route added
+  // without one is never a hole when the proxy is bound to an interface.
+  // /health alone stays open, for a watcher that only asks whether the
+  // process is alive.
+  if (url !== '/health' && !checkRemoteAuth(req)) {
+    jsonResponse(res, 401, { error: 'unauthorized', detail: 'remote access needs the remote token as Authorization: Bearer' });
+    return;
+  }
+
   // ===== Dashboard UI =====
   // Vendored D3 for the Code Map page (ISC, d3 v7.9.0). Served locally so
   // a local-first tool never needs a CDN to draw its own code map (the old
