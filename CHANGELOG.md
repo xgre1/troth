@@ -76,6 +76,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   name from the task map, sets aside any list entry that is not a task with
   a note in the log, and schedules the next tick after a cycle-level error;
   the readiness view reports what was set aside and the last such error.
+- An ongoing activity gathers its retellings into one line (a project still
+  in progress, a habit, a stance told beside a doing), finished one-offs
+  told in different words stay separate, and an activity whose words name
+  an occasion is judged by its names and dates.
+- A prior visit inferred from a follow-up stands apart from the follow-up
+  itself before and after it happens, and a stated occurrence is always the
+  row a retelling lands on.
+- The session-start hook launches one detached child for the daily tick
+  and the claims sweep.
 - A count of what happened or what is owned leaves plans out: "how many
   tanks do I have" is not answered by a tank the user is thinking of setting
   up, while a question about plans keeps its planned lines. The same object

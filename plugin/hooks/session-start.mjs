@@ -277,6 +277,9 @@ if (process.env.TROTH_BG_TICK_DISABLE !== '1' && process.env.TROTH_VOICE_MODE !=
       "const state = require(" + JSON.stringify(pluginRoot + '/../shared-core/state.js') + ");",
       "const cwdNow = " + JSON.stringify(cwdNow) + ", userId = " + JSON.stringify(userId) + ", agentId = " + JSON.stringify(agentId) + ";",
       "function submit(ev) { if (!ev || !ev.type) return; const rec = { id: ar.uuidv7(), timestamp: Date.now(), type: ev.type, agent_id: agentId, cwd: cwdNow, user_id: userId, input: ev.input || {}, output: ev.output || {} }; const v = ar.validate(rec); if (!v.ok) return; state.recordAction(rec, ar.toSearchText(rec)); }",
+      // The claims sweep rides in the same child: expired claims get
+      // re-checked against the world without the hook paying the wait.
+      "try { require(" + JSON.stringify(pluginRoot + '/../shared-core/claims.js') + ").verifyDue(function () {}); } catch (_) {}",
       "bg.runDueTasks({ submit, getView: () => ({ mind: { active_projects: [] }, substrate_ctx: { agent_id: agentId, user_id: userId, cwd: cwdNow } }), agent_id_overrides: { procedure_compile: 'claude-code' } }).then(() => process.exit(0), () => process.exit(0));"
     ].join('\n');
     const child = spawn(process.execPath, ['-e', script], { detached: true, stdio: 'ignore', env: process.env });
@@ -353,11 +356,7 @@ try {
       disputed.map(d => '  · ' + d.subject + ' · ' + d.predicate + ': memory says "' + d.value + '" — the probe observed otherwise').join('\n') +
       '\nDo NOT rely on either side or bridge the gap with a story. Investigate, then resolve with claims.resolveDispute (confirm or supersede).');
   }
-  const { spawn } = await import('node:child_process');
-  const sweep = spawn(process.execPath, ['-e',
-    'require(' + JSON.stringify(pluginRoot + '/../shared-core/claims.js') + ').verifyDue(function(){process.exit(0)})'
-  ], { detached: true, stdio: 'ignore' });
-  sweep.unref();
+  // The probe sweep itself runs in the daily-tick child above, detached.
 } catch (_) { /* claims are additive — a bare clone has none */ }
 
 parts.push(tip);
