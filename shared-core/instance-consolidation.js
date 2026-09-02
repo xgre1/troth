@@ -101,9 +101,13 @@ function buildCombinedPrompt(turns) {
     '   about themselves. kind is exactly one of: visit (went somewhere),',
     '   purchase (bought or got something), event (attended an occasion),',
     '   activity (did something), possession (has something); nothing else.',
-    '   ONLY what the user states about their',
-    '   own life — never suggestions or hypotheticals. The same occurrence',
-    '   mentioned twice is ONE instance citing both statements.',
+    '   ONLY what the user states about their own life — never suggestions or',
+    '   hypotheticals. Occurrences told IN PASSING count exactly as much as the',
+    '   main topic: "by the way, I just got back from a day hike to Muir Woods",',
+    '   "I\'ve also been taking care of a small tank I set up for a friend\'s kid",',
+    '   "after that baking class I took yesterday" are each an instance. Read',
+    '   every sentence, not only the question. The same occurrence mentioned',
+    '   twice is ONE instance citing both statements.',
     '   status: completed | planned | recurring | cancelled | owed — from the',
     '   user\'s wording, never assumed. "owed" is an obligation still open:',
     '   something still to pick up, still to return, still to pay or renew;',
@@ -577,6 +581,25 @@ function _selfOccasion(inst, head) {
   return !between.split(/\s+/).some((w) => _ROLE_WORDS.has(w));
 }
 
+// The proper names a line carries on its own words: capitalized tokens that
+// are not sentence openers, stop words or roles, and never appear lowercase
+// in the same text. No registry, no alias: what the words say.
+function _rawProperNames(inst) {
+  const text = _eventText(inst);
+  const desc = String(inst.description || '');
+  const dOpenM = /^\s*([A-Z][a-z]{2,})\b/.exec(desc);
+  const dOpen = dOpenM ? dOpenM[1] : null;
+  const out = new Set();
+  for (const m of text.matchAll(/\b([A-Z][a-z]{2,})\b/g)) {
+    const w = m[1];
+    if (_NAME_STOP.has(w) || _ROLE_WORDS.has(w.toLowerCase())) continue;
+    if (dOpen && w === dOpen && !new RegExp('\\b' + w + "['’]s\\b").test(desc)) continue;
+    if (new RegExp('\\b' + w.toLowerCase() + '\\b').test(text)) continue;
+    out.add(w.toLowerCase());
+  }
+  return out;
+}
+
 function _sameEvent(e, inst, opts) {
   const h1 = _headNoun(e), h2 = _headNoun(inst);
   if (!h1 || h1 !== h2) return null; // not this arm's call
@@ -587,6 +610,13 @@ function _sameEvent(e, inst, opts) {
   // ("my sister's", "cousin's") is not the user's own.
   if (_selfOccasion(e, h1) !== _selfOccasion(inst, h2)) return false;
   const n1 = _nameTokens(e, opts), n2 = _nameTokens(inst, opts);
+  // Two lines that each name people on their own words and share none are
+  // two occasions, before any alias or anchor can join them: "Jen was the
+  // bride and Tom was her husband" is never "cousin Emily's wedding"
+  // (measured: a role alias with a single owner carried a name across and
+  // fused two weddings into one line).
+  const raw1 = _rawProperNames(e), raw2 = _rawProperNames(inst);
+  if (raw1.size && raw2.size && ![...raw1].some((n) => raw2.has(n))) return false;
   // A shared PROPER name joins, and outranks anchors: a unique registry
   // alias must carry a retelling through a drifting venue description.
   for (const n of n1) if (n2.has(n)) return true;
@@ -1132,5 +1162,8 @@ module.exports = {
   WATERMARK_SCOPE,
   KINDS,
   STATUSES,
-  EVENT_HEAD: _EVENT_HEAD
+  EVENT_HEAD: _EVENT_HEAD,
+  // Test seam: the merge covenant is judged directly in tests/, never through
+  // a whole pass.
+  __test: { _sameEvent, _sameOccurrence, _rawProperNames, _nameTokens }
 };

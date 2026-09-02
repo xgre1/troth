@@ -1235,6 +1235,7 @@ const _parseTimeWindow = (query, referenceTs) => require('./time-window.js').par
           .sort((x, y) => y.sc - x.sc || (x.r.ts || 0) - (y.r.ts || 0));
         let mounted = lexOrder;
         const cosOf = new Map();   // hydrated row -> cosine to the question
+        const entCosOf = new Map(); // hydrated row -> cosine of its ENTITY to the asked head
         try {
           const _emb = require('./local-embedder.js');
           const qv = await _emb.embed(query, { role: 'query' });
@@ -1248,6 +1249,31 @@ const _parseTimeWindow = (query, referenceTs) => require('./time-window.js').par
               return { c, cos: ev ? Math.max(0, cosine(qv, ev)) : null };
             });
             for (const x of withCos) cosOf.set(x.c.r, x.cos);
+            // What each line is ABOUT, against the asked head: the bare entity
+            // text measures best (a description drags a plant toward the tank
+            // it lives in). The view keeps a tank and sets a plant aside on
+            // this number, whatever the sentence says.
+            try {
+              const head = String(opts.head_phrase || countNounPhrase(query) || countNounHead(query) || '').trim();
+              if (head) {
+                const hv = await _emb.embed(head, { role: 'query' });
+                // The bare entity, and the occasion noun the line's own words
+                // carry when they carry one ("day hike to Muir Woods" is about a
+                // hike as much as about Muir Woods): the line's cosine to the
+                // head is the larger of the two. English nouns are the fallback
+                // detector; a line without one is judged on its entity alone.
+                const OCCASION = /\b(hike|trip|camping|road trip|cruise|tour|concert|gala|ceremony|conference|workshop|class|retreat|marathon|race|tournament|parade|exhibition|screening|premiere|fair|meetup|picnic|dinner|brunch|party|festival|wedding|birthday|funeral|graduation|anniversary|shower|reunion|appointment|checkup|visit)\b/i;
+                const ents = candidates.map((c) => String((c.r.payload && c.r.payload.instance && c.r.payload.instance.entity) || '').trim());
+                const occs = candidates.map((c) => { const m = OCCASION.exec(String(c.r.statement || '')); return m ? m[1].toLowerCase() : ''; });
+                const texts = ents.map((e) => e || '-').concat(occs.map((o) => o || '-'));
+                const vecs = hv ? await _emb.embedBatch(texts, { role: 'document' }) : null;
+                if (hv && Array.isArray(vecs)) candidates.forEach((c, i) => {
+                  const a = ents[i] && vecs[i] ? Math.max(0, cosine(hv, vecs[i])) : null;
+                  const b = occs[i] && vecs[ents.length + i] ? Math.max(0, cosine(hv, vecs[ents.length + i])) : null;
+                  if (a != null || b != null) entCosOf.set(c.r, Math.max(a == null ? 0 : a, b == null ? 0 : b));
+                });
+              }
+            } catch (_) { /* no entity cosine: the statement cosine road stands */ }
             const lexRank = new Map(lexOrder.map((c, i) => [c, i + 1]));
             const semOrder = withCos.filter((x) => x.cos != null).sort((a, b) => b.cos - a.cos);
             const semRank = new Map(semOrder.map((x, i) => [x.c, i + 1]));
@@ -1291,6 +1317,7 @@ const _parseTimeWindow = (query, referenceTs) => require('./time-window.js').par
             // and set aside what the question is not about.
             _attested_ts: (r.payload && r.payload.instance && Number.isFinite(r.payload.instance.attested_ts)) ? r.payload.instance.attested_ts : null,
             _cos: cosOf.has(r) ? cosOf.get(r) : null,
+            _entity_cos: entCosOf.has(r) ? entCosOf.get(r) : null,
             // The instance's own structure, so the view can filter by the
             // question's verb family, status and object without re-parsing.
             _kind: (r.payload && r.payload.instance && r.payload.instance.kind) || null,

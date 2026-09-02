@@ -238,5 +238,47 @@ t('the shape says what kind of answer is wanted, by the model in any language, b
   assert.deepStrictEqual(vp.ledger.map(l => /blazer/.test(l.statement) ? 'blazer' : (/boots/.test(l.statement) ? 'boots' : 'other')).sort(), ['blazer', 'boots'], 'a Greek pending question keeps the same two lines');
 });
 
+t('the shape can be read through the operator\'s proxy: the prompt rides the system text, raw, and the JSON comes back', async () => {
+  const { makeProxyShapeCall, shapeQuestion } = require('../shared-core/question-shape.js');
+  const seen = [];
+  const realFetch = global.fetch;
+  global.fetch = async (url, init) => {
+    seen.push({ url, headers: init.headers, body: JSON.parse(init.body) });
+    return { ok: true, status: 200, json: async () => ({ content: [{ type: 'text', text: 'Here you go: {"count":false,"request":false,"head":"coupon","verb_family":"none","past":true,"window_days":null,"window_kind":"none","asks":"place","status":"any"}' }] }) };
+  };
+  try {
+    const call = makeProxyShapeCall({ host: 'http://127.0.0.1:8000/', model: 'gpt-5.4-mini' });
+    const shape = await shapeQuestion('Where did I redeem the coupon?', { llmCall: call, reference_ts: ASKED });
+    assert.strictEqual(seen.length, 1);
+    assert.strictEqual(seen[0].url, 'http://127.0.0.1:8000/v1/messages');
+    assert.strictEqual(seen[0].headers['x-troth-raw'], '1', 'the prompt reaches the engine as written');
+    assert.strictEqual(seen[0].body.model, 'gpt-5.4-mini');
+    assert.ok(/^Read the question and describe its shape/.test(seen[0].body.system) && /Where did I redeem the coupon\?$/.test(seen[0].body.system), 'the shape prompt and the question ride the system text');
+    assert.strictEqual(shape.source, 'model');
+    assert.strictEqual(shape.asks, 'place');
+  } finally { global.fetch = realFetch; }
+});
+
+t('the About block introduces itself as preferences to honour, never a whereabouts', () => {
+  const liked = [
+    { source: 'dialogue-window', id: 'p1', statement: 'user: I love exploring the nightlife scene in Belo Horizonte.', ts: inWin },
+    { source: 'dialogue-window', id: 'p2', statement: 'user: I enjoy attending language exchange events.', ts: inWin + DAY },
+  ];
+  const v = buildReconciledView(liked, { question: 'Can you recommend some cultural events happening around me this weekend?', reference_ts: ASKED });
+  const out = v.render();
+  assert.ok(out.indexOf('never where the user is now') >= 0, out.split('\n')[0]);
+});
+
+t('a question naming two verbs keeps both families, from the model and from the patterns alike', async () => {
+  const { shapeQuestion, shapeByPatterns } = require('../shared-core/question-shape.js');
+  const fake = async () => JSON.stringify({ count: true, request: false, head: 'μοντέλο', verb_families: ['work', 'acquire'], past: true, window_days: null, window_kind: 'none', asks: 'count', status: 'any' });
+  const shape = await shapeQuestion('Πόσα μοντέλα έχω φτιάξει ή αγοράσει;', { llmCall: fake, reference_ts: ASKED });
+  assert.deepStrictEqual(shape.families, ['work', 'acquire']);
+  const legacy = async () => JSON.stringify({ count: true, request: false, head: 'kit', verb_family: 'work', past: true, window_days: null, window_kind: 'none', asks: 'count', status: 'any' });
+  const one = await shapeQuestion('How many kits did I build?', { llmCall: legacy, reference_ts: ASKED });
+  assert.deepStrictEqual(one.families, ['work'], 'a single family still reads');
+  assert.deepStrictEqual(shapeByPatterns('How many model kits have I worked on or bought?').families, ['acquire', 'work']);
+});
+
 console.log('\nreconciled-view-question: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

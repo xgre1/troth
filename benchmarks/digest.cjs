@@ -22,7 +22,7 @@ const chameleon = require('../shared-core/chameleon.js');
 const state = require('../shared-core/state.js');
 
 const PROMPT_V2 = process.env.TROTH_EXTRACT_PROMPT === 'v2';
-const PROMPT_VERSION = PROMPT_V2 ? 'combined-v2.1' : 'combined-v1.1';
+const PROMPT_VERSION = PROMPT_V2 ? 'combined-v2.1' : 'combined-v1.2';
 
 function _sessionsFromDb(agent_id) {
   const rows = state.queryActions({ type: 'tool_call', agent_id, limit: 100000, order: 'asc' }) || [];

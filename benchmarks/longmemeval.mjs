@@ -246,11 +246,14 @@ function runQuestion(q) {
 // can't be papered over by a clever judge), we first ask a plain
 // composition question with ONLY the retrieved statements as context, no
 // gold answer visible.
-// One structured call per question reads its shape; the local reader's
-// host serves it (the judge host when no reader host is set).
+// One structured call per question reads its shape: through the operator's
+// proxy when TROTH_BENCH_SHAPER=proxy (the proxy holds the credentials and
+// picks the engine), else the local reader's host (the judge host when no
+// reader host is set); without either, the English patterns stand in.
 const _shapeCall = (() => {
   try {
     const qs = require('../shared-core/question-shape.js');
+    if (process.env.TROTH_BENCH_SHAPER === 'proxy') return qs.makeProxyShapeCall({ timeout_ms: 30000 });
     const host = process.env.TROTH_LLAMACPP_HOST || process.env.TROTH_JUDGE_HOST || null;
     return host ? qs.makeShapeCall({ host, timeout_ms: 30000 }) : null;
   } catch (_) { return null; }

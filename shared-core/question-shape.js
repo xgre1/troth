@@ -28,14 +28,16 @@ const SCHEMA = {
     count: { type: 'boolean' },
     request: { type: 'boolean' },
     head: { type: ['string', 'null'] },
-    verb_family: { type: 'string', enum: FAMILIES.concat(['other', 'none']) },
+    // Every family the question names ("worked on or bought" is two), so a
+    // line kept by any of them stays in the ledger.
+    verb_families: { type: 'array', items: { type: 'string', enum: FAMILIES.concat(['other', 'none']) } },
     past: { type: 'boolean' },
     window_days: { type: ['integer', 'null'] },
     window_kind: { type: 'string', enum: ['relative', 'this_year', 'this_month', 'this_week', 'none'] },
     asks: { type: 'string', enum: ASKS },
     status: { type: 'string', enum: STATUS_ASKS }
   },
-  required: ['count', 'request', 'head', 'verb_family', 'past', 'window_days', 'window_kind', 'asks', 'status']
+  required: ['count', 'request', 'head', 'verb_families', 'past', 'window_days', 'window_kind', 'asks', 'status']
 };
 
 const PROMPT = [
@@ -44,7 +46,7 @@ const PROMPT = [
   '- count: true when it asks how many, a total, or the order of several events.',
   '- request: true when it asks for a recommendation, suggestion, tips, ideas or advice.',
   '- head: the thing being counted or asked about, as a short noun phrase in the question\'s own language, singular (e.g. "model kit", "clothing item", "wedding"); null if none.',
-  '- verb_family: what the user did with the head: acquire (bought, got, received), attend (went to an event), visit (went to a place, tried a restaurant), work (made, built, finished, worked on), lead (led, managed), own (currently has), other, or none.',
+  '- verb_families: every family of what the user did with the head that the question names, as a list: acquire (bought, got, received), attend (went to an event), visit (went to a place, tried a restaurant), work (made, built, finished, worked on), lead (led, managed), own (currently has); ["other"] or ["none"] otherwise. "worked on or bought" is ["work", "acquire"].',
   '- past: true when it asks about what has already happened, false when about plans.',
   '- window_days: the number of days back the question limits itself to (last month = 30, past three months = 90), or null.',
   '- window_kind: relative for "past N ...", this_year / this_month / this_week for calendar spans, none otherwise.',
@@ -135,7 +137,8 @@ async function shapeQuestion(question, opts) {
       const text = await opts.llmCall(PROMPT + q, { json_schema: SCHEMA });
       const j = _parseModel(text);
       if (j && typeof j === 'object') {
-        const fam = FAMILIES.includes(j.verb_family) ? [j.verb_family] : [];
+        const famIn = Array.isArray(j.verb_families) ? j.verb_families : (typeof j.verb_family === 'string' ? [j.verb_family] : []);
+        const fam = famIn.filter((f) => FAMILIES.includes(f));
         const head = typeof j.head === 'string' && j.head.trim() ? j.head.trim().toLowerCase() : null;
         shape = {
           source: 'model',
@@ -187,4 +190,35 @@ function makeShapeCall(cfg) {
   };
 }
 
-module.exports = { shapeQuestion, shapeByPatterns, makeShapeCall, FAMILIES, SCHEMA };
+// The same one call through the operator's own troth proxy (/v1/messages,
+// Anthropic shape): the proxy holds the credentials and picks the engine from
+// the model id, this process never sees a key. No schema can be forced on
+// that road, so the prompt rides the system text and the first JSON object
+// in the reply is what shapeQuestion parses. x-troth-raw keeps the prompt as
+// written: no coding discipline prepended, no plan generated into it.
+function makeProxyShapeCall(cfg) {
+  cfg = cfg || {};
+  const host = String(cfg.host || process.env.TROTH_PROXY_HOST || 'http://127.0.0.1:8000').replace(/\/+$/, '');
+  const model = cfg.model || process.env.TROTH_PROXY_SHAPE_MODEL || 'gpt-5.4-mini';
+  const timeoutMs = cfg.timeout_ms || 20000;
+  return async function llmCall(prompt) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), timeoutMs);
+    try {
+      const body = {
+        model, max_tokens: 200, stream: false,
+        system: prompt,
+        messages: [{ role: 'user', content: 'Reply with the JSON object and nothing else.' }]
+      };
+      const headers = { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-troth-source': 'question-shape', 'x-troth-raw': '1' };
+      const res = await fetch(host + '/v1/messages', { method: 'POST', headers, signal: ac.signal, body: JSON.stringify(body) });
+      if (!res.ok) throw new Error('shape http ' + res.status);
+      const j = await res.json();
+      return (Array.isArray(j.content) ? j.content : [])
+        .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
+        .map((b) => b.text).join('');
+    } finally { clearTimeout(timer); }
+  };
+}
+
+module.exports = { shapeQuestion, shapeByPatterns, makeShapeCall, makeProxyShapeCall, FAMILIES, ASKS, STATUS_ASKS, SCHEMA };

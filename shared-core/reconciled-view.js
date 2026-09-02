@@ -221,7 +221,44 @@ function buildReconciledView(items, opts) {
     // true members 0.30-0.50, strangers 0.25-0.40). The strict floors are
     // used when they leave the reader at least three lines; otherwise the
     // object floor applies to every kind, and the reader judges the rest.
+    // Subject by kind. A line is ABOUT its entity: "java moss" is not a tank
+    // however often its description says "in the tank" (measured: the
+    // plants and the children rode into a tank count on statement cosine).
+    // When the mount carries the entity's own cosine to the asked head, that
+    // decides; the entity naming the head keeps a line whatever the number;
+    // the statement cosine is the road when no entity cosine came along.
+    // Three rungs, in order. (1) A line whose words name an occasion (wedding,
+    // festival, gala) is about THAT occasion: it stays when the occasion is
+    // the asked head and leaves otherwise, whatever the numbers say (measured:
+    // a charity gala and a bachelor party sat close enough to "wedding" to
+    // pass any floor). (2) An entity that names the head stays. (3) Otherwise
+    // the line's cosine to the head decides (the larger of its entity's and
+    // its occasion noun's, computed at mount time): 0.30, and 0.40 for an
+    // event, whose neighbours (a gala, a party) score nearer than a plant
+    // scores to a tank.
+    // Measured floors (embeddinggemma-300m, 2026-09-02): doctors 0.35-0.43 vs a
+    // gym 0.25; tanks 0.35-0.56 vs plants 0.21-0.26; a jewelry-store errand
+    // 0.33 against "wedding"; a hike 0.39 and a camping trip 0.47 against
+    // "trip"; boots 0.32 against "clothing item".
+    const ENTITY_FLOOR = 0.30, VISIT_ENTITY_FLOOR = 0.35, EVENT_ENTITY_FLOOR = 0.40;
+    const headStem = head ? head.replace(/s$/, '') : null;
+    const occasionOf = (it) => {
+      const m = _EVENT_HEAD && _EVENT_HEAD.exec(String(it.statement || ''));
+      return m ? m[1].toLowerCase().replace(/s$/, '') : null;
+    };
+    const entityNames = (it) => {
+      const e = String(it._entity || '').toLowerCase();
+      return !!e && ((phraseRe && phraseRe.test(e)) || (headRe && headRe.test(e)));
+    };
     const subjectTest = (barOf) => (it) => {
+      if (typeof it._entity_cos === 'number') {
+        const occ = headStem ? occasionOf(it) : null;
+        if (occ) return occ !== headStem && !(headStem.indexOf(occ) >= 0 || occ.indexOf(headStem) >= 0);
+        if (entityNames(it)) return false;
+        const kind = String(it._kind);
+        const bar = kind === 'event' ? EVENT_ENTITY_FLOOR : (kind === 'visit' ? VISIT_ENTITY_FLOOR : ENTITY_FLOOR);
+        return it._entity_cos < bar;
+      }
       const cos = typeof it._cos === 'number' ? it._cos : null;
       if (cos == null) return false;
       const s = String(it.statement);
@@ -232,7 +269,8 @@ function buildReconciledView(items, opts) {
     const strict = subjectTest((it) => OCCURRENCE_KINDS.has(String(it._kind)) ? Math.max(floor, OCCURRENCE_FLOOR) : floor);
     const remaining = instances.filter((it) => !reasonOf.has(it));
     const keptStrict = remaining.filter((it) => !strict(it)).length;
-    apply('not about the asked subject', keptStrict >= 3 ? strict : subjectTest(() => floor));
+    const anyEntityCos = remaining.some((it) => typeof it._entity_cos === 'number');
+    apply('not about the asked subject', (keptStrict >= 3 || anyEntityCos) ? strict : subjectTest(() => floor));
   }
 
   const kept = instances.filter((it) => !reasonOf.has(it));
@@ -337,7 +375,9 @@ function buildReconciledView(items, opts) {
       if ((asks && askLabel[asks]) || pendingAsk) lines.push('');
       if (about.length) {
         const label = { role: 'who they are', constraint: 'a constraint they keep', skill: 'a skill they have', liking: 'what they like', effort: 'something they made before' };
-        lines.push('About the user, in their own words (newest first; build the answer around the one most specific to this request, then honour the rest):');
+        // Preferences and constraints, never a whereabouts: a place the user
+        // likes exploring is something to honour, not where they are now.
+        lines.push('About the user, in their own words (newest first): preferences and constraints to honour in the answer, never where the user is now. Build the answer around the one most specific to this request, then honour the rest:');
         about.forEach((a, i) => {
           lines.push('A' + (i + 1) + '. ' + (a.ts ? '[' + _isoOf(a.ts) + '] ' : '') + a.what + ' (' + (label[a.kind] || a.kind) + ') (S' + a.n + ')');
         });
@@ -405,6 +445,33 @@ function buildReconciledView(items, opts) {
             (l.flags.length ? ' [flag: ' + l.flags.join('; ') + ']' : '') +
             (sameObject.has(l.n) ? ' [same object as L' + sameObject.get(l.n) + ' - count the object once]' : '') +
             (_possiblySame.has(l.n) ? ' [possibly the same occurrence as L' + _possiblySame.get(l.n) + ' - count it separately only on explicit evidence]' : ''));
+        }
+        // The mind does the calendar. When the question asks for a time or an
+        // order, every dated line gets its span to the day of the question and
+        // the dated lines are put in order, with the spans between them, so no
+        // reader counts days by hand (measured: 26 for 21, a month-day slip).
+        const wantsCalendar = asks === 'time' || (countShaped && /\b(order|first to last|earliest|latest|sequence)\b/i.test(qLower));
+        if (wantsCalendar && refTs) {
+          const dated = ledger.filter((l) => l.date && /^\d{4}-\d{2}-\d{2}$/.test(l.date))
+            .map((l) => ({ n: l.n, date: l.date, ts: Date.parse(l.date + 'T12:00:00Z') }))
+            .filter((l) => Number.isFinite(l.ts))
+            .sort((a, b) => a.ts - b.ts);
+          if (dated.length) {
+            const refIso = _isoOf(refTs);
+            const days = (a, b) => Math.round((b - a) / DAY_MS);
+            const span = (d) => d === 1 ? '1 day' : (d % 7 === 0 && d >= 14 ? d + ' days (' + (d / 7) + ' weeks)' : d + ' days');
+            lines.push('');
+            lines.push('Calendar (computed from the dates above; the question was asked on ' + refIso + '):');
+            lines.push('  In order, earliest first: ' + dated.map((l) => 'L' + l.n + ' (' + l.date + ')').join(' → '));
+            for (const l of dated) {
+              const d = days(l.ts, refTs);
+              lines.push('  L' + l.n + ': ' + l.date + ', ' + (d >= 0 ? span(d) + ' before the question' : span(-d) + ' after the question'));
+            }
+            for (let i = 1; i < dated.length; i++) {
+              const a = dated[i - 1], b = dated[i];
+              lines.push('  L' + b.n + ' is ' + span(days(a.ts, b.ts)) + ' after L' + a.n);
+            }
+          }
         }
         if (aside.length) {
           const byReason = new Map();

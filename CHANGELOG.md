@@ -66,6 +66,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into the always-on identity block once stated three times. The local
   engine reads the facts in any language when it answers; the English
   patterns stand in otherwise.
+- A count is a count of what the question names. Each ledger line is judged
+  by what it is about, its entity and the occasion its own words carry,
+  against the asked head: a plant in a tank is not a tank, a gym is not a
+  doctor, a gala is not a wedding, and a day hike is a trip. Two occasions
+  that each name people and share none are never one line.
+- The mind does the calendar. When a question asks for a time or an order,
+  the ledger lists its dated lines in order with the span from each to the
+  day of the question and the spans between them.
+- The extractor reads every sentence: an occurrence told in passing ("by the
+  way, I just got back from…") is an instance like the main topic.
 
 ### Changed
 - Recall shown in a session has been judged. The cross-encoder reads every
