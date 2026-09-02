@@ -72,6 +72,67 @@ const VERB_FAMILIES = [
 const PAST_ASK = /\b(have i|did i|i have|i've|have attended|did|attended|bought|went|visited|acquired|worked on|made|led)\b/;
 const _norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\b(the|a|an|my|our|new|another|some)\b/g, ' ').replace(/\s+/g, ' ').trim();
 
+// Stated totals: the user naming the count itself ("I've written seven short
+// stories", "my fourth Korean restaurant"). A cardinal before the head is a
+// total; an ordinal is a running count. Each carries the day it was said, so
+// the newest stated total wins and ledger lines dated after it add to it.
+const NUM_WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
+const ORD_WORDS = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10, eleventh: 11, twelfth: 12 };
+function _headStem(head) {
+  const h = String(head || '').toLowerCase();
+  if (h.length < 4) return null;
+  if (/ies$/.test(h)) return h.slice(0, -3);      // stories -> stor
+  if (/s$/.test(h)) return h.slice(0, -1);        // restaurants -> restaurant
+  return h;
+}
+// A number that is part of a designation or a measure is never a count:
+// "F-15 Eagle kit", "1/72 scale", "20-gallon tank", "$50".
+const NOT_A_COUNT_BEFORE = '(?<![A-Za-z0-9/$.\\-])';
+const UNIT_AFTER = /^(scale|gallon|gallons|inch|inches|mm|cm|km|mile|miles|hour|hours|minute|minutes|day|days|week|weeks|month|months|year|years|percent|dollars?|euros?|kg|lb|lbs|pm|am)\b/i;
+function statedTotals(raw, head, headPhrase) {
+  const stem = _headStem(head);
+  if (!stem) return [];
+  // The full counted phrase, when the question gives one ("model kits"), so a
+  // "meal kit" is not a model kit; the bare head otherwise.
+  const phraseStem = headPhrase && String(headPhrase).toLowerCase() !== String(head).toLowerCase()
+    ? String(headPhrase).toLowerCase().trim().split(/\s+/).map((w, i, a) => i === a.length - 1 ? _headStem(w) || w : w).join('\\s+')
+    : null;
+  const target = (phraseStem || stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) + '[a-z]*';
+  const NUM = '(\\d{1,3}|' + Object.keys(NUM_WORDS).join('|') + ')';
+  const ORD = '(' + Object.keys(ORD_WORDS).join('|') + '|\\d{1,2}(?:st|nd|rd|th))';
+  const between = '(?:[a-z\\-]+\\s+){0,2}?';
+  const card = new RegExp(NOT_A_COUNT_BEFORE + '\\b' + NUM + '\\s+' + between + target + '\\b', 'gi');
+  const ord = new RegExp(NOT_A_COUNT_BEFORE + '\\b' + ORD + '\\s+' + between + target + '\\b', 'gi');
+  // "I've tried four different ones so far": a pronoun total counts when the
+  // same words of the user name the head somewhere.
+  // "one of them was my cousin's wedding" is a partitive, not a total: the
+  // pronoun form is refused before a verb, and "one" never counts as a total.
+  const pron = new RegExp(NOT_A_COUNT_BEFORE + '\\b' + NUM + '\\s+(?:different\\s+|new\\s+|more\\s+|other\\s+)?(?:ones|of them)\\b(?!\\s+(?:was|were|is|are|has|had|being|had been|will|would)\\b)', 'gi');
+  const headRe = new RegExp('\\b' + stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[a-z]*\\b', 'i');
+  const out = [];
+  const push = (r, m, kind) => {
+    const w = m[1].toLowerCase();
+    const v = (kind === 'running' ? ORD_WORDS[w] : NUM_WORDS[w]);
+    const value = v != null ? v : parseInt(w, 10);
+    const after = m.input.slice(m.index + m[0].length).replace(/^\s+/, '');
+    if (!Number.isFinite(value) || value <= 0 || value > 100) return;
+    if (UNIT_AFTER.test(m[0].slice(m[1].length).replace(/^\s+/, ''))) return;
+    void after;
+    out.push({ value, kind, n: r.n, ts: Number.isFinite(r.ts) ? r.ts : null, text: m[0] });
+  };
+  for (const r of raw) {
+    const text = String(r.statement || '');
+    // Only the user's own words state a total; the assistant restating is not a claim.
+    const userPart = text.indexOf(' / asst:') >= 0 ? text.slice(0, text.indexOf(' / asst:')) : text;
+    let m;
+    while ((m = card.exec(userPart))) push(r, m, 'total');
+    while ((m = ord.exec(userPart))) push(r, m, 'running');
+    if (headRe.test(userPart)) while ((m = pron.exec(userPart))) { if (!/^(1|one)$/i.test(m[1])) push(r, m, 'total'); }
+  }
+  out.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  return out;
+}
+
 // items: the retrieval output - instance-pool items carry refs (dialogue
 // turn ids from provenance) and, when the mount supplies them, the instance
 // fields (_kind, _qualifier, _status, _entity, _facets, _attested_ts, _cos);
@@ -173,6 +234,9 @@ function buildReconciledView(items, opts) {
     const d = dateOf(it);
     return { n: i + 1, statement: it.statement, refs, flags, date: d.iso, date_kind: d.kind, cos: typeof it._cos === 'number' ? it._cos : null, entity: it._entity || null, kind: it._kind || null };
   });
+  // Stated totals ride only on a count-shaped question with a known head.
+  const countShaped = question ? /\b(how many|how much|number of|total|count)\b/i.test(question) : false;
+  const totals = (countShaped && head) ? statedTotals(raw, opts.noun_head, opts.head_phrase) : [];
   // Same object across lines (a kit bought in one line, finished in another):
   // the later line is annotated so the object is counted once. Matching is
   // the normalised entity string, or one contained in the other.
@@ -222,6 +286,7 @@ function buildReconciledView(items, opts) {
     raw,
     aside,
     window,
+    totals,
     families: families.map((f) => f.name),
     render() {
       const lines = [];
@@ -291,6 +356,13 @@ function buildReconciledView(items, opts) {
           for (const a of aside) byReason.set(a.reason, (byReason.get(a.reason) || 0) + 1);
           lines.push('Set aside, not listed: ' + [...byReason.entries()].map(([r, n]) => n + ' ledger line' + (n === 1 ? '' : 's') + ' ' + r).join('; ') + '. They are not what the question counts.');
         }
+        lines.push('');
+      }
+      if (totals.length) {
+        lines.push('Stated totals (the user naming the count in their own words, newest first; the newest stated total wins, and ledger lines dated after it add to it - ledger lines dated before it are already inside it):');
+        totals.forEach((t, i) => {
+          lines.push('T' + (i + 1) + '. ' + (t.ts ? '[' + _isoOf(t.ts) + '] ' : '') + t.value + (t.kind === 'running' ? ' (running count: "' + t.text + '")' : ' ("' + t.text + '")') + ' (S' + t.n + ')' + (i === 0 ? '   <- newest' : ''));
+        });
         lines.push('');
       }
       if (cast.length) {

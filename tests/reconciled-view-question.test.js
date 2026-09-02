@@ -132,5 +132,33 @@ t('no window and no cosine information: a question alone sets nothing aside', ()
   assert.ok(/\[undated\]/.test(v.render()), 'a line without any date says so when a question is asked');
 });
 
+t('stated totals are read from the user\'s own words, dated, newest first', () => {
+  const items = [
+    { source: 'instance-pool', id: 'i1', statement: '[instance] activity: wrote story — Wrote a short story about a lighthouse [completed] (attested ×1)', refs: ['dialogue.turn:r1'], _kind: 'activity', _qualifier: 'wrote', _status: 'completed', _entity: 'lighthouse story', _facets: ['wrote'], _cos: 0.5, _attested_ts: ASKED - 40 * DAY },
+    { source: 'dialogue-window', id: 'r1', statement: 'user: I wrote a short story about a lighthouse last week. / asst: Lovely, that makes it your fifth, I think.', ts: ASKED - 40 * DAY },
+    { source: 'dialogue-window', id: 'r2', statement: 'user: I have written four short stories since I started writing regularly.', ts: ASKED - 60 * DAY },
+    { source: 'dialogue-window', id: 'r3', statement: 'user: Just finished my seventh short story!', ts: ASKED - 5 * DAY },
+  ];
+  const v = buildReconciledView(items, { noun_head: 'stories', question: 'How many short stories have I written since I started writing regularly?', reference_ts: ASKED });
+  assert.deepStrictEqual(v.totals.map(t => t.value), [7, 4], 'newest first: the running seventh, then the stated four; the assistant\'s fifth is not counted');
+  const out = v.render();
+  assert.ok(/T1\. \[.*\] 7 \(running count: "seventh short story"\) \(S3\)   <- newest/.test(out), out.split('\n').filter(l => /^T/.test(l)).join(' | '));
+  assert.ok(out.indexOf('the newest stated total wins') >= 0, 'the rule is stated once');
+});
+
+t('a pronoun total counts when the head is named; designations and measures never do', () => {
+  const items = [
+    { source: 'dialogue-window', id: 'r1', statement: 'user: Have you tried any good Korean restaurants lately? I\'ve tried four different ones so far. / asst: Sure!', ts: ASKED - 5 * DAY },
+    { source: 'dialogue-window', id: 'r2', statement: 'user: I\'ve tried three different ones recently, each Korean restaurant has its own style.', ts: ASKED - 50 * DAY },
+    { source: 'dialogue-window', id: 'r3', statement: 'user: I picked up a Revell F-15 Eagle kit and a 1/72 scale B-29 bomber model kit; my first meal kit arrived too.', ts: ASKED - 3 * DAY },
+  ];
+  const k = buildReconciledView(items, { noun_head: 'restaurants', question: 'How many Korean restaurants have I tried?', reference_ts: ASKED });
+  assert.deepStrictEqual(k.totals.map(t => t.value), [4, 3]);
+  const m = buildReconciledView(items, { noun_head: 'kits', head_phrase: 'model kits', question: 'How many model kits have I bought?', reference_ts: ASKED });
+  assert.deepStrictEqual(m.totals.map(t => t.value), [], 'F-15, 1/72, B-29 and a meal kit state no total of model kits: ' + JSON.stringify(m.totals));
+  const w = buildReconciledView([{ source: 'dialogue-window', id: 'r9', statement: 'user: I have been to a few weddings recently and one of them was my cousin\'s wedding at a vineyard.', ts: ASKED }], { noun_head: 'weddings', question: 'How many weddings have I attended?', reference_ts: ASKED });
+  assert.deepStrictEqual(w.totals, [], '"one of them was" is a partitive, never a total');
+});
+
 console.log('\nreconciled-view-question: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
