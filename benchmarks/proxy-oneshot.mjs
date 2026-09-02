@@ -28,10 +28,11 @@ process.stdin.on('end', async () => {
       system: SYSTEM + '\n\n' + input,
       messages: [{ role: 'user', content: 'Respond now, following the instructions above exactly.' }],
     };
-    // A rate-limited lane answers 429, or 400 when the engine is pinned and
-    // cooling down; one wait and one retry, then the failure is reported.
+    // A rate-limited or momentarily unreachable lane answers 429, 5xx, or 400
+    // with the lane's own reason; two waits and two retries, then the
+    // failure is reported. A bad reply is never retried.
     let res, text;
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       res = await fetch(HOST + '/v1/messages', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-troth-source': 'longmemeval-harness', 'x-troth-raw': '1' },
@@ -39,7 +40,9 @@ process.stdin.on('end', async () => {
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
       text = await res.text();
-      if (attempt === 0 && (res.status === 429 || (res.status === 400 && /rate limit/i.test(text)))) {
+      const transient = res.status === 429 || res.status === 502 || res.status === 503
+        || (res.status === 400 && /rate limit|unreachable|network error|unavailable|errored repeatedly/i.test(text));
+      if (attempt < 2 && transient) {
         await new Promise((r) => setTimeout(r, 20000));
         continue;
       }
