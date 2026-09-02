@@ -1003,7 +1003,7 @@ recordAction({
 
 try {
   const _standing = require(pluginRoot + '/../shared-core/standing-rules.js');
-  const _blk = _standing.renderStandingRules(state, { cwd });
+  const _blk = _standing.renderStandingRules(state, { cwd, prompt });
   if (_blk) pieces.push(_blk.text);
 } catch (_) { /* additive: a turn without them is exactly the old behaviour */ }
 
