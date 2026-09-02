@@ -252,7 +252,10 @@ function composeAnswerPrompt(q, retrieved) {
     'Memory statements:\n' + mem + '\n\n' +
     (q.question_date ? 'Question asked on: ' + q.question_date + ' — compute any relative time (ago / since / between) from this date using the [dates] on the statements.\n' : '') +
     'Question: ' + q.question + '\n\n' +
-    (/\b(how many|how much|how often|total|count|number of|order of|first to last|earliest to latest)\b/i.test(q.question)
+    // The question type decides first: a knowledge-update question phrased
+    // as a count ("how many X have I tried") is answered by its newest
+    // stated value, never by summing the stated total with the members.
+    (q.question_type !== 'knowledge-update' && /\b(how many|how much|how often|total|count|number of|order of|first to last|earliest to latest)\b/i.test(q.question)
       ? 'When a Consolidated ledger is present, follow its own legends: the ' +
         'L-lines are the occurrences, the marks say what is already counted ' +
         'and what you judge individually, and the header rules (ownership, ' +
@@ -556,7 +559,9 @@ async function main() {
     // families are told to answer in a sentence with no preamble, and a
     // blind check would mark every one of them an error.
     const _demandedAnswerLine = !!answerPrompt && answerPrompt.indexOf('Answer: <value>') !== -1;
-    const _unfinished = !judgeError && ourAnswer && _demandedAnswerLine && !/^\s*Answer:/mi.test(String(ourAnswer));
+    // A bare 'Answer:' with nothing after it is the same truncation: the
+    // line was reached, the value was not.
+    const _unfinished = !judgeError && ourAnswer && _demandedAnswerLine && !/^\s*Answer:\s*\S/mi.test(String(ourAnswer));
     const verdict = judgeError ? 'ERROR' : (_unfinished ? 'ERROR' : judgeResult.verdict);
     if (_unfinished) judgeError = 'answer truncated before its Answer: line (' + String(ourAnswer).length + ' chars) - raise TROTH_BENCH_LOCAL_MAX_TOKENS';
     console.log(
@@ -571,6 +576,7 @@ async function main() {
       gold_answer: q.answer,
       ingested_turns: w.ingested_turns,
       retrieval_path: w.retrieval_path,
+      embed_coverage: w.embed_coverage || null,
       retrieved_count: (w.retrieved || []).length,
       retrieved_preview: (w.retrieved || []).map((it) => ({
         ts: it.ts,
@@ -591,6 +597,12 @@ async function main() {
   const accuracy = graded ? (correct / graded) : 0;
   const totalWallMs = rows.reduce((s, r) => s + (r.wall_ms || 0), 0);
   const retrievalPaths = new Set(rows.map(r => r.retrieval_path).filter(Boolean));
+  // Coverage is the instrument that says whether recall was semantic: a row
+  // whose turns lack vectors measured lexical recall no matter what the
+  // health probe said. Summarised here, printed on the report.
+  const coverageRatios = rows.map(r => r.embed_coverage && r.embed_coverage.ratio).filter(v => typeof v === 'number');
+  const coverageMin = coverageRatios.length ? Math.min(...coverageRatios) : null;
+  const rowsBelowFull = coverageRatios.length ? coverageRatios.filter(v => v < 1).length : null;
 
   console.log('\n═ LongMemEval results ═');
   console.log('  graded:    ' + graded + '/' + rows.length);
@@ -627,6 +639,8 @@ async function main() {
     correct, incorrect, errors, graded, total: rows.length, accuracy,
     total_wall_ms: totalWallMs,
     retrieval_paths_seen: [...retrievalPaths],
+    embed_coverage_min: coverageMin,
+    rows_below_full_coverage: rowsBelowFull,
     rows,
   }, null, 2));
   console.log('\nRaw results: ' + jsonOutPath);
@@ -696,6 +710,7 @@ function renderMarkdown(s) {
   lines.push('- **' + s.rows.length + '-question sample** (' + (s.stratified > 0 ? 'stratified ' + s.stratified + '/type' : 'fixed offset slice') + '), not the full 500-question LongMemEval-S set unless n=500. Binomial CI applies — treat sub-100 samples as directional signals, not publishable numbers.');
   lines.push('- ' + (s.stratified > 0 ? 'Stratified sampling takes the first ' + s.stratified + ' questions of each question_type in dataset order — deterministic and reproducible, but within-type dataset order is arbitrary upstream.' : 'Sample is a **fixed offset slice** (dataset order), and the dataset is ordered by question_type — an offset-0 slice measures ONLY the first type(s). Check the `question_type` column below.'));
   lines.push('- Retrieval path: worker probes `' + s.embedHost + '`/health itself per question and reports `semantic+lexical` when the local embed server answered, `lexical_fallback` otherwise. See the `retrieval_path` column per row.');
+  lines.push('- Embedding coverage: the worker drains the embedding backfill to the end before recall and records, per row, how many of the haystack\'s turns carry a vector (`embed_coverage`). This run: minimum ' + (s.embedCoverageMin != null ? s.embedCoverageMin.toFixed(3) : 'n/a') + ', rows below full coverage: ' + (s.rowsBelowFullCoverage != null ? s.rowsBelowFullCoverage : 'n/a') + '. A row below 1.000 measured partly lexical recall.');
   lines.push('- Ingest and recall both go through the REAL substrate write path (`dialogueMemory.recordTurn`, same function `bin/troth-entity.js` calls after every real turn) and REAL recall path (`engram.retrieveRelevant` with no `agent_id`, matching `shared-core/substrate-tools.js`\'s `troth_engram_search` MCP tool and `bin/troth-entity.js`\'s live per-turn prefix provider, both of which omit `agent_id` so cross-type episodic/semantic/procedural recall is reachable). No benchmark-only shortcut or raw SQL read. A real `taskEmbeddingBackfill` pass (`shared-core/background-worker.js`) runs between ingest and recall so semantic rerank has stored vectors to work with, mirroring what a long-running entity\'s idle-cadence backfill would have by the time an old conversation is queried.');
   lines.push('- Each question runs in a fully isolated, throwaway `STATE_DB_PATH` (fresh child process per question, mirrors `tests/hermetic-db.js`) — haystacks never leak between questions, and nothing was written to the operator\'s real `~/.troth`.');
   lines.push('- The judge uses the official LongMemEval per-type prompt templates (' + s.judgePrompts + ': standard, temporal off-by-one allowance, knowledge-update updated-answer rule, preference rubric, abstention) with a yes/no verdict, faithfully reproduced from the upstream evaluate_qa.py. The remaining protocol deviation is the judge MODEL: ' + s.judgeModel + ' instead of the paper\'s GPT-4o.');

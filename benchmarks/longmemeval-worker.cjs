@@ -162,7 +162,23 @@ async function main() {
       const tasks = (backgroundWorker && backgroundWorker.DEFAULT_TASKS) || [];
       const backfillTask = tasks.find(t => t && t.name === 'embedding_backfill');
       if (backfillTask && typeof backfillTask.run === 'function') {
-        await backfillTask.run({});
+        // Drain to the end, never one pass: the task is budgeted (10 s) and a
+        // busy GPU (the 27B composing beside it) leaves turns without vectors,
+        // which the harness then measures as lexical recall without saying so.
+        // The row records what share of this haystack's turns carry a vector.
+        let passes = 0, note = '';
+        for (let i = 0; i < 60; i++) {
+          const r = await backfillTask.run({}); passes++;
+          note = ((r && r.notes) || []).join(' ');
+          if (!/more remaining/.test(note)) break;
+        }
+        try {
+          const state = require('../shared-core/state.js');
+          const d = state._dbForQuery();
+          const turns = d.prepare("SELECT COUNT(*) n FROM action_records WHERE type='tool_call' AND json_extract(input,'$.tool_name')='dialogue.turn'").get().n;
+          const withVec = d.prepare("SELECT COUNT(*) n FROM engram_embeddings ee JOIN action_records ar ON ar.id=ee.engram_id WHERE ar.type='tool_call' AND json_extract(ar.input,'$.tool_name')='dialogue.turn'").get().n;
+          out.embed_coverage = { turns, with_vector: withVec, passes, ratio: turns ? +(withVec / turns).toFixed(3) : null };
+        } catch (_) { out.embed_coverage = null; }
       }
     } catch (_) { /* best-effort — recall gracefully degrades to lexical if this fails */ }
 
