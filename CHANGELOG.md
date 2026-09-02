@@ -18,6 +18,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   store it under a capability scope for its host; the reply is a receipt and
   the value never rides a response, an error or a log line. The same move is
   available over the backbone as `troth_vault_capture`.
+- A request that names a `gpt-5` model reaches the ChatGPT plan lane on its
+  own. The model id inside the request picks the lane, the way a Kimi id
+  already does, so a harness, a tool or one pane can use the plan for a call
+  while the routing pin and every other turn keep their engine; the lane
+  answers with the model the request named.
+- `x-troth-raw: 1` sends a request to the engine as written: no working
+  discipline is prepended and no plan is generated into it. Routing, budgets,
+  walls and the response guards stay exactly as they are.
+- The outbound wall knows the operator's own core. A send to the proxy on
+  loopback never leaves the machine and passes; every other local port is
+  still a destination the allowlist has to name.
+- The LongMemEval harness can compose and judge through the operator's proxy
+  (`--provider proxy`, `--answer proxy`): the proxy holds the credentials and
+  picks the engine, the harness never touches a key or a token. A re-judged
+  run keeps the labels of the answers it grades.
 
 ### Changed
 - Image generation keeps the ChatGPT plan lane usable across a sign-in the

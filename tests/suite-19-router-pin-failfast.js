@@ -136,4 +136,59 @@ module.exports = function run({ test }) {
       restore(s);
     }
   });
+
+  // MODEL-LANE: a request that names a plain gpt-5* model reaches the
+  // ChatGPT-plan lane on its own, ahead of the global pin, the way a Kimi id
+  // reaches kimi_sub. The lane's own call is made to fail before any network
+  // (stubbed token store: expired token, refresh refused), so what is asserted
+  // is the ROUTING decision, read off the router's own log line.
+  test('MODEL-LANE-1: a gpt-5 model id is routed to openai_sub without the pin, and ahead of a local pin', async () => {
+    const s = snapshot();
+    const tokenStore = require('../shared-core/codex-token-store.js');
+    const codexAuth = require('../shared-core/codex-auth.js');
+    const origLoad = tokenStore.load, origExpired = tokenStore.isExpired, origRefresh = codexAuth.refresh;
+    const origLog = console.log, origErr = console.error;
+    const lines = [];
+    const arm = () => {
+      errortax.reset();
+      T.markProviderHealthy('openai_sub');
+      lines.length = 0;
+    };
+    try {
+      tokenStore.load = () => ({ access_token: 'stub', refresh_token: 'stub', expires_at: 1 });
+      tokenStore.isExpired = () => true;
+      codexAuth.refresh = async () => { throw new Error('stubbed: no network in tests'); };
+      T.providers.openai_sub.enabled = true;
+      T.providers.local.enabled = false;
+      console.log = (...a) => { lines.push(a.join(' ')); };
+      console.error = (...a) => { lines.push(a.join(' ')); };
+      const gptBody = JSON.stringify({ model: 'gpt-5.5', max_tokens: 64, stream: false, messages: [{ role: 'user', content: 'ping' }] });
+
+      // No pin at all: the model id alone picks the lane.
+      arm();
+      T.routingPrefs.pin = '';
+      await router.callFallbackChain(gptBody, { pinFailure: null });
+      assert.ok(lines.some((l) => /model "gpt-5\.5" → openai_sub lane \(model-addressed/.test(l)),
+        'no pin: the gpt-5 id must route to openai_sub on its own; log: ' + lines.join(' | '));
+
+      // A local pin set by the operator: the model id is the more specific
+      // instruction and wins for THIS request; the pin itself is untouched.
+      arm();
+      T.routingPrefs.pin = 'llamacpp';
+      await router.callFallbackChain(gptBody, { pinFailure: null });
+      assert.ok(lines.some((l) => /→ openai_sub lane \(model-addressed/.test(l)),
+        'local pin: the gpt-5 id must still reach openai_sub; log: ' + lines.join(' | '));
+      assert.ok(!lines.some((l) => /\[router\] pin → /.test(l)), 'the pin must not be applied to a model-addressed request');
+      assert.strictEqual(T.routingPrefs.pin, 'llamacpp', 'the operator pin itself is never rewritten');
+
+      // A Claude id under the same pin is NOT captured by the lane.
+      arm();
+      await router.callFallbackChain(body, { pinFailure: null });
+      assert.ok(!lines.some((l) => /model-addressed/.test(l)), 'a claude id must not be model-addressed to openai_sub');
+    } finally {
+      console.log = origLog; console.error = origErr;
+      tokenStore.load = origLoad; tokenStore.isExpired = origExpired; codexAuth.refresh = origRefresh;
+      restore(s);
+    }
+  });
 };

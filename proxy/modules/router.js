@@ -2138,7 +2138,12 @@ function callOpenAISubscription(bodyStr, headers) {
     // for every one of them; coercing here heals those installs without a
     // migration and costs nothing on a healthy one.
     var _codexModel;
-    try { _codexModel = require('../../shared-core/transports/codex-oauth.js').resolveCodexModel(null, providers.openai_sub.model); }
+    // A plain gpt-5* id in the request is the more specific instruction and
+    // wins over the config model; anything else (a Claude id under the pin)
+    // keeps resolving from the config model exactly as before.
+    var _reqGpt = /^gpt-5(\.|-|$)/i.test(String(anthropicBody.model || '')) && !/codex/i.test(String(anthropicBody.model || ''))
+      ? String(anthropicBody.model) : null;
+    try { _codexModel = require('../../shared-core/transports/codex-oauth.js').resolveCodexModel(_reqGpt, providers.openai_sub.model); }
     catch (_) { _codexModel = providers.openai_sub.model; }
     var responsesBody = translate.anthropicToResponses(anthropicBody, {
       defaultModel: _codexModel || 'gpt-5.6-sol'
@@ -2245,7 +2250,10 @@ function callOpenAISubscription(bodyStr, headers) {
             var anthropicShaped;
             try {
               anthropicShaped = translate.responsesToAnthropic(responsesPayload, {
-                modelHint: providers.openai_sub.model || 'gpt-5.5'
+                // The model this lane actually sent, so the reply, the ledger
+                // and the dashboard name the engine that answered, not the
+                // config default a model-addressed request stepped past.
+                modelHint: _codexModel || providers.openai_sub.model || 'gpt-5.5'
               });
             } catch (e) {
               // Same classification as the parse guard above: request-shaped
@@ -2264,7 +2272,7 @@ function callOpenAISubscription(bodyStr, headers) {
               var cachTsub = (u.input_tokens_details && u.input_tokens_details.cached_tokens) || 0;
               stats.tokens.openai_sub.input  += inTsub;
               stats.tokens.openai_sub.output += outTsub;
-              var modelSub = _asModelName(providers.openai_sub.model, 'gpt-5.5');
+              var modelSub = _asModelName(_codexModel || providers.openai_sub.model, 'gpt-5.5');
               try { require('./cost').recordUsage(modelSub + ' (plan)', inTsub, outTsub, cachTsub); } catch (_) {}
               try { require('./cacheratio').record(modelSub, { input_tokens: Math.max(0, inTsub - cachTsub), cache_read_input_tokens: cachTsub, cache_creation_input_tokens: 0 }); } catch (_) {}
             } catch (_) {}
@@ -2774,8 +2782,25 @@ function callFallbackChain(bodyStr, cfcOpts) {
     kimiLaneForced = true;
     console.log('[router] model "' + reqModelForLane + '" → kimi_sub lane (model-addressed, no pin needed)');
   }
+  // Model-addressed ChatGPT-plan membership: a request whose model is a plain
+  // gpt-5* id (never a *-codex id, which that endpoint rejects) can only be
+  // answered by the openai_sub lane, so route it there WITHOUT the global pin,
+  // the same way a Kimi id reaches kimi_sub. The pin is one global slot; the
+  // model id travels inside each request, so a harness or a tool can use the
+  // operator's plan for one call while every other turn keeps its engine.
+  var subLaneForced = false;
+  if (!kimiLaneForced && /^gpt-5(\.|-|$)/i.test(reqModelForLane) && !/codex/i.test(reqModelForLane)
+      && providers.openai_sub && providers.openai_sub.enabled && isProviderHealthy('openai_sub')) {
+    var _subTok = null;
+    try { _subTok = require('../../shared-core/codex-token-store.js').load(); } catch (_) { _subTok = null; }
+    if (_subTok) {
+      chain = [{ name: 'openai_sub', fn: function(b) { return callOpenAISubscription(b, {}); } }];
+      subLaneForced = true;
+      console.log('[router] model "' + reqModelForLane + '" → openai_sub lane (model-addressed, no pin needed)');
+    }
+  }
   var pinApplied = false;
-  if (kimiLaneForced) {
+  if (kimiLaneForced || subLaneForced) {
     pinApplied = true; // suppress the tier/dispatcher reorders below — the lane is decided
   } else if (routingPrefs.pin) {
     var pinnedEntry = null;

@@ -534,6 +534,16 @@ function _allowlist() {
 // the seed on first call, which is right in production and wrong in a test
 // run: the verdict would then depend on whichever domains this operator has
 // added. Tests pass their own list; nothing else does.
+function _isOwnCore(url) {
+  let u;
+  try { u = new URL(url); } catch (_) { return false; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  const host = String(u.hostname || '').toLowerCase();
+  if (host !== '127.0.0.1' && host !== 'localhost' && host !== '::1' && host !== '[::1]') return false;
+  const corePort = String(process.env.GF_PORT || '8000');
+  return String(u.port || (u.protocol === 'https:' ? '443' : '80')) === corePort;
+}
+
 function _checkEgress(command, isAllowedFn) {
   let segs;
   try { segs = _segments(_tokenize(command)); }
@@ -563,6 +573,11 @@ function _checkEgress(command, isAllowedFn) {
           : !!(_allowlist() && _allowlist().isAllowed(raw));
       } catch (_) { ok = false; }
       if (ok) continue;
+      // The operator's own core is not egress. A send to the troth proxy on
+      // loopback never leaves this machine and is governed by the proxy's own
+      // policies (keys, budgets, lanes, walls). Only that one port is exempt:
+      // any other local listener is still a destination the list must name.
+      if (_isOwnCore(raw)) continue;
       let host = raw;
       try { host = new URL(raw).host || raw; } catch (_) { /* keep the raw form */ }
       return {

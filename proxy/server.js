@@ -5310,7 +5310,13 @@ const server = http.createServer((req, res) => {
     const repoMap = (isModuleEnabled('codelens') && !_isTrivialPrompt) ? queryContext(body) : '';
     let projectType = 'unknown';
     let mode = 'unknown';
-    if (isModuleEnabled('injector')) {
+    // x-troth-raw: 1 — the client is a harness, a oneshot or a tool, not a
+    // coding session: the request reaches the engine as written. No discipline
+    // block is prepended and no plan is generated into it. Routing, budgets,
+    // walls and the response guards are untouched; only the prompt shaping
+    // meant for an interactive coding client steps aside.
+    const rawRequest = String(req.headers['x-troth-raw'] || '') === '1';
+    if (isModuleEnabled('injector') && !rawRequest) {
       const injection = inject(body, repoMap);
       body = injection.body;
       projectType = injection.projectType;
@@ -5690,7 +5696,7 @@ const server = http.createServer((req, res) => {
     // then inject the plan into the system prompt for the executor model.
     // Aider research: 85% edit accuracy with this pattern.
     // Skip if routing to local (local backend often is the planning model anyway).
-    if (routeTarget !== 'local' && isModuleEnabled('injector')) {
+    if (routeTarget !== 'local' && isModuleEnabled('injector') && !rawRequest) {
       try {
         const parsed2 = JSON.parse(body);
         const msgs2 = parsed2.messages || [];
