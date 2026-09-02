@@ -502,6 +502,16 @@ function _roleOwnerCounts(opts) {
   return map;
 }
 
+// The registry is read once per write, not once per pair the ladder
+// compares: a session of two hundred instances compares thousands of pairs.
+const _roleOwnersMemo = new WeakMap();
+function _roleOwnersFor(opts) {
+  if (!opts || typeof opts !== 'object') return _roleOwnerCounts(opts);
+  let m = _roleOwnersMemo.get(opts);
+  if (!m) { m = _roleOwnerCounts(opts); _roleOwnersMemo.set(opts, m); }
+  return m;
+}
+
 function _nameTokens(inst, opts) {
   const text = _eventText(inst);
   const desc = String(inst.description || '');
@@ -643,7 +653,7 @@ function _sameEvent(e, inst, opts) {
   // known cousin they are the same person, so the two tellings meet the
   // covenant default. Two known cousins keep the bare one silent, as
   // _nameTokens already does for the registry.
-  const roleOwners = _roleOwnerCounts(opts);
+  const roleOwners = _roleOwnersFor(opts);
   const rolesOf = (inst) => {
     const s = new Set();
     for (const m of _eventText(inst).toLowerCase().matchAll(/\b([a-z]{2,})\b/g)) {
