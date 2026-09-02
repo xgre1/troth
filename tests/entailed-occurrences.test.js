@@ -144,5 +144,21 @@ t('the turn as the user said it is read: a clinician the summary dropped is stil
   delete process.env.TROTH_INSTANCE_ENTAILMENT;
 });
 
+t('an inferred visit to a named clinician never folds into another named clinician', () => {
+  process.env.TROTH_INSTANCE_ENTAILMENT = '1';
+  const pool = [];
+  ic.writeInstances({
+    instances: [{ kind: 'visit', entity: 'Dr. Lee', description: 'follow-up appointment with dermatologist Dr. Lee to get a biopsy', date_iso: null, status: 'completed', qualifier: 'visited', quantity: null, turn_idxs: [0] }],
+    turns, agent_id: 'claude-code', user_id: 'default', _pool: pool, session_id: 'S1'
+  });
+  ic.writeInstances({
+    instances: [{ kind: 'activity', entity: 'antibiotics', description: 'was prescribed antibiotics by my primary care physician, Dr. Smith', date_iso: null, status: 'completed', qualifier: 'prescribed', quantity: null, turn_idxs: [1] }],
+    turns, agent_id: 'claude-code', user_id: 'default', _pool: pool, session_id: 'S2'
+  });
+  const visits = pool.filter((p) => p.instance.kind === 'visit').map((p) => p.instance.entity).sort();
+  assert.deepStrictEqual(visits, ['Dr. Lee', 'Dr. Smith'], visits.join(' | '));
+  delete process.env.TROTH_INSTANCE_ENTAILMENT;
+});
+
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

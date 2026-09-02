@@ -706,7 +706,9 @@ function _sameOccurrence(entry, inst, entity_slug, opts) {
   if (e.kind === 'visit' && inst.kind === 'visit' && (e.basis === 'entailed') !== (inst.basis === 'entailed')) {
     const roleSide = e.basis === 'entailed' ? e : inst;
     const named = roleSide === e ? inst : e;
-    if (_roleResolvesTo(roleSide.entity, named, opts) && _roleTokens(roleSide.entity).length) return true;
+    // Only a role told bare resolves; "Dr. Smith" is a person and never
+    // becomes "Dr. Lee" on a shared title.
+    if (_isRoleOnly(roleSide.entity) && _roleTokens(roleSide.entity).length && _roleResolvesTo(roleSide.entity, named, opts)) return true;
   }
   if (SELF_ENTITY.has(_normEntity(inst.entity))) return false;
   const entityMatch = (e.entity_slug && entity_slug)
@@ -758,7 +760,12 @@ function entailmentEnabled() {
 // registry knows the clinician by that relation ("Dr. Patel, ENT
 // specialist"), or the visit's own words carry the role's specific word
 // ("ent", "dermatologist"; never "doctor" or "specialist" alone).
-const _ROLE_GENERIC = new Set(['doctor', 'physician', 'specialist', 'gp', 'therapist', 'surgeon', 'nurse', 'practitioner', 'my', 'the', 'a', 'an', 'care', 'primary']);
+const _ROLE_GENERIC = new Set(['doctor', 'physician', 'specialist', 'gp', 'therapist', 'surgeon', 'nurse', 'practitioner', 'my', 'the', 'a', 'an', 'care', 'primary', 'dr', 'mr', 'ms', 'mrs']);
+// A role told bare: no title, no proper name ("ENT specialist", "primary
+// care physician"); "Dr. Smith" is a person, never a role.
+function _isRoleOnly(entity) {
+  return !/\b(?:Dr\.?|Mr\.?|Ms\.?|Mrs\.?|[A-Z][a-z]+)\b/.test(String(entity || '').replace(/\b(?:ENT|GP|PCP)\b/g, ''));
+}
 const _registryMemo = new WeakMap();
 function _registryFor(opts) {
   const load = () => { try { return require('./entity-identity.js').loadRegistry({ agent_id: opts && opts.agent_id }) || []; } catch (_) { return []; } };
