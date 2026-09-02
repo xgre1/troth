@@ -47,6 +47,8 @@ const REQUEST_SHAPED = /\b(can you (?:recommend|suggest)|any (?:tips|suggestions
 // sit at 0.45-0.7 against the question, unrelated ones below 0.3.
 const SUBJECT_FLOOR = 0.30;          // objects: hyponyms sit low ("boots" vs "clothing")
 const OCCURRENCE_FLOOR = 0.45;       // occurrences: a barbecue is not a wedding, whatever its cosine
+// A question that counts or orders: the shape the status and totals rules key on.
+const COUNT_ASK = /\b(how many|how much|number of|total|count|order of|first to last|earliest to latest)\b/i;
 const OCCURRENCE_KINDS = new Set(['event', 'visit', 'activity']);
 const DAY_MS = 86400000;
 const _isoOf = (ts) => { try { return new Date(ts).toISOString().slice(0, 10); } catch (_) { return null; } };
@@ -215,7 +217,12 @@ function buildReconciledView(items, opts) {
     const verbs = [it._qualifier].concat(Array.isArray(it._facets) ? it._facets : []).filter(Boolean).join(' ').toLowerCase();
     return !families.some((f) => f.kinds.has(String(it._kind)) || f.verbs.test(verbs));
   });
-  if (pastAsk && !pendingAsk) apply('planned or cancelled, not done', (it) => it._status === 'planned' || it._status === 'cancelled');
+  // A count of what happened or what is owned never includes what is only
+  // planned: "how many tanks do I have" is not answered by a tank the user is
+  // thinking of setting up. A question about plans keeps its planned lines.
+  const countAsk = shape ? !!shape.count : (question ? COUNT_ASK.test(question) : false);
+  const planAsk = question ? /\b(plan(?:s|ning|ned)?|going to|upcoming|will i|intend|thinking (?:of|about))\b/i.test(qLower) : false;
+  if ((pastAsk || (countAsk && !planAsk)) && !pendingAsk) apply('planned or cancelled, not done', (it) => it._status === 'planned' || it._status === 'cancelled');
   if (question) {
     // Cosine to the question has limited resolution (measured 2026-09-02:
     // true members 0.30-0.50, strangers 0.25-0.40). The strict floors are
@@ -309,7 +316,7 @@ function buildReconciledView(items, opts) {
     }
   }
   // Stated totals ride only on a count-shaped question with a known head.
-  const countShaped = shape ? !!shape.count : (question ? /\b(how many|how much|number of|total|count|order of|first to last|earliest to latest)\b/i.test(question) : false);
+  const countShaped = shape ? !!shape.count : (question ? COUNT_ASK.test(question) : false);
   const totals = (countShaped && head) ? statedTotals(raw, nounHead, nounPhrase) : [];
   // Same object across lines (a kit bought in one line, finished in another):
   // the later line is annotated so the object is counted once. Matching is
@@ -317,10 +324,34 @@ function buildReconciledView(items, opts) {
   const sameObject = new Map();
   if (question) {
     for (let i = 0; i < ledger.length; i++) {
-      const a = _norm(ledger[i].entity); if (a.length < 4) continue;
+      const li = ledger[i];
+      const a = _norm(li.entity); if (a.length < 4) continue;
       for (let j = 0; j < i; j++) {
-        const b = _norm(ledger[j].entity); if (b.length < 4) continue;
-        if (a === b || a.indexOf(b) >= 0 || b.indexOf(a) >= 0) { sameObject.set(ledger[i].n, ledger[j].n); break; }
+        const lj = ledger[j];
+        if (lj.folded_into) continue;
+        const b = _norm(lj.entity); if (b.length < 4) continue;
+        if (a === b || a.indexOf(b) >= 0 || b.indexOf(a) >= 0) {
+          // The same object told in the same statement, or pinned to the same
+          // day, is one occurrence retold ("attended AFI Fest" and "got back
+          // from AFI Fest" out of one turn): the later line folds into the
+          // earlier as an attestation, and the statements that attested it
+          // now attest the line that stands. Any other pair keeps two lines,
+          // annotated, for the reader to judge.
+          const sameTelling = li.refs.some((r) => lj.refs.includes(r)) ||
+            (!!li.date && li.date === lj.date && li.date_kind === 'stated' && lj.date_kind === 'stated');
+          if (sameTelling) {
+            li.folded_into = lj.n;
+            for (const r of li.refs) if (!lj.refs.includes(r)) lj.refs.push(r);
+            lj.also = (lj.also || []).concat(String(li.statement).replace(/^\[instance\]\s*/, '').split(' — ')[0]);
+            for (const r of raw) {
+              const k = r.supports ? r.supports.indexOf(li.n) : -1;
+              if (k >= 0) { r.supports.splice(k, 1); if (!r.supports.includes(lj.n)) r.supports.push(lj.n); }
+            }
+          } else {
+            sameObject.set(li.n, lj.n);
+          }
+          break;
+        }
       }
     }
   }
@@ -350,7 +381,7 @@ function buildReconciledView(items, opts) {
     const res = names.map(_nameRe);
     const links = [];
     const slinks = [];
-    for (const l of ledger) if (res.some((re) => re.test(String(l.statement)))) links.push(l.n);
+    for (const l of ledger) if (!l.folded_into && res.some((re) => re.test(String(l.statement)))) links.push(l.n);
     for (const r of raw) if (res.some((re) => re.test(String(r.statement)))) slinks.push(r.n);
     return { n: i + 1, statement: it.statement, links, slinks };
   });
@@ -425,6 +456,7 @@ function buildReconciledView(items, opts) {
               for (let y = x + 1; y < c.links.length; y++) {
                 const lx = ledger[c.links[x] - 1], ly = ledger[c.links[y] - 1];
                 if (!lx || !ly) continue;
+                if (lx.folded_into || ly.folded_into) continue;
                 const hx = _headOf(lx.statement), hy = _headOf(ly.statement);
                 if (!hx || hx !== hy) continue;
                 const dx = _dateOf(lx.statement), dy = _dateOf(ly.statement);
@@ -437,6 +469,7 @@ function buildReconciledView(items, opts) {
           }
         }
         for (const l of ledger) {
+          if (l.folded_into) continue;
           let text = l.statement.replace(/^\[instance\]\s*/, '');
           if (/^possession:/.test(text)) text = text.replace('[completed', '[owned');
           // The day: a pinned date is already inside the status bracket. The
@@ -448,6 +481,7 @@ function buildReconciledView(items, opts) {
             ? (l.date_kind === 'attested' ? ' [said on ' + l.date + '; the words say when it happened]' : (!l.date ? ' [undated]' : ''))
             : '';
           lines.push('L' + l.n + '. ' + text + dateNote +
+            (l.also && l.also.length ? ' (also told as: ' + l.also.join('; ') + ')' : '') +
             (l.refs.length ? ' (attested by ' + l.refs.map(n => 'S' + n).join(', ') + ')' : '') +
             (l.flags.length ? ' [flag: ' + l.flags.join('; ') + ']' : '') +
             (sameObject.has(l.n) ? ' [same object as L' + sameObject.get(l.n) + ' - count the object once]' : '') +
@@ -459,7 +493,7 @@ function buildReconciledView(items, opts) {
         // reader counts days by hand (measured: 26 for 21, a month-day slip).
         const wantsCalendar = asks === 'time' || (countShaped && /\b(order|first to last|earliest|latest|sequence)\b/i.test(qLower));
         if (wantsCalendar && refTs) {
-          const dated = ledger.filter((l) => l.date && /^\d{4}-\d{2}-\d{2}$/.test(l.date))
+          const dated = ledger.filter((l) => !l.folded_into && l.date && /^\d{4}-\d{2}-\d{2}$/.test(l.date))
             .map((l) => ({ n: l.n, date: l.date, ts: Date.parse(l.date + 'T12:00:00Z') }))
             .filter((l) => Number.isFinite(l.ts))
             .sort((a, b) => a.ts - b.ts);

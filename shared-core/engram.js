@@ -1667,7 +1667,9 @@ function countNounPhrase(query) {
   if (!m || !m[1]) return null;
   const phrase = m[1].trim();
   const cut = phrase.split(/\s+(?:the|a|an|my|our|your|his|her|their|this|that|these|those|you|they|he|she|it|we)\b/i)[0].trim();
-  const words = (cut || phrase).toLowerCase().split(/\s+/).filter((w) => !/^(different|distinct|separate|various|total|new|other|items?|of)$/.test(w));
+  // Determiners and numerals are not the subject: "the three trips" is about
+  // trips, and the cosine of every line is taken against that word alone.
+  const words = (cut || phrase).toLowerCase().split(/\s+/).filter((w) => !/^(the|a|an|my|our|your|two|three|four|five|six|seven|eight|nine|ten|\d+|different|distinct|separate|various|total|new|other|items?|of)$/.test(w));
   return words.length ? words.join(' ') : null;
 }
 

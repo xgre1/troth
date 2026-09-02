@@ -638,7 +638,20 @@ function _sameEvent(e, inst, opts) {
   if (axisShared('t:') || axisShared('p:')) return true;
   // Both sides name someone - proper or role - and share nobody: two
   // occasions. A shared role alone falls through to the covenant default.
-  const w1 = n1._weak || new Set(), w2 = n2._weak || new Set();
+  // A role folded into a proper name ("cousin Rachel's wedding") is still a
+  // role the other side may carry bare ("my cousin's wedding"): with one
+  // known cousin they are the same person, so the two tellings meet the
+  // covenant default. Two known cousins keep the bare one silent, as
+  // _nameTokens already does for the registry.
+  const roleOwners = _roleOwnerCounts(opts);
+  const rolesOf = (inst) => {
+    const s = new Set();
+    for (const m of _eventText(inst).toLowerCase().matchAll(/\b([a-z]{2,})\b/g)) {
+      if (_ROLE_WORDS.has(m[1]) && (roleOwners.get(m[1]) || 0) <= 1) s.add(m[1]);
+    }
+    return s;
+  };
+  const w1 = new Set([...(n1._weak || []), ...rolesOf(e)]), w2 = new Set([...(n2._weak || []), ...rolesOf(inst)]);
   if ((n1.size + w1.size) && (n2.size + w2.size)) {
     let anyShared = false;
     for (const w of w1) if (w2.has(w)) anyShared = true;
@@ -707,6 +720,13 @@ const TERMINAL_STATUS = { completed: true, cancelled: true };
 // and ships dark behind its own flag.
 const _ARTIFACT_RE = /\b(prescription|referral|diagnosis|filling|crown|stitches)\b[^.]*?\bfrom\s+(Dr\.?\s*[A-Z][\w.]*(?:\s+[A-Z][a-z]+)?|[A-Z][a-z]{2,}(?:\s+[A-Z][a-z]+)?)/;
 const _FOLLOWUP_RE = /\b(follow[\s-]?up|another appointment with|again with)\b/i;
+// Being prescribed, referred, diagnosed, examined or treated BY a clinician
+// is an encounter with that clinician, whatever kind the extractor gave the
+// sentence: "was prescribed antibiotics by my primary care physician, Dr.
+// Smith" is a visit to Dr. Smith. The agent must be a clinician: a role
+// word, or a Dr. name after one.
+const _CLINICIAN = '(?:physician|doctor|dentist|specialist|dermatologist|therapist|surgeon|pediatrician|optometrist|chiropractor|cardiologist|neurologist|psychiatrist|allergist|orthopedist|podiatrist|urologist|gynecologist|ophthalmologist|oncologist|gp|ent|nurse practitioner|pcp)';
+const _ISSUED_BY_RE = new RegExp('\\b(prescribed|referred|diagnosed|examined|treated)\\b[^.;]{0,60}?\\bby\\s+(?:my\\s+|the\\s+|a\\s+|an\\s+)?((?:[a-z][a-z-]*\\s+){0,3}' + _CLINICIAN + ')(?:,?\\s+(Dr\\.?\\s*[A-Z][\\w.]*(?:\\s+[A-Z][a-z]+)?))?', 'i');
 
 function entailmentEnabled() {
   // On unless the operator turns it off: a referral, a prescription or a
@@ -736,6 +756,24 @@ function _deriveEntailed(pool, opts, stats) {
         qualifier: 'visited', quantity: null,
         _provenance_refs: _refsOf(p.id)
       });
+    }
+    const by = _ISSUED_BY_RE.exec(text);
+    if (by) {
+      // A named clinician, or a specific role ("primary care physician",
+      // "dermatologist"). A bare "doctor" names nobody: it would count as one
+      // more doctor beside the named one it usually is.
+      const generic = /^(?:doctor|physician|specialist|gp|therapist|surgeon|nurse practitioner)$/i;
+      const role = String(by[2] || '').trim();
+      const who = by[3] ? String(by[3]).trim() : (generic.test(role) ? '' : role);
+      if (who && !_hasStatedCompletedVisit(pool, who)) {
+        derived.push({
+          kind: 'visit', entity: who,
+          description: 'visit implied by being ' + by[1].toLowerCase() + ' by them',
+          date_iso: null, status: 'completed', basis: 'entailed',
+          qualifier: 'visited', quantity: null,
+          _provenance_refs: _refsOf(p.id)
+        });
+      }
     }
     if (e.kind === 'possession' || e.kind === 'purchase') {
       const m = _ARTIFACT_RE.exec(String(e.description || ''));

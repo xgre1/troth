@@ -79,5 +79,36 @@ t('when the question asks for a time or an order, the view does the calendar', (
   assert.ok(v3.render().indexOf('Calendar (computed') < 0, 'a plain count does not');
 });
 
+t('a count of what is owned sets a planned item aside; a question about plans keeps it', () => {
+  const withPlan = tanks.concat([
+    inst('t7', 'activity', 'quarantine tank', 'is thinking about setting up a separate quarantine tank for new fish', { _status: 'planned', _qualifier: 'thinking about setting up', _entity_cos: 0.48 })
+  ]);
+  const v = buildReconciledView(withPlan, { noun_head: 'tanks', question: 'How many tanks do I currently have, including the one I set up for my friend\'s kid?', reference_ts: ASKED });
+  assert.ok(!v.ledger.some(l => l.entity === 'quarantine tank'), v.ledger.map(l => l.entity).join(' | '));
+  const planned = v.aside.find(a => a.item._entity === 'quarantine tank');
+  assert.ok(planned && /planned or cancelled/.test(planned.reason), planned && planned.reason);
+  const v2 = buildReconciledView(withPlan, { noun_head: 'tanks', question: 'How many tanks am I planning to set up?', reference_ts: ASKED });
+  assert.ok(v2.ledger.some(l => l.entity === 'quarantine tank'), 'a question about plans keeps the planned tank');
+});
+
+t('the same object out of one telling is one line: the later folds into the earlier as an attestation', () => {
+  const afi = [
+    ev('f1', 'Austin Film Festival', 'participated in a 48-hour film challenge at the Austin Film Festival', '2023-05-21', { _entity_cos: 0.6 }),
+    ev('f2', 'AFI Fest', 'attended a screening of Joker at AFI Fest', '2023-05-26', { _entity_cos: 0.6 }),
+    Object.assign(ev('f3', 'AFI Fest', 'got back from AFI Fest in LA', '2023-05-26', { _kind: 'visit', _entity_cos: 0.6 }), { refs: ['dialogue.turn:rf2'] }),
+    ev('f4', 'Seattle International Film Festival', 'attended a Q&A after the screening at the Seattle International Film Festival', '2023-05-25', { _entity_cos: 0.6 }),
+    { source: 'dialogue-window', id: 'rf2', statement: 'user: I just got back from AFI Fest in LA, where I attended a screening of Joker.', ts: Date.UTC(2023, 4, 26) },
+  ];
+  const v = buildReconciledView(afi, { noun_head: 'festivals', question: 'How many movie festivals did I attend?', reference_ts: Date.UTC(2023, 5, 1) });
+  const out = v.render();
+  const shown = out.split('\n').filter(l => /^L\d+\. /.test(l));
+  assert.strictEqual(shown.length, 3, shown.join('\n'));
+  assert.ok(!/same object as/.test(out), 'no annotation is left for the reader to apply');
+  const anchor = shown.find(l => /AFI Fest/.test(l));
+  assert.ok(/also told as: visit: attended AFI Fest/.test(anchor) || /also told as:/.test(anchor), anchor);
+  assert.ok(/\[=L\d\] user: I just got back from AFI Fest/.test(out), 'the statement attests the line that stands');
+  assert.ok(!/\[=L\d,L\d\]/.test(out), out.split('\n').filter(l => /^S\d/.test(l)).join('\n'));
+});
+
 console.log('\nreconciled-view-subject: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

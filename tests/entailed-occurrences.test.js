@@ -81,5 +81,29 @@ t('prospects derive nothing; an existing stated visit suppresses minting', () =>
   delete process.env.TROTH_INSTANCE_ENTAILMENT;
 });
 
+t('being prescribed by a named clinician is a visit to them, whatever kind the sentence was typed', () => {
+  process.env.TROTH_INSTANCE_ENTAILMENT = '1';
+  const pool = [];
+  ic.writeInstances({
+    instances: [
+      { kind: 'activity', entity: 'antibiotics', description: 'was prescribed antibiotics for a UTI by my primary care physician, Dr. Smith', date_iso: null, status: 'completed', qualifier: 'prescribed', quantity: null, turn_idxs: [0] },
+      { kind: 'visit', entity: 'primary care physician', description: 'schedule a follow-up with my primary care physician about the fatigue', date_iso: null, status: 'planned', qualifier: 'schedule', quantity: null, turn_idxs: [1] }
+    ],
+    turns, agent_id: 'claude-code', user_id: 'default', _pool: pool, session_id: 'S1'
+  });
+  const smith = pool.filter((p) => p.instance.kind === 'visit' && /smith/i.test(p.instance.entity));
+  assert.strictEqual(smith.length, 1, pool.map((p) => p.statement).join(' || '));
+  assert.strictEqual(smith[0].instance.basis, 'entailed');
+  assert.strictEqual(smith[0].instance.status, 'completed');
+  // A bare role is not a person: "referred by my doctor" mints nothing.
+  const pool2 = [];
+  ic.writeInstances({
+    instances: [{ kind: 'activity', entity: 'referral', description: 'was referred to a dermatologist by my doctor', date_iso: null, status: 'completed', qualifier: 'referred', quantity: null, turn_idxs: [0] }],
+    turns, agent_id: 'claude-code', user_id: 'default', _pool: pool2, session_id: 'S1'
+  });
+  assert.ok(!pool2.some((p) => p.instance.basis === 'entailed'), pool2.map((p) => p.statement).join(' || '));
+  delete process.env.TROTH_INSTANCE_ENTAILMENT;
+});
+
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
