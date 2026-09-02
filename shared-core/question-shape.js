@@ -15,6 +15,13 @@ try { _parseTimeWindow = require('./time-window.js').parseTimeWindow; } catch (_
 
 const FAMILIES = ['acquire', 'attend', 'visit', 'work', 'lead', 'own'];
 const DAY_MS = 86400000;
+// What kind of answer the question wants: a place, a time, a person, a
+// thing, a count, a reason, a way of doing something. The reader is told
+// which, so a channel is not served where a place was asked.
+const ASKS = ['place', 'time', 'person', 'thing', 'count', 'reason', 'manner', 'other'];
+// Whether the question is about what is still open (to pick up, to return,
+// to pay, to renew), what is done, or does not care.
+const STATUS_ASKS = ['pending', 'done', 'any'];
 const SCHEMA = {
   type: 'object',
   properties: {
@@ -24,9 +31,11 @@ const SCHEMA = {
     verb_family: { type: 'string', enum: FAMILIES.concat(['other', 'none']) },
     past: { type: 'boolean' },
     window_days: { type: ['integer', 'null'] },
-    window_kind: { type: 'string', enum: ['relative', 'this_year', 'this_month', 'this_week', 'none'] }
+    window_kind: { type: 'string', enum: ['relative', 'this_year', 'this_month', 'this_week', 'none'] },
+    asks: { type: 'string', enum: ASKS },
+    status: { type: 'string', enum: STATUS_ASKS }
   },
-  required: ['count', 'request', 'head', 'verb_family', 'past', 'window_days', 'window_kind']
+  required: ['count', 'request', 'head', 'verb_family', 'past', 'window_days', 'window_kind', 'asks', 'status']
 };
 
 const PROMPT = [
@@ -39,6 +48,8 @@ const PROMPT = [
   '- past: true when it asks about what has already happened, false when about plans.',
   '- window_days: the number of days back the question limits itself to (last month = 30, past three months = 90), or null.',
   '- window_kind: relative for "past N ...", this_year / this_month / this_week for calendar spans, none otherwise.',
+  '- asks: the kind of answer wanted: place (where), time (when, how long ago), person (who), thing (what, which), count (how many, how much, an order of events), reason (why), manner (how), or other.',
+  '- status: pending when it asks what is still open or owed (still to pick up, to return, to pay, to renew, not yet done), done when it asks what was completed, any when it does not care.',
   '',
   'Question: '
 ].join('\n');
@@ -59,6 +70,18 @@ function _windowFrom(shape, refTs) {
 }
 
 // The English patterns, as the fallback and the regression baseline.
+// The wh-word, as the English fallback for what kind of answer is wanted.
+function _asksByPatterns(lower) {
+  if (/\b(how many|how much|how often|number of|total|count|order of|first to last|earliest to latest)\b/.test(lower)) return 'count';
+  if (/\b(where|which (?:store|shop|place|city|restaurant|country)|what (?:store|shop|place|city|restaurant|country))\b/.test(lower)) return 'place';
+  if (/\b(when|how long ago|what (?:day|date|time|year|month)|how many days|how many weeks|how many months)\b/.test(lower)) return 'time';
+  if (/\b(who|whom|whose)\b/.test(lower)) return 'person';
+  if (/\bwhy\b/.test(lower)) return 'reason';
+  if (/\bhow (?:do|did|can|should|would)\b/.test(lower)) return 'manner';
+  if (/\b(what|which)\b/.test(lower)) return 'thing';
+  return 'other';
+}
+
 function shapeByPatterns(question, refTs) {
   const q = String(question || '');
   const lower = q.toLowerCase();
@@ -83,6 +106,8 @@ function shapeByPatterns(question, refTs) {
     head_phrase: phrase,
     families: fam,
     past: /\b(have i|did i|i have|i've|have attended|did|attended|bought|went|visited|acquired|worked on|made|led)\b/.test(lower),
+    asks: _asksByPatterns(lower),
+    status: /\b(still (?:need|have) to|need to (?:pick up|return|pay|renew|collect)|haven't (?:yet|picked|returned|paid)|not yet|pending|outstanding|owe|owed|to be (?:picked up|returned))\b/.test(lower) ? 'pending' : 'any',
     window: _parseTimeWindow ? _parseTimeWindow(q, refTs) : null
   };
 }
@@ -120,6 +145,8 @@ async function shapeQuestion(question, opts) {
           head_phrase: head,
           families: fam,
           past: j.past !== false,
+          asks: ASKS.includes(j.asks) ? j.asks : 'other',
+          status: STATUS_ASKS.includes(j.status) ? j.status : 'any',
           window: _windowFrom(j, opts.reference_ts)
         };
       }

@@ -33,6 +33,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`--provider proxy`, `--answer proxy`): the proxy holds the credentials and
   picks the engine, the harness never touches a key or a token. A re-judged
   run keeps the labels of the answers it grades.
+- The question's shape now says what kind of answer is wanted (a place, a
+  time, a person, a thing, a count, a reason, a way of doing it) and whether
+  the question is about what is still open. The model reads both in any
+  language; the English patterns stand in without one. The reconciled view
+  opens by naming the kind wanted, so a place is answered where a place was
+  asked, and a question about what is still to be picked up, returned or
+  paid keeps the owed and planned lines and sets the finished ones aside,
+  whatever verb the words carry.
+- The extraction prompt names its five kinds outright (visit, purchase,
+  event, activity, possession) and carries the `owed` status for an
+  obligation still open, so any extractor model lands the same ledger.
+- Benchmark digestion keys its extraction cache on each turn's day as well
+  as its words: the same session said on another day is another extraction.
+  `benchmarks/prewarm-extract.mjs` fills the cache for a slice ahead of a
+  run, through the operator's proxy or a llama.cpp host; a worker set to
+  `TROTH_BENCH_EXTRACTOR=proxy` extracts the rest the same way.
 
 ### Changed
 - Image generation keeps the ChatGPT plan lane usable across a sign-in the

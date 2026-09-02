@@ -192,5 +192,51 @@ t('the model-read shape drives the view in any language; the patterns stand in w
   assert.strictEqual(shapeByPatterns('Can you recommend a show?').request, true);
 });
 
+// What is still open: the clothing ledger as the probe measured it (2026-09-02),
+// two obligations among three purchases. "Pick up" reads as acquiring to the
+// verb families; the status ask has to win over the verb.
+const clothing = [
+  { source: 'instance-pool', id: 'c1', statement: '[instance] purchase: purchased H&M — Bought a white button-down shirt from H&M [completed] (attested ×1)', refs: ['dialogue.turn:s6'], _kind: 'purchase', _status: 'completed', _qualifier: 'purchased', _entity: 'H&M' },
+  { source: 'instance-pool', id: 'c2', statement: '[instance] purchase: purchased Levi\'s — Bought new black jeans from Levi\'s [completed] (attested ×1)', refs: ['dialogue.turn:s6'], _kind: 'purchase', _status: 'completed', _qualifier: 'purchased', _entity: 'Levi\'s' },
+  { source: 'instance-pool', id: 'c3', statement: '[instance] possession: owns navy blue blazer — Blazer at the dry cleaner, still to be picked up [owed] (attested ×2)', refs: ['dialogue.turn:s4'], _kind: 'possession', _status: 'owed', _qualifier: 'owns', _entity: 'navy blue blazer' },
+  { source: 'instance-pool', id: 'c4', statement: '[instance] purchase: got boots — Exchanged boots at Zara, the larger pair still to be picked up [owed, 2023-02-05] (attested ×2)', refs: ['dialogue.turn:s9'], _kind: 'purchase', _status: 'owed', _qualifier: 'got', _entity: 'boots' },
+  { source: 'dialogue-window', id: 's4', statement: 'user: I still need to pick up my dry cleaning for the navy blue blazer.', ts: inWin },
+  { source: 'dialogue-window', id: 's6', statement: 'user: My recent purchases, the black jeans from Levi\'s and the white shirt from H&M.', ts: inWin },
+  { source: 'dialogue-window', id: 's9', statement: 'user: I exchanged the boots at Zara and I still need to pick up the new pair.', ts: inWin },
+];
+
+t('a question about what is still pending keeps the owed lines and sets the done ones aside, whatever the verb', () => {
+  const v = buildReconciledView(clothing, { noun_head: 'clothing', question: 'How many items of clothing do I need to pick up or return from a store?', reference_ts: ASKED });
+  assert.strictEqual(v.status_ask, 'pending');
+  const kept = v.ledger.map(l => l.statement);
+  assert.ok(kept.some(s => /blazer/.test(s)) && kept.some(s => /boots/.test(s)), 'the two open obligations are the ledger: ' + kept.join(' | '));
+  assert.ok(!kept.some(s => /H&M/.test(s)) && !kept.some(s => /Levi/.test(s)), 'finished purchases are set aside');
+  assert.ok(v.aside.every(a => /open obligation/.test(a.reason)), v.aside.map(a => a.reason).join(' | '));
+  const out = v.render();
+  assert.ok(out.indexOf('asks what is still open') >= 0, 'the view says what it kept and why');
+});
+
+t('the shape says what kind of answer is wanted, by the model in any language, by the wh-word without one', async () => {
+  const { shapeQuestion, shapeByPatterns } = require('../shared-core/question-shape.js');
+  assert.strictEqual(shapeByPatterns('Where did I redeem a $5 coupon on coffee creamer?').asks, 'place');
+  assert.strictEqual(shapeByPatterns('When did I last see my dentist?').asks, 'time');
+  assert.strictEqual(shapeByPatterns('Who recommended the bakery to me?').asks, 'person');
+  const pending = shapeByPatterns('How many items of clothing do I need to pick up or return from a store?');
+  assert.strictEqual(pending.asks, 'count');
+  assert.strictEqual(pending.status, 'pending');
+  assert.strictEqual(shapeByPatterns('How many plants did I acquire in the last month?').status, 'any');
+  const fake = async () => JSON.stringify({ count: false, request: false, head: 'κουπόνι', verb_family: 'none', past: true, window_days: null, window_kind: 'none', asks: 'place', status: 'any' });
+  const shape = await shapeQuestion('Πού εξαργύρωσα το κουπόνι για την κρέμα καφέ;', { llmCall: fake, reference_ts: ASKED });
+  assert.strictEqual(shape.source, 'model');
+  assert.strictEqual(shape.asks, 'place');
+  assert.strictEqual(shape.status, 'any');
+  const v = buildReconciledView(clothing, { question: 'Πού εξαργύρωσα το κουπόνι;', reference_ts: ASKED, shape });
+  assert.ok(v.render().indexOf('The question asks for a place; the answer names one.') === 0, 'the view opens with the kind of answer wanted');
+  const fakePending = async () => JSON.stringify({ count: true, request: false, head: 'ρούχο', verb_family: 'acquire', past: true, window_days: null, window_kind: 'none', asks: 'count', status: 'pending' });
+  const sp = await shapeQuestion('Πόσα ρούχα έχω ακόμα να παραλάβω ή να επιστρέψω;', { llmCall: fakePending, reference_ts: ASKED });
+  const vp = buildReconciledView(clothing, { question: 'Πόσα ρούχα έχω ακόμα να παραλάβω ή να επιστρέψω;', reference_ts: ASKED, shape: sp });
+  assert.deepStrictEqual(vp.ledger.map(l => /blazer/.test(l.statement) ? 'blazer' : (/boots/.test(l.statement) ? 'boots' : 'other')).sort(), ['blazer', 'boots'], 'a Greek pending question keeps the same two lines');
+});
+
 console.log('\nreconciled-view-question: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

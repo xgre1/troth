@@ -183,6 +183,13 @@ function buildReconciledView(items, opts) {
     ? VERB_FAMILIES.filter((f) => Array.isArray(shape.families) && shape.families.includes(f.name))
     : (question ? VERB_FAMILIES.filter((f) => f.ask.test(qLower)) : []);
   const pastAsk = shape ? shape.past !== false : (question ? PAST_ASK.test(qLower) : false);
+  // What is still open: a question about what is yet to be picked up,
+  // returned, paid or renewed keeps the owed and planned lines and sets the
+  // rest aside, whatever verb the words carry ("pick up" is not acquiring).
+  const PENDING_ASK = /\b(still (?:need|have) to|need to (?:pick up|return|pay|renew|collect)|haven't (?:yet|picked|returned|paid)|not yet|pending|outstanding|owe|owed|to be (?:picked up|returned))\b/;
+  const statusAsk = shape && typeof shape.status === 'string' ? shape.status : (question && PENDING_ASK.test(qLower) ? 'pending' : 'any');
+  const pendingAsk = statusAsk === 'pending';
+  const asks = shape && typeof shape.asks === 'string' ? shape.asks : null;
 
   // Each filter is a pass over the instances that names a reason; a filter
   // that would leave nothing is skipped so the ledger is never emptied.
@@ -202,12 +209,13 @@ function buildReconciledView(items, opts) {
     const ts = Date.parse(d + 'T12:00:00Z');
     return Number.isFinite(ts) && (ts < window.since - DAY_MS || ts > window.until + DAY_MS);
   });
-  if (families.length) apply('outside the question\'s verb (' + families.map((f) => f.name).join(' or ') + ')', (it) => {
+  if (pendingAsk) apply('not an open obligation (the question asks what is still pending)', (it) => it._kind && it._status !== 'owed' && it._status !== 'planned');
+  if (families.length && !pendingAsk) apply('outside the question\'s verb (' + families.map((f) => f.name).join(' or ') + ')', (it) => {
     if (!it._kind) return false;                        // no structure, no verdict
     const verbs = [it._qualifier].concat(Array.isArray(it._facets) ? it._facets : []).filter(Boolean).join(' ').toLowerCase();
     return !families.some((f) => f.kinds.has(String(it._kind)) || f.verbs.test(verbs));
   });
-  if (pastAsk) apply('planned or cancelled, not done', (it) => it._status === 'planned' || it._status === 'cancelled');
+  if (pastAsk && !pendingAsk) apply('planned or cancelled, not done', (it) => it._status === 'planned' || it._status === 'cancelled');
   if (question) {
     // Cosine to the question has limited resolution (measured 2026-09-02:
     // true members 0.30-0.50, strangers 0.25-0.40). The strict floors are
@@ -283,7 +291,7 @@ function buildReconciledView(items, opts) {
   // Only the certain reasons (window, status) earn the mark; a statement
   // behind a verb- or subject-set-aside line stays open for judgment.
   const certainIds = new Set();
-  for (const a of aside) if (/time window|planned or cancelled/.test(a.reason)) for (const ref of (a.item.refs || [])) certainIds.add(String(ref).replace(/^dialogue\.turn:/, ''));
+  for (const a of aside) if (/time window|planned or cancelled|open obligation/.test(a.reason)) for (const ref of (a.item.refs || [])) certainIds.add(String(ref).replace(/^dialogue\.turn:/, ''));
   for (const r of raw) if (r.role === 'new' && certainIds.has(String(r.id))) r.role = 'aside';
 
   // Cast: identities the mounted material mentions. Distinctness questions
@@ -317,8 +325,16 @@ function buildReconciledView(items, opts) {
     totals,
     about,
     families: families.map((f) => f.name),
+    asks,
+    status_ask: statusAsk,
     render() {
       const lines = [];
+      // The kind of answer wanted, said once, so the reader serves a place
+      // where a place was asked and not the channel it came through.
+      const askLabel = { place: 'a place', time: 'a time', person: 'a person', thing: 'a thing', reason: 'a reason', manner: 'a way of doing it' };
+      if (asks && askLabel[asks]) lines.push('The question asks for ' + askLabel[asks] + '; the answer names one.');
+      if (pendingAsk) lines.push('The question asks what is still open: only owed or planned lines count, and a thing already done is not pending.');
+      if ((asks && askLabel[asks]) || pendingAsk) lines.push('');
       if (about.length) {
         const label = { role: 'who they are', constraint: 'a constraint they keep', skill: 'a skill they have', liking: 'what they like', effort: 'something they made before' };
         lines.push('About the user, in their own words (newest first; build the answer around the one most specific to this request, then honour the rest):');
