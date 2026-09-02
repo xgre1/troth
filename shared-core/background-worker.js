@@ -1014,20 +1014,27 @@ const taskInstanceConsolidation = {
     }
     const ctx = (view && view.substrate_ctx) || {};
     let stats;
+    let road = null;
     try {
+      // The local engine when it answers; else the operator's engine through
+      // the proxy under a per-pass budget of turns; else the window is
+      // retained and the next cadence retries.
+      road = await ic.makeExtractor({ cwd: ctx.cwd || null });
+      if (!road.llmCall) return { events: [], notes: ['instance_consolidation: window retained (' + road.reason + ')'] };
       stats = await ic.runPass({
         agent_id: ctx.agent_id || 'background-worker',
         user_id: ctx.user_id || 'default',
         cwd: ctx.cwd || null,
-        llmCall: ic.makeLlamacppExtractor()
+        llmCall: road.llmCall,
+        limit: road.limit || undefined
       });
     } catch (e) {
       return { events: [], notes: ['instance_consolidation: ' + String(e && e.message || e)] };
     }
     const note = stats.advanced
-      ? ('instance_consolidation: processed=' + stats.processed + ' written=' + stats.written +
+      ? ('instance_consolidation (' + road.road + '): processed=' + stats.processed + ' written=' + stats.written +
          ' dup=' + stats.dup + ' dropped=' + stats.dropped + ' no_provenance=' + stats.no_provenance)
-      : ('instance_consolidation: window retained (' + (stats.transport_error || 'no new turns') + ')');
+      : ('instance_consolidation (' + road.road + '): window retained (' + (stats.transport_error || 'no new turns') + ')');
     return { events: [], notes: [note] };
   }
 };

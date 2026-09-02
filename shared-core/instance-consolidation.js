@@ -1312,6 +1312,62 @@ function makeLlamacppExtractor(cfg) {
   };
 }
 
+// The extractor as one call through the operator's own troth proxy
+// (/v1/messages, Anthropic shape). The proxy holds the credentials and
+// picks the engine from the model id and the routing pin; this process
+// never sees a key. Same contract as makeLlamacppExtractor.
+function makeProxyExtractor(cfg) {
+  cfg = cfg || {};
+  const host = String(cfg.host || ('http://127.0.0.1:' + (process.env.GF_PORT || '8000'))).replace(/\/+$/, '');
+  const model = cfg.model || process.env.TROTH_INSTANCE_EXTRACT_MODEL || 'claude-sonnet-5';
+  const timeoutMs = cfg.timeout_ms || 120 * 1000;
+  return async function llmCall(prompt) {
+    const body = {
+      model, max_tokens: cfg.max_tokens || 2048, stream: false,
+      system: 'You extract structured memory from a user\'s own statements. Reply with the JSON object asked for and nothing else.',
+      messages: [{ role: 'user', content: prompt }]
+    };
+    const res = await fetch(host + '/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-troth-source': 'instance-extraction', 'x-troth-raw': '1' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+    const text = await res.text();
+    if (res.status !== 200) throw new Error('extractor http ' + res.status + ': ' + text.slice(0, 200));
+    const j = JSON.parse(text);
+    return (Array.isArray(j.content) ? j.content : []).filter((b) => b && b.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('');
+  };
+}
+
+// Which road the live pass takes: the local engine when it answers, else
+// the operator's engine through the proxy under a per-pass budget of turns,
+// else none (the window is retained and the next cadence retries). A user
+// without a local engine still gets a ledger; the cost is visible in the
+// proxy's usage ledger under the source instance-extraction.
+//   TROTH_INSTANCE_EXTRACT_ENGINE=0          never use the proxy road
+//   TROTH_INSTANCE_EXTRACT_TURNS_PER_PASS=N  turns per pass on the proxy road (default 60)
+async function makeExtractor(opts) {
+  opts = opts || {};
+  const probe = opts.probe || (async (url) => {
+    try { const r = await fetch(url, { signal: AbortSignal.timeout(opts.probe_ms || 1500) }); return !!r.ok; } catch (_) { return false; }
+  });
+  let local = opts.local_host;
+  if (local === undefined) { try { local = require('./transport-config.js').llamacppHost(); } catch (_) { local = null; } }
+  if (local && await probe(String(local).replace(/\/+$/, '') + '/health')) {
+    return { road: 'local', llmCall: makeLlamacppExtractor({ host: local }), limit: null };
+  }
+  if (String(process.env.TROTH_INSTANCE_EXTRACT_ENGINE || '') === '0') {
+    return { road: 'none', llmCall: null, limit: null, reason: 'local engine unreachable; the engine road is off (TROTH_INSTANCE_EXTRACT_ENGINE=0)' };
+  }
+  const proxyHost = String(opts.proxy_host || ('http://127.0.0.1:' + (process.env.GF_PORT || '8000'))).replace(/\/+$/, '');
+  if (await probe(proxyHost + '/health')) {
+    const limit = Number(process.env.TROTH_INSTANCE_EXTRACT_TURNS_PER_PASS) || 60;
+    return { road: 'engine', llmCall: makeProxyExtractor({ host: proxyHost, model: opts.model }), limit };
+  }
+  return { road: 'none', llmCall: null, limit: null, reason: 'no local engine and no proxy reachable' };
+}
+
 module.exports = {
   enabled,
   entailmentEnabled,
@@ -1322,6 +1378,8 @@ module.exports = {
   writeInstances,
   runPass,
   makeLlamacppExtractor,
+  makeProxyExtractor,
+  makeExtractor,
   SCOPE_PREFIX,
   WATERMARK_SCOPE,
   KINDS,

@@ -45,6 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   statement with its receipts; a question about what is owned never keeps an
   activity line, however the words score; and the identity registry keeps
   names, never insults, sentences or clauses, as aliases.
+- The memory's understanding pass (typed occurrences, identities) runs
+  without a local engine: when the local engine does not answer, the pass
+  takes the operator's engine through the proxy under a per-pass budget of
+  turns (`TROTH_INSTANCE_EXTRACT_TURNS_PER_PASS`, default 60), with the cost
+  visible in the usage ledger under `instance-extraction`;
+  `TROTH_INSTANCE_EXTRACT_ENGINE=0` keeps the pass local-only.
 - A count of what happened or what is owned leaves plans out: "how many
   tanks do I have" is not answered by a tank the user is thinking of setting
   up, while a question about plans keeps its planned lines. The same object
