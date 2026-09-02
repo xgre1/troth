@@ -163,7 +163,11 @@ if (lessons.length) {
 try {
   if (prompt.trim().length >= 12 && !prompt.startsWith('/')) {
     const recall = require(pluginRoot + '/../shared-core/recall.js');
-    const didRerank = prompt.trim().length >= 40;
+    // Every recall that is shown has been judged: the cross-encoder runs on
+    // every prompt that reaches recall, short ones included. A short prompt
+    // ("how is it going?", "I pinned it") matched on one word is exactly the
+    // one that used to surface a stranger as ground truth.
+    const didRerank = true;
     const _t0 = Date.now();
     const recallP = recall.recall({
       query: prompt, class: 'all', audience: 'model_visible', limit: 5, cwd, rerank: didRerank
@@ -205,9 +209,11 @@ try {
     // Where the reranker ran, only what it scored above zero is offered; when
     // nothing clears, the block is not written at all.
     const scored = Array.isArray(hits) && hits.some(h => Number.isFinite(h._rerank));
+    // No verdict, no block: when the reranker did not answer, nothing is
+    // offered as ground truth. Precision over presence.
     const relevant = scored
-      ? hits.filter(h => !Number.isFinite(h._rerank) || h._rerank > 0)
-      : (Array.isArray(hits) ? hits : []);
+      ? hits.filter(h => Number.isFinite(h._rerank) && h._rerank > 0)
+      : [];
     if (relevant.length) {
       // Split by WHOSE words these are before framing any of them as truth.
       //

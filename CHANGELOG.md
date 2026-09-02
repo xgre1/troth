@@ -60,8 +60,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OpenAI-compatible endpoint (`--provider openrouter`, `--answer openrouter`,
   `TROTH_OAI_MODEL`, `TROTH_OAI_JUDGE_MODEL`), and waits once through a
   rate-limit answer before reporting it.
+- What the operator states about themselves becomes memory: a role, a
+  constraint, a skill, a liking, a prior effort, each written once in the
+  operator's own words with the turns that attest it counted, and lifted
+  into the always-on identity block once stated three times. The local
+  engine reads the facts in any language when it answers; the English
+  patterns stand in otherwise.
 
 ### Changed
+- Recall shown in a session has been judged. The cross-encoder reads every
+  recall, short prompts included, and only what it scores as answering the
+  prompt is offered as ground truth; how loudly something was once said no
+  longer ranks it. Verbatim fragments kept for their volume leave every
+  model-visible recall on the next open; nothing is deleted.
 - Image generation keeps the ChatGPT plan lane usable across a sign-in the
   endpoint has stopped honouring. A request the plan answers 401 rotates the
   saved token once, through the same refresh the chat lane uses, and resends

@@ -25,17 +25,24 @@
 const engram = require('./engram.js');
 const state  = require('./state.js');
 
-const CONSOLIDATED_SCOPE = 'consolidated:dialogue';
+const CONSOLIDATED_SCOPE = 'consolidated:self';
 const IDENTITY_SCOPE     = 'identity';
 const DEFAULT_MIN_REPS   = 3;
 const DEFAULT_MIN_AGE_MS = 12 * 60 * 60 * 1000;  // "next day"
-const PROMOTED_PREFIX    = 'operator emphasized: ';
-
-// Strip the wm_consolidation prefix so we compare on raw user fragment.
+// The consolidated statement IS the fact, in the operator's words; nothing
+// to strip. Kept as a function so callers read the same way as before.
 function _bareFragment(stmt) {
-  if (typeof stmt !== 'string') return '';
-  if (stmt.indexOf(PROMOTED_PREFIX) === 0) return stmt.slice(PROMOTED_PREFIX.length);
-  return stmt;
+  return typeof stmt === 'string' ? stmt.trim() : '';
+}
+// What wm_consolidation stamped on the row: the attesting-turn count and the
+// kind of fact, when it did.
+function _stamped(engramId) {
+  try {
+    const rows = state.getActionsByIds([engramId]) || [];
+    const out = rows[0] && (typeof rows[0].output === 'string' ? JSON.parse(rows[0].output) : rows[0].output);
+    const p = (out && out.payload) || {};
+    return { reps: Number.isFinite(p.reps) ? p.reps : null, fact_kind: typeof p.fact_kind === 'string' ? p.fact_kind : null };
+  } catch (_) { return { reps: null, fact_kind: null }; }
 }
 
 // Count dialogue.turn rows whose user_text contains the fragment.
@@ -99,7 +106,9 @@ function runOnce(opts) {
     if (promotedAlready.has(_normalizeKey(frag))) { skipped++; continue; }
     const cTs = (typeof c.ts === 'number') ? c.ts : (typeof c.timestamp === 'number' ? c.timestamp : 0);
     if (now - cTs < minAgeMs) { skipped++; continue; }
-    const reps = _countTurnsContaining(frag, { since: turnsSince });
+    const stamped = _stamped(c.id);
+    const counted = _countTurnsContaining(frag, { since: turnsSince });
+    const reps = stamped.reps != null ? Math.max(stamped.reps, counted) : counted;
     if (reps < minReps) { skipped++; continue; }
     const id = engram.recordEngram({
       agent_id: opts.agent_id || 'identity-promotion',
@@ -111,7 +120,7 @@ function runOnce(opts) {
       source_authority: 'plr_evolved',
       salience: 1.0 + Math.min(2.0, (reps - minReps) * 0.25),
       auto_verify: false,
-      extra_output: { payload: { promoted_from: c.id, reps, fragment_chars: frag.length } }
+      extra_output: { payload: { promoted_from: c.id, reps, fragment_chars: frag.length, fact_kind: stamped.fact_kind || 'fact' } }
     });
     if (id) {
       promoted++;

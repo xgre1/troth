@@ -117,6 +117,13 @@ function db() {
     // and compete in the general pool; recordEngram now derives identity for
     // scope entity:*. Re-stamp the old rows once per open (indexed on scope).
     _db.prepare("UPDATE action_records SET memory_class='identity' WHERE memory_class='episodic' AND json_extract(output,'$.scope') LIKE 'entity:%'").run();
+    // The emphasis pile: raw user turns promoted verbatim because they were
+    // loud (caps, profanity, repetition), scope consolidated:dialogue, and the
+    // identity rows lifted from them. They stay as record and leave every
+    // model-visible recall; nothing is deleted. Once per open, indexed on
+    // (audience, memory_class).
+    _db.prepare("UPDATE action_records SET audience='substrate_internal' WHERE audience='model_visible' AND json_extract(output,'$.scope')='consolidated:dialogue'").run();
+    _db.prepare("UPDATE action_records SET audience='substrate_internal' WHERE audience='model_visible' AND json_extract(output,'$.scope')='identity' AND json_extract(output,'$.source')='identity-promotion.runOnce' AND json_extract(output,'$.payload.fact_kind') IS NULL").run();
   } catch (_) { /* columns not yet there (very first run before migrate) */ }
   return _db;
 }

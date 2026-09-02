@@ -177,12 +177,14 @@ function recordEngram(opts) {
         });
       } catch (_) { verifyOut = null; }
     }
-    const _emphasisBoost = detectEmphasis(statement);
+    // Salience comes from the caller (an explicit remember, a rule, a
+    // decision) or stays at 1.0. How loudly something was said is not how
+    // much it matters: the emphasis heuristic marks anger far more often than
+    // importance, and a boost here put the operator's angriest sentences at
+    // the top of every lexical match. detectEmphasis stays exported for the
+    // callers that read it as a signal, never as rank.
     const _baseSalience = typeof opts.salience === 'number' ? opts.salience : 1.0;
-    // Additive only — never elevate explicit low-salience writes (tombstones,
-    // gc fixtures, demotion markers). Caller's salience floor is preserved;
-    // emphasis just adds on top. Capped at 2.0.
-    const _effectiveSalience = Math.min(2.0, _baseSalience + _emphasisBoost);
+    const _effectiveSalience = Math.min(2.0, _baseSalience);
 
     // A replicated write carries its author's id so every copy of the mind
     // holds ONE record, not one per machine.

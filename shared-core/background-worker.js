@@ -793,16 +793,58 @@ const taskPurposeRefresh = {
 // taskWorkingMemoryConsolidation.
 //
 // Real cognition consolidates salient working-memory moments to long-term
+// The self-fact reader: one small structured call to the local engine that
+// returns the durable facts a turn states about the operator, in any
+// language; null when no engine answers, so the caller falls back to the
+// English patterns. Same shape as question-shape's makeShapeCall.
+const _SELF_FACT_SCHEMA = {
+  type: 'object',
+  properties: {
+    facts: { type: 'array', items: { type: 'object', properties: {
+      kind: { type: 'string', enum: ['role', 'constraint', 'skill', 'liking', 'effort', 'fact'] },
+      what: { type: 'string' }
+    }, required: ['kind', 'what'] } }
+  },
+  required: ['facts']
+};
+const _SELF_FACT_PROMPT = [
+  'Read the message a person wrote to their assistant. List only durable facts the person states ABOUT THEMSELVES:',
+  'their role or occupation, a constraint they live with, a skill they have, something they like or dislike, something they made or did before.',
+  'Write each fact as a short phrase in the message\'s own language and words. Ignore requests, anger, opinions about the assistant, and anything about other people.',
+  'Answer with ONE JSON object {"facts":[{"kind":"role|constraint|skill|liking|effort|fact","what":"..."}]} and nothing else; an empty list when there is none.',
+  '', 'Message: '
+].join('\n');
+function _selfFactReader() {
+  // TROTH_SELF_FACT_LLM=0 keeps the reader off (tests, or an operator who
+  // wants the patterns only); with no local engine the reader is off anyway.
+  if (process.env.TROTH_SELF_FACT_LLM === '0') return null;
+  let host = null;
+  try { host = require('./transport-config.js').llamacppHost(); } catch (_) { host = null; }
+  if (!host) return null;
+  const qs = require('./question-shape.js');
+  const call = qs.makeShapeCall({ host, timeout_ms: 8000 });
+  return async function readFacts(text) {
+    const out = await call(_SELF_FACT_PROMPT + String(text).slice(0, 1200), { json_schema: _SELF_FACT_SCHEMA });
+    const s = String(out || '');
+    const a = s.indexOf('{'), b = s.lastIndexOf('}');
+    if (a < 0 || b <= a) return null;
+    let j; try { j = JSON.parse(s.slice(a, b + 1)); } catch (_) { return null; }
+    return Array.isArray(j && j.facts) ? j.facts : null;
+  };
+}
+
 // during attention spikes / sleep. The substrate's dialogue.turn rows are
 // working memory; without consolidation, anything more than 3 turns back
 // disappears from the prefix unless it happened to become a commitment.
 //
-// This task scans recent dialogue turns and auto-promotes high-emphasis
-// moments (CAPS, intensifiers, repetition, profanity — same heuristic
-// engram.detectEmphasis uses at write-time) to scope='consolidated:dialogue'
-// engrams. Source authority = 'plr_evolved' (substrate-derived from
-// operator's own words, not regex extraction; not direct operator action
-// via update_identity tool either — sits between).
+// This task reads recent dialogue turns for what the operator STATES about
+// themselves (a role, a constraint, a skill, a liking, a prior effort) and
+// writes each distinct fact once, in the operator's own words, to
+// scope='consolidated:self' with the turns that attest it counted. The
+// local engine reads the facts in any language when it answers; the English
+// patterns in self-statements.js stand in otherwise. How loudly a turn was
+// said (caps, profanity, repetition) is not a signal here: it marks anger
+// far more often than importance. Source authority = 'plr_evolved'.
 //
 // Watermark: written as a substrate_internal engram with
 // scope='system:wm_consolidation:watermark'. Read at task start to find
@@ -868,18 +910,23 @@ const taskWorkingMemoryConsolidation = {
     const _seenPromoted = new Set();
     try {
       const existingPromoted = engram.listEngrams({
-        scope: 'consolidated:dialogue', limit: 500
+        scope: 'consolidated:self', limit: 500
       }) || [];
       for (const e of existingPromoted) {
         const s = e && e.statement;
-        if (s) _seenPromoted.add(String(s).trim());
+        if (s) _seenPromoted.add(String(s).replace(/\s+/g, ' ').trim().toLowerCase());
       }
     } catch (_) { /* best-effort; empty set just means no prior-run dedup */ }
 
-    // Score each turn's user_text on emphasis; promote if >= 0.3.
+    // Read each new turn for what it states about the operator. One row per
+    // distinct fact, in the operator's words, with the attesting turns counted.
     let promoted = 0;
     let skippedDup = 0;
     let latestTs = watermark;
+    const selfStatements = require('./self-statements.js');
+    let readFacts = null;
+    try { readFacts = _selfFactReader(); } catch (_) { readFacts = null; }
+    const facts = new Map();
     for (const row of turns) {
       latestTs = Math.max(latestTs, row.timestamp);
       let inp;
@@ -887,28 +934,35 @@ const taskWorkingMemoryConsolidation = {
       catch (_) { continue; }
       const userText = (inp && inp.args && inp.args.user_text) || '';
       if (!userText || userText.length < 12) continue;
-      const boost = engram.detectEmphasis(userText);
-      if (boost < 0.3) continue;
-      const fragment = String(userText).slice(0, 280).trim();
-      const promotedStatement = 'operator emphasized: ' + fragment;
-      // NO-OP if this exact emphasized statement is already promoted (prior
-      // run or earlier in this batch). Prevents the duplicate-spam pile-up.
-      if (_seenPromoted.has(promotedStatement)) { skippedDup++; continue; }
-      _seenPromoted.add(promotedStatement);
+      let found = null;
+      if (readFacts) { try { found = await readFacts(userText); } catch (_) { found = null; } }
+      if (!Array.isArray(found)) {
+        found = selfStatements.extractSelfStatements(userText).map((s) => ({ kind: s.kind, what: s.what }));
+      }
+      for (const f of found) {
+        const what = String((f && f.what) || '').replace(/\s+/g, ' ').trim();
+        if (what.length < 4 || what.length > 200) continue;
+        const kind = String((f && f.kind) || 'fact').toLowerCase();
+        const key = what.toLowerCase();
+        if (!facts.has(key)) facts.set(key, { fact: what, kind, rows: [] });
+        facts.get(key).rows.push(row);
+      }
+    }
+    for (const [key, f] of facts) {
+      if (_seenPromoted.has(key)) { skippedDup++; continue; }
+      _seenPromoted.add(key);
+      const first = f.rows[0];
       const wrote = engram.recordEngram({
         agent_id: ctx.agent_id || 'background-worker',
-        cwd: row.cwd || ctx.cwd || null,
-        user_id: row.user_id || ctx.user_id || 'default',
-        statement: promotedStatement,
-        scope: 'consolidated:dialogue',
+        cwd: first.cwd || ctx.cwd || null,
+        user_id: first.user_id || ctx.user_id || 'default',
+        statement: f.fact,
+        scope: 'consolidated:self',
         source: 'background_worker.wm_consolidation',
         source_authority: 'plr_evolved',
-        provenance_ref: 'dialogue.turn:' + row.id,
-        // detectEmphasis runs again inside recordEngram — final salience
-        // is 1.0 + boost. Caller's salience here would be additive; we
-        // intentionally pass undefined so the write-time emphasis stamp
-        // is the single source of truth.
-        auto_verify: false
+        provenance_ref: 'dialogue.turn:' + first.id,
+        auto_verify: false,
+        extra_output: { payload: { fact_kind: f.kind, reps: f.rows.length, turn_ids: f.rows.map((r) => r.id).slice(0, 12) } }
       });
       if (wrote) promoted++;
     }

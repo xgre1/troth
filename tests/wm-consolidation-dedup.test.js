@@ -1,20 +1,10 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
-// wm_consolidation dedup regression.
-// Proves the fix for the live "12x identical 'operator emphasized:' spam"
-// defect: the task wrote with auto_verify:false (dedup off) and never
-// implemented the dedup its own comment promised, so each tick re-promoted the
-// SAME emphasized fragment. Grounded in our ingested research
-// (AI-Memory-Consolidation-Implementation-Details.md §3.4: an identical
-// assertion is a storage NO-OP).
-//
-// The task reads the real engram/state singletons (require('./engram.js'))
-// and has no DI seam, so this drives them directly (same pattern as ENT-58 in
-// test-all.js) against the live ~/.troth DB, using a UNIQUE marker per run so
-// it never collides with real data or other runs. It records real dialogue.turn
-// tool_call rows, runs the task twice, and asserts the emphasized fragment is
-// promoted exactly once.
+// wm_consolidation dedup: one fact, one row. The same fact stated three
+// times in three turns is ONE consolidated:self row with reps=3; a later
+// identical turn does not add a copy; a distinct fact gets its own row.
+process.env.TROTH_SELF_FACT_LLM = '0';
 require('./hermetic-db.js'); // pin a throwaway STATE_DB_PATH before state.js loads
 const assert = require('assert');
 const path = require('path');
@@ -33,15 +23,11 @@ function t(name, fn) {
     .catch(e => { console.log('  ✗ ' + name + ': ' + e.message); fail++; });
 }
 
-// Unique marker so this test's writes never collide with real data / other runs.
-const MARK = 'WMDEDUP' + Date.now().toString(36) + Math.floor(performance.now()).toString(36);
-const EMPH = '!!! ' + MARK + ' this fragment is strongly emphasized and must promote once';
+const MARK = 'dedup' + Date.now().toString(36);
+const FACT_TURN = 'I love true crime podcasts ' + MARK + ' and I am looking for something new tonight';
 const AGENT = 'wmdedup-' + Date.now();
 const CWD = require('os').tmpdir() + '/wmdedup-' + Date.now();
 
-// Record a dialogue.turn tool_call row (what the task scans). timestamp must be
-// AFTER the watermark; the task's no-watermark fallback looks back only 1h, so
-// "now" rows qualify.
 function recordTurn(userText, tsOffset) {
   const rec = {
     id: ar.uuidv7(),
@@ -56,48 +42,45 @@ function recordTurn(userText, tsOffset) {
   state.recordAction(rec, ar.toSearchText(rec));
 }
 
-function countPromoted(marker) {
-  const rows = eng.listEngrams({ scope: 'consolidated:dialogue', limit: 1000 }) || [];
-  return rows.filter(e => e && typeof e.statement === 'string' && e.statement.includes(marker)).length;
+function factRows(marker) {
+  const rows = eng.listEngrams({ scope: 'consolidated:self', limit: 1000 }) || [];
+  return rows.filter(e => e && typeof e.statement === 'string' && e.statement.toLowerCase().includes(marker.toLowerCase()));
+}
+function repsOf(marker) {
+  const db = state._dbForQuery();
+  const rows = db.prepare("SELECT output FROM action_records WHERE type='commitment' AND json_extract(output,'$.scope')='consolidated:self'").all();
+  for (const r of rows) { let o; try { o = JSON.parse(r.output); } catch (_) { continue; } if (o.statement && o.statement.toLowerCase().includes(marker.toLowerCase())) return o.payload && o.payload.reps; }
+  return null;
 }
 
-console.log('\n=== wm_consolidation dedup (M1, live-singleton) ===\n');
+console.log('\n=== wm_consolidation dedup (one fact, one row) ===\n');
 
 (async () => {
   if (!task) { console.error('FATAL: wm_consolidation task not found'); process.exit(1); }
-
   const view = { substrate_ctx: { agent_id: AGENT, cwd: CWD, user_id: 'default' } };
 
-  await t('three identical emphasized turns promote the fragment exactly once', async () => {
-    recordTurn(EMPH, 0);
-    recordTurn(EMPH, 1);
-    recordTurn(EMPH, 2);
+  await t('the same fact stated three times is one row with reps=3', async () => {
+    recordTurn(FACT_TURN, 0);
+    recordTurn(FACT_TURN, 1);
+    recordTurn(FACT_TURN, 2);
     await task.run(view);
-    const n = countPromoted(MARK);
-    assert.strictEqual(n, 1, 'expected exactly 1 promoted copy, got ' + n);
+    const n = factRows(MARK).length;
+    assert.strictEqual(n, 1, 'expected exactly 1 fact row, got ' + n);
+    assert.strictEqual(repsOf(MARK), 3, 'the three attesting turns are counted');
   });
 
-  await t('re-running the task does NOT add another copy (across-run dedup)', async () => {
-    recordTurn(EMPH, 3); // a fresh identical turn after the first run
+  await t('re-running the task after another identical turn does NOT add a copy', async () => {
+    recordTurn(FACT_TURN, 3);
     await task.run(view);
-    const n = countPromoted(MARK);
-    assert.strictEqual(n, 1, 'across-run dedup failed: got ' + n + ' copies');
+    assert.strictEqual(factRows(MARK).length, 1, 'across-run dedup');
   });
 
-  await t('a distinct emphasized fragment still promotes', async () => {
-    // Distinct marker that does NOT contain MARK as a substring (else
-    // countPromoted(MARK) would also match this fragment and over-count).
-    const MARK2 = 'WMDEDUPB' + Date.now().toString(36);
-    // Must clear detectEmphasis() >= 0.3 to be eligible for promotion — the
-    // task only promotes emphasized turns. Mirror the same emphasis shape as
-    // EMPH ("must promote"/"strongly emphasized" trigger the detector). A
-    // fragment without emphasis words scores ~0.1 and is correctly skipped —
-    // that is the task working as designed, not a dedup issue.
-    const EMPH2 = '!!! ' + MARK2 + ' strongly emphasized and must promote once too';
-    recordTurn(EMPH2, 60 * 60 * 1000);
+  await t('a distinct fact gets its own row', async () => {
+    const MARK2 = 'dedupb' + Date.now().toString(36);
+    recordTurn('I took a ' + MARK2 + ' pottery course, and I want to try a wheel again', 60 * 60 * 1000);
     await task.run(view);
-    assert.strictEqual(countPromoted(MARK2), 1, 'distinct emphasized fragment must promote');
-    assert.strictEqual(countPromoted(MARK), 1, 'original still deduped to 1');
+    assert.strictEqual(factRows(MARK2).length, 1, 'distinct fact must have its own row');
+    assert.strictEqual(factRows(MARK).length, 1, 'original still one row');
   });
 
   console.log('');
