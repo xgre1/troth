@@ -96,6 +96,12 @@ node benchmarks/longmemeval.mjs --stratified 100 --answer llamacpp --judge local
 Useful flags: `--only id1,id2` reruns specific questions; `--n` and
 `--offset` slice the set; `--answer claude --provider claude --model sonnet`
 swaps in a cloud reader over the same memory (composition only — digestion,
-retrieval and judging stay local); `--answer-timeout-ms` raises the compose
-ceiling for slow local models. Digestion results are content-addressed in
-`TROTH_BENCH_EXTRACT_CACHE`, so repeat runs only pay for extraction once.
+retrieval and judging stay local); `--answer proxy --provider proxy` sends
+compose and judge through the operator's own troth proxy (`TROTH_PROXY_HOST`,
+default `http://127.0.0.1:8000`; `TROTH_PROXY_MODEL` names the model, a
+`gpt-5*` id reaches the ChatGPT-plan lane), so the harness never holds a key
+or a token; `--rejudge results.json` grades a finished run's answers with
+this run's judge and composes nothing; `--answer-timeout-ms` raises the
+compose ceiling for slow local models. Digestion results are content-
+addressed in `TROTH_BENCH_EXTRACT_CACHE`, so repeat runs only pay for
+extraction once.

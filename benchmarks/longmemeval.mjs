@@ -100,18 +100,32 @@ const ONLY = argVal('--only', '');
 // --rejudge <results.json>: grade that run's stored answers with this run's
 // judge, composing nothing. The judge is the one variable.
 const REJUDGE = argVal('--rejudge', '');
-const REJUDGE_ROWS = REJUDGE ? (JSON.parse(readFileSync(REJUDGE, 'utf8')).rows || []) : null;
+const REJUDGE_SRC = REJUDGE ? JSON.parse(readFileSync(REJUDGE, 'utf8')) : null;
+const REJUDGE_ROWS = REJUDGE_SRC ? (REJUDGE_SRC.rows || []) : null;
+// A re-judged run keeps the answers' own labels: the answers were composed
+// by the source run's model, not by whatever --answer this invocation carries.
+function _answerTransportLabel() {
+  return REJUDGE_SRC && REJUDGE_SRC.answer_transport ? REJUDGE_SRC.answer_transport : ANSWER;
+}
+function _answerModelLabel() {
+  if (REJUDGE_SRC && REJUDGE_SRC.answer_model) return REJUDGE_SRC.answer_model;
+  return ANSWER === 'claude' ? (CLAUDE_MODEL || 'claude-default') : (ANSWER === 'proxy' ? 'proxy:' + PROXY_MODEL : ANSWER);
+}
 const WORKER_TIMEOUT_MS = parseInt(argVal('--worker-timeout-ms', '120000'), 10);
 const JUDGE_TIMEOUT_MS = parseInt(argVal('--judge-timeout-ms', '60000'), 10);
 // The answer lane gets its own clock — a compose over a big mount is not a
 // judge call, and the two lanes must never share a budget again.
 const ANSWER_TIMEOUT_MS = parseInt(argVal('--answer-timeout-ms', String(Math.max(JUDGE_TIMEOUT_MS, 240000))), 10);
 // Judge/compose provider: 'codex' = the ChatGPT Responses endpoint via the
-// codex-oauth transport;
-// 'claude' = the original `claude -p` path. Default codex.
+// codex-oauth transport; 'proxy' = the operator's own troth proxy
+// (/v1/messages), which holds the credentials and picks the engine, so the
+// harness never touches a key or a token; 'claude' = the original
+// `claude -p` path. Default codex.
 const PROVIDER = argVal('--provider', 'codex');
 const CLAUDE_MODEL = argVal('--model', '');
 const CODEX_ONESHOT = join(__dirname, 'codex-oneshot.mjs');
+const PROXY_ONESHOT = join(__dirname, 'proxy-oneshot.mjs');
+const PROXY_MODEL = process.env.TROTH_PROXY_MODEL || 'gpt-5.5';
 // Answer transport (the SECOND arm): 'codex'/'claude' = cloud model reads the
 // retrieved memory from the prompt (the MCP/hosted experience); 'llamacpp' =
 // the LOCAL model answers WITH substrate decode-time bias toward the retrieved
@@ -353,21 +367,28 @@ function cleanClaudeHome() {
   return _cleanHome;
 }
 
+// One prompt in on stdin, one answer out on stdout, one process per call:
+// the shape every cloud lane shares, so the sync harness loop never changes.
+function _spawnOneshot(script, prompt, timeoutMs, label) {
+  const res = spawnSync(process.execPath, [script], {
+    input: prompt,
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+    timeout: timeoutMs,
+    cwd: REPO,
+  });
+  if (res.error) throw new Error(label + ' spawn error: ' + res.error.message);
+  if (res.status !== 0) throw new Error(label + ' exit ' + res.status + ': ' + String(res.stderr || '').slice(0, 1000));
+  return String(res.stdout || '');
+}
+
 function _callProvider(prompt, timeoutMs) {
   if (PROVIDER === 'codex') {
     // Prompt rides stdin (can be large: memory statements), same one-process-
     // per-call shape as claude -p so the sync harness loop is unchanged.
-    const res = spawnSync(process.execPath, [CODEX_ONESHOT], {
-      input: prompt,
-      encoding: 'utf8',
-      maxBuffer: 16 * 1024 * 1024,
-      timeout: timeoutMs,
-      cwd: REPO,
-    });
-    if (res.error) throw new Error('codex spawn error: ' + res.error.message);
-    if (res.status !== 0) throw new Error('codex exit ' + res.status + ': ' + String(res.stderr || '').slice(0, 1000));
-    return String(res.stdout || '');
+    return _spawnOneshot(CODEX_ONESHOT, prompt, timeoutMs, 'codex');
   }
+  if (PROVIDER === 'proxy') return _spawnOneshot(PROXY_ONESHOT, prompt, timeoutMs, 'proxy');
   const keychain = process.env.TROTH_BENCH_CLAUDE_KEYCHAIN === '1';
   const _claudeArgs = ['-p', '--output-format=json'];
   if (CLAUDE_MODEL) _claudeArgs.push('--model', CLAUDE_MODEL);
@@ -415,6 +436,7 @@ function _composeOnce(prompt, retrieved, timeoutMs) {
     if (res.status !== 0) throw new Error('llamacpp exit ' + res.status + ': ' + String(res.stderr || '').slice(0, 500));
     return String(res.stdout || '');
   }
+  if (ANSWER === 'proxy') return _spawnOneshot(PROXY_ONESHOT, prompt, timeoutMs, 'proxy');
   return callClaudeP(prompt, timeoutMs);
 }
 
@@ -676,9 +698,9 @@ async function main() {
     datasetSha256: datasetSha256(),
     offset: OFFSET, n: N, stratified: STRATIFIED || null,
     judge_provider: JUDGE === 'local' ? 'local-llamacpp' : PROVIDER,
-    judge_model: JUDGE === 'local' ? 'local-temp0-thinking-off' : (PROVIDER === 'claude' ? (CLAUDE_MODEL || 'claude-default') : 'codex-oauth'),
-    answer_transport: ANSWER,
-    answer_model: ANSWER === 'claude' ? (CLAUDE_MODEL || 'claude-default') : ANSWER,
+    judge_model: JUDGE === 'local' ? 'local-temp0-thinking-off' : (PROVIDER === 'claude' ? (CLAUDE_MODEL || 'claude-default') : (PROVIDER === 'proxy' ? 'proxy:' + PROXY_MODEL : 'codex-oauth')),
+    answer_transport: _answerTransportLabel(),
+    answer_model: _answerModelLabel(),
     judge_prompts: JUDGE_PROMPTS_VERSION,
     embed_host: EMBED_HOST,
     correct, incorrect, errors, graded, total: rows.length, accuracy,
@@ -698,9 +720,9 @@ async function main() {
     offset: OFFSET, n: N, retrievalPaths: [...retrievalPaths], embedHost: EMBED_HOST,
     stratified: STRATIFIED,
     judgeProvider: JUDGE === 'local' ? 'local-llamacpp' : PROVIDER,
-    judgeModel: JUDGE === 'local' ? 'local-temp0-thinking-off' : (PROVIDER === 'claude' ? (CLAUDE_MODEL || 'claude-default') : 'codex-oauth'),
-    answerTransport: ANSWER,
-    answerModel: ANSWER === 'claude' ? (CLAUDE_MODEL || 'claude-default') : ANSWER,
+    judgeModel: JUDGE === 'local' ? 'local-temp0-thinking-off' : (PROVIDER === 'claude' ? (CLAUDE_MODEL || 'claude-default') : (PROVIDER === 'proxy' ? 'proxy:' + PROXY_MODEL : 'codex-oauth')),
+    answerTransport: _answerTransportLabel(),
+    answerModel: _answerModelLabel(),
     judgePrompts: JUDGE_PROMPTS_VERSION,
     dataset: DATASET_PATH.replace(REPO + '/', ''),
     datasetSha256: datasetSha256(),
