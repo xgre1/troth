@@ -1428,6 +1428,20 @@ const server = http.createServer((req, res) => {
     })().catch(function (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); });
     return;
   }
+  // A credential the operator already holds in a tool of their own (the gh
+  // session, a keychain item, an environment variable) moves into the vault
+  // from THIS process, the one holding the unlocked session. The partner
+  // names the source; the value travels source → here → vault and never
+  // rides the response. Sources are a closed list inside vault-capture.
+  if (url === '/api/vault/capture-cli' && req.method === 'POST') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then(function (b) {
+      const r = require('../shared-core/vault-capture.js')
+        .captureFromSource(b || {}, { vault: require('../shared-core/vault.js') });
+      jsonResponse(res, r.ok ? 200 : 400, r);
+    }).catch(function (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); });
+    return;
+  }
   // The first open consumer: fill a form field in the CDP browser FROM
   // this process. The value flows vault → proxy → page field; the HTTP
   // response never carries it, so nothing a model context can read does.

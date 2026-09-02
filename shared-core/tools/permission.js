@@ -59,7 +59,9 @@ const WRITE_OR_EXEC = new Set([
   // image_generate WRITES a PNG to ~/.troth/images and does network egress to
   // chatgpt.com — not read-only. Classified WRITE so it gates behind auto-write
   // like any other side-effecting tool (rather than riding the unknown default).
-  'image_generate'
+  'image_generate',
+  // vault_capture stores a credential: a write, gated like any other.
+  'vault_capture'
 ]);
 
 function classify(toolName) {

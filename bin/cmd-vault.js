@@ -12,6 +12,9 @@ if (command === "vault") {
   // `troth vault set <key> <cap-scope-glob> [<injection-kind>] [<injection-name>]`
   //                                        prompts for VALUE (hidden), writes entry
   // `troth vault remove <key>`         — delete entry
+  // `troth vault capture <gh|keychain|env> [--key k] [--host h] [--service s] [--account a] [--name N]`
+  //                                        the proxy reads the value from that source and
+  //                                        writes it; nothing prints but the receipt
   var vault7 = require("../shared-core/vault.js");
   var sub7 = args[1] || "status";
   if (sub7 === "status") {
@@ -75,8 +78,48 @@ if (command === "vault") {
     console.log("Removed: " + r7.key);
     process.exit(0);
   }
+  if (sub7 === "capture") {
+    // The unlocked session lives in the proxy process, so the capture runs
+    // there: this command only names the source and prints the receipt.
+    var src7 = args[2];
+    if (!src7) { console.error("Usage: troth vault capture <gh|keychain|env> [--key k] [--host h] [--service s] [--account a] [--name N]"); process.exit(2); }
+    var flag7 = function (n) { var i = args.indexOf(n); return i >= 0 ? args[i + 1] : null; };
+    var body7 = { source: src7 };
+    [["--key", "key"], ["--host", "host"], ["--service", "service"], ["--account", "account"], ["--name", "name"]].forEach(function (f) {
+      var v = flag7(f[0]); if (v) body7[f[1]] = v;
+    });
+    if (args.indexOf("--overwrite") >= 0) body7.overwrite = true;
+    var base7 = String(process.env.TROTH_PROXY_URL || "").trim().replace(/\/+$/, "");
+    if (!base7) {
+      var host7 = "127.0.0.1", port7 = 8000;
+      try {
+        var c7 = JSON.parse(require("fs").readFileSync(require("path").join(process.env.HOME || require("os").homedir(), ".troth", "config.json"), "utf8")) || {};
+        if (typeof c7.host === "string" && c7.host) host7 = c7.host;
+        if (c7.port) port7 = parseInt(c7.port, 10) || port7;
+      } catch (_) { /* defaults */ }
+      base7 = "http://" + host7 + ":" + port7;
+    }
+    var payload7 = JSON.stringify(body7);
+    var u7c = new URL(base7 + "/api/vault/capture-cli");
+    var req7 = require(u7c.protocol === "https:" ? "https" : "http").request({
+      method: "POST", hostname: u7c.hostname, port: u7c.port || (u7c.protocol === "https:" ? 443 : 80), path: u7c.pathname,
+      headers: { "content-type": "application/json", "content-length": Buffer.byteLength(payload7) }
+    }, function (res7) {
+      var out7 = "";
+      res7.setEncoding("utf8");
+      res7.on("data", function (c) { out7 += c; });
+      res7.on("end", function () {
+        var j7; try { j7 = JSON.parse(out7); } catch (_) { j7 = { ok: false, error: "bad_reply", detail: out7.slice(0, 200) }; }
+        console.log(JSON.stringify(j7, null, 2));
+        process.exit(j7 && j7.ok ? 0 : 2);
+      });
+    });
+    req7.on("error", function (e) { console.error("Refused: proxy unreachable at " + base7 + " (" + e.message + "). Run `troth start`."); process.exit(2); });
+    req7.write(payload7); req7.end();
+    return;
+  }
   console.error("Unknown vault subcommand: " + sub7);
-  console.error("Try: status | unlock | lock | list | set | remove");
+  console.error("Try: status | unlock | lock | list | set | remove | capture");
   process.exit(2);
 }
 };

@@ -406,7 +406,7 @@ const TOOLS = {
       if (items.some((i) => i.source === 'instance-pool' || i.source === 'identity-cast')) {
         try {
           const { buildReconciledView } = require(serverDir + '../../../shared-core/reconciled-view.js');
-          out.view = buildReconciledView(items, { noun_head: engram.countNounHead(args.query) }).render();
+          out.view = buildReconciledView(items, { noun_head: engram.countNounHead(args.query), question: args.query, reference_ts: Date.now() }).render();
         } catch (_) { /* the items alone remain a complete answer */ }
       }
       return out;
@@ -1531,6 +1531,20 @@ if (process.env.TROTH_MCP_ACTIONS === '1' && substrateTools && substrateTools.RE
       // and PNG write happen inside image_generate.run, which never throws
       // (returns a structured {ok:false,...} on every failure path).
       run: async (args) => worldlyTools.REGISTRY.image_generate.run(args || {}, ctxFromArgs(args))
+    };
+  }
+
+  // Vault capture over the backbone, the same worldly entry native panes get
+  // (shared-core/vault-capture.js via tools/index.js): schema reused verbatim,
+  // run delegated. The entry reaches the proxy over HTTP from this process,
+  // so the credential never enters it or the model context.
+  const _vaultCap   = worldlyTools.REGISTRY && worldlyTools.REGISTRY.vault_capture;
+  const _vaultCapFn = _vaultCap && _vaultCap.schema && _vaultCap.schema.function;
+  if (_vaultCap && typeof _vaultCap.run === 'function') {
+    TOOLS.troth_vault_capture = {
+      description: (_vaultCapFn && _vaultCapFn.description) || 'Move a credential the operator already holds into the vault by name; the reply is a receipt, never the value.',
+      inputSchema: (_vaultCapFn && _vaultCapFn.parameters) || { type: 'object', properties: {}, required: [] },
+      run: async (args) => worldlyTools.REGISTRY.vault_capture.run(args || {}, ctxFromArgs(args))
     };
   }
 }

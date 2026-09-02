@@ -27,6 +27,7 @@ const grepTool  = require('./grep.js');
 const globTool  = require('./glob.js');
 const webResearch = require('./web-research.js');
 const imageGen  = require('./image-gen.js');
+const vaultCapture = require('../vault-capture.js');
 
 const REGISTRY = {
   Read:  readTool,
@@ -44,7 +45,12 @@ const REGISTRY = {
   // Image generation via the operator's linked ChatGPT plan (same OAuth token +
   // codex Responses endpoint as chat, with tools:[{image_generation}]). WRITE —
   // saves a PNG under ~/.troth/images (see permission.js). No vendor API/key.
-  image_generate: imageGen
+  image_generate: imageGen,
+  // A credential the operator holds elsewhere moves into the vault by name.
+  // WRITE — it stores a secret (see permission.js); the value never reaches
+  // the model. In the proxy it captures in-process; elsewhere it reaches the
+  // proxy over HTTP.
+  vault_capture: vaultCapture
 };
 
 // ── Tool-result archiver ─────────────────────────────────────────────────

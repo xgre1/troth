@@ -35,6 +35,10 @@ const PURPOSES = {
   // The operator-configured gate command a guarded destination demands;
   // authored in guarded-remotes.json by the operator, never by a model.
   'release-gate': { kind: 'trusted-plumbing' },
+  // Reading a credential from the operator's own tool (gh, the keychain) into
+  // the vault: argv comes from a closed source table in vault-capture.js, the
+  // child is short-lived, and the value stays in the parent.
+  'vault-capture': { kind: 'trusted-plumbing' },
   // ground-walled purposes; adopters pick one consciously and the profile
   // tightens per purpose without touching call sites again.
   'inference':   { kind: 'ground', ground: 'confine' },

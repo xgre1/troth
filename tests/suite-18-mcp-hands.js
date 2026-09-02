@@ -894,7 +894,7 @@ module.exports = function run({ test, skip }) {
     // troth_image_generate rides the SAME flag: the backbone MCP
     // gateway never exposed the worldly image_generate, so claude-cli panes (the
     // product default) could not create images. Flag OFF must hide it too.
-    for (const n of ['troth_mcp_list', 'troth_mcp_describe', 'troth_mcp_call', 'troth_mcp_register_request', 'troth_image_generate']) {
+    for (const n of ['troth_mcp_list', 'troth_mcp_describe', 'troth_mcp_call', 'troth_mcp_register_request', 'troth_image_generate', 'troth_vault_capture']) {
       assert.ok(!offNames.includes(n), n + ' absent when flag off');
     }
     const on = rpcServer([INIT, { jsonrpc: '2.0', id: 2, method: 'tools/list' }], { TROTH_MCP_ACTIONS: '1' });
@@ -905,7 +905,7 @@ module.exports = function run({ test, skip }) {
     // so on claude-cli panes the conversational-registration flow was dead.
     // troth_image_generate is the same class of gap (image creation was dead on
     // the backbone), wired under the same flag.
-    for (const n of ['troth_mcp_list', 'troth_mcp_describe', 'troth_mcp_call', 'troth_mcp_register_request', 'troth_image_generate']) {
+    for (const n of ['troth_mcp_list', 'troth_mcp_describe', 'troth_mcp_call', 'troth_mcp_register_request', 'troth_image_generate', 'troth_vault_capture']) {
       assert.ok(onNames.includes(n), n + ' present when flag on');
     }
     // troth_image_generate carries the prompt property on its inputSchema and
@@ -916,6 +916,13 @@ module.exports = function run({ test, skip }) {
       'troth_image_generate advertises a prompt property');
     assert.ok(/ChatGPT plan/.test(img.description || '') && /PNG/.test(img.description || ''),
       'description states it uses the ChatGPT plan and saves a PNG locally; got ' + img.description);
+    // The credential move rides the same flag. It advertises a closed source
+    // list and no value field at all - the reply is a receipt by contract.
+    const cap = on[2].result.tools.find((t) => t.name === 'troth_vault_capture');
+    assert.ok(cap && cap.inputSchema && cap.inputSchema.properties && cap.inputSchema.properties.source &&
+      Array.isArray(cap.inputSchema.properties.source.enum) && cap.inputSchema.properties.source.enum.includes('gh'),
+      'troth_vault_capture names its sources');
+    assert.ok(!('value' in cap.inputSchema.properties), 'troth_vault_capture takes no value: the proxy reads it');
     // The pre-existing action tools are still there (we EXTENDED the block).
     assert.ok(onNames.includes('troth_intent_emit') && onNames.includes('troth_browser_do'),
       'extending the block must not drop the existing action tools');

@@ -3283,7 +3283,6 @@ console.log('\ndesign phase dispatcher infra (synthetic adapter):');
     assert.ok(/no operator-sealed capability covers/.test(res2.hint || ''),
       'hint must guide operator to seal a capability; got ' + res2.hint);
   });
-
   test('L4-AUTORES-3: FENCE — auto-resolution never covers an irreversibility class above the cap max', async () => {
     if (_suiteSkip) { console.log('    (suite-skip)'); return; }
     // Only a low-max capability is sealed for this family. A high-class
@@ -7103,4 +7102,96 @@ test('IRM-MEM-1: every memory-shaped question mounts full recall — the two cla
   // And the upgrade is narrow: an ack keeps its silence.
   assert.strictEqual(ir.route('thanks, looks good').mount_policy, 'null_mount', 'chitchat stays quiet');
 });
+
+// --- VAULT CAPTURE: a credential moves by name, never by value -------------
+// The unit is the capture logic alone: source list, key and scope derivation,
+// the locked and unlocked roads, and the promise that no return value, error
+// or hint carries the credential. The vault and the command runner ride the
+// deps seams, so nothing here touches a real vault file or a real tool.
+console.log('\nVault capture (vault-capture.js):');
+(function runVaultCaptureTests() {
+  const cap = require('../shared-core/vault-capture.js');
+  const SECRET = 'ghp_' + 'not-a-real-token-' + Date.now();
+  function fakeVault(unlocked) {
+    const v = { unlocked, writes: [], seals: [] };
+    v.isUnlocked = () => v.unlocked;
+    v.writeEntry = (d) => { v.writes.push(d); return d.key === 'taken' && !d.overwrite ? { ok: false, error: 'key_exists' } : { ok: true, key: d.key }; };
+    v.seal = (d) => { v.seals.push(d); return { ok: true, pending_drops: v.seals.length }; };
+    return v;
+  }
+  const noEngram = { recordEngram: () => null };
+  const leaks = (o) => JSON.stringify(o).indexOf(SECRET) !== -1;
+
+  test('VC-1: gh source lands under github / *.github.com by default; the receipt carries no value', () => {
+    const v = fakeVault(true);
+    const calls = [];
+    const r = cap.captureFromSource({ source: 'gh' }, { vault: v, engram: noEngram, run: (c, a) => { calls.push([c, a.join(' ')]); return SECRET + '\n'; } });
+    assert.strictEqual(r.ok, true, JSON.stringify(r));
+    assert.strictEqual(r.key, 'github');
+    assert.strictEqual(r.scope, 'capability:http:do:*.github.com');
+    assert.deepStrictEqual(calls, [['gh', 'auth token']], 'reads the gh session, nothing else');
+    assert.strictEqual(v.writes.length, 1);
+    assert.strictEqual(v.writes[0].value, SECRET, 'the vault receives the trimmed value');
+    assert.deepStrictEqual(v.writes[0].injection, { kind: 'bearer' });
+    assert.strictEqual(leaks(r), false, 'the receipt never carries the credential');
+  });
+
+  test('VC-2: a source off the list is refused before anything runs; a host names the scope', () => {
+    const v = fakeVault(true);
+    let ran = false;
+    const r = cap.captureFromSource({ source: 'clipboard' }, { vault: v, engram: noEngram, run: () => { ran = true; return SECRET; } });
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.error, 'unknown_source');
+    assert.strictEqual(ran, false, 'no command runs for an unknown source');
+    assert.strictEqual(v.writes.length, 0);
+    const r2 = cap.captureFromSource({ source: 'env', name: 'MY_API_KEY', host: 'https://api.example.com/v1' },
+      { vault: v, engram: noEngram });
+    // The env road reads this process; the variable is unset here, so the
+    // capture reports an empty source and the scope shape is still visible.
+    assert.strictEqual(r2.ok, false);
+    assert.strictEqual(r2.error, 'source_empty');
+    process.env.MY_API_KEY = SECRET;
+    const r3 = cap.captureFromSource({ source: 'env', name: 'MY_API_KEY', host: 'https://api.example.com/v1' }, { vault: v, engram: noEngram });
+    delete process.env.MY_API_KEY;
+    assert.strictEqual(r3.ok, true, JSON.stringify(r3));
+    assert.strictEqual(r3.key, 'my_api_key');
+    assert.strictEqual(r3.scope, 'capability:http:do:*.api.example.com', 'scheme and path fall away, the host stays');
+    assert.strictEqual(leaks(r3), false);
+  });
+
+  test('VC-3: a locked vault takes the capture into the drop-box; an unlocked one refuses a taken key without overwrite', () => {
+    const locked = fakeVault(false);
+    const r = cap.captureFromSource({ source: 'gh' }, { vault: locked, engram: noEngram, run: () => SECRET });
+    assert.strictEqual(r.ok, true, JSON.stringify(r));
+    assert.strictEqual(r.sealed_for_unlock, true);
+    assert.strictEqual(locked.seals.length, 1);
+    assert.strictEqual(locked.writes.length, 0, 'nothing written while locked');
+    assert.strictEqual(leaks(r), false);
+    const open = fakeVault(true);
+    const taken = cap.captureFromSource({ source: 'gh', key: 'taken' }, { vault: open, engram: noEngram, run: () => SECRET });
+    assert.strictEqual(taken.ok, false);
+    assert.strictEqual(taken.error, 'key_exists');
+    const rotated = cap.captureFromSource({ source: 'gh', key: 'taken', overwrite: true }, { vault: open, engram: noEngram, run: () => SECRET });
+    assert.strictEqual(rotated.ok, true, 'overwrite is the rotation path');
+  });
+
+  test('VC-4: a failing tool reports its status, never its output', () => {
+    const v = fakeVault(true);
+    const r = cap.captureFromSource({ source: 'gh' }, { vault: v, engram: noEngram, run: () => {
+      const e = new Error('gh exited 1'); e.code = 'source_failed'; throw e;
+    } });
+    assert.strictEqual(r.ok, false);
+    assert.strictEqual(r.error, 'source_failed');
+    assert.strictEqual(v.writes.length, 0);
+    // The default runner strips execFileSync's captured stdout from the
+    // error it throws: a tool that fails after printing must not leak.
+    let thrown = null;
+    try { cap.runCommand(process.execPath, ['-e', 'process.stdout.write(' + JSON.stringify(SECRET) + '); process.exit(3)']); }
+    catch (e) { thrown = e; }
+    assert.ok(thrown, 'a non-zero exit throws');
+    assert.strictEqual(thrown.code, 'source_failed');
+    assert.strictEqual(String(thrown.message).indexOf(SECRET), -1, 'the thrown error carries no stdout');
+    assert.ok(!('stdout' in thrown), 'no stdout property rides the error');
+  });
+})();
 };

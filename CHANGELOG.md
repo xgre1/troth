@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- A credential the operator already holds moves into the vault by name.
+  `troth vault capture gh` (or `keychain`, or `env`) has the proxy, the
+  process holding the unlocked session, read the value from that tool and
+  store it under a capability scope for its host; the reply is a receipt and
+  the value never rides a response, an error or a log line. The same move is
+  available over the backbone as `troth_vault_capture`.
+
 ### Changed
 - Image generation keeps the ChatGPT plan lane usable across a sign-in the
   endpoint has stopped honouring. A request the plan answers 401 rotates the
