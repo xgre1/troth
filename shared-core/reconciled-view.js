@@ -59,21 +59,21 @@ const _statedDate = (s) => { const m = /\[[a-z]+(?:, inferred)?, (\d{4}-\d{2}-\d
 const VERB_FAMILIES = [
   { name: 'acquire', ask: /\b(acquire[ds]?|acquired|bought|buy|purchase[ds]?|purchased|got|get|received?|obtain(?:ed)?|adopt(?:ed)?|pick(?:ed)? up)\b/,
     kinds: new Set(['purchase']), verbs: /\b(bought|buy|purchased|purchase|got|get|received|receive|acquired|acquire|adopted|picked up|obtained|ordered)\b/ },
-  { name: 'attend', ask: /\b(attend(?:ed)?|went to|go to|been to)\b/,
-    kinds: new Set(['event', 'visit']), verbs: /\b(attended|attend|went|visited|joined|celebrated)\b/ },
-  { name: 'visit', ask: /\b(visit(?:ed)?|tried|been to|eaten at|dined at)\b/,
-    kinds: new Set(['visit']), verbs: /\b(visited|tried|went|ate|dined|stayed)\b/ },
+  { name: 'attend', ask: /\b(attend(?:ed)?|went to|go to|been to|participated|took part)\b/,
+    kinds: new Set(['event', 'visit']), verbs: /\b(attended|attend|went|visited|joined|celebrated|participated|competed|took part)\b/ },
+  { name: 'visit', ask: /\b(visit(?:ed)?|tried|been to|eaten at|dined at|saw|seen)\b/,
+    kinds: new Set(['visit']), verbs: /\b(visited|tried|went|ate|dined|stayed|saw|seen|see|appointment|checkup|consulted)\b/ },
   { name: 'work', ask: /\b(work(?:ed)? on|built|build|made|make|finish(?:ed)?|complete[ds]?|written|wrote|painted|assembled)\b/,
     kinds: new Set(['creation']), verbs: /\b(worked|working|built|building|made|making|finished|finishing|completed|wrote|writing|written|painted|painting|assembled|planning)\b/ },
   { name: 'lead', ask: /\b(led|lead(?:ing)?|manage[ds]?|managed|run|ran)\b/,
     kinds: new Set(['role', 'project']), verbs: /\b(led|leading|lead|managed|managing|ran|running|heading|headed)\b/ },
   // "have" only as possession, never as the auxiliary of "have I worked on".
   { name: 'own', ask: /\b(own|owns|keep|currently have|do i (?:still |currently )?have|have (?:got )?(?:at home|now|left)|how many [a-z]+ (?:do|did) i have)\b/,
-    kinds: new Set(['possession', 'purchase']), verbs: /\b(owns|own|has|have|keeps|bought|got|received|adopted|purchased)\b/ }
+    kinds: new Set(['possession', 'purchase']), verbs: /\b(owns|own|has|have|keeps|keeping|kept|bought|got|received|adopted|purchased|taking care|caring for|looking after|set up|setting up|maintain(?:s|ing)?)\b/ }
 ];
 // A question about what happened (has/have/did/how many ... did I) is not
 // asking about plans: planned and cancelled lines are set aside for it.
-const PAST_ASK = /\b(have i|did i|i have|i've|have attended|did|attended|bought|went|visited|acquired|worked on|made|led)\b/;
+const PAST_ASK = /\b(have i|did i|i have|i've|have attended|did|attended|bought|went|visited|acquired|worked on|made|led|took|taken|participated)\b/;
 const _norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\b(the|a|an|my|our|new|another|some)\b/g, ' ').replace(/\s+/g, ' ').trim();
 
 // Stated totals: the user naming the count itself ("I've written seven short
@@ -309,7 +309,7 @@ function buildReconciledView(items, opts) {
     }
   }
   // Stated totals ride only on a count-shaped question with a known head.
-  const countShaped = shape ? !!shape.count : (question ? /\b(how many|how much|number of|total|count)\b/i.test(question) : false);
+  const countShaped = shape ? !!shape.count : (question ? /\b(how many|how much|number of|total|count|order of|first to last|earliest to latest)\b/i.test(question) : false);
   const totals = (countShaped && head) ? statedTotals(raw, nounHead, nounPhrase) : [];
   // Same object across lines (a kit bought in one line, finished in another):
   // the later line is annotated so the object is counted once. Matching is
@@ -372,7 +372,14 @@ function buildReconciledView(items, opts) {
       const askLabel = { place: 'a place', time: 'a time', person: 'a person', thing: 'a thing', reason: 'a reason', manner: 'a way of doing it' };
       if (asks && askLabel[asks]) lines.push('The question asks for ' + askLabel[asks] + '; the answer names one.');
       if (pendingAsk) lines.push('The question asks what is still open: only owed or planned lines count, and a thing already done is not pending.');
-      if ((asks && askLabel[asks]) || pendingAsk) lines.push('');
+      // No abstention with the answer in view: a statement that names the
+      // thing asked is answered from, even in part (measured: a reader said
+      // unknown with the coupon, the volunteer date and the occupation in
+      // front of it).
+      // A request (recommend, suggest) is answered around the About block, which
+      // leads; the rule is for questions about what happened.
+      if (question && !requestShaped) lines.push('When a statement names the thing asked, answer from it, even if it gives only part; unknown is only for what no statement touches.');
+      if ((asks && askLabel[asks]) || pendingAsk || (question && !requestShaped)) lines.push('');
       if (about.length) {
         const label = { role: 'who they are', constraint: 'a constraint they keep', skill: 'a skill they have', liking: 'what they like', effort: 'something they made before' };
         // Preferences and constraints, never a whereabouts: a place the user

@@ -306,9 +306,11 @@ function composeAnswerPrompt(q, retrieved, shape) {
         'statements.\n\n'
       : 'You are answering a question using ONLY the memory statements below, ' +
         'retrieved from a conversation history substrate. Each statement may be ' +
-        'prefixed with the [date] it was recorded. If the statements do ' +
-        'not contain the answer, say "unknown" — do not guess or use outside ' +
-        'knowledge. If statements give conflicting or updated values for the ' +
+        'prefixed with the [date] it was recorded, and they are listed strongest ' +
+        'match first. When a statement names the thing asked, answer from it, ' +
+        'even if it gives only part; say "unknown" only when no statement touches ' +
+        'the thing asked — never guess and never use outside knowledge. If ' +
+        'statements give conflicting or updated values for the ' +
         'same fact, the most recent [date] wins — answer with the updated value.\n\n') +
     'Memory statements:\n' + mem + '\n\n' +
     (q.question_date ? 'Question asked on: ' + q.question_date + ' — compute any relative time (ago / since / between) from this date using the [dates] on the statements.\n' : '') +

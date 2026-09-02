@@ -106,7 +106,10 @@ function buildCombinedPrompt(turns) {
     '   main topic: "by the way, I just got back from a day hike to Muir Woods",',
     '   "I\'ve also been taking care of a small tank I set up for a friend\'s kid",',
     '   "after that baking class I took yesterday" are each an instance. Read',
-    '   every sentence, not only the question. The same occurrence mentioned',
+    '   every sentence, not only the question. Two different occurrences in one',
+    '   sentence are two instances (two festivals, two doctors). Someone seen for',
+    '   care or service (a doctor, a dentist, a mechanic) is a visit, even when',
+    '   told as what was done there. The same occurrence mentioned',
     '   twice is ONE instance citing both statements.',
     '   status: completed | planned | recurring | cancelled | owed — from the',
     '   user\'s wording, never assumed. "owed" is an obligation still open:',
@@ -461,6 +464,10 @@ function _descOverlap(a, b) {
 // norm, over-counting the covenant-breaking failure).
 const _EVENT_HEAD = /(wedding|birthday|funeral|graduation|anniversary|baby shower|bachelorette|bachelor party|reunion|festival)/i;
 const _NAME_STOP = new Set(['User', 'The', 'A', 'An', 'My', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']);
+// The occasion word and the words institutions are named with are not
+// people: "Austin Film Festival" names Austin, not Festival (measured: two
+// festivals in two cities became one line on the word they share).
+for (const w of ['Festival', 'Festivals', 'Fest', 'International', 'National', 'Film', 'Films', 'University', 'College', 'School', 'Center', 'Centre', 'Museum', 'Gallery', 'Church', 'Hospital', 'Clinic', 'Hotel', 'Restaurant', 'Cafe', 'City', 'County', 'Street', 'Avenue', 'Wedding', 'Party', 'Conference', 'Workshop', 'Class', 'Trip', 'Show', 'Market', 'Fair', 'Park', 'Monument', 'Trail']) _NAME_STOP.add(w);
 
 function _eventText(inst) {
   return String(inst.entity || '') + ' ' + String(inst.description || '') + ' ' + String(inst.quote || '');
@@ -642,7 +649,15 @@ function _sameEvent(e, inst, opts) {
 
 function _sameOccurrence(entry, inst, entity_slug, opts) {
   const e = entry.instance;
-  if (!e || e.kind !== inst.kind) return false;
+  if (!e) return false;
+  // An occasion is an occasion whatever the extractor typed it: the same
+  // wedding comes back an event from one pass and a visit from the next.
+  // Two rows of different kinds meet the ladder only when both name an
+  // occasion; any other kind mismatch is two different things.
+  if (e.kind !== inst.kind) {
+    const occasionKind = (k) => k === 'event' || k === 'visit';
+    if (!(occasionKind(e.kind) && occasionKind(inst.kind) && _headNoun(e) && _headNoun(inst))) return false;
+  }
   // An entailed occurrence and a stated one with DIFFERENT statuses are
   // different occurrences by construction: the derived prior visit must
   // never absorb the scheduled follow-up it was inferred from.
@@ -694,7 +709,9 @@ const _ARTIFACT_RE = /\b(prescription|referral|diagnosis|filling|crown|stitches)
 const _FOLLOWUP_RE = /\b(follow[\s-]?up|another appointment with|again with)\b/i;
 
 function entailmentEnabled() {
-  return process.env.TROTH_INSTANCE_ENTAILMENT === '1';
+  // On unless the operator turns it off: a referral, a prescription or a
+  // follow-up being arranged is an encounter the words did not spell out.
+  return process.env.TROTH_INSTANCE_ENTAILMENT !== '0';
 }
 
 function _hasStatedCompletedVisit(pool, entity) {

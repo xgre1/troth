@@ -29,8 +29,8 @@ function patelVisits(pool) {
   return pool.filter((p) => p.instance.kind === 'visit' && /patel/i.test(p.instance.entity));
 }
 
-t('dark by default — no flag, no derivation', () => {
-  delete process.env.TROTH_INSTANCE_ENTAILMENT;
+t('off by the operator (TROTH_INSTANCE_ENTAILMENT=0) — no derivation', () => {
+  process.env.TROTH_INSTANCE_ENTAILMENT = '0';
   const pool = [];
   ic.writeInstances({ instances: [followUp, rx], turns, agent_id: 'claude-code', user_id: 'default', _pool: pool, session_id: 'S1' });
   assert.strictEqual(patelVisits(pool).length, 1);
