@@ -97,6 +97,10 @@ const OFFSET = parseInt(argVal('--offset', '0'), 10);
 const STRATIFIED = parseInt(argVal('--stratified', '0'), 10);
 const SLICE_EXPLICIT = args.indexOf('--n') >= 0 || args.indexOf('--offset') >= 0;
 const ONLY = argVal('--only', '');
+// --rejudge <results.json>: grade that run's stored answers with this run's
+// judge, composing nothing. The judge is the one variable.
+const REJUDGE = argVal('--rejudge', '');
+const REJUDGE_ROWS = REJUDGE ? (JSON.parse(readFileSync(REJUDGE, 'utf8')).rows || []) : null;
 const WORKER_TIMEOUT_MS = parseInt(argVal('--worker-timeout-ms', '120000'), 10);
 const JUDGE_TIMEOUT_MS = parseInt(argVal('--judge-timeout-ms', '60000'), 10);
 // The answer lane gets its own clock — a compose over a big mount is not a
@@ -131,6 +135,10 @@ function loadSlice() {
     process.exit(1);
   }
   const all = JSON.parse(raw);
+  if (REJUDGE_ROWS) {
+    const ids = REJUDGE_ROWS.map((r) => r.question_id);
+    return all.filter((x) => ids.includes(x.question_id)).sort((a, b) => ids.indexOf(a.question_id) - ids.indexOf(b.question_id));
+  }
   if (ONLY) {
     const ids = ONLY.split(',').map((s) => s.trim()).filter(Boolean);
     return all.filter((x) => ids.includes(x.question_id));
@@ -551,7 +559,13 @@ async function main() {
       ' (' + q.question_type + ') "' + q.question.slice(0, 60) + '"... '
     );
     const t0 = Date.now();
-    const w = runQuestion(q);
+    // --rejudge <results.json>: the rows come from that file (their answers
+    // and coverage as recorded), only the judge runs. Holding the answers
+    // fixed is how two judges are compared on the same evidence.
+    const _prev = REJUDGE_ROWS ? REJUDGE_ROWS.find((r) => r.question_id === q.question_id) : null;
+    const w = _prev
+      ? { ingested_turns: _prev.ingested_turns, retrieved: [], retrieval_path: _prev.retrieval_path, embed_coverage: _prev.embed_coverage || null, error: _prev.error }
+      : runQuestion(q);
     if (w.error) {
       console.log('WORKER-ERROR');
       rows.push({
@@ -573,7 +587,8 @@ async function main() {
     } catch (_) { shape = null; }
     const answerPrompt = composeAnswerPrompt(q, w.retrieved || [], shape);
     try {
-      ourAnswer = answerPrompt ? composeAnswer(answerPrompt, w.retrieved || [], ANSWER_TIMEOUT_MS) : null;
+      // A re-judge grades the stored answer; nothing is composed again.
+      ourAnswer = _prev ? (_prev.our_answer == null ? null : _prev.our_answer) : (answerPrompt ? composeAnswer(answerPrompt, w.retrieved || [], ANSWER_TIMEOUT_MS) : null);
       judgeResult = await judge(q, ourAnswer);
     } catch (e) {
       judgeError = String(e.message || e);
@@ -650,6 +665,8 @@ async function main() {
     // The commit that produced this result. Overlay-synced trees have no
     // commit identity; a result that cannot name its code cannot be replayed.
     commit: _commit,
+    // A re-judge names the answers it graded: same answers, another judge.
+    rejudged_from: REJUDGE || null,
     full_sauce: process.env.TROTH_BENCH_FULL_SAUCE === '1',
     // Relative on purpose: an absolute dataset path records the build machine
     // into a published result file.
