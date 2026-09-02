@@ -214,7 +214,17 @@ function runQuestion(q) {
 // can't be papered over by a clever judge), we first ask a plain
 // composition question with ONLY the retrieved statements as context, no
 // gold answer visible.
-function composeAnswerPrompt(q, retrieved) {
+// One structured call per question reads its shape; the local reader's
+// host serves it (the judge host when no reader host is set).
+const _shapeCall = (() => {
+  try {
+    const qs = require('../shared-core/question-shape.js');
+    const host = process.env.TROTH_LLAMACPP_HOST || process.env.TROTH_JUDGE_HOST || null;
+    return host ? qs.makeShapeCall({ host, timeout_ms: 30000 }) : null;
+  } catch (_) { return null; }
+})();
+
+function composeAnswerPrompt(q, retrieved, shape) {
   if (!retrieved.length) {
     return null; // nothing retrieved — answer is definitionally "unknown"
   }
@@ -237,7 +247,7 @@ function composeAnswerPrompt(q, retrieved) {
       const p = Date.parse(c + ' UTC') || Date.parse(c);
       return Number.isNaN(p) ? undefined : p;
     })();
-    mem = buildReconciledView(retrieved.map(_stamp), { noun_head: countNounHead(q.question), head_phrase: countNounPhrase(q.question), question: q.question, reference_ts: _refTs }).render();
+    mem = buildReconciledView(retrieved.map(_stamp), { noun_head: countNounHead(q.question), head_phrase: countNounPhrase(q.question), question: q.question, reference_ts: _refTs, shape: shape || undefined }).render();
   } else {
     mem = retrieved.map((it, i) => {
       const d = Number.isFinite(it.ts) ? '[' + new Date(it.ts).toISOString().slice(0, 10) + '] ' : '';
@@ -553,7 +563,15 @@ async function main() {
     }
 
     let ourAnswer = null, judgeResult = null, judgeError = null;
-    const answerPrompt = composeAnswerPrompt(q, w.retrieved || []);
+    // The question's shape, read by the local model (any language); the
+    // English patterns stand in when no model answers.
+    let shape = null;
+    try {
+      const qs = require('../shared-core/question-shape.js');
+      const _refTs = q.question_date ? (Date.parse(String(q.question_date).replace(/\s*\([^)]*\)\s*/, ' ').trim() + ' UTC') || undefined) : undefined;
+      shape = await qs.shapeQuestion(q.question, { llmCall: _shapeCall, reference_ts: Number.isFinite(_refTs) ? _refTs : undefined });
+    } catch (_) { shape = null; }
+    const answerPrompt = composeAnswerPrompt(q, w.retrieved || [], shape);
     try {
       ourAnswer = answerPrompt ? composeAnswer(answerPrompt, w.retrieved || [], ANSWER_TIMEOUT_MS) : null;
       judgeResult = await judge(q, ourAnswer);

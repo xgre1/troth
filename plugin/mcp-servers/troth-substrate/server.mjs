@@ -406,7 +406,16 @@ const TOOLS = {
       if (items.some((i) => i.source === 'instance-pool' || i.source === 'identity-cast')) {
         try {
           const { buildReconciledView } = require(serverDir + '../../../shared-core/reconciled-view.js');
-          out.view = buildReconciledView(items, { noun_head: engram.countNounHead(args.query), head_phrase: engram.countNounPhrase ? engram.countNounPhrase(args.query) : null, question: args.query, reference_ts: Date.now() }).render();
+          // The question's shape, read by the local engine when one answers
+          // (any language); the English patterns stand in otherwise.
+          let shape = null;
+          try {
+            const qs = require(serverDir + '../../../shared-core/question-shape.js');
+            let host = null;
+            try { host = require(serverDir + '../../../shared-core/transport-config.js').llamacppHost(); } catch (_) { host = null; }
+            shape = await qs.shapeQuestion(args.query, { llmCall: host ? qs.makeShapeCall({ host, timeout_ms: 8000 }) : null, reference_ts: Date.now() });
+          } catch (_) { shape = null; }
+          out.view = buildReconciledView(items, { noun_head: engram.countNounHead(args.query), head_phrase: engram.countNounPhrase ? engram.countNounPhrase(args.query) : null, question: args.query, reference_ts: Date.now(), shape: shape || undefined }).render();
         } catch (_) { /* the items alone remain a complete answer */ }
       }
       return out;

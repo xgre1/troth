@@ -35,7 +35,7 @@ t('without a question nothing is set aside and no dates are added (previous beha
   assert.strictEqual(v.aside.length, 0);
   const out = v.render();
   assert.ok(out.indexOf('Set aside') < 0);
-  assert.ok(out.indexOf('first mentioned') < 0);
+  assert.ok(out.indexOf('said on') < 0);
   assert.ok(out.indexOf('[-]') < 0);
 });
 
@@ -55,8 +55,8 @@ t('kept lines are numbered contiguously and carry the day they were first mentio
   const v = buildReconciledView(plants, { noun_head: 'plants', question: 'How many plants did I acquire in the last month?', reference_ts: ASKED });
   assert.deepStrictEqual(v.ledger.map(l => l.n), [1, 2]);
   const out = v.render();
-  assert.ok(/L1\. .*peace lily.*\[first mentioned 2023-06-05\]/.test(out), out.split('\n').slice(0, 4).join(' | '));
-  assert.ok(/L2\. .*pothos.*\[completed, 2023-06-01\]/.test(out) && !/L2\. .*first mentioned/.test(out), 'a pinned date is not doubled');
+  assert.ok(/L1\. .*peace lily.*\[said on 2023-06-05; the words say when it happened\]/.test(out), out.split('\n').slice(0, 4).join(' | '));
+  assert.ok(/L2\. .*pothos.*\[completed, 2023-06-01\]/.test(out) && !/L2\. .*said on/.test(out), 'a pinned date is not doubled');
   assert.ok(out.indexOf('The question spans 1 month') >= 0, 'the window is stated once');
   assert.ok(/Set aside, not listed: .*1 ledger line outside the time window.*1 ledger line not about the asked subject/.test(out) ||
             /Set aside, not listed: .*1 ledger line not about the asked subject.*1 ledger line outside the time window/.test(out), 'one summary line for what was set aside');
@@ -173,6 +173,23 @@ t('a request-shaped question lists what the user said about themselves first, ne
   assert.ok(/A2\. \[.*\] aspiring stand-up comedian \(who they are\) \(S1\)/.test(out), out.split('\n').slice(0, 3).join(' | '));
   const plain = buildReconciledView(items, { question: 'How many shows did I watch?', reference_ts: ASKED });
   assert.strictEqual(plain.about.length, 0, 'a count question carries no about block');
+});
+
+t('the model-read shape drives the view in any language; the patterns stand in without a model', async () => {
+  const { shapeQuestion, shapeByPatterns } = require('../shared-core/question-shape.js');
+  const fake = async () => JSON.stringify({ count: true, request: false, head: 'φυτό', verb_family: 'acquire', past: true, window_days: 30, window_kind: 'relative' });
+  const shape = await shapeQuestion('Πόσα φυτά απέκτησα τον τελευταίο μήνα;', { llmCall: fake, reference_ts: ASKED });
+  assert.strictEqual(shape.source, 'model');
+  assert.deepStrictEqual(shape.families, ['acquire']);
+  assert.ok(shape.window && shape.window.since === ASKED - 30 * DAY);
+  const v = buildReconciledView(plants, { question: 'Πόσα φυτά απέκτησα τον τελευταίο μήνα;', reference_ts: ASKED, shape });
+  const kept = v.ledger.map(l => l.statement);
+  assert.ok(kept.some(s => /peace lily/.test(s)) && kept.some(s => /pothos/.test(s)), 'in-window acquisitions kept from a Greek question');
+  assert.ok(!kept.some(s => /snake plant/.test(s)) && !kept.some(s => /misting fern/.test(s)), 'window and verb family set the rest aside');
+  const fallback = await shapeQuestion('How many plants did I acquire in the last month?', { reference_ts: ASKED });
+  assert.strictEqual(fallback.source, 'patterns');
+  assert.deepStrictEqual(fallback.families, ['acquire']);
+  assert.strictEqual(shapeByPatterns('Can you recommend a show?').request, true);
 });
 
 console.log('\nreconciled-view-question: ' + pass + ' passed, ' + fail + ' failed');

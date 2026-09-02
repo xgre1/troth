@@ -164,17 +164,25 @@ function buildReconciledView(items, opts) {
   const question = opts.question ? String(opts.question) : null;
   const qLower = question ? question.toLowerCase() : '';
   const refTs = Number.isFinite(opts.reference_ts) ? opts.reference_ts : null;
-  const window = opts.window || (question && _parseTimeWindow ? _parseTimeWindow(question, refTs) : null);
+  // opts.shape: the question's shape as read by the model (question-shape.js),
+  // in any language. It overrides every English pattern below; without it
+  // the patterns stand in.
+  const shape = opts.shape && typeof opts.shape === 'object' ? opts.shape : null;
+  const window = opts.window || (shape ? shape.window || null : (question && _parseTimeWindow ? _parseTimeWindow(question, refTs) : null));
   const floor = Number.isFinite(opts.subject_floor) ? opts.subject_floor : SUBJECT_FLOOR;
-  const head = opts.noun_head ? String(opts.noun_head).toLowerCase().replace(/s$/, '') : null;
-  const headPhrase = opts.head_phrase ? String(opts.head_phrase).toLowerCase().replace(/s$/, '') : null;
+  const nounHead = shape && shape.head ? shape.head : opts.noun_head;
+  const nounPhrase = shape && shape.head_phrase ? shape.head_phrase : opts.head_phrase;
+  const head = nounHead ? String(nounHead).toLowerCase().replace(/s$/, '') : null;
+  const headPhrase = nounPhrase ? String(nounPhrase).toLowerCase().replace(/s$/, '') : null;
   const _re = (s) => new RegExp('(?<![a-z])' + s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[a-z]*', 'i');
   const headRe = head && head.length >= 3 ? _re(head) : null;
   const phraseRe = headPhrase && headPhrase.length >= 3 && headPhrase !== head ? _re(headPhrase) : null;
   // A question may carry several verbs ("worked on or bought"): a line is
   // kept when ANY named family accepts it.
-  const families = question ? VERB_FAMILIES.filter((f) => f.ask.test(qLower)) : [];
-  const pastAsk = question ? PAST_ASK.test(qLower) : false;
+  const families = shape
+    ? VERB_FAMILIES.filter((f) => Array.isArray(shape.families) && shape.families.includes(f.name))
+    : (question ? VERB_FAMILIES.filter((f) => f.ask.test(qLower)) : []);
+  const pastAsk = shape ? shape.past !== false : (question ? PAST_ASK.test(qLower) : false);
 
   // Each filter is a pass over the instances that names a reason; a filter
   // that would leave nothing is skipped so the ledger is never emptied.
@@ -241,7 +249,7 @@ function buildReconciledView(items, opts) {
   // About the user: first-person statements lifted from the retrieved words,
   // newest first, for a request-shaped question. Identity and state, listed
   // before the episodes so the reply is built around them.
-  const requestShaped = question ? REQUEST_SHAPED.test(question) : false;
+  const requestShaped = shape ? !!shape.request : (question ? REQUEST_SHAPED.test(question) : false);
   const about = [];
   if (requestShaped && _selfStatements) {
     const seen = new Set();
@@ -255,8 +263,8 @@ function buildReconciledView(items, opts) {
     }
   }
   // Stated totals ride only on a count-shaped question with a known head.
-  const countShaped = question ? /\b(how many|how much|number of|total|count)\b/i.test(question) : false;
-  const totals = (countShaped && head) ? statedTotals(raw, opts.noun_head, opts.head_phrase) : [];
+  const countShaped = shape ? !!shape.count : (question ? /\b(how many|how much|number of|total|count)\b/i.test(question) : false);
+  const totals = (countShaped && head) ? statedTotals(raw, nounHead, nounPhrase) : [];
   // Same object across lines (a kit bought in one line, finished in another):
   // the later line is annotated so the object is counted once. Matching is
   // the normalised entity string, or one contained in the other.
@@ -322,7 +330,7 @@ function buildReconciledView(items, opts) {
       if (ledger.length || aside.length) {
         lines.push('Consolidated ledger (each line is ONE real-world occurrence; its attestations are listed - never count an attestation separately):');
         if (window) {
-          lines.push('The question spans ' + (window.span || 'a time window') + ': ' + _isoOf(window.since) + ' to ' + _isoOf(window.until) + '. Only lines dated inside it are listed; an undated line is listed and marked.');
+          lines.push('The question spans ' + (window.span || 'a time window') + ': ' + _isoOf(window.since) + ' to ' + _isoOf(window.until) + '. Only lines dated inside it are listed; an undated line is listed and marked. A "said on" day is when the user mentioned it, not necessarily when it happened.');
         }
         // No verb-matching prose here: a text rule that gates counting
         // cannot tell counting occurrences from summing quantities, and it
@@ -368,11 +376,13 @@ function buildReconciledView(items, opts) {
         for (const l of ledger) {
           let text = l.statement.replace(/^\[instance\]\s*/, '');
           if (/^possession:/.test(text)) text = text.replace('[completed', '[owned');
-          // The day: a pinned date is already inside the status bracket; an
-          // attested day is added when a question is asked, so an ordering
-          // or a window can be read off the line.
+          // The day: a pinned date is already inside the status bracket. The
+          // day it was SAID is added when a question is asked, worded so an
+          // ordering is never read off it: a mention is not the event
+          // (measured: "last month I helped with the nursery", said in May,
+          // was ordered as a May event).
           const dateNote = question
-            ? (l.date_kind === 'attested' ? ' [first mentioned ' + l.date + ']' : (!l.date ? ' [undated]' : ''))
+            ? (l.date_kind === 'attested' ? ' [said on ' + l.date + '; the words say when it happened]' : (!l.date ? ' [undated]' : ''))
             : '';
           lines.push('L' + l.n + '. ' + text + dateNote +
             (l.refs.length ? ' (attested by ' + l.refs.map(n => 'S' + n).join(', ') + ')' : '') +
@@ -401,7 +411,7 @@ function buildReconciledView(items, opts) {
         // weddings). Scope it: only a person-headed count question keeps the
         // clause; anything else gets the cast as a reading glossary. No head
         // supplied → the clause stays, exactly as before.
-        const _head = opts && opts.noun_head ? String(opts.noun_head).toLowerCase().replace(/s$/, '') : null;
+        const _head = head;
         const _PERSON_HEADS = new Set(['person', 'people', 'doctor', 'dentist', 'specialist', 'therapist', 'physician', 'friend', 'cousin', 'relative', 'sibling', 'colleague', 'neighbor', 'neighbour', 'provider', 'practitioner', 'contact', 'member', 'guest']);
         lines.push(!_head || _PERSON_HEADS.has(_head)
           ? 'Known people and entities here (identity registry) - when the question counts DISTINCT people or entities, count over THIS list, using ledger and statements as each one\'s evidence:'
