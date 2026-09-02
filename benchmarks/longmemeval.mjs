@@ -277,6 +277,12 @@ function composeAnswerPrompt(q, retrieved, shape) {
     }).join('\n');
   }
   const _pref = q.question_type === 'single-session-preference';
+  // The kind of answer wanted, said once on the plain path; the reconciled
+  // view says it itself when it renders.
+  const _askLabel = { place: 'a place', time: 'a time', person: 'a person', thing: 'a thing', reason: 'a reason', manner: 'a way of doing it' };
+  const _askLine = (!_hasLedger && !_pref && shape && shape.asks && _askLabel[shape.asks])
+    ? 'The question asks for ' + _askLabel[shape.asks] + '; the answer names one.\n'
+    : '';
   return (
     (_pref
       ? 'You are answering a personal request. The memory statements below, ' +
@@ -293,7 +299,7 @@ function composeAnswerPrompt(q, retrieved, shape) {
         'same fact, the most recent [date] wins — answer with the updated value.\n\n') +
     'Memory statements:\n' + mem + '\n\n' +
     (q.question_date ? 'Question asked on: ' + q.question_date + ' — compute any relative time (ago / since / between) from this date using the [dates] on the statements.\n' : '') +
-    'Question: ' + q.question + '\n\n' +
+    'Question: ' + q.question + '\n' + _askLine + '\n' +
     // The question type decides first: a knowledge-update question phrased
     // as a count ("how many X have I tried") is answered by its newest
     // stated value, never by summing the stated total with the members.

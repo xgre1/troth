@@ -119,10 +119,16 @@ async function main() {
     if (process.env.TROTH_BENCH_FULL_SAUCE === '1') {
       const digest = require('./digest.cjs');
       const ic = require('../shared-core/instance-consolidation.js');
-      const llmCall = ic.makeLlamacppExtractor({
-        host: process.env.TROTH_BENCH_EXTRACTOR_HOST || undefined,
-        timeout_ms: parseInt(process.env.TROTH_BENCH_EXTRACTOR_TIMEOUT_MS || '120000', 10)
-      });
+      // TROTH_BENCH_EXTRACTOR=proxy: extraction rides the operator's own proxy
+      // (credentials and engine stay there); otherwise the llama.cpp host.
+      const llmCall = process.env.TROTH_BENCH_EXTRACTOR === 'proxy'
+        ? require('./proxy-extractor.cjs').makeProxyExtractor({
+          timeout_ms: parseInt(process.env.TROTH_BENCH_EXTRACTOR_TIMEOUT_MS || '120000', 10)
+        })
+        : ic.makeLlamacppExtractor({
+          host: process.env.TROTH_BENCH_EXTRACTOR_HOST || undefined,
+          timeout_ms: parseInt(process.env.TROTH_BENCH_EXTRACTOR_TIMEOUT_MS || '120000', 10)
+        });
       out.digest = await digest.digestHaystack({
         agent_id,
         user_id: 'default',

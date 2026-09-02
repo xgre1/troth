@@ -22,7 +22,7 @@ const chameleon = require('../shared-core/chameleon.js');
 const state = require('../shared-core/state.js');
 
 const PROMPT_V2 = process.env.TROTH_EXTRACT_PROMPT === 'v2';
-const PROMPT_VERSION = PROMPT_V2 ? 'combined-v2.1' : 'combined-v1';
+const PROMPT_VERSION = PROMPT_V2 ? 'combined-v2.1' : 'combined-v1.1';
 
 function _sessionsFromDb(agent_id) {
   const rows = state.queryActions({ type: 'tool_call', agent_id, limit: 100000, order: 'asc' }) || [];
@@ -40,10 +40,16 @@ function _sessionsFromDb(agent_id) {
   return bySession;
 }
 
+// The prompt dates every turn so the words' relative days resolve, so the
+// day is part of what was extracted: the same text said on another day is
+// another extraction. The key carries each turn's day next to its text.
+function _dayOf(ts) {
+  return Number.isFinite(ts) ? new Date(ts).toISOString().slice(0, 10) : '-';
+}
 function _cacheKey(turns) {
   const h = crypto.createHash('sha1');
   h.update(PROMPT_VERSION);
-  for (const t of turns) h.update(' ' + t.user_text);
+  for (const t of turns) h.update(' ' + _dayOf(t.timestamp) + ' ' + t.user_text);
   return h.digest('hex');
 }
 
