@@ -1841,6 +1841,30 @@ if (command === "doctor") {
   var claudeOk = findClaude();
   checks.push({ name: "Claude Code CLI (optional)", ok: claudeOk, detail: claudeOk ? "installed" : "not installed — only needed for `default_command classic` proxy mode" });
 
+  // The plugin Claude Code runs (hooks, MCP entry files) lives in its plugin
+  // cache and moves only when the plugin is updated; the core it loads is
+  // this checkout. When the two versions differ, the hooks run one version
+  // behind the core beneath them.
+  try {
+    var _ipPath = path.join(HOME, ".claude", "plugins", "installed_plugins.json");
+    if (fs.existsSync(_ipPath)) {
+      var _ip = JSON.parse(fs.readFileSync(_ipPath, "utf8"));
+      var _entries = (_ip && _ip.plugins && (_ip.plugins["troth@troth"] || _ip.plugins["troth"])) || [];
+      var _plugVer = _entries.length ? String(_entries[_entries.length - 1].version || "?") : null;
+      var _coreVer = String((require("../package.json") || {}).version || "?");
+      if (_plugVer) {
+        var _same = _plugVer === _coreVer;
+        checks.push({
+          name: "Plugin in Claude Code",
+          ok: _same,
+          detail: _same
+            ? "v" + _plugVer + " — matches the core"
+            : "v" + _plugVer + " while the core is v" + _coreVer + " — the hooks run behind the core: in Claude Code, /plugin → troth → Update"
+        });
+      }
+    }
+  } catch (_) { /* no Claude Code plugin registry here */ }
+
   // Config file
   var cfgExists = fs.existsSync(CONFIG_FILE);
   checks.push({ name: "Config file", ok: cfgExists, detail: cfgExists ? CONFIG_FILE : CONFIG_FILE + " — run: troth setup" });

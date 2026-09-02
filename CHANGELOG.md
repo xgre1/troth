@@ -28,6 +28,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   control under Settings, Technical, Dashboard; `troth ui` prints the
   project the map shows. Starting the engine from the home folder, from an
   app bundle or from a Linux desktop session no longer means an empty map.
+- The Code Map page shows without Operator mode: it is a view of the user's
+  own code, not a setting.
+- A caller that is not on loopback is answered only with the remote token,
+  on every route but `/health`, whatever interface the proxy is bound to.
+  The per-route checks stay as defence in depth; this is the wall.
+- The standing rules block fits the context the harness shows: this
+  project's rules first, then the rules the prompt's own words touch, each
+  by its opening sentences, with a count of the rest and where to read them
+  (`rule_list`).
+- `troth doctor` reports when the plugin Claude Code runs is a version
+  behind the core it loads, and how to update it.
 - A count of what happened or what is owned leaves plans out: "how many
   tanks do I have" is not answered by a tank the user is thinking of setting
   up, while a question about plans keeps its planned lines. The same object
