@@ -1825,6 +1825,16 @@ console.log('\nHashline edit format (behavior):');
 
     // Spawn server, exchange init + read + edit that breaks syntax.
     const child = childMCP.spawn('node', [SERVER], { stdio: ['pipe', 'pipe', 'pipe'] });
+    // The child is listened to, not only read: a server that dies answers
+    // at once with its exit, and what it wrote to stderr rides every
+    // failure. An unread stderr pipe is also a wall the child can block on
+    // once it fills, which reads from outside as a server gone dark.
+    let errTail = '';
+    child.stderr.on('data', (d) => { errTail = (errTail + d.toString()).slice(-2000); });
+    let gone = null;
+    child.on('exit', (code, signal) => { gone = 'exit code=' + code + ' signal=' + signal; });
+    child.on('error', (e) => { gone = 'spawn error: ' + (e && e.message); });
+    const said = () => (errTail.trim() ? ' | stderr: ' + errTail.trim().slice(-600) : '');
     let buffer = '';
     const replies = [];
     child.stdout.on('data', (d) => {
@@ -1848,11 +1858,13 @@ console.log('\nHashline edit format (behavior):');
     // any suite longer than 3s, both waitFor() calls saw an already-expired
     // deadline and rejected immediately.
     function waitFor(n, timeoutMs) {
-      const deadline = Date.now() + (timeoutMs || 3000);
+      const ms = timeoutMs || 3000;
+      const deadline = Date.now() + ms;
       return new Promise((res, rej) => {
         const tick = setInterval(() => {
           if (replies.length >= n) { clearInterval(tick); res(); }
-          else if (Date.now() > deadline) { clearInterval(tick); rej(new Error('timeout')); }
+          else if (gone) { clearInterval(tick); rej(new Error('server died before reply ' + n + ': ' + gone + said())); }
+          else if (Date.now() > deadline) { clearInterval(tick); rej(new Error('timeout after ' + ms + 'ms waiting for reply ' + n + ' (got ' + replies.length + ')' + said())); }
         }, 20);
       });
     }
@@ -1873,7 +1885,10 @@ console.log('\nHashline edit format (behavior):');
           file_path: tmp,
           edits: [{ op: 'replace', pos: '3#' + tag3, lines: 'return 2;' }]  // breaks: no closing brace
         } } });
-      return waitFor(3);
+      // The same window the boot gets: the contract is that the gate
+      // rejects, not that it rejects within 3s while a runner still loads
+      // parsers it built from source.
+      return waitFor(3, 60000);
     }).then(() => {
       const r = replies[2].result;
       child.kill();
@@ -1915,6 +1930,15 @@ console.log('\nHashline edit format (behavior):');
     const tmp = pMCP.join(osMCP.tmpdir(), 'troth-hl-noparser-' + Date.now() + '.js');
     fMCP.writeFileSync(tmp, 'function g() {\n  return 1;\n}\n');
     const child = childMCP.spawn('node', ['--require', shim, SERVER], { stdio: ['pipe', 'pipe', 'pipe'] });
+    // Listened to, not only read: a server that dies answers at once with
+    // its exit, what it wrote to stderr rides every failure, and a drained
+    // stderr pipe is one less wall the child can block on.
+    let errTail = '';
+    child.stderr.on('data', (d) => { errTail = (errTail + d.toString()).slice(-2000); });
+    let gone = null;
+    child.on('exit', (code, signal) => { gone = 'exit code=' + code + ' signal=' + signal; });
+    child.on('error', (e) => { gone = 'spawn error: ' + (e && e.message); });
+    const said = () => (errTail.trim() ? ' | stderr: ' + errTail.trim().slice(-600) : '');
     let buffer = '';
     const replies = [];
     child.stdout.on('data', (d) => {
@@ -1931,11 +1955,13 @@ console.log('\nHashline edit format (behavior):');
     send({ jsonrpc: '2.0', id: 2, method: 'tools/call',
       params: { name: 'hashline_read', arguments: { file_path: tmp } } });
     function waitFor(n, timeoutMs) {
-      const deadline = Date.now() + (timeoutMs || 3000);
+      const ms = timeoutMs || 3000;
+      const deadline = Date.now() + ms;
       return new Promise((res, rej) => {
         const tick = setInterval(() => {
           if (replies.length >= n) { clearInterval(tick); res(); }
-          else if (Date.now() > deadline) { clearInterval(tick); rej(new Error('timeout — the server went dark without parsers')); }
+          else if (gone) { clearInterval(tick); rej(new Error('server died without parsers before reply ' + n + ': ' + gone + said())); }
+          else if (Date.now() > deadline) { clearInterval(tick); rej(new Error('timeout after ' + ms + 'ms without parsers, waiting for reply ' + n + ' (got ' + replies.length + ')' + said())); }
         }, 20);
       });
     }
