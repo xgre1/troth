@@ -628,7 +628,7 @@ try {
 // Tiny pull hint, not the data. Cap: ~120 chars when fired.
 if (precedentCount > 0) {
   pieces.push(
-    '[troth/recall] ' + precedentCount + ' prior verified edits exist for this project. ' +
+    '[troth/precedent] ' + precedentCount + ' prior verified edits exist for this project. ' +
     'Call troth_query_actions({type:"edit", cwd, limit:5}) to load if relevant.'
   );
 }
@@ -675,7 +675,8 @@ if (ctx && ctx.context) pieces.push(ctx.context);
 //   3. ANCHORS — top-2 active anchors (substrate's stated commitments)
 function tokenizeForOverlap(text) {
   const stop = new Set(['the','a','an','is','are','to','of','in','and','or','for','on','at','with','by','from','that','this','it','as','i','you','we','they','my','your','our','be','have','has','had','do','does','did','not','no','yes']);
-  return new Set(String(text || '').toLowerCase().replace(/[^a-z0-9\s+#\-]/g, ' ').split(/\s+/).filter(t => t && t.length >= 3 && !stop.has(t)));
+  // Letters of any script: a Greek prompt overlaps a Greek fact.
+  return new Set(String(text || '').toLowerCase().replace(/[^\p{L}\p{N}\s+#\-]/gu, ' ').split(/\s+/).filter(t => t && t.length >= 3 && !stop.has(t)));
 }
 if (prompt.length >= 30 && !prompt.startsWith('/')) {
   try {

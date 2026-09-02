@@ -64,6 +64,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a directory that decodes to a temporary path never is.
 - `troth_recall` items carry `when`, the day each statement was said or
   recorded, and the reply says that on the same subject the newest wins.
+- The session-start orientation always arrives: the daily maintenance tick
+  runs in a detached child instead of inside the hook's five-second budget,
+  and the ledger rows land the same way.
+- Every block the per-prompt injector writes carries its own label (the
+  precedent pointer is `[troth/precedent]`), and topical overlap in the
+  identity block reads letters of any script, so a prompt in Greek meets a
+  fact in Greek. The maintenance ledger rows carry their task name in the
+  search text.
 - A count of what happened or what is owned leaves plans out: "how many
   tanks do I have" is not answered by a tank the user is thinking of setting
   up, while a question about plans keeps its planned lines. The same object

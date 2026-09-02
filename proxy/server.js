@@ -6706,7 +6706,7 @@ server.listen(listenPort, BIND_HOST, () => {
               input: ev.input || {}, output: ev.output || {}
             };
             const v = arM.validate(rec);
-            if (v && v.ok) stM.recordAction(rec, 'background task run');
+            if (v && v.ok) stM.recordAction(rec, arM.toSearchText(rec));
           } catch (_) { /* best-effort */ }
         },
         // The understanding tasks write under the operator's own agent id, the

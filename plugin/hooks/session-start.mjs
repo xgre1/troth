@@ -261,50 +261,30 @@ try {
 // surfaces. Identified  as the cause of voice silent-freeze.
 let bgTickResult = null;
 if (process.env.TROTH_BG_TICK_DISABLE !== '1' && process.env.TROTH_VOICE_MODE !== '1') {
+  // The daily tasks run in a child of their own, detached and unreferenced:
+  // this hook has five seconds before the harness discards everything it
+  // wrote, and a due daily task alone can spend that. The child writes the
+  // same ledger rows the inline tick wrote; the substrate's own debounce
+  // keeps each task to once per cadence whatever started it.
   try {
-    const bg = require(pluginRoot + '/../shared-core/background-worker.js');
-    const ar = require(pluginRoot + '/../shared-core/action-record.js');
+    const { spawn } = await import('node:child_process');
     const cwdNow = payload.cwd || process.cwd();
     const userId = process.env.USER || 'default';
     const agentId = resolveAgentId();
-
-    // Submit shim — wraps event into an ActionRecord and persists.
-    // Background-worker tasks emit { type, input, output }; we fill
-    // the substrate-required fields and route through state.recordAction.
-    function submit(ev) {
-      if (!ev || !ev.type) return;
-      const rec = {
-        id: ar.uuidv7(),
-        timestamp: Date.now(),
-        type: ev.type,
-        agent_id: agentId,
-        cwd: cwdNow,
-        user_id: userId,
-        input: ev.input || {},
-        output: ev.output || {}
-      };
-      const v = ar.validate(rec);
-      if (!v.ok) return;
-      state.recordAction(rec, ar.toSearchText(rec));
-    }
-
-    bgTickResult = await bg.runDueTasks({
-      submit,
-      getView: () => ({
-        mind: { active_projects: [] },
-        substrate_ctx: { agent_id: agentId, user_id: userId, cwd: cwdNow }
-      }),
-      // taskProcedureCompile sources tool_call patterns from the agent
-      // that owns Edit/Bash/Read calls — in Claude Code's PostToolUse
-      // wiring that's `claude-code`, not the operator agent_id (which
-      // only owns dialogue.turn). Without this override the detector
-      // scans an empty pool and never accumulates compiled_procedure
-      // records. Identified by substrate-resolved-fraction bench.
-      agent_id_overrides: { procedure_compile: 'claude-code' }
-    });
+    const script = [
+      "const bg = require(" + JSON.stringify(pluginRoot + '/../shared-core/background-worker.js') + ");",
+      "const ar = require(" + JSON.stringify(pluginRoot + '/../shared-core/action-record.js') + ");",
+      "const state = require(" + JSON.stringify(pluginRoot + '/../shared-core/state.js') + ");",
+      "const cwdNow = " + JSON.stringify(cwdNow) + ", userId = " + JSON.stringify(userId) + ", agentId = " + JSON.stringify(agentId) + ";",
+      "function submit(ev) { if (!ev || !ev.type) return; const rec = { id: ar.uuidv7(), timestamp: Date.now(), type: ev.type, agent_id: agentId, cwd: cwdNow, user_id: userId, input: ev.input || {}, output: ev.output || {} }; const v = ar.validate(rec); if (!v.ok) return; state.recordAction(rec, ar.toSearchText(rec)); }",
+      "bg.runDueTasks({ submit, getView: () => ({ mind: { active_projects: [] }, substrate_ctx: { agent_id: agentId, user_id: userId, cwd: cwdNow } }), agent_id_overrides: { procedure_compile: 'claude-code' } }).then(() => process.exit(0), () => process.exit(0));"
+    ].join('\n');
+    const child = spawn(process.execPath, ['-e', script], { detached: true, stdio: 'ignore', env: process.env });
+    child.unref();
+    bgTickResult = { detached: true, pid: child.pid };
   } catch (e) {
     log('SessionStart.bg_tick.error', {
-      reason: 'bg_tick_threw',
+      reason: 'bg_tick_spawn_threw',
       metadata: { message: String(e && e.message || e) }
     });
   }
