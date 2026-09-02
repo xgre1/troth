@@ -28,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   control under Settings, Technical, Dashboard; `troth ui` prints the
   project the map shows. Starting the engine from the home folder, from an
   app bundle or from a Linux desktop session no longer means an empty map.
+- A count of what happened or what is owned leaves plans out: "how many
+  tanks do I have" is not answered by a tank the user is thinking of setting
+  up, while a question about plans keeps its planned lines. The same object
+  told in one statement, or pinned to one day, is one line in the ledger,
+  with the later telling folded in as an attestation. Being prescribed,
+  referred, diagnosed or treated by a named clinician, or by a specific role
+  such as a primary care physician, is a visit the memory keeps. A cousin's
+  wedding and cousin Rachel's wedding are one wedding while one cousin is
+  known. The counted phrase drops its determiners and numerals, so "the three
+  trips" measures every line against trips alone.
 - A request that names a `gpt-5` model reaches the ChatGPT plan lane on its
   own. The model id inside the request picks the lane, the way a Kimi id
   already does, so a harness, a tool or one pane can use the plan for a call
