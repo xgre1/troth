@@ -220,7 +220,9 @@ function composeAnswerPrompt(q, retrieved) {
   }
   const _hasLedger = retrieved.some((it) => it.source === 'instance-pool');
   let mem;
-  if (_hasLedger) {
+  // The view also serves a preference question with no ledger: it leads with
+  // what the user said about themselves, then the statements.
+  if (_hasLedger || q.question_type === 'single-session-preference') {
     const { buildReconciledView } = require('../shared-core/reconciled-view.js');
     const _stamp = (it) => Object.assign({}, it, {
       statement: (Number.isFinite(it.ts) && it.source !== 'instance-pool'

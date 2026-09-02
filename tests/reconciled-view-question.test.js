@@ -160,5 +160,20 @@ t('a pronoun total counts when the head is named; designations and measures neve
   assert.deepStrictEqual(w.totals, [], '"one of them was" is a partitive, never a total');
 });
 
+t('a request-shaped question lists what the user said about themselves first, newest first', () => {
+  const items = [
+    { source: 'dialogue-window', id: 'r1', statement: 'user: As an aspiring stand-up comedian, I\'m looking for advice on how to improve my craft. / asst: Sure.', ts: ASKED - 30 * DAY },
+    { source: 'dialogue-window', id: 'r2', statement: 'user: I\'ve been trying to eat more plant-based meals lately. Any slow cooker ideas? / asst: Plenty.', ts: ASKED - 2 * DAY },
+    { source: 'dialogue-window', id: 'r3', statement: 'asst: You are clearly a night owl.', ts: ASKED - 1 * DAY },
+  ];
+  const v = buildReconciledView(items, { question: 'Can you recommend a show or movie for me to watch tonight?', reference_ts: ASKED });
+  assert.deepStrictEqual(v.about.map(a => a.kind), ['constraint', 'role'], 'newest first; the assistant\'s description of the user is not counted');
+  const out = v.render();
+  assert.ok(out.indexOf('About the user, in their own words') === 0, 'the block leads the view');
+  assert.ok(/A2\. \[.*\] aspiring stand-up comedian \(who they are\) \(S1\)/.test(out), out.split('\n').slice(0, 3).join(' | '));
+  const plain = buildReconciledView(items, { question: 'How many shows did I watch?', reference_ts: ASKED });
+  assert.strictEqual(plain.about.length, 0, 'a count question carries no about block');
+});
+
 console.log('\nreconciled-view-question: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

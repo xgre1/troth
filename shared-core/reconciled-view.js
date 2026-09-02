@@ -37,6 +37,10 @@ let _EVENT_HEAD = null;
 try { _EVENT_HEAD = require('./instance-consolidation.js').EVENT_HEAD || null; } catch (_) {}
 let _parseTimeWindow = null;
 try { _parseTimeWindow = require('./time-window.js').parseTimeWindow; } catch (_) {}
+let _selfStatements = null;
+try { _selfStatements = require('./self-statements.js').extractSelfStatements; } catch (_) {}
+// A request-shaped question asks for advice built around who the user is.
+const REQUEST_SHAPED = /\b(can you (?:recommend|suggest)|any (?:tips|suggestions|recommendations|ideas|advice)|what should i|could you (?:recommend|suggest)|suggest (?:some|a)|recommend (?:some|a)|help me (?:choose|pick|plan|decide)|what (?:would|do) you recommend)\b/i;
 
 // Cosine floor for "about the asked subject". Calibrated on the 13 count and
 // order questions of the LongMemEval probe (2026-09-02): same-topic instances
@@ -234,6 +238,22 @@ function buildReconciledView(items, opts) {
     const d = dateOf(it);
     return { n: i + 1, statement: it.statement, refs, flags, date: d.iso, date_kind: d.kind, cos: typeof it._cos === 'number' ? it._cos : null, entity: it._entity || null, kind: it._kind || null };
   });
+  // About the user: first-person statements lifted from the retrieved words,
+  // newest first, for a request-shaped question. Identity and state, listed
+  // before the episodes so the reply is built around them.
+  const requestShaped = question ? REQUEST_SHAPED.test(question) : false;
+  const about = [];
+  if (requestShaped && _selfStatements) {
+    const seen = new Set();
+    for (const r of raw.slice().sort((a, b) => (b.ts || 0) - (a.ts || 0))) {
+      for (const st of _selfStatements(r.statement)) {
+        const key = st.kind + ':' + st.what.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        about.push({ kind: st.kind, what: st.what, n: r.n, ts: Number.isFinite(r.ts) ? r.ts : null });
+      }
+    }
+  }
   // Stated totals ride only on a count-shaped question with a known head.
   const countShaped = question ? /\b(how many|how much|number of|total|count)\b/i.test(question) : false;
   const totals = (countShaped && head) ? statedTotals(raw, opts.noun_head, opts.head_phrase) : [];
@@ -287,9 +307,18 @@ function buildReconciledView(items, opts) {
     aside,
     window,
     totals,
+    about,
     families: families.map((f) => f.name),
     render() {
       const lines = [];
+      if (about.length) {
+        const label = { role: 'who they are', constraint: 'a constraint they keep', skill: 'a skill they have', liking: 'what they like', effort: 'something they made before' };
+        lines.push('About the user, in their own words (newest first; build the answer around the one most specific to this request, then honour the rest):');
+        about.forEach((a, i) => {
+          lines.push('A' + (i + 1) + '. ' + (a.ts ? '[' + _isoOf(a.ts) + '] ' : '') + a.what + ' (' + (label[a.kind] || a.kind) + ') (S' + a.n + ')');
+        });
+        lines.push('');
+      }
       if (ledger.length || aside.length) {
         lines.push('Consolidated ledger (each line is ONE real-world occurrence; its attestations are listed - never count an attestation separately):');
         if (window) {
