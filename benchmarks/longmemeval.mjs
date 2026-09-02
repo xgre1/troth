@@ -226,8 +226,16 @@ function composeAnswerPrompt(q, retrieved) {
       statement: (Number.isFinite(it.ts) && it.source !== 'instance-pool'
         ? '[' + new Date(it.ts).toISOString().slice(0, 10) + '] ' : '') + it.statement
     });
-    const { countNounHead } = require('../shared-core/engram.js');
-    mem = buildReconciledView(retrieved.map(_stamp), { noun_head: countNounHead(q.question) }).render();
+    const { countNounHead, countNounPhrase } = require('../shared-core/engram.js');
+    // The view is question-shaped: it sets aside ledger lines outside the
+    // question's time window or subject, so the reader counts what was asked.
+    const _refTs = (() => {
+      if (!q.question_date) return undefined;
+      const c = String(q.question_date).replace(/\s*\([^)]*\)\s*/, ' ').trim();
+      const p = Date.parse(c + ' UTC') || Date.parse(c);
+      return Number.isNaN(p) ? undefined : p;
+    })();
+    mem = buildReconciledView(retrieved.map(_stamp), { noun_head: countNounHead(q.question), head_phrase: countNounPhrase(q.question), question: q.question, reference_ts: _refTs }).render();
   } else {
     mem = retrieved.map((it, i) => {
       const d = Number.isFinite(it.ts) ? '[' + new Date(it.ts).toISOString().slice(0, 10) + '] ' : '';

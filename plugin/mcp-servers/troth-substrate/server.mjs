@@ -406,7 +406,7 @@ const TOOLS = {
       if (items.some((i) => i.source === 'instance-pool' || i.source === 'identity-cast')) {
         try {
           const { buildReconciledView } = require(serverDir + '../../../shared-core/reconciled-view.js');
-          out.view = buildReconciledView(items, { noun_head: engram.countNounHead(args.query), question: args.query, reference_ts: Date.now() }).render();
+          out.view = buildReconciledView(items, { noun_head: engram.countNounHead(args.query), head_phrase: engram.countNounPhrase ? engram.countNounPhrase(args.query) : null, question: args.query, reference_ts: Date.now() }).render();
         } catch (_) { /* the items alone remain a complete answer */ }
       }
       return out;

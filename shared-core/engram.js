@@ -996,17 +996,9 @@ async function retrieveRelevant(opts) {
   opts = opts || {};
   const agent_id = opts.agent_id || null;
   const query    = String(opts.query || '');
-const _WORD_NUM = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
-function _parseTimeWindow(query, referenceTs) {
-  const q = String(query || '').toLowerCase();
-  const ref = Number.isFinite(referenceTs) ? referenceTs : Date.now();
-  const m = /\b(?:past|last)\s+(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)?\s*(day|week|month|year)s?\b/.exec(q);
-  if (!m) return null;
-  const n = m[1] ? (_WORD_NUM[m[1]] || parseInt(m[1], 10) || 1) : 1;
-  const unitMs = { day: 86400000, week: 7 * 86400000, month: 30 * 86400000, year: 365 * 86400000 }[m[2]];
-  if (!unitMs) return null;
-  return { since: ref - n * unitMs, until: ref };
-}
+// The span a question names ("past three months", "this year"), shared with
+// the reconciled view so retrieval and rendering agree on the same window.
+const _parseTimeWindow = (query, referenceTs) => require('./time-window.js').parseTimeWindow(query, referenceTs);
 
   const _countShaped = /\b(how many|how much|how often|total|count|number of|order of|first to last|earliest to latest|the (two|three|four|five|six|seven) )\b|πόσ(α|ες|ους|η|ο)\b|σύνολ|με τη σειρά/i.test(String(opts.query || ''));
   const _reqShaped = /\b(can you (recommend|suggest)|any (tips|suggestions|recommendations|ideas)|what should i|could you (recommend|suggest)|suggest some|recommend some|what time|when did i|what day)\b/i.test(String(opts.query || ''));
@@ -1240,6 +1232,7 @@ function _parseTimeWindow(query, referenceTs) {
         const lexOrder = candidates.filter((c) => c.sc > 0)
           .sort((x, y) => y.sc - x.sc || (x.r.ts || 0) - (y.r.ts || 0));
         let mounted = lexOrder;
+        const cosOf = new Map();   // hydrated row -> cosine to the question
         try {
           const _emb = require('./local-embedder.js');
           const qv = await _emb.embed(query, { role: 'query' });
@@ -1252,6 +1245,7 @@ function _parseTimeWindow(query, referenceTs) {
               try { ev = state.getEmbedding(c.r.id); } catch (_) {}
               return { c, cos: ev ? Math.max(0, cosine(qv, ev)) : null };
             });
+            for (const x of withCos) cosOf.set(x.c.r, x.cos);
             const lexRank = new Map(lexOrder.map((c, i) => [c, i + 1]));
             const semOrder = withCos.filter((x) => x.cos != null).sort((a, b) => b.cos - a.cos);
             const semRank = new Map(semOrder.map((x, i) => [x.c, i + 1]));
@@ -1290,6 +1284,18 @@ function _parseTimeWindow(query, referenceTs) {
           final.push({
             id: r.id,
             ts: r.ts || 0,
+            // The day the occurrence was first attested and its cosine to the
+            // question ride along so the reconciled view can date each line
+            // and set aside what the question is not about.
+            _attested_ts: (r.payload && r.payload.instance && Number.isFinite(r.payload.instance.attested_ts)) ? r.payload.instance.attested_ts : null,
+            _cos: cosOf.has(r) ? cosOf.get(r) : null,
+            // The instance's own structure, so the view can filter by the
+            // question's verb family, status and object without re-parsing.
+            _kind: (r.payload && r.payload.instance && r.payload.instance.kind) || null,
+            _qualifier: (r.payload && r.payload.instance && r.payload.instance.qualifier) || null,
+            _status: (r.payload && r.payload.instance && r.payload.instance.status) || null,
+            _entity: (r.payload && r.payload.instance && r.payload.instance.entity) || null,
+            _facets: (r.payload && r.payload.instance && Array.isArray(r.payload.instance.facets)) ? r.payload.instance.facets.map((f) => f && f.verb).filter(Boolean) : [],
             statement: '[instance] ' + r.statement + ' (attested ×' + attested + ')',
             score: 0,
             memory_class: 'semantic',
@@ -1612,7 +1618,25 @@ function auditEngramsByAgent(opts) {
 // view can scope its cast counting clause to what is actually being counted.
 function countNounHead(query) {
   const m = /\b(?:how many|how much|number of|order of|the (?:two|three|four|five|six|seven))\s+([a-z][a-z \-]{3,40}?)(?:\s+(?:have|has|had|did|do|does|i|we|are|is|were|was|in|from|that)\b|[?.!]|$)/i.exec(String(query || ''));
-  return m && m[1] ? m[1].trim().split(/\s+/).pop().toLowerCase() : null;
+  if (!m || !m[1]) return null;
+  // The phrase can run into a clause ("mummies the party will face"): cut it
+  // at the first determiner or pronoun so the head is the counted noun, not
+  // the clause's last word. "items of clothing" and "different doctors"
+  // carry no such word and keep their last word as the head.
+  const phrase = m[1].trim();
+  const cut = phrase.split(/\s+(?:the|a|an|my|our|your|his|her|their|this|that|these|those|you|they|he|she|it|we)\b/i)[0].trim();
+  return (cut || phrase).split(/\s+/).pop().toLowerCase();
+}
+
+// The whole counted phrase ("model kits", "items of clothing"), so a view can
+// match the subject by more than its last word when the question gives more.
+function countNounPhrase(query) {
+  const m = /\b(?:how many|how much|number of|order of|the (?:two|three|four|five|six|seven))\s+([a-z][a-z \-]{3,40}?)(?:\s+(?:have|has|had|did|do|does|i|we|are|is|were|was|in|from|that)\b|[?.!]|$)/i.exec(String(query || ''));
+  if (!m || !m[1]) return null;
+  const phrase = m[1].trim();
+  const cut = phrase.split(/\s+(?:the|a|an|my|our|your|his|her|their|this|that|these|those|you|they|he|she|it|we)\b/i)[0].trim();
+  const words = (cut || phrase).toLowerCase().split(/\s+/).filter((w) => !/^(different|distinct|separate|various|total|new|other|items?|of)$/.test(w));
+  return words.length ? words.join(' ') : null;
 }
 
 module.exports = {
@@ -1620,6 +1644,7 @@ module.exports = {
   listEngrams,
   auditEngramsByAgent,
   countNounHead,
+  countNounPhrase,
   // Deprecated alias — kept for backward compat with pre- callers.
   // New code MUST use auditEngramsByAgent (intent-communicating name).
   listAgentsWithEngrams: auditEngramsByAgent,

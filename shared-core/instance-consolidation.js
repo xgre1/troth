@@ -781,6 +781,22 @@ function _closePool(pool, opts, stats) {
   }
 }
 
+// Earliest attesting turn of an occurrence (ms), null when the turns carry
+// no timestamps. Kept across restatements as the smaller of old and new.
+function _earliestTs(turns, idxs) {
+  let best = null;
+  for (const i of (Array.isArray(idxs) ? idxs : [])) {
+    const t = turns && turns[i];
+    if (!t || !Number.isFinite(t.timestamp)) continue;
+    if (best == null || t.timestamp < best) best = t.timestamp;
+  }
+  return best;
+}
+function _minTs(a, b) {
+  if (Number.isFinite(a) && Number.isFinite(b)) return Math.min(a, b);
+  return Number.isFinite(a) ? a : (Number.isFinite(b) ? b : null);
+}
+
 function writeInstances(opts) {
   const turns = opts.turns || [];
   const stats = { written: 0, dup: 0, no_provenance: 0, transitions: 0, strengthened: 0 };
@@ -791,6 +807,11 @@ function writeInstances(opts) {
       : (inst.turn_idxs || [])
         .map(i => turns[i] && turns[i].id ? 'dialogue.turn:' + turns[i].id : null)
         .filter(Boolean);
+    // When the occurrence was first attested: the earliest attesting turn.
+    // The reconciled view dates a ledger line by this when the statement
+    // pins no date of its own ("acquired in the last month" needs a date
+    // on every line, and most instances state none).
+    const attestedTs = _earliestTs(turns, inst.turn_idxs);
     if (!refs.length) { stats.no_provenance++; continue; }
     // Identity resolution: if the mind knows who this entity is, the
     // instance carries the canonical slug — counting merges by identity,
@@ -815,7 +836,7 @@ function writeInstances(opts) {
       // entailed row overwrites freely and promotes the basis.
       if (inst.basis === 'entailed' && old.basis !== 'entailed') {
         if (provenance.length === oldRefs.length) { stats.dup++; continue; }
-        finalInst = Object.assign({}, old);
+        finalInst = Object.assign({}, old, { attested_ts: _minTs(old.attested_ts, attestedTs) });
         supersedes = match.id;
         reason = 'entailed_attestation';
       } else {
@@ -842,7 +863,8 @@ function writeInstances(opts) {
         qualifier: _primaryQualifier(facets, inst.qualifier || old.qualifier || null),
         facets,
         quantity: Number.isFinite(inst.quantity) ? inst.quantity : (old.quantity != null ? old.quantity : null),
-        session_id: opts.session_id || old.session_id || null
+        session_id: opts.session_id || old.session_id || null,
+        attested_ts: _minTs(old.attested_ts, attestedTs)
       };
       supersedes = match.id;
       reason = old.basis === 'entailed' && inst.basis !== 'entailed'
@@ -862,7 +884,8 @@ function writeInstances(opts) {
         qualifier: inst.qualifier,
         facets: inst.qualifier ? [{ verb: inst.qualifier, class: _verbClass(inst.qualifier), refs: refs.slice() }] : [],
         quantity: inst.quantity,
-        session_id: opts.session_id || null
+        session_id: opts.session_id || null,
+        attested_ts: attestedTs
       };
     }
 
