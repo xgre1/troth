@@ -51,6 +51,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   turns (`TROTH_INSTANCE_EXTRACT_TURNS_PER_PASS`, default 60), with the cost
   visible in the usage ledger under `instance-extraction`;
   `TROTH_INSTANCE_EXTRACT_ENGINE=0` keeps the pass local-only.
+- The memory's understanding passes (facts the operator states about
+  themselves, typed occurrences) run in the proxy's maintenance worker, so
+  every install that keeps a proxy has a living memory without an entity
+  daemon. They take the local engine when it answers, else the operator's
+  engine under one daily budget shared by both readers
+  (`TROTH_UNDERSTANDING_DAILY_TURNS`, default 400); `TROTH_UNDERSTANDING=0`
+  keeps them out. `troth doctor` prints when each last ran and what the
+  budget spent today.
+- The session watcher records a conversation wherever Claude Code was
+  started: every project directory under `~/.claude/projects` is tailed, and
+  a directory that decodes to a temporary path never is.
+- `troth_recall` items carry `when`, the day each statement was said or
+  recorded, and the reply says that on the same subject the newest wins.
 - A count of what happened or what is owned leaves plans out: "how many
   tanks do I have" is not answered by a tank the user is thinking of setting
   up, while a question about plans keeps its planned lines. The same object

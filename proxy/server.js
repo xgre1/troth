@@ -6681,7 +6681,14 @@ server.listen(listenPort, BIND_HOST, () => {
         // install. Both were registered in DEFAULT_TASKS — the entity daemon's
         // list — so on this machine the document queue had no reader at all
         // and the operator watched "183 still to read" never move.
-        tasks: [bw.tasks.embeddingBackfill, bw.tasks.knowledgeDrain, bw.tasks.outcomeFold, bw.tasks.importSync, bw.tasks.backup, bw.tasks.walReplicate, bw.tasks.ledgerPrune, bw.tasks.carriedFreeze],
+        tasks: [bw.tasks.embeddingBackfill, bw.tasks.knowledgeDrain, bw.tasks.outcomeFold, bw.tasks.importSync, bw.tasks.backup, bw.tasks.walReplicate, bw.tasks.ledgerPrune, bw.tasks.carriedFreeze]
+          // The memory's understanding — what the operator states about
+          // themselves, and the typed occurrences a count or an order is
+          // read from — runs here too, because this is the one process every
+          // install keeps alive. Local engine when it answers, else the
+          // operator's engine under the daily budget; TROTH_UNDERSTANDING=0
+          // keeps it out.
+          .concat(process.env.TROTH_UNDERSTANDING === '0' ? [] : [bw.tasks.workingMemoryConsolidation, bw.tasks.instanceConsolidation]),
         cross_process_lease: true,
         idle_threshold_ms: Math.max(parseInt(process.env.TROTH_MAINT_IDLE_MS || '60000', 10) || 60000, 0),
         tick_ms: Math.max(parseInt(process.env.TROTH_MAINT_TICK_MS || '30000', 10) || 30000, 250),
@@ -6702,7 +6709,10 @@ server.listen(listenPort, BIND_HOST, () => {
             if (v && v.ok) stM.recordAction(rec, 'background task run');
           } catch (_) { /* best-effort */ }
         },
-        getView: () => ({}),
+        // The understanding tasks write under the operator's own agent id, the
+        // same id the session watcher records dialogue turns under, so what
+        // the memory understands lands where recall reads.
+        getView: () => ({ substrate_ctx: { agent_id: resolveAgentId(), user_id: 'default', cwd: null } }),
         notify: (n) => { try { log('[maintenance] ' + n.task + ': ' + (n.notes || []).join(' | ')); } catch (_) {} }
       });
       log('Maintenance: embedding drain + import sync (idle-gated, cross-process lease)');

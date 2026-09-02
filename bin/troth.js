@@ -1820,6 +1820,33 @@ if (command === "doctor") {
     }
   } catch (_e) { /* readiness probe is optional — doctor must finish */ }
 
+  // The memory's understanding: the passes that turn dialogue into facts
+  // about the operator and typed occurrences. They run in the proxy's
+  // maintenance worker (or the entity daemon); a memory whose ledger never
+  // grows is one nobody is understanding.
+  try {
+    var _stU = require("../shared-core/state.js");
+    var _icU = require("../shared-core/instance-consolidation.js");
+    var _budU = _icU.engineBudget ? _icU.engineBudget() : null;
+    var _tasksU = [["wm_consolidation", "facts about you"], ["instance_consolidation", "typed occurrences"]];
+    var _partsU = [], _okU = true;
+    for (var _ti = 0; _ti < _tasksU.length; _ti++) {
+      var _row = _stU.lastBackgroundRun ? _stU.lastBackgroundRun(_tasksU[_ti][0], 7 * 24 * 60 * 60 * 1000) : null;
+      if (_row && _row.timestamp) {
+        var _agoU = Math.round((Date.now() - _row.timestamp) / 60000);
+        var _noteU = (_row.output && _row.output.notes) ? String(_row.output.notes).slice(0, 70) : "";
+        _partsU.push(_tasksU[_ti][1] + ": last run " + (_agoU < 1 ? "just now" : _agoU < 120 ? _agoU + " min ago" : Math.round(_agoU / 60) + " h ago") + (_noteU ? " (" + _noteU + ")" : ""));
+        if (_agoU > 24 * 60) _okU = false;
+      } else { _partsU.push(_tasksU[_ti][1] + ": never ran this week"); _okU = false; }
+    }
+    checks.push({
+      name: "Memory understanding",
+      ok: _okU,
+      detail: _partsU.join(" · ") + (_budU ? " · engine budget today " + _budU.used + "/" + _budU.limit + " turns" : "")
+        + (_okU ? "" : " — keep the proxy running (troth start) and it runs on idle; TROTH_UNDERSTANDING=0 turns it off")
+    });
+  } catch (_e) { /* the understanding line is optional — doctor must finish */ }
+
   // Login service sanity. Not-installed is a fact, not a failure; a
   // service whose unit points at a tree that no longer exists IS one —
   // launchd keeps respawning a ghost and the operator sees a dead port

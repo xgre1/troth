@@ -65,6 +65,19 @@ console.log('\n=== extractor road ===\n');
     assert.strictEqual(r.road, 'engine');
   });
 
+  await t('the engine road stops when the daily budget is spent, and every session read spends it', async () => {
+    up.clear(); up.add('http://127.0.0.1:8000');
+    process.env.TROTH_UNDERSTANDING_DAILY_TURNS = '2';
+    const r = await ic.makeExtractor({ probe, local_host: null, proxy_host: 'http://127.0.0.1:8000' });
+    assert.strictEqual(r.road, 'engine');
+    assert.ok(r.limit <= 2, 'the per-pass limit never exceeds what is left: ' + r.limit);
+    ic.spendEngine(2);
+    const r2 = await ic.makeExtractor({ probe, local_host: null, proxy_host: 'http://127.0.0.1:8000' });
+    assert.strictEqual(r2.road, 'none');
+    assert.ok(/daily engine budget is spent/.test(r2.reason), r2.reason);
+    delete process.env.TROTH_UNDERSTANDING_DAILY_TURNS;
+  });
+
   console.log('\nextractor-road: ' + pass + ' passed, ' + fail + ' failed\n');
   process.exit(fail ? 1 : 0);
 })();

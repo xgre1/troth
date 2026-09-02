@@ -802,29 +802,50 @@ const _SELF_FACT_SCHEMA = {
   properties: {
     facts: { type: 'array', items: { type: 'object', properties: {
       kind: { type: 'string', enum: ['role', 'constraint', 'skill', 'liking', 'effort', 'fact'] },
-      what: { type: 'string' }
+      what: { type: 'string' },
+      subject: { type: 'string' },
+      attribute: { type: 'string', enum: ['pay', 'schedule', 'role', 'status', 'amount', 'location', 'contact', 'other'] }
     }, required: ['kind', 'what'] } }
   },
   required: ['facts']
 };
 const _SELF_FACT_PROMPT = [
   'Read the message a person wrote to their assistant. List only durable facts the person states ABOUT THEMSELVES:',
-  'their role or occupation, a constraint they live with, a skill they have, something they like or dislike, something they made or did before.',
+  'their role or occupation, a constraint they live with, a skill they have, something they like or dislike, something they made or did before, what they earn or are paid, how many days they work somewhere.',
   'Write each fact as a short phrase in the message\'s own language and words. Ignore requests, anger, opinions about the assistant, and anything about other people.',
-  'Answer with ONE JSON object {"facts":[{"kind":"role|constraint|skill|liking|effort|fact","what":"..."}]} and nothing else; an empty list when there is none.',
+  'For each fact also give "subject": the thing the fact is about, named as the message names it (an employer, a client, a project, a machine, a place), and "attribute": what about it the fact states: pay, schedule, role, status, amount, location, contact or other.',
+  'Answer with ONE JSON object {"facts":[{"kind":"role|constraint|skill|liking|effort|fact","what":"...","subject":"...","attribute":"pay|schedule|role|status|amount|location|contact|other"}]} and nothing else; an empty list when there is none.',
   '', 'Message: '
 ].join('\n');
+// The reader takes the local engine when it answers, else the operator's
+// engine through the proxy; the road is chosen on the first call. With
+// TROTH_SELF_FACT_LLM=0 the reader is off and the English patterns stand.
 function _selfFactReader() {
-  // TROTH_SELF_FACT_LLM=0 keeps the reader off (tests, or an operator who
-  // wants the patterns only); with no local engine the reader is off anyway.
   if (process.env.TROTH_SELF_FACT_LLM === '0') return null;
-  let host = null;
-  try { host = require('./transport-config.js').llamacppHost(); } catch (_) { host = null; }
-  if (!host) return null;
   const qs = require('./question-shape.js');
-  const call = qs.makeShapeCall({ host, timeout_ms: 8000 });
+  const ic = require('./instance-consolidation.js');
+  let pickP = null;
+  const pick = async () => {
+    let host = null;
+    try { host = require('./transport-config.js').llamacppHost(); } catch (_) { host = null; }
+    const probe = async (url) => { try { const r = await fetch(url, { signal: AbortSignal.timeout(1500) }); return !!r.ok; } catch (_) { return false; } };
+    if (host && await probe(String(host).replace(/\/+$/, '') + '/health')) return { road: 'local', call: qs.makeShapeCall({ host, timeout_ms: 8000 }) };
+    if (String(process.env.TROTH_INSTANCE_EXTRACT_ENGINE || '') === '0') return { road: 'none', call: null };
+    const proxy = 'http://127.0.0.1:' + (process.env.GF_PORT || '8000');
+    if (await probe(proxy + '/health')) return { road: 'engine', call: qs.makeProxyShapeCall({ host: proxy, model: process.env.TROTH_INSTANCE_EXTRACT_MODEL || 'claude-sonnet-5', timeout_ms: 20000 }) };
+    return { road: 'none', call: null };
+  };
   return async function readFacts(text) {
-    const out = await call(_SELF_FACT_PROMPT + String(text).slice(0, 1200), { json_schema: _SELF_FACT_SCHEMA });
+    if (!pickP) pickP = pick();
+    const picked = await pickP;
+    if (!picked || !picked.call) return null;
+    // The engine road spends the shared daily budget, one turn per read;
+    // when it is spent the English patterns stand until the next day.
+    if (picked.road === 'engine') {
+      if (ic.engineBudget().remaining <= 0) return null;
+      ic.spendEngine(1);
+    }
+    const out = await picked.call(_SELF_FACT_PROMPT + String(text).slice(0, 1200), { json_schema: _SELF_FACT_SCHEMA });
     const s = String(out || '');
     const a = s.indexOf('{'), b = s.lastIndexOf('}');
     if (a < 0 || b <= a) return null;

@@ -1347,6 +1347,24 @@ function makeProxyExtractor(cfg) {
 // proxy's usage ledger under the source instance-extraction.
 //   TROTH_INSTANCE_EXTRACT_ENGINE=0          never use the proxy road
 //   TROTH_INSTANCE_EXTRACT_TURNS_PER_PASS=N  turns per pass on the proxy road (default 60)
+// One daily budget for every reader that spends the operator's engine
+// (the typed-occurrence extractor and the self-fact reader): turns per UTC
+// day, TROTH_UNDERSTANDING_DAILY_TURNS (default 400). Local engine calls
+// are not counted. Held in the process; a restart starts the day over.
+let _budgetDay = null, _budgetUsed = 0;
+function _dayKey() { return new Date().toISOString().slice(0, 10); }
+function engineBudget() {
+  const cap = Number(process.env.TROTH_UNDERSTANDING_DAILY_TURNS);
+  const limit = Number.isFinite(cap) && cap >= 0 ? cap : 400;
+  if (_budgetDay !== _dayKey()) { _budgetDay = _dayKey(); _budgetUsed = 0; }
+  return { day: _budgetDay, limit, used: _budgetUsed, remaining: Math.max(0, limit - _budgetUsed) };
+}
+function spendEngine(n) {
+  engineBudget();
+  _budgetUsed += Math.max(0, Number(n) || 0);
+  return engineBudget();
+}
+
 async function makeExtractor(opts) {
   opts = opts || {};
   const probe = opts.probe || (async (url) => {
@@ -1362,8 +1380,16 @@ async function makeExtractor(opts) {
   }
   const proxyHost = String(opts.proxy_host || ('http://127.0.0.1:' + (process.env.GF_PORT || '8000'))).replace(/\/+$/, '');
   if (await probe(proxyHost + '/health')) {
-    const limit = Number(process.env.TROTH_INSTANCE_EXTRACT_TURNS_PER_PASS) || 60;
-    return { road: 'engine', llmCall: makeProxyExtractor({ host: proxyHost, model: opts.model }), limit };
+    const perPass = Number(process.env.TROTH_INSTANCE_EXTRACT_TURNS_PER_PASS) || 60;
+    const b = engineBudget();
+    if (b.remaining <= 0) {
+      return { road: 'none', llmCall: null, limit: null, reason: 'local engine unreachable; the daily engine budget is spent (' + b.used + '/' + b.limit + ' turns today)' };
+    }
+    const limit = Math.min(perPass, b.remaining);
+    const call = makeProxyExtractor({ host: proxyHost, model: opts.model });
+    // Every session the extractor reads on this road spends the budget once.
+    const llmCall = async function (prompt) { spendEngine(1); return call(prompt); };
+    return { road: 'engine', llmCall, limit };
   }
   return { road: 'none', llmCall: null, limit: null, reason: 'no local engine and no proxy reachable' };
 }
@@ -1380,6 +1406,8 @@ module.exports = {
   makeLlamacppExtractor,
   makeProxyExtractor,
   makeExtractor,
+  engineBudget,
+  spendEngine,
   SCOPE_PREFIX,
   WATERMARK_SCOPE,
   KINDS,

@@ -43,7 +43,33 @@ const { resolveAgentId } = require('../shared-core/agent-id.js');
 // hardcoding one user's encoded path) is what makes this OSS-installable.
 const HOME = process.env.HOME || require('os').homedir();
 const ENCODED_HOME = HOME.replace(/\//g, '-');
-const SESSIONS_DIR = path.join(HOME, '.claude/projects/' + ENCODED_HOME);
+const PROJECTS_ROOT = path.join(HOME, '.claude/projects');
+const SESSIONS_DIR = path.join(PROJECTS_ROOT, ENCODED_HOME);
+// Claude Code keeps one directory per working directory it was started in,
+// the path encoded with '-' for '/'. A session opened inside a project is
+// stored under that project's directory, so every directory is watched.
+// Directories that decode to a temporary path belong to throwaway homes
+// (harness runs, scratch sessions), never to the operator's own dialogue.
+const TEMP_DIR_PREFIXES = ['-private-var-folders', '-var-folders', '-tmp', '-private-tmp', '-var-tmp'];
+function isTempSessionDir(name) {
+  const n = String(name || '');
+  // The operator's own home is watched wherever it lives.
+  if (n === ENCODED_HOME) return false;
+  return TEMP_DIR_PREFIXES.some((p) => n === p || n.startsWith(p + '-'));
+}
+function listTranscriptFiles() {
+  const out = [];
+  let dirs = [];
+  try { dirs = fs.readdirSync(PROJECTS_ROOT); } catch (_) { return out; }
+  for (const d of dirs) {
+    if (d.startsWith('.') || isTempSessionDir(d)) continue;
+    const dir = path.join(PROJECTS_ROOT, d);
+    let files = [];
+    try { if (!fs.statSync(dir).isDirectory()) continue; files = fs.readdirSync(dir); } catch (_) { continue; }
+    for (const f of files) if (f.endsWith('.jsonl')) out.push({ dir, file: f });
+  }
+  return out;
+}
 const CURSOR_PATH  = path.join(HOME, '.troth/.session-watch-cursor.json');
 const DEFAULT_AGENT    = resolveAgentId();
 const DEFAULT_POLL_MS  = 10 * 1000;
@@ -107,11 +133,10 @@ async function processAppend(filePath, offset, agent_id, pendingState) {
 }
 
 async function tick(state) {
-  let files = [];
-  try { files = fs.readdirSync(SESSIONS_DIR).filter(f => f.endsWith('.jsonl')); }
-  catch (_) { return; }
-  for (const f of files) {
-    const filePath = path.join(SESSIONS_DIR, f);
+  const files = listTranscriptFiles();
+  if (!files.length) return;
+  for (const { dir, file: f } of files) {
+    const filePath = path.join(dir, f);
     const sessionId = path.basename(f, '.jsonl');
     // First-sight policy: when we encounter a session we've never tracked
     // before AND `start_at_eof` mode is on (default true), initialize the
@@ -155,12 +180,12 @@ async function main() {
   const pollMs = parseInt(argVal('--poll', String(DEFAULT_POLL_MS))) || DEFAULT_POLL_MS;
   const startAtEof = !args.includes('--from-zero');
 
-  if (!fs.existsSync(SESSIONS_DIR)) {
-    console.error('[watcher] sessions dir missing:', SESSIONS_DIR);
+  if (!fs.existsSync(PROJECTS_ROOT)) {
+    console.error('[watcher] sessions root missing:', PROJECTS_ROOT);
     process.exit(1);
   }
   console.error('[watcher] starting  agent=' + agent + '  poll=' + pollMs + 'ms  start_at_eof=' + startAtEof);
-  console.error('[watcher] dir=' + SESSIONS_DIR);
+  console.error('[watcher] root=' + PROJECTS_ROOT);
   const state = {
     agent_id: agent,
     cursor:   loadCursor(),
@@ -203,13 +228,11 @@ function makeRuntime(opts) {
       // Reuse tick() from this module by inlining its logic — tick is not
       // exported as it relies on closure-style state. Replicate compactly.
       const fs2 = require('fs');
-      let files = [];
-      try { files = fs2.readdirSync(SESSIONS_DIR).filter(f => f.endsWith('.jsonl')); }
-      catch (_) { files = []; }
+      const files = listTranscriptFiles();
       let perTickIngested = 0;
-      for (const f of files) {
-        const filePath = require('path').join(SESSIONS_DIR, f);
-        const sessionId = require('path').basename(f, '.jsonl');
+      for (const { dir, file: f } of files) {
+        const filePath = path.join(dir, f);
+        const sessionId = path.basename(f, '.jsonl');
         if (!(sessionId in state.cursor)) {
           if (state.start_at_eof) {
             try { state.cursor[sessionId] = fs2.statSync(filePath).size; }
@@ -264,4 +287,4 @@ function makeRuntime(opts) {
   };
 }
 
-module.exports = { processAppend, loadCursor, saveCursor, makeRuntime };
+module.exports = { processAppend, loadCursor, saveCursor, makeRuntime, listTranscriptFiles, isTempSessionDir };

@@ -395,8 +395,13 @@ const TOOLS = {
           rerank: args.rerank !== false
         });
       }
+      const _whenOf = (ts) => (Number.isFinite(ts) && ts > 0) ? new Date(ts).toISOString().slice(0, 10) : null;
       const out = {
-        items: items.map((i) => Object.assign({}, i, edgeStatement(i.statement))),
+        // Every statement carries the day it was said or recorded: a fact
+        // about income, a job or a plan is true as of that day, and on the
+        // same subject the newest statement wins over an older one.
+        note: 'Each item carries `when` (the day it was said or recorded). A statement is true as of its day; on the same subject the newest wins, and an older one is history, never the present.',
+        items: items.map((i) => Object.assign({}, i, edgeStatement(i.statement), { when: _whenOf(i.ts) })),
         class_filter: args.class || 'all',
         audience_filter: args.audience || 'model_visible'
       };
