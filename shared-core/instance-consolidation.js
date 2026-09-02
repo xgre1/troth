@@ -720,6 +720,13 @@ function _sameOccurrence(entry, inst, entity_slug, opts) {
   // (three fish tanks, two rackets): a name-level match with unpinned
   // dates is not the same object unless the descriptions agree too.
   if (inst.kind === 'possession' && _descOverlap(e.description, inst.description) < 0.5) return false;
+  // An activity or an event on a generic entity (a project, a tool, a
+  // repository) is one occurrence only when the two tellings agree on what
+  // was done: eleven different things done "on troth" are eleven lines, not
+  // one. Two tellings pinned to the same day are the same day's doing; the
+  // rest must share their words. A named occasion already passed the
+  // ladder above; this guards the plain kinds.
+  if ((inst.kind === 'activity' || inst.kind === 'event') && !(e.date_iso && inst.date_iso) && _descOverlap(e.description, inst.description) < 0.35) return false;
   return true;
 }
 

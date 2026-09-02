@@ -52,7 +52,7 @@ const turnsOn = (ts) => [{ id: 'x', timestamp: ts, session_id: 's', user_text: t
     const p = ic.buildCombinedPrompt(turnsOn(feb5));
     assert.ok(/status: completed \| planned \| recurring \| cancelled \| owed/.test(p), 'owed is in the status list');
     assert.ok(/still to pick up, still to return/.test(p), 'owed is defined by what it means');
-    assert.ok(/combined-v1\.1/.test(digest.PROMPT_VERSION), 'the prompt version moved with the prompt');
+    assert.ok(/combined-v(?:1\.[1-9]|[2-9])/.test(digest.PROMPT_VERSION), 'the prompt version moved with the prompt: ' + digest.PROMPT_VERSION);
   });
 
   console.log('\nbench-digest-cachekey: ' + pass + ' passed, ' + fail + ' failed');

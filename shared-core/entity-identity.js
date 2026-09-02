@@ -138,6 +138,20 @@ function getIdentity(slugOrName, opts) {
 // aliases + same kind/relation is a no-op returning the existing row.
 // New aliases supersede the previous identity engram (lifetime.supersedes)
 // so listEngrams' chain-following keeps exactly one current view.
+// An alias is a name somebody could say for the entity: a few words, never
+// an insult, never a sentence. Dialogue in any language hands the extractor
+// clauses and epithets beside the names; the registry keeps the names.
+const _ALIAS_PROFANE = /\b(?:fuck\w*|shit\w*|bitch\w*|asshole|bastard|malak\w*|poust\w*|gam[oοω]\w*|arxid\w*|skat[ao]\w*|vlak\w*|ilithi\w*|mouni\w*|kariol\w*|putan\w*|poutan\w*|μαλακ\w*|πουστ\w*|γαμω\w*|αρχιδ\w*|σκατ\w*)\b/i;
+function _aliasAcceptable(alias, canonical) {
+  const a = String(alias || '').trim();
+  if (!a) return false;
+  if (a.length > 48) return false;
+  if (a.split(/\s+/).length > 4) return false;
+  if (_ALIAS_PROFANE.test(a)) return false;
+  void canonical;
+  return true;
+}
+
 function recordEntityIdentity(opts) {
   opts = opts || {};
   const canonical = String(opts.name || '').trim();
@@ -148,10 +162,11 @@ function recordEntityIdentity(opts) {
   const existing = getIdentity(canonical, {
     agent_id: opts.agent_id, principal: opts.principal, fresh: true
   });
+  if (!_aliasAcceptable(canonical, canonical)) return null;
   const aliases = _mergeAliases([
     existing ? existing.aliases : [],
     [canonical],
-    opts.aliases
+    (Array.isArray(opts.aliases) ? opts.aliases : []).filter((a) => _aliasAcceptable(a, canonical))
   ]);
   const kind = opts.kind ? String(opts.kind) : (existing ? existing.kind : null);
   const relation = opts.relation ? String(opts.relation) : (existing ? existing.relation : null);

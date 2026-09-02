@@ -217,6 +217,9 @@ function buildReconciledView(items, opts) {
     if (!survivors.length) return;
     for (const it of instances) if (!reasonOf.has(it) && test(it)) reasonOf.set(it, name);
   };
+  const applyForced = (name, test) => {
+    for (const it of instances) if (!reasonOf.has(it) && test(it)) reasonOf.set(it, name);
+  };
   const dateOf = (it) => {
     const stated = _statedDate(it.statement);
     const attested = Number.isFinite(it._attested_ts) ? _isoOf(it._attested_ts) : null;
@@ -228,7 +231,12 @@ function buildReconciledView(items, opts) {
     return Number.isFinite(ts) && (ts < window.since - DAY_MS || ts > window.until + DAY_MS);
   });
   if (pendingAsk) apply('not an open obligation (the question asks what is still pending)', (it) => it._kind && it._status !== 'owed' && it._status !== 'planned');
-  if (families.length && !pendingAsk) apply('outside the question\'s verb (' + families.map((f) => f.name).join(' or ') + ')', (it) => {
+  // A question about what is OWNED is answered by possessions: an activity
+  // or an event on the ledger is never one of the tanks, however the words
+  // score, so for the own family the verb filter may empty the ledger; the
+  // statements below remain the truthful answer.
+  const ownAsk = families.some((f) => f.name === 'own');
+  if (families.length && !pendingAsk) (ownAsk ? applyForced : apply)('outside the question\'s verb (' + families.map((f) => f.name).join(' or ') + ')', (it) => {
     if (!it._kind) return false;                        // no structure, no verdict
     const verbs = [it._qualifier].concat(Array.isArray(it._facets) ? it._facets : []).filter(Boolean).join(' ').toLowerCase();
     return !families.some((f) => f.kinds.has(String(it._kind)) || f.verbs.test(verbs));
@@ -610,11 +618,30 @@ function buildReconciledView(items, opts) {
       lines.push(hasLedger
         ? 'Memory statements ("=Ln" marks one already counted by ledger line Ln; "+" marks one the ledger does not cover - judge those individually' + (aside.length ? '; "-" marks one that attests only a set-aside line - not what the question counts' : '') + '):'
         : 'Memory statements:');
+      // The same fact told five ways is one statement with five receipts:
+      // "User has a Mac Studio", "User owns a Mac Studio", "The user has a
+      // Mac Studio." fold into the first, which names the others. A raw
+      // dialogue turn is never folded: its words are the evidence.
+      const factKey = (s) => {
+        const t = String(s || '').toLowerCase();
+        if (/^user:/.test(t) || t.length > 200) return null;
+        return t.replace(/^\[[^\]]*\]\s*/, '').replace(/^(?:the\s+)?user\s+/, '').replace(/\bowns or has access to\b/g, 'has').replace(/\bowns\b/g, 'has').replace(/\bhave\b/g, 'has').replace(/[^a-z0-9Ͱ-Ͽ ]+/g, ' ').replace(/\s+/g, ' ').trim() || null;
+      };
+      const foldAnchor = new Map();   // fact key -> anchor entry
+      const foldedInto = new Map();   // statement number -> anchor number
       for (const r of raw) {
+        const k = factKey(r.statement);
+        if (!k) continue;
+        const a = foldAnchor.get(k);
+        if (a) { foldedInto.set(r.n, a.n); a.also = (a.also || []).concat(r.n); } else foldAnchor.set(k, r);
+      }
+      for (const r of raw) {
+        if (foldedInto.has(r.n)) continue;
         const mark = r.role === 'supports' ? ' [=' + r.supports.map(n => 'L' + n).join(',') + ']'
           : r.role === 'aside' ? ' [-]'
           : (hasLedger ? ' [+]' : '');
-        lines.push('S' + r.n + '.' + mark + ' ' + r.statement);
+        const same = r.also && r.also.length ? ' (the same fact told ' + (r.also.length + 1) + ' times: also S' + r.also.join(', S') + ')' : '';
+        lines.push('S' + r.n + '.' + mark + ' ' + r.statement + same);
       }
       return lines.join('\n');
     }

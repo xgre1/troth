@@ -39,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`rule_list`).
 - `troth doctor` reports when the plugin Claude Code runs is a version
   behind the core it loads, and how to update it.
+- The ledger reads the way a person would on their own history: activities
+  on one generic entity (a project, a tool) stay separate lines unless their
+  words agree or they share a day; the same fact told five ways is one
+  statement with its receipts; a question about what is owned never keeps an
+  activity line, however the words score; and the identity registry keeps
+  names, never insults, sentences or clauses, as aliases.
 - A count of what happened or what is owned leaves plans out: "how many
   tanks do I have" is not answered by a tank the user is thinking of setting
   up, while a question about plans keeps its planned lines. The same object
