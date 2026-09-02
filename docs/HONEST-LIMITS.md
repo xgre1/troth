@@ -212,11 +212,15 @@ to choose a different one. They are documented at the top of this page as
 the field-wide limits they are.
 
 And troth is not black-box memory you install and forget: the substrate
-reads, digests and recalls on its own every turn, and a fleet of background
-passes — contradiction and drift scans, instance consolidation, identity
-extraction, embedding backfill, backups — runs on cadence with nobody
-watching. It still rewards a partner who names goals and saves decisions:
-unattended it works; with named intent it works better.
+reads, digests and recalls on its own every turn, and the proxy's
+maintenance worker runs the upkeep and the memory's understanding on
+cadence while the machine is idle — embedding backfill, the document
+queue, import sync, backups, the working-memory and instance
+consolidation passes. The reflective passes (contradiction and drift
+scans, identity extraction, hypothesis generation) belong to the entity
+daemon and run only where it is started. It still rewards a partner who
+names goals and saves decisions: unattended it keeps up; with named intent
+it understands more.
 
 ---
 
