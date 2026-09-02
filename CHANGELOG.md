@@ -72,6 +72,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   identity block reads letters of any script, so a prompt in Greek meets a
   fact in Greek. The maintenance ledger rows carry their task name in the
   search text.
+- The maintenance worker resolves the memory's understanding passes by
+  name from the task map, sets aside any list entry that is not a task with
+  a note in the log, and schedules the next tick after a cycle-level error;
+  the readiness view reports what was set aside and the last such error.
 - A count of what happened or what is owned leaves plans out: "how many
   tanks do I have" is not answered by a tank the user is thinking of setting
   up, while a question about plans keeps its planned lines. The same object

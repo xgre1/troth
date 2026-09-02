@@ -1639,7 +1639,23 @@ function startWorker(opts) {
   if (typeof submit !== 'function' || typeof getView !== 'function') {
     throw new Error('background-worker: opts.submit and opts.getView are required');
   }
-  const tasks = Array.isArray(opts.tasks) && opts.tasks.length ? opts.tasks : DEFAULT_TASKS;
+  const rawTasks = Array.isArray(opts.tasks) && opts.tasks.length ? opts.tasks : DEFAULT_TASKS;
+  // An entry that is not a task — a name that never existed in the export
+  // map, an import that resolved to undefined — is set aside here with a
+  // note. Met inside a tick instead, it would be a TypeError past the
+  // task's own try, and the loop would end for the life of the process,
+  // taking the drain and every other upkeep task down with it.
+  const skipped = [];
+  const tasks = rawTasks.filter((t, i) => {
+    const ok = !!(t && typeof t.run === 'function' && typeof t.name === 'string' && t.name);
+    if (!ok) skipped.push({ index: i, reason: t == null ? 'undefined entry' : 'no name or run' });
+    return ok;
+  });
+  if (skipped.length && typeof opts.notify === 'function') {
+    try {
+      opts.notify({ task: 'worker', events: [], notes: skipped.map((k) => 'task #' + k.index + ' is not a task (' + k.reason + '); skipped'), elapsed_ms: 0, ts: Date.now(), notify_always: true });
+    } catch (_) { /* best-effort */ }
+  }
   // Use ?? so an explicit 0 (caller wants zero idle threshold or
   // immediate tick) is honored; `||` would coerce 0 to the default.
   const idleThresholdMs = opts.idle_threshold_ms != null ? opts.idle_threshold_ms : DEFAULT_IDLE_THRESHOLD_MS;
@@ -1674,6 +1690,7 @@ function startWorker(opts) {
 
   function noteForegroundActivity() { lastFgActivity = Date.now(); }
 
+  let lastTickError = null;
   async function tick() {
     if (!running) return;
     // The operator's pause, honoured by every process that could pick this
@@ -1696,6 +1713,10 @@ function startWorker(opts) {
     let view;
     try { view = getView(); } catch (e) { view = null; }
     if (view) {
+      // Whatever a cycle throws outside a task's own try — a ledger read,
+      // a surfacer, a shape nobody foresaw — is kept as the last error and
+      // the next tick is still scheduled: upkeep outlives one bad cycle.
+      try {
       for (const task of tasks) {
         if (Date.now() - cycleStart > perCycleBudget) break;
         const last = lastRun.get(task.name) || 0;
@@ -1760,6 +1781,7 @@ function startWorker(opts) {
           } catch (_) { /* notification surface is best-effort */ }
         }
       }
+      } catch (e) { lastTickError = { ts: Date.now(), message: String(e && e.message || e) }; }
     }
     if (running) timer = setTimeout(tick, tickMs);
   }
@@ -1780,7 +1802,16 @@ function startWorker(opts) {
   // ticks (40ms) stay tight.
   timer = setTimeout(tick, tickMs + Math.floor(Math.random() * Math.min(tickMs, 15000)));
 
-  return { stop, noteForegroundActivity, _tasks: tasks };
+  return {
+    // What the worker set aside at boot and the last cycle-level error —
+    // the doctor and the readiness view read these; a silent worker is
+    // the failure this exists to end.
+    skipped_tasks: skipped,
+    last_tick_error: () => lastTickError,
+    stop,
+    noteForegroundActivity,
+    _tasks: tasks
+  };
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
@@ -1980,6 +2011,10 @@ module.exports = {
     // that kept them. The suite passed because it asserted membership in
     // DEFAULT_TASKS and never asked which list the running process uses.
     knowledgeDrain:    taskKnowledgeDrain,
-    outcomeFold:       taskOutcomeFold
+    outcomeFold:       taskOutcomeFold,
+    // The memory's understanding. The proxy's maintenance worker mounts
+    // these by name; a name missing here is a task that never runs.
+    workingMemoryConsolidation: taskWorkingMemoryConsolidation,
+    instanceConsolidation:      taskInstanceConsolidation
   }
 };

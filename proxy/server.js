@@ -1726,6 +1726,18 @@ const server = http.createServer((req, res) => {
         // kick; this never starts anything.
         try { out = require('../shared-core/memory-readiness.js').readiness(); }
         catch (e) { out = { stage: 'unavailable', error: String(e && e.message || e) }; }
+        // The worker that keeps these numbers moving: what it set aside at
+        // boot and the last cycle-level error, so a frozen count has a
+        // stated cause here instead of a guess on the card.
+        try {
+          const w = global.__troth_maintenance;
+          if (w && out && typeof out === 'object') {
+            out.worker = {
+              skipped_tasks: Array.isArray(w.skipped_tasks) ? w.skipped_tasks : [],
+              last_tick_error: typeof w.last_tick_error === 'function' ? w.last_tick_error() : null
+            };
+          }
+        } catch (_) { /* the readiness answer stands without it */ }
       } else if (url === '/api/memory/recent') {
         // The memories a human can SEE — newest distilled/committed facts,
         // so "did the import actually produce memories?" has a visible
