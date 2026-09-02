@@ -1872,6 +1872,9 @@ module.exports = {
   hydrateLastRunFromRecords,
   runDueTasks,
   DEFAULT_TASKS,
+  // The one text a row is embedded as; recall's on-demand vectors use the
+  // same builder so a query-time vector equals the backfill's.
+  embedTextForRow,
   tasks: {
     contradictionScan: taskContradictionScan,
     dormantReview:     taskDormantReview,

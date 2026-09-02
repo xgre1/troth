@@ -953,6 +953,45 @@ function lexicalScore(query, statement) {
 
 // ── Retrieval ───────────────────────────────────────────────────────────
 
+// On-demand vectors for ranked candidates the backfill has not reached.
+// Fusion gives a row without a stored vector only its lexical term, which is
+// a penalty in disguise: measured, a rank-1 lexical hit fell below k while
+// its vector waited for the next backfill pass. A recall embeds the first
+// few vector-less candidates itself, with the backfill's own text builder
+// and document role so the vector is identical, and persists them. Bounded
+// on both axes so a cold substrate never turns a recall into a backfill;
+// cast rows (synthetic identity:* ids) and rows with no embeddable text are
+// skipped. Silent when the embedder is down: the caller only reaches this
+// after the query itself embedded.
+const ONDEMAND_EMBED_MAX  = 8;   // rows embedded per recall
+const ONDEMAND_EMBED_SCAN = 24;  // candidates considered, lexical order
+async function ensureCandidateVectors(ids) {
+  const missing = [];
+  for (const id of (ids || []).slice(0, ONDEMAND_EMBED_SCAN)) {
+    if (missing.length >= ONDEMAND_EMBED_MAX) break;
+    if (!id || String(id).indexOf('identity:') === 0) continue;
+    let has = null;
+    try { has = state.getEmbedding(id); } catch (_) { has = null; }
+    if (has) continue;
+    let raw = null;
+    try { raw = state.getAction(id); } catch (_) { raw = null; }
+    if (!raw) continue;
+    let text = '';
+    try { text = require('./background-worker.js').embedTextForRow(raw); } catch (_) { text = ''; }
+    if (text) missing.push({ id, text });
+  }
+  if (!missing.length) return 0;
+  const embedder = require('./local-embedder.js');
+  const vecs = await embedder.embedBatch(missing.map((m) => m.text), { role: 'document' });
+  let stored = 0;
+  for (let i = 0; i < missing.length; i++) {
+    const v = vecs && vecs[i];
+    if (!Array.isArray(v) || !v.length) continue;
+    try { if (state.setEmbedding(missing[i].id, v, { model: embedder.MODEL_ID })) stored++; } catch (_) { /* derived index only */ }
+  }
+  return stored;
+}
+
 async function retrieveRelevant(opts) {
   opts = opts || {};
   const agent_id = opts.agent_id || null;
@@ -1062,6 +1101,9 @@ function _parseTimeWindow(query, referenceTs) {
         qvec = await embedder.embed(query, { role: 'query' });
       } catch (_) { qvec = null; }
       if (qvec) {
+        // Vector-less candidates get their vector now, bounded, so fusion
+        // never ranks a rank-1 lexical hit below k for want of a backfill pass.
+        try { await ensureCandidateVectors(items.map((it) => it.id)); } catch (_) { /* rank with the vectors at hand */ }
         const C = 60; // standard RRF constant
         // Semantic ranking over candidates that have a stored vector.
         const sims = [];
@@ -1202,6 +1244,9 @@ function _parseTimeWindow(query, referenceTs) {
           const _emb = require('./local-embedder.js');
           const qv = await _emb.embed(query, { role: 'query' });
           if (qv) {
+            // Same on-demand rule as the main fusion: a lexical hit without a
+            // vector must not lose the semantic term to backfill timing.
+            try { await ensureCandidateVectors(lexOrder.map((c) => c.r.id)); } catch (_) { /* rank with the vectors at hand */ }
             const withCos = candidates.map((c) => {
               let ev = null;
               try { ev = state.getEmbedding(c.r.id); } catch (_) {}
