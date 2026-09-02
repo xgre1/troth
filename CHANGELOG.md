@@ -85,6 +85,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   row a retelling lands on.
 - The session-start hook launches one detached child for the daily tick
   and the claims sweep.
+- A fact question reads the way a person reads their own notes: a ledger
+  line that is not about the question is left out even when that leaves
+  the ledger empty, every statement carries its day, and an older figure
+  on a subject names the newer statement that wins.
+- The cast renders names only: an insult, a sentence or a word of the chat
+  that is nobody's name never appears as an alias or an entry, and the
+  extractor never writes the user, the assistant or such a word as the
+  entity of an occurrence.
 - A count of what happened or what is owned leaves plans out: "how many
   tanks do I have" is not answered by a tank the user is thinking of setting
   up, while a question about plans keeps its planned lines. The same object

@@ -142,12 +142,19 @@ function getIdentity(slugOrName, opts) {
 // an insult, never a sentence. Dialogue in any language hands the extractor
 // clauses and epithets beside the names; the registry keeps the names.
 const _ALIAS_PROFANE = /\b(?:fuck\w*|shit\w*|bitch\w*|asshole|bastard|malak\w*|poust\w*|gam[oοω]\w*|arxid\w*|skat[ao]\w*|vlak\w*|ilithi\w*|mouni\w*|kariol\w*|putan\w*|poutan\w*|μαλακ\w*|πουστ\w*|γαμω\w*|αρχιδ\w*|σκατ\w*)\b/i;
+// Words of the dialogue that are not anybody's name: interjections,
+// connectives and address forms in Greek, greeklish and English that an
+// extractor reading chat mistakes for a person ("orea" is "fine", "ekanes"
+// is "you did", "bro" is the operator's friend).
+const _NOT_A_NAME = new Set(['orea', 'oraia', 'ekanes', 'ekana', 'sinexise', 'synexise', 'loipon', 'nai', 'oxi', 'ela', 'bro', 'file', 'malista', 'entaxei', 'endaxei', 'ok', 'okay', 'kai', 'ti', 'pou', 'gia', 'apo', 'tora', 'meta', 'prin', 'user', 'me', 'you', 'him', 'her', 'them',
+  'ωραία', 'ωραια', 'έκανες', 'εκανες', 'συνέχισε', 'συνεχισε', 'λοιπόν', 'λοιπον', 'ναι', 'όχι', 'οχι', 'έλα', 'ελα', 'ρε', 'μπρο', 'εντάξει', 'ενταξει', 'μάλιστα', 'και', 'τι', 'που', 'για', 'από', 'τώρα', 'μετά', 'πριν']);
 function _aliasAcceptable(alias, canonical) {
   const a = String(alias || '').trim();
   if (!a) return false;
   if (a.length > 48) return false;
   if (a.split(/\s+/).length > 4) return false;
   if (_ALIAS_PROFANE.test(a)) return false;
+  if (_NOT_A_NAME.has(a.toLowerCase())) return false;
   void canonical;
   return true;
 }
@@ -291,6 +298,7 @@ module.exports = {
   uniqueNameOwners,
   linkableNames,
   normAlias: _normAlias,
+  aliasAcceptable: _aliasAcceptable,
   SCOPE_PREFIX,
   _resetCacheForTests
 };

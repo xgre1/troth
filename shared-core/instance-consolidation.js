@@ -54,6 +54,18 @@ function enabled() {
 // Tolerant of fences and prose margins; intolerant of schema violations.
 // A row missing its provenance (turn_idxs) is DROPPED, not repaired —
 // the covenant is that every instance can show its turns.
+const _NOT_AN_ENTITY = new Set(['user', 'self', 'me', 'i', 'you', 'we', 'us', 'they', 'them', 'he', 'she', 'it', 'assistant', 'the assistant', 'the user', 'bro']);
+function _notAnEntity(entity) {
+  const e = String(entity || '').trim().toLowerCase().replace(/^the\s+/, '');
+  if (!e) return true;
+  if (_NOT_AN_ENTITY.has(e)) return true;
+  try {
+    const identity = require('./entity-identity.js');
+    if (typeof identity.aliasAcceptable === 'function' && !identity.aliasAcceptable(e, e)) return true;
+  } catch (_) { /* the registry's word list is optional here */ }
+  return false;
+}
+
 function _validateInstanceRows(arr, turnCount, out) {
   for (const row of arr) {
     if (!row || typeof row !== 'object') { out.dropped++; continue; }
@@ -71,6 +83,11 @@ function _validateInstanceRows(arr, turnCount, out) {
       out.dropped++;
       continue;
     }
+    // The entity is a thing, a place, a person or a project. The user
+    // themselves, the assistant, a pronoun or a word of the chat that is
+    // nobody's name ("orea" is "fine") is not an entity: the row is
+    // dropped, never written as an activity of "user" or of "orea".
+    if (_notAnEntity(entity)) { out.dropped++; continue; }
     out.instances.push({
       kind, entity, description, date_iso, status,
       qualifier: row.qualifier ? String(row.qualifier).trim() : null,

@@ -37,6 +37,9 @@ let _EVENT_HEAD = null;
 try { _EVENT_HEAD = require('./instance-consolidation.js').EVENT_HEAD || null; } catch (_) {}
 let _occ = null;
 try { _occ = require('./occasions.js'); } catch (_) {}
+// The registry's own judgment of what is a name, for the cast at render.
+let _idn = null;
+try { _idn = require('./entity-identity.js'); } catch (_) {}
 let _parseTimeWindow = null;
 try { _parseTimeWindow = require('./time-window.js').parseTimeWindow; } catch (_) {}
 let _selfStatements = null;
@@ -81,6 +84,16 @@ const VERB_FAMILIES = [
 // asking about plans: planned and cancelled lines are set aside for it.
 const PAST_ASK = /\b(have i|did i|i have|i've|have attended|did|attended|bought|went|visited|acquired|worked on|made|led|took|taken|participated)\b/;
 const _norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\b(the|a|an|my|our|new|another|some)\b/g, ' ').replace(/\s+/g, ' ').trim();
+// The words a question or a statement is about: letters of any script,
+// four or more of them, minus the asking words and the stems of the verbs
+// every question carries.
+const _ASK_WORDS = new Set(['how', 'many', 'much', 'what', 'which', 'when', 'where', 'who', 'whom', 'whose', 'why', 'does', 'did', 'have', 'has', 'had', 'been', 'were', 'was', 'will', 'would', 'could', 'should', 'there', 'their', 'they', 'them', 'this', 'that', 'these', 'those', 'from', 'with', 'about', 'into', 'over', 'than', 'then', 'also', 'ever', 'still', 'just', 'like', 'some', 'more', 'most', 'last', 'next', 'first', 'time', 'times', 'week', 'weeks', 'month', 'months', 'year', 'years', 'today', 'user', 'said', 'told', 'asked', 'says', 'tell', 'know', 'think', 'want', 'need', 'make', 'made', 'done', 'doing', 'thing', 'things', 'work', 'working', 'worked',
+  'πόσα', 'πόσο', 'πόσες', 'πόσοι', 'ποια', 'ποιο', 'ποιος', 'πότε', 'πού', 'γιατί', 'είναι', 'έχω', 'έχει', 'έχουμε', 'ήταν', 'αυτό', 'αυτά', 'αυτή', 'στην', 'στον', 'στο', 'από', 'μου', 'μας', 'σου', 'θέλω', 'κάνω', 'κάνει', 'κάναμε', 'έκανα', 'είπα', 'είπες', 'ξέρεις', 'ξέρω']);
+// A statement that states a value: an amount, a count, a rate, a date.
+const _VALUE_RE = /(?:[€$£]\s?\d|\d+\s?(?:€|eur|euro|euros|usd|dollars?|%|per|\/)|\b\d{1,3}(?:[.,]\d{3})+\b|\b\d+\s+(?:days?|hours?|weeks?|months?|years?|times)\b|\b(?:one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:days?|hours?|weeks?|months?|years?|times)\b|\b\d{4}-\d{2}-\d{2}\b)/i;
+const _statesValue = (s) => _VALUE_RE.test(String(s || ''));
+const _valueFree = (s) => String(s || '').replace(/\[[^\]]*\]/g, ' ').replace(/[€$£]?\s?\d[\d.,]*\s?(?:€|eur|euro|euros|usd|k|%)?/gi, ' ');
+const _contentTokens = (s) => new Set(String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').split(' ').filter((t) => t.length >= 4 && !_ASK_WORDS.has(t)));
 
 // Stated totals: the user naming the count itself ("I've written seven short
 // stories", "my fourth Korean restaurant"). A cardinal before the head is a
@@ -328,6 +341,28 @@ function buildReconciledView(items, opts) {
     apply('not about the asked subject', (keptStrict >= 3 || anyEntityCos) ? strict : subjectTest(() => floor, false));
   }
 
+  // A line whose cosine to the question is known and below the floor, and
+  // that neither names the asked head nor shares a content word with the
+  // question, is set aside even when that empties the ledger: an empty
+  // ledger over the statements is the truthful answer to a question the
+  // ledger does not touch (measured: a question about pay got eight
+  // activity lines about other things). A line with no cosine at all is
+  // left for the reader, and a pending question is selected by status.
+  if (question && !pendingAsk) {
+    const qTokens = _contentTokens(question);
+    if (qTokens.size) {
+      applyForced('not about the asked subject', (it) => {
+        if (typeof it._cos !== 'number' && typeof it._entity_cos !== 'number') return false;
+        const s = String(it.statement || '');
+        if (headRe && headRe.test(s)) return false;
+        if (phraseRe && phraseRe.test(s)) return false;
+        if (typeof it._entity_cos === 'number' && it._entity_cos >= SUBJECT_FLOOR) return false;
+        if (typeof it._cos === 'number' && it._cos >= floor) return false;
+        for (const t of _contentTokens(s)) if (qTokens.has(t)) return false;
+        return true;
+      });
+    }
+  }
   const kept = instances.filter((it) => !reasonOf.has(it));
   const aside = instances.filter((it) => reasonOf.has(it)).map((it) => ({ item: it, reason: reasonOf.get(it) }));
 
@@ -420,7 +455,22 @@ function buildReconciledView(items, opts) {
     const esc = String(n).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return new RegExp('(?<![a-z0-9])' + esc + '(?![a-z0-9])', 'i');
   };
-  const cast = castItems.map((it, i) => {
+  // The cast renders names only: an alias the registry would refuse today
+  // (an insult, a sentence, a word of the chat that is nobody's name) is
+  // dropped at render, and an entry whose own name is no name is left out,
+  // whatever an older registry row holds.
+  const castClean = castItems.map((it) => {
+    const st = String(it.statement || '');
+    const m = /^\[cast\]\s*([^—(]+)/.exec(st);
+    const canonical = m ? m[1].trim() : '';
+    if (!canonical || (_idn && !_idn.aliasAcceptable(canonical, canonical))) return null;
+    const cleaned = st.replace(/\s*\(also:\s*([^)]*)\)/, (all, list) => {
+      const keep = String(list).split(/,\s*/).map((a) => a.trim()).filter((a) => a && (!_idn || _idn.aliasAcceptable(a, canonical)));
+      return keep.length ? ' (also: ' + keep.join(', ') + ')' : '';
+    });
+    return Object.assign({}, it, { statement: cleaned });
+  }).filter(Boolean);
+  const cast = castClean.map((it, i) => {
     const m = /^\[cast\]\s*([^—(]+)/.exec(String(it.statement || ''));
     const parsed = m ? m[1].trim().toLowerCase() : '';
     const names = (Array.isArray(it.link_names) && it.link_names.length ? it.link_names : (parsed ? [parsed] : []))
@@ -635,13 +685,36 @@ function buildReconciledView(items, opts) {
         const a = foldAnchor.get(k);
         if (a) { foldedInto.set(r.n, a.n); a.also = (a.also || []).concat(r.n); } else foldAnchor.set(k, r);
       }
+      // Every statement carries its day: a fact about pay, a job or a plan is
+      // true as of that day. Two statements on the same subject that each
+      // state an amount, a count or a date are one fact told twice; the
+      // newest wins and the older one says which newer statement replaces
+      // it (measured: a May pay figure stood beside its September correction
+      // with nothing to say which was current).
+      const newerOf = new Map();   // statement number -> number of the newest statement on the same subject
+      const valued = raw.filter((r) => !foldedInto.has(r.n) && Number.isFinite(r.ts) && _statesValue(r.statement) && !/^user:/i.test(String(r.statement)));
+      for (const a of valued) {
+        const ta = _contentTokens(_valueFree(a.statement));
+        if (ta.size < 2) continue;
+        let newest = a;
+        for (const b of valued) {
+          if (b === a || b.ts <= newest.ts) continue;
+          const tb = _contentTokens(_valueFree(b.statement));
+          let shared = 0;
+          for (const t of ta) if (tb.has(t)) shared++;
+          if (shared >= 2 || (shared >= 1 && shared >= Math.min(ta.size, tb.size))) newest = b;
+        }
+        if (newest !== a) newerOf.set(a.n, newest.n);
+      }
       for (const r of raw) {
         if (foldedInto.has(r.n)) continue;
         const mark = r.role === 'supports' ? ' [=' + r.supports.map(n => 'L' + n).join(',') + ']'
           : r.role === 'aside' ? ' [-]'
           : (hasLedger ? ' [+]' : '');
         const same = r.also && r.also.length ? ' (the same fact told ' + (r.also.length + 1) + ' times: also S' + r.also.join(', S') + ')' : '';
-        lines.push('S' + r.n + '.' + mark + ' ' + r.statement + same);
+        const day = question && Number.isFinite(r.ts) && r.ts > 0 ? ' [' + _isoOf(r.ts) + ']' : '';
+        const older = newerOf.has(r.n) ? ' (as of its day; S' + newerOf.get(r.n) + ' is newer on this subject and wins)' : '';
+        lines.push('S' + r.n + '.' + mark + ' ' + r.statement + same + day + older);
       }
       return lines.join('\n');
     }
