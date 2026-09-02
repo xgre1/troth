@@ -1319,6 +1319,28 @@ if (command === "ui") {
     });
   }
 
+  // Code Map: say which project the map shows. A `troth ui` from home would
+  // otherwise open an empty map without a word.
+  function codeMapLine() {
+    return new Promise(function (resolve) {
+      var http = require("http");
+      var req = http.get("http://" + cfg.host + ":" + cfg.port + "/api/codelens/status", function (res) {
+        var buf = "";
+        res.on("data", function (c) { buf += c; });
+        res.on("end", function () {
+          try {
+            var j = JSON.parse(buf);
+            resolve(j.indexed
+              ? "Code Map: " + j.root
+              : "Code Map: no project indexed. Run `troth ui` inside a project, or choose a folder on the Code Map page.");
+          } catch (e) { resolve(null); }
+        });
+      });
+      req.on("error", function () { resolve(null); });
+      req.setTimeout(1500, function () { req.destroy(); resolve(null); });
+    });
+  }
+
   (async function() {
     // Open in default browser. Chrome's --app mode on macOS is broken:
     // clicking the dock icon to refocus opens an extra empty window
@@ -1329,6 +1351,8 @@ if (command === "ui") {
     } else {
       console.log("Open manually: " + url);
     }
+    var cm = await codeMapLine();
+    if (cm) console.log(cm);
     setTimeout(function() { process.exit(0); }, 500);
   })();
   return;

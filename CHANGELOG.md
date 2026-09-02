@@ -18,6 +18,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   store it under a capability scope for its host; the reply is a receipt and
   the value never rides a response, an error or a log line. The same move is
   available over the backbone as `troth_vault_capture`.
+- The Code Map shows a project wherever troth was started. The proxy
+  remembers the project folder it indexes (`codelens_root` in its config),
+  reports it at `GET /api/codelens/status`, and takes a new one at
+  `POST /api/codelens/index {dir}`; the dashboard's Code Map page names the
+  folder, offers to index another, and says so when nothing is indexed
+  instead of drawing an empty graph. The desktop app indexes a
+  conversation's workspace when it is bound and has a Choose project folder
+  control under Settings, Technical, Dashboard; `troth ui` prints the
+  project the map shows. Starting the engine from the home folder, from an
+  app bundle or from a Linux desktop session no longer means an empty map.
 - A request that names a `gpt-5` model reaches the ChatGPT plan lane on its
   own. The model id inside the request picks the lane, the way a Kimi id
   already does, so a harness, a tool or one pane can use the plan for a call

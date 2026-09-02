@@ -516,4 +516,4 @@ function getArchitectureOverview() {
 
 function getRecentFiles() { return recentFiles.slice(); }
 
-module.exports = { initIndex, queryContext, getArchitectureOverview, recordFileTouched, getRecentFiles, getStats, extractKeywords, get _store() { return store; } };
+module.exports = { initIndex, queryContext, getArchitectureOverview, recordFileTouched, getRecentFiles, getStats, extractKeywords, get _store() { return store; }, get _baseDir() { return baseDir; } };

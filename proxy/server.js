@@ -15,8 +15,19 @@ const { execFile } = require('child_process');
 // Dev and CLI spawns pass a real project cwd and are untouched.
 (() => {
   const raw = process.env.GF_WATCH_DIR || process.cwd();
+  // The folder the operator last chose for the code map, kept in config by
+  // POST /api/codelens/index: the desktop app and a `troth start` from home
+  // have no project cwd of their own, and this is their answer.
+  const chosenRoot = () => {
+    try {
+      const cfgPath = require('../shared-core/config-file.js').configPath();
+      const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+      const r = cfg && typeof cfg.codelens_root === 'string' ? cfg.codelens_root : '';
+      return r && require('../shared-core/project-id.js').isIndexableRoot(r) && fs.existsSync(r) ? r : '';
+    } catch (_) { return ''; }
+  };
   if (/\.app\/Contents\//.test(path.resolve(raw))) {
-    process.env.GF_WATCH_DIR = require('os').homedir();
+    process.env.GF_WATCH_DIR = chosenRoot() || require('os').homedir();
     return;
   }
   // A cwd inside a repository means the project is the repository, not the
@@ -26,8 +37,12 @@ const { execFile } = require('child_process');
   // GF_WATCH_DIR is an operator's answer to this question and is left alone.
   if (!process.env.GF_WATCH_DIR) {
     try {
-      const root = require('../shared-core/project-id.js').projectRootFor(raw);
+      const projectId = require('../shared-core/project-id.js');
+      const root = projectId.projectRootFor(raw);
       if (root && root !== path.resolve(raw)) process.env.GF_WATCH_DIR = root;
+      // Started somewhere that is not a project (home, Documents): the chosen
+      // folder stands in, so the map is never blank by accident.
+      else if (!projectId.isIndexableRoot(root || raw)) { const c = chosenRoot(); if (c) process.env.GF_WATCH_DIR = c; }
     } catch (_) { /* no git, no repo, nothing to correct */ }
   }
 })();
@@ -4259,6 +4274,44 @@ const server = http.createServer((req, res) => {
     } catch (e) {
       jsonResponse(res, 200, { lines: [], error: 'read_failed', detail: secrets.redact(String(e.message || e)) });
     }
+    return;
+  }
+
+  // ===== API: CodeLens root =====
+  // What the map is drawn from, and the door to draw it from somewhere else.
+  // The store is built once at boot from the proxy's cwd; an operator whose
+  // core started outside a project (the desktop app, `troth start` from
+  // home) sees an empty map unless they can name a folder here. The chosen
+  // folder is kept in config so the next boot indexes it on its own.
+  if (req.method === 'GET' && url === '/api/codelens/status') {
+    try {
+      const codelens = require('./modules/codelens');
+      const st = codelens.getStats ? codelens.getStats() : {};
+      const store = codelens._store;
+      let entities = 0;
+      try { entities = store ? store.db.prepare('SELECT COUNT(*) n FROM entities').get().n : 0; } catch (_) { entities = 0; }
+      jsonResponse(res, 200, { ok: true, root: codelens._baseDir || null, indexed: !!store && entities > 0, entities, indexing: !!(st && st.indexed === false), stats: st });
+    } catch (e) { jsonResponse(res, 200, { ok: false, root: null, indexed: false, entities: 0, error: String(e && e.message || e) }); }
+    return;
+  }
+  if (req.method === 'POST' && url === '/api/codelens/index') {
+    let idxBody = '';
+    req.on('data', function (c) { idxBody += c; });
+    req.on('end', async function () {
+      try {
+        const b = JSON.parse(idxBody || '{}');
+        const dir = typeof b.dir === 'string' ? path.resolve(String(b.dir).replace(/^~(?=$|\/)/, require('os').homedir())) : '';
+        const projectId = require('../shared-core/project-id.js');
+        if (!dir || !fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) { jsonResponse(res, 400, { ok: false, error: 'not_a_directory', dir }); return; }
+        if (!projectId.isIndexableRoot(dir)) { jsonResponse(res, 400, { ok: false, error: 'not_a_project_root', dir }); return; }
+        const codelens = require('./modules/codelens');
+        const result = await codelens.initIndex(dir);
+        if (result && result.skipped) { jsonResponse(res, 400, { ok: false, error: result.reason || 'skipped', dir }); return; }
+        try { configFileStore.patchConfig({ codelens_root: dir }); } catch (_) { /* the index stands for this run either way */ }
+        process.env.GF_WATCH_DIR = dir;
+        jsonResponse(res, 200, { ok: true, root: dir, result });
+      } catch (e) { jsonResponse(res, 500, { ok: false, error: String(e && e.message || e) }); }
+    });
     return;
   }
 

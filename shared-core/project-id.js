@@ -379,14 +379,22 @@ const _CONTAINERS = new Set([
 function isIndexableRoot(dir) {
   const d = String(dir || '');
   if (!d) return false;
-  const resolved = path.resolve(d);
-  const sep = resolved.replace(/\\/g, '/');
-  // Anything inside an application bundle is somebody's build output.
-  if (sep.indexOf('.app/Contents/') !== -1 || sep.endsWith('.app')) return false;
-  const home = os.homedir();
-  if (resolved === home || resolved === path.dirname(home) || resolved === path.parse(resolved).root) return false;
-  // A container directly under home holds projects; it is not one.
-  if (path.dirname(resolved) === home && _CONTAINERS.has(path.basename(resolved))) return false;
+  // A path is judged in every form the filesystem gives it: as written and
+  // as resolved through symlinks (macOS keeps /var under /private), so a home
+  // folder reached either way is still the home, and a container under it
+  // that does not exist yet is still a container.
+  const forms = (p) => { const r = path.resolve(p); let q = r; try { q = fs.realpathSync(r); } catch (_) { /* not there yet: the written form stands */ } return q === r ? [r] : [r, q]; };
+  for (const resolved of forms(d)) {
+    const sep = resolved.replace(/\\/g, '/');
+    // Anything inside an application bundle is somebody's build output.
+    if (sep.indexOf('.app/Contents/') !== -1 || sep.endsWith('.app')) return false;
+    if (resolved === path.parse(resolved).root) return false;
+    for (const home of forms(os.homedir())) {
+      if (resolved === home || resolved === path.dirname(home)) return false;
+      // A container directly under home holds projects; it is not one.
+      if (path.dirname(resolved) === home && _CONTAINERS.has(path.basename(resolved))) return false;
+    }
+  }
   return true;
 }
 

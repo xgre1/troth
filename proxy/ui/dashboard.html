@@ -1394,7 +1394,12 @@ body.op-on #op-row { color: var(--text-dim); }
 </div>
 
 <div class="page" id="page-brain">
-  <div class="page-title">Code Map <span id="brain-stats" style="font-size:11px;color:var(--text-muted);font-weight:400;margin-left:12px;"></span></div>
+  <div class="page-title">Code Map <span id="brain-stats" style="font-size:11px;color:var(--text-muted);font-weight:400;margin-left:12px;"></span>
+    <span id="brain-root-form" style="float:right;font-size:11px;font-weight:400;display:inline-flex;gap:6px;align-items:center;">
+      <input id="brain-root" type="text" placeholder="/path/to/a/project" style="width:260px;font-family:var(--mono);font-size:11px;padding:4px 8px;" title="The folder the map is drawn from">
+      <button type="button" id="brain-root-btn" onclick="indexProjectFolder()" style="font-size:11px;padding:4px 10px;">Index this folder</button>
+    </span>
+  </div>
   <div style="font-family:var(--mono);font-size:10px;color:var(--text-muted);margin:-10px 0 12px;letter-spacing:0.06em;">
     <span style="color:#FFFFFF">●</span> worked on, brighter means more recent &nbsp;·&nbsp; <span style="color:hsla(213,26%,66%,0.95)">●</span> read, never edited &nbsp;·&nbsp; <span style="color:hsla(215,10%,48%,0.9)">●</span> untouched &nbsp;·&nbsp; click anything
   </div>
@@ -5191,15 +5196,37 @@ var brainNodes=[], brainEdges=[];
 /* Pure-chrome ramp — node types distinguished by BRIGHTNESS, not hue. */
 var TYPE_COLORS={function:'#FFFFFF',method:'#DCE4F0',class:'#C7D2E0',interface:'#A8B5C7',type:'#8FA0B4',enum:'#7C8A9F',constant:'#9CABBF',module:'#6B7686'};
 
+// The folder the map is drawn from: shown, and changeable, so an operator
+// whose core was started outside a project (the desktop app, a `troth start`
+// from home) is never left with a blank canvas and no way in.
+function indexProjectFolder(){
+  var dir=(document.getElementById('brain-root').value||'').trim();
+  if(!dir){return;}
+  var ld=document.getElementById('brain-loading');if(ld){ld.style.display='';ld.textContent='Indexing '+dir+' …';}
+  fetch('/api/codelens/index',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({dir:dir})})
+    .then(function(r){return r.json()}).then(function(res){
+      if(res&&res.ok){loadBrainGraph();}
+      else if(ld){ld.textContent=(res&&res.error==='not_a_project_root')?'That folder is not a project: pick the folder that holds the code (a repository, or a folder with source files), not your home or Documents.':'Could not index that folder'+(res&&res.error?' ('+res.error+')':'')+'.';}
+    }).catch(function(){if(ld)ld.textContent='Could not reach the core.';});
+}
 function loadBrainGraph(){
+  fetch('/api/codelens/status').then(function(r){return r.json()}).then(function(st){
+    var inp=document.getElementById('brain-root');if(inp&&st&&st.root&&!inp.value)inp.value=st.root;
+  }).catch(function(){});
   fetch('/api/codelens/graph').then(function(r){return r.json()}).then(function(data){
-    if(!window.d3){setTimeout(loadBrainGraph,500);return;} // wait for D3 CDN
+    if(!window.d3){setTimeout(loadBrainGraph,500);return;} // wait for the vendored D3
     brainNodes=data.nodes||[];brainEdges=data.edges||[];
     var st=data.stats||{};
     var worked=brainNodes.filter(function(n){return n.mem&&n.mem.e>0;}).length;
     var known=brainNodes.filter(function(n){return n.mem&&!n.mem.e&&n.mem.r>0;}).length;
+    var ld=document.getElementById('brain-loading');
+    if(!brainNodes.length){
+      document.getElementById('brain-stats').textContent='';
+      if(ld){ld.style.display='';ld.innerHTML='No project is indexed yet.<br><span style="font-size:11px">Start troth inside a project, or type a project folder above and press Index.</span>';}
+      return;
+    }
     document.getElementById('brain-stats').textContent='the '+brainNodes.length+' most connected of '+((st.entities_total||0).toLocaleString())+' entities · worked on '+worked+' · has read '+known+' more';
-    var ld=document.getElementById('brain-loading');if(ld)ld.style.display='none';
+    if(ld)ld.style.display='none';
 
     var conns={};
     for(var e=0;e<brainEdges.length;e++){conns[brainEdges[e].from]=(conns[brainEdges[e].from]||0)+1;conns[brainEdges[e].to]=(conns[brainEdges[e].to]||0)+1;}
