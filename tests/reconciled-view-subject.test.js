@@ -126,5 +126,17 @@ t('an order of trips keeps the occasions of that kind: a hike and a camping trip
   assert.ok(v.aside.every(a => /asked subject/.test(a.reason)), v.aside.map(a => a.reason).join(' | '));
 });
 
+t('a trade expo is not a festival, however its entity scores', () => {
+  const rows = [
+    ev('x1', 'Austin Film Festival', 'participated in a 48-hour film challenge at the Austin Film Festival', '2023-05-21', { _entity_cos: 0.6 }),
+    ev('x2', 'Seattle International Film Festival', 'attended a Q&A after the screening at the Seattle International Film Festival', '2023-05-25', { _entity_cos: 0.6 }),
+    ev('x3', 'AFI Fest', 'attended a screening of Joker at AFI Fest', '2023-05-26', { _entity_cos: 0.6 }),
+    ev('x4', 'Tech Expo', 'attended the Tech Expo at the Javits Center and represented the company', '2023-05-10', { _entity_cos: 0.55 }),
+  ];
+  const v = buildReconciledView(rows, { noun_head: 'festivals', head_phrase: 'movie festivals', question: 'How many movie festivals did I attend?', reference_ts: Date.UTC(2023, 5, 1) });
+  const kept = v.ledger.map(l => l.entity).sort();
+  assert.deepStrictEqual(kept, ['AFI Fest', 'Austin Film Festival', 'Seattle International Film Festival'], kept.join(' | '));
+});
+
 console.log('\nreconciled-view-subject: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

@@ -804,21 +804,33 @@ function _hasStatedCompletedVisit(pool, entity, opts) {
 // physician, Dr. Smith"): the role told bare elsewhere is that person. A
 // Dr. name is the name alone, never the words that follow it.
 const _NAME_RE = /^(Dr\.?\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/;
-function _rolePairs(pool) {
+function _rolePairs(texts) {
   const pairs = new Map();
-  for (const p of pool) {
-    const e = p.instance;
-    if (!e) continue;
-    const text = String(e.description || '') + ' ' + String(p.statement || '');
-    for (const m of text.matchAll(_ISSUED_BY_RE)) { const nm = m[3] && _NAME_RE.exec(String(m[3]).trim()); if (nm && m[2]) pairs.set(String(m[2]).trim().toLowerCase(), nm[1]); }
-    for (const m of text.matchAll(_AGENT_FIRST_RE)) { const nm = m[2] && _NAME_RE.exec(String(m[2]).trim()); if (nm && m[1]) pairs.set(String(m[1]).trim().toLowerCase(), nm[1]); }
+  for (const text of texts) {
+    for (const m of String(text).matchAll(_ISSUED_BY_RE)) { const nm = m[3] && _NAME_RE.exec(String(m[3]).trim()); if (nm && m[2]) pairs.set(String(m[2]).trim().toLowerCase(), nm[1]); }
+    for (const m of String(text).matchAll(_AGENT_FIRST_RE)) { const nm = m[2] && _NAME_RE.exec(String(m[2]).trim()); if (nm && m[1]) pairs.set(String(m[1]).trim().toLowerCase(), nm[1]); }
   }
   return pairs;
 }
 
 function _deriveEntailed(pool, opts, stats) {
   const derived = [];
-  const pairs = _rolePairs(pool);
+  // What is read: every stated row's own words, and every turn of the
+  // session as the user said it. The extractor's summary can drop the clause
+  // that names the clinician ("my primary care physician, Dr. Smith"); the
+  // turn never does.
+  const sources = [];
+  for (const p of pool) {
+    const e = p.instance;
+    if (!e || e.basis === 'entailed') continue;
+    sources.push({ inst: e, text: String(e.description || '') + ' ' + String(p.statement || ''), refs: () => _refsOf(p.id) });
+  }
+  for (const t of (opts && Array.isArray(opts.turns) ? opts.turns : [])) {
+    const ut = String((t && (t.user_text || t.text)) || '');
+    if (!t || !t.id || ut.length < 12) continue;
+    sources.push({ inst: null, text: ut, refs: () => ['dialogue.turn:' + t.id] });
+  }
+  const pairs = _rolePairs(sources.map((s) => s.text));
   // A named clinician, or a specific role ("primary care physician",
   // "dermatologist"). A bare "doctor" names nobody: it would count as one
   // more doctor beside the named one it usually is.
@@ -830,10 +842,9 @@ function _deriveEntailed(pool, opts, stats) {
     if (generic.test(w)) return '';
     return pairs.get(w.toLowerCase()) || w;
   };
-  for (const p of pool.slice()) {
-    const e = p.instance;
-    if (!e || e.basis === 'entailed') continue;
-    const text = String(e.description || '') + ' ' + String(p.statement || '');
+  for (const s of sources) {
+    const e = s.inst;
+    const text = s.text;
     const seen = new Set();
     const mintFor = (who, verb, description) => {
       const w = personOf(who);
@@ -845,10 +856,10 @@ function _deriveEntailed(pool, opts, stats) {
         description: description || ('visit implied by being ' + String(verb).toLowerCase() + ' by them'),
         date_iso: null, status: 'completed', basis: 'entailed',
         qualifier: 'visited', quantity: null,
-        _provenance_refs: _refsOf(p.id)
+        _provenance_refs: s.refs()
       });
     };
-    if (e.kind === 'visit' && _FOLLOWUP_RE.test(text)) mintFor(e.entity, 'followed up', 'prior visit implied by the follow-up being arranged');
+    if (e && e.kind === 'visit' && _FOLLOWUP_RE.test(text)) mintFor(e.entity, 'followed up', 'prior visit implied by the follow-up being arranged');
     // "was prescribed antibiotics by my primary care physician, Dr. Smith"
     for (const by of text.matchAll(_ISSUED_BY_RE)) {
       const role = String(by[2] || '').trim();
@@ -859,15 +870,15 @@ function _deriveEntailed(pool, opts, stats) {
       const role = String(ag[1] || '').trim();
       mintFor(ag[2] ? ag[2] : (generic.test(role) ? '' : role), ag[3]);
     }
-    if (e.kind === 'possession' || e.kind === 'purchase') {
+    if (e && (e.kind === 'possession' || e.kind === 'purchase')) {
       const m = _ARTIFACT_RE.exec(String(e.description || ''));
-      if (m && m[2] && !_hasStatedCompletedVisit(pool, m[2])) {
+      if (m && m[2] && !_hasStatedCompletedVisit(pool, m[2], opts)) {
         derived.push({
           kind: 'visit', entity: m[2].trim(),
           description: 'visit implied by the ' + m[1] + ' they issued',
           date_iso: null, status: 'completed', basis: 'entailed',
           qualifier: 'visited', quantity: null,
-          _provenance_refs: _refsOf(p.id)
+          _provenance_refs: s.refs()
         });
       }
     }

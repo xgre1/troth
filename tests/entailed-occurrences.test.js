@@ -125,5 +125,24 @@ t('being prescribed by a named clinician is a visit to them, whatever kind the s
   delete process.env.TROTH_INSTANCE_ENTAILMENT;
 });
 
+t('the turn as the user said it is read: a clinician the summary dropped is still a visit, with the turn as receipt', () => {
+  process.env.TROTH_INSTANCE_ENTAILMENT = '1';
+  const said = [
+    { id: 'tu-1', timestamp: Date.now() - 86400000, user_text: 'By the way, my primary care physician, Dr. Smith, had diagnosed me with a UTI and prescribed antibiotics. I was also diagnosed with chronic sinusitis by an ENT specialist.' },
+    { id: 'tu-2', timestamp: Date.now() - 3600000, user_text: 'Any tips for managing the sinusitis day to day?' }
+  ];
+  const pool = [];
+  ic.writeInstances({
+    instances: [{ kind: 'activity', entity: 'chronic sinusitis', description: 'was diagnosed with chronic sinusitis', date_iso: null, status: 'completed', qualifier: 'diagnosed', quantity: null, turn_idxs: [0] }],
+    turns: said, agent_id: 'claude-code', user_id: 'default', _pool: pool, session_id: 'S1'
+  });
+  const smith = pool.filter((p) => p.instance.kind === 'visit' && /smith/i.test(p.instance.entity));
+  assert.strictEqual(smith.length, 1, pool.map((p) => p.statement).join(' || '));
+  assert.strictEqual(smith[0].instance.basis, 'entailed');
+  const ents = pool.filter((p) => p.instance.basis === 'entailed').map((p) => p.instance.entity).sort();
+  assert.deepStrictEqual(ents, ['Dr. Smith', 'ENT specialist'], ents.join(' | '));
+  delete process.env.TROTH_INSTANCE_ENTAILMENT;
+});
+
 console.log(pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
