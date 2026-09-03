@@ -908,11 +908,13 @@ const taskWorkingMemoryConsolidation = {
     const state  = require('./state.js');
     // Find watermark — last processed dialogue ts.
     let watermark = 0;
+    let lastMarkId = null;
     try {
       const marks = engram.listEngrams({ scope: WM_WATERMARK_SCOPE, audience: 'all', limit: 5 }) || [];
       const lastMark = marks
         .filter(e => e && e.scope === WM_WATERMARK_SCOPE)
         .sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
+      if (lastMark && lastMark.id) lastMarkId = lastMark.id;
       if (lastMark && lastMark.statement) {
         const m = lastMark.statement.match(/processed_through:\s*(\d+)/);
         if (m) watermark = parseInt(m[1], 10) || 0;
@@ -1123,7 +1125,8 @@ const taskWorkingMemoryConsolidation = {
         source: 'background_worker.wm_consolidation',
         source_authority: 'plr_evolved',
         auto_verify: false,
-        salience: 0.1
+        salience: 0.1,
+        extra_output: lastMarkId ? { lifetime: { supersedes: [lastMarkId], reason: 'watermark_moved' } } : undefined
       });
     } catch (_) {}
     return {

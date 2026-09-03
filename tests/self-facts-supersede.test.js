@@ -104,6 +104,10 @@ const T0 = Date.now() - 10 * 60 * 1000;
     assert.ok(/no new turns/.test(r.notes[0]), r.notes[0]);
     delete process.env.TROTH_UNDERSTANDING_CATCHUP_TURNS;
   });
+  await t('one current watermark row stands, however many runs happened', async () => {
+    const marks = engram.listEngrams({ scope: 'internal:wm_watermark', audience: 'all', agent_id: A, limit: 50 }) || [];
+    assert.strictEqual(marks.length, 1, marks.map((m) => m.statement).join(' | '));
+  });
   console.log('\nself-facts-supersede: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })();
