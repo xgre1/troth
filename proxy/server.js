@@ -3761,6 +3761,43 @@ const server = http.createServer((req, res) => {
   // this dispatcher intercepts every substrate GET first and returns.
 
   // POST /api/substrate/scopes/delete — G13 corpus management
+  // Run one maintenance task now, by name, outside its cadence: the pass
+  // the operator wants today (a hygiene sweep after a rule changed, a
+  // backup before a move) without waiting for the idle tick. Same task
+  // list the worker runs, same ledger row, the reason says it was asked.
+  if (req.method === 'POST' && url === '/api/maintenance/run') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    let buf = ''; req.on('data', c => buf += c);
+    req.on('end', async () => {
+      let body; try { body = JSON.parse(buf || '{}'); } catch (_) { body = {}; }
+      const w = global.__troth_maintenance;
+      const tasks = (w && Array.isArray(w._tasks)) ? w._tasks : [];
+      const task = tasks.find((t) => t && t.name === String(body.task || ''));
+      if (!task) { jsonResponse(res, 404, { error: 'unknown_task', tasks: tasks.map((t) => t.name) }); return; }
+      const started = Date.now();
+      try {
+        const view = { substrate_ctx: { agent_id: resolveAgentId(), user_id: 'default', cwd: null } };
+        const r = await Promise.resolve(task.run(view));
+        const notes = (r && Array.isArray(r.notes)) ? r.notes : [];
+        try {
+          const stM = require('../shared-core/state.js');
+          const arM = require('../shared-core/action-record.js');
+          const rec = {
+            id: arM.uuidv7(), timestamp: Date.now(), type: 'decision', agent_id: 'maintenance', cwd: null, user_id: 'default',
+            input: { kind: 'background_task_run', task: task.name, signals: { operator: true } },
+            output: { decision: 'ran', reason: 'asked', notes: notes.slice(0, 4).join(' | ').slice(0, 500) }
+          };
+          const v = arM.validate ? arM.validate(rec) : { ok: true };
+          if (v && v.ok) stM.recordAction(rec, arM.toSearchText(rec));
+        } catch (_) { /* the answer below still carries the notes */ }
+        jsonResponse(res, 200, { ok: true, task: task.name, notes, events: (r && Array.isArray(r.events)) ? r.events.length : 0, elapsed_ms: Date.now() - started });
+      } catch (e) {
+        jsonResponse(res, 500, { error: 'task_failed', task: task.name, detail: String(e && e.message || e).slice(0, 300) });
+      }
+    });
+    return;
+  }
+
   if (req.method === 'POST' && url === '/api/substrate/scopes/delete') {
     if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
     let buf = ''; req.on('data', c => buf += c);
