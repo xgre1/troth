@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The substrate opens in milliseconds on a large memory: every heal that runs
+  at open walks only the rows written since the last open, and rows of one
+  type are read newest first from an index instead of a sort of the whole
+  type.
 - A row that names a bound context counts as bound wherever it was said: a
   scoped recall and the hook's topical identity rows read the folder a
   memory was written in as its home, never as its only subject. A write in

@@ -98,21 +98,10 @@ function db() {
   // cheap (sub-millisecond when nothing to heal because of the index on
   // principal_id). Catches not just the  stale-process leak
   // but any future schema-migration drift.
+  // Self-heals for rows that older writers left without a principal, an
+  // audience or a memory class run below, bounded to the rows written since
+  // the last open.
   try {
-    _db.prepare("UPDATE action_records SET principal_id='partner' WHERE principal_id IS NULL").run();
-  } catch (_) { /* schema migration not yet applied (first-run) — skip */ }
-  //  race-condition self-heal for audience +
-  // memory_class. Mirror of the principal_id pattern above: long-running
-  // processes (MCP servers, proxy) that loaded state.js BEFORE the v2
-  // recordAction change still INSERT without the new columns. Those rows
-  // land NULL and become invisible to model_visible readers. Every new
-  // process that opens the DB heals them with the conservative fail-closed
-  // defaults (substrate_internal + operational). Idempotent, cheap (indexed).
-  // Remove this self-heal AFTER all stale processes restart AND the
-  // distribution audit confirms zero new NULLs over a 24h window.
-  try {
-    _db.prepare("UPDATE action_records SET audience='substrate_internal' WHERE audience IS NULL").run();
-    _db.prepare("UPDATE action_records SET memory_class='operational' WHERE memory_class IS NULL").run();
     // The re-stamps below read a JSON field of every candidate row, which
     // on a large substrate is seconds of work — and every hook process opens
     // the substrate. They run over the rows written since the last open
@@ -123,6 +112,13 @@ function db() {
     const _healRow = _db.prepare("SELECT value FROM substrate_meta WHERE key='heal_since'").get();
     const _healSince = _healRow && Number(_healRow.value) > 0 ? Number(_healRow.value) : 0;
     const _healNow = Date.now();
+    // Rows a stale process wrote without the newer columns (principal,
+    // audience, memory_class) take the fail-closed defaults. Bounded like
+    // every heal below: a whole-table walk here cost five seconds on every
+    // open of a large substrate, which is every hook prompt.
+    _db.prepare("UPDATE action_records SET principal_id='partner' WHERE principal_id IS NULL AND timestamp > @since").run({ since: _healSince });
+    _db.prepare("UPDATE action_records SET audience='substrate_internal' WHERE audience IS NULL AND timestamp > @since").run({ since: _healSince });
+    _db.prepare("UPDATE action_records SET memory_class='operational' WHERE memory_class IS NULL AND timestamp > @since").run({ since: _healSince });
     // Entity registry rows written before 2026-09-02 carry the episodic class
     // and compete in the general pool; recordEngram now derives identity for
     // scope entity:*. Re-stamp the old rows once per open (indexed on scope).
@@ -599,6 +595,7 @@ function migrate(d) {
     CREATE INDEX IF NOT EXISTS idx_ar_context     ON action_records(context_id, timestamp);
     CREATE INDEX IF NOT EXISTS idx_ar_timestamp   ON action_records(timestamp);
     CREATE INDEX IF NOT EXISTS idx_ar_type        ON action_records(type);
+    CREATE INDEX IF NOT EXISTS idx_ar_type_ts     ON action_records(type, timestamp);
     CREATE INDEX IF NOT EXISTS idx_ar_session     ON action_records(session_id, timestamp);
     CREATE INDEX IF NOT EXISTS idx_ar_cwd         ON action_records(cwd, timestamp);
     CREATE INDEX IF NOT EXISTS idx_ar_output_scope ON action_records(json_extract(output, '$.scope'));
