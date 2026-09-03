@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A fresh session sees its open goals live, with the findings the knowledge
+  pass recorded for each, whether or not the entity daemon refreshed the
+  orientation snapshot.
 - What the partner read becomes what it knows: a knowledge pass in the
   maintenance worker reads each newly kept document once and records the
   durable facts it states as knowledge, each with its source and the day it

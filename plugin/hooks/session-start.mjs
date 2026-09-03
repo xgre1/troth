@@ -86,6 +86,22 @@ try {
   log('SessionStart.mind.error', { reason: 'mind_load_threw', metadata: { message: String(e && e.message || e) } });
 }
 
+// The open goals, read live. The snapshot above is refreshed by the entity
+// daemon and goes stale without it; a goal's findings (what the knowledge
+// pass read for it) belong in front of a fresh session whether or not the
+// daemon ran.
+let goalsLine = '';
+try {
+  const tg = require(pluginRoot + '/../shared-core/typed-goal.js');
+  const open = tg.listGoals({ status: 'open', limit: 3 }) || [];
+  if (open.length) {
+    goalsLine = '[troth/goals] Open goals: ' + open.map((g) =>
+      String(g.statement || '').replace(/\s+/g, ' ').slice(0, 100) +
+      (g.findings > 0 ? ' (' + g.findings + ' finding' + (g.findings === 1 ? '' : 's') + ' recorded — ask troth what it found)' : '')
+    ).join(' | ');
+  }
+} catch (_) { /* no goals, no line */ }
+
 // Auto-resume block — when compaction triggered this SessionStart
 // (payload.reason === 'compact'), surface the substrate's view of
 // "what we were just doing" so the new agent picks up without needing
@@ -339,6 +355,7 @@ const substrateFirst =
 const parts = [];
 parts.push(substrateFirst);
 if (orientation)  parts.push(orientation);
+if (goalsLine)    parts.push(goalsLine);
 if (driftBlock)   parts.push(driftBlock);
 if (autoResume)   parts.push(autoResume);
 if (voiceGreeting) parts.push(voiceGreeting);
