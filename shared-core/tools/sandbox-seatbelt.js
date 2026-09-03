@@ -149,7 +149,7 @@ function _profile(network) {
     // every repository under it carries the same directory.
     HOOK_DIR_RULE
   ];
-  if (network === 'full') {
+  if (network === 'full' || network === 'full-listen') {
     // SBPL cannot express "these hosts only", so outbound is all-or-nothing
     // for the public internet. Loopback is the exception that matters and it
     // IS expressible: the operator's own machine runs privileged local
@@ -161,7 +161,13 @@ function _profile(network) {
     // internet remains the egress layer's job, one level up.
     lines.push('(allow network*)');
     lines.push('(allow system-socket)');
-    lines.push('(deny network* (remote ip "localhost:*"))');
+    if (network === 'full-listen') {
+      // A sign-in callback: the child may listen on loopback and take the
+      // browser's redirect; reaching a local service stays refused.
+      lines.push('(deny network-outbound (remote ip "localhost:*"))');
+    } else {
+      lines.push('(deny network* (remote ip "localhost:*"))');
+    }
   } else if (network === 'proxy') {
     // One loopback port and nothing else — the egress proxy's. Measured
     // both ways with a live listener one port over: the grant connects,
@@ -345,7 +351,7 @@ function jailSpawnSpec(opts) {
   opts = opts || {};
   const avail = module.exports.isAvailable();
   if (!avail.available) return { ok: false, error: avail.error || 'sandbox-exec not usable' };
-  const network = opts.network === 'full' ? 'full'
+  const network = opts.network === 'full' ? (opts.loopbackListen ? 'full-listen' : 'full')
     : opts.network === 'proxy' ? 'proxy' : 'none';
   if (network === 'proxy' && !(Number.isInteger(opts.proxyPort) && opts.proxyPort > 0)) {
     return { ok: false, error: 'proxy network mode requires proxyPort' };

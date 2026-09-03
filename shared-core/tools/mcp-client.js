@@ -383,7 +383,9 @@ function _bridgeJailDir(name) {
   return path.join((process.env.HOME || os.homedir()), '.troth', 'mcp-jail', safe);
 }
 
-function startDownstream(name, spec) {
+function startDownstream(name, spec, sopts) {
+  sopts = sopts || {};
+  const initMs = (sopts.initTimeoutMs > 0) ? sopts.initTimeoutMs : INIT_TIMEOUT_MS;
   const spawnSpec = _toSpawnSpec(name, spec);
   if (!spawnSpec.command) throw new Error('downstream ' + name + ' has no command');
   // Resolve $vault env refs at spawn time. Warnings are attached to the
@@ -401,7 +403,7 @@ function startDownstream(name, spec) {
       const seatbelt = require('./sandbox-seatbelt.js');
       const jailDir = _bridgeJailDir(name);
       fs.mkdirSync(jailDir, { recursive: true, mode: 0o700 });
-      const jspec = seatbelt.jailSpawnSpec({ cwd: jailDir, network: 'full', env: resolved.env });
+      const jspec = seatbelt.jailSpawnSpec({ cwd: jailDir, network: 'full', loopbackListen: true, env: resolved.env });
       if (jspec.ok) {
         // cwd MUST be the jail. Without it the child keeps the proxy's
         // working directory, which is outside the walls, and npm/npx call
@@ -417,7 +419,8 @@ function startDownstream(name, spec) {
     proc = spawn(spawnSpec.command, spawnSpec.args || [],
                  { stdio: ['pipe', 'pipe', 'pipe'], env: _buildChildEnv(resolved.env) });
   }
-  const state = { proc, nextId: 1, pending: new Map(), buffer: '', ready: false, jailed, env_warnings: resolved.warnings };
+  const state = { proc, nextId: 1, pending: new Map(), buffer: '', ready: false, jailed, env_warnings: resolved.warnings, stderr: '', exited: null };
+  if (typeof sopts.onState === 'function') { try { sopts.onState(state); } catch (_) {} }
 
   proc.stdout.setEncoding('utf8');
   proc.stdout.on('data', (chunk) => {
@@ -446,14 +449,15 @@ function startDownstream(name, spec) {
     : '';
   proc.on('exit', () => pool.delete(name));
   proc.on('error', () => {});  // resolved via the init reject below
-  proc.stderr.on('data', () => {});  // downstream logs aren't ours to surface
+  proc.stderr.on('data', (c) => { if (state.stderr.length < 8000) state.stderr += String(c); });
+  proc.on('exit', (code, sig) => { state.exited = 'exit code ' + code + (sig ? ' signal ' + sig : ''); });
 
   const initId = state.nextId++;
   return new Promise((resolve, reject) => {
     let initTimer = setTimeout(() => {
       state.pending.delete(initId);
       reject(new Error('mcp-client init timeout on ' + name + warnSuffix));
-    }, INIT_TIMEOUT_MS);
+    }, initMs);
     // A child that dies before it answers initialize rejects the promise
     // with the env warnings attached (common cause: missing $vault auth).
     proc.on('exit', (code) => {
@@ -494,6 +498,55 @@ async function getDownstream(name, opts) {
   const downstream = loadDownstream(configPath, workspace);
   if (!downstream[name]) throw new Error('unknown downstream server: ' + name);
   return startDownstream(name, downstream[name]);
+}
+
+// The state a connector is really in. A server answers initialize and
+// lists its tools, or a bridge asks for a sign-in and prints the address to
+// visit, or nothing answers. A bridge waiting for a sign-in is left running
+// so the sign-in can land; a server that answers nothing is stopped.
+const PROBE_MS = 12 * 1000;
+const SIGN_IN_INIT_MS = 5 * 60 * 1000;
+const AUTH_URL_RE = /(?:visit|open|authorize|go to)[^\n]*?(https?:\/\/[^\s"'<>]+)/i;
+function _authUrl(stderr) {
+  const m = String(stderr || '').match(AUTH_URL_RE);
+  return m ? m[1].replace(/[.,;:)]+$/, '') : null;
+}
+async function probe(name, opts) {
+  const t0 = Date.now();
+  let configPath, workspace;
+  if (typeof opts === 'string') { configPath = opts; }
+  else if (opts && typeof opts === 'object') { configPath = opts.configPath; workspace = opts.workspace; }
+  const done = (r) => Object.assign({ name, ms: Date.now() - t0 }, r);
+  const listTools = async (state) => {
+    const res = await rpc(state, 'tools/list', {});
+    return (res && Array.isArray(res.tools) ? res.tools : []).map((t) => t && t.name).filter(Boolean);
+  };
+  if (pool.has(name)) {
+    try { return done({ state: 'connected', tools: await listTools(pool.get(name)) }); }
+    catch (e) { return done({ state: 'unreachable', error: e && e.message || String(e) }); }
+  }
+  const downstream = loadDownstream(configPath, workspace);
+  if (!downstream[name]) return done({ state: 'unknown', error: 'not in the registry' });
+  let live = null;
+  const start = startDownstream(name, downstream[name], { initTimeoutMs: SIGN_IN_INIT_MS, onState: (s) => { live = s; } });
+  start.catch(() => {});
+  const until = Date.now() + PROBE_MS;
+  while (Date.now() < until) {
+    const settled = await Promise.race([start.then((s) => ({ ok: true, s }), (e) => ({ ok: false, e })), new Promise((r) => setTimeout(() => r(null), 250))]);
+    if (settled && settled.ok) {
+      try { return done({ state: 'connected', tools: await listTools(settled.s) }); }
+      catch (e) { return done({ state: 'unreachable', error: e && e.message || String(e) }); }
+    }
+    if (settled && !settled.ok) {
+      const tail = live && live.stderr ? ': ' + live.stderr.trim().split('\n').slice(-3).join(' | ').slice(0, 300) : '';
+      return done({ state: 'unreachable', error: (settled.e && settled.e.message || String(settled.e)) + tail });
+    }
+    const url = live ? _authUrl(live.stderr) : null;
+    if (url) return done({ state: 'sign_in_needed', url });
+    if (live && live.exited) return done({ state: 'unreachable', error: 'the server ' + live.exited + (live.stderr ? ': ' + live.stderr.trim().split('\n').slice(-3).join(' | ').slice(0, 300) : '') });
+  }
+  if (live && live.proc) { try { live.proc.kill('SIGTERM'); } catch (_) {} }
+  return done({ state: 'unreachable', error: 'no answer within ' + Math.round(PROBE_MS / 1000) + ' s' + (live && live.stderr ? ': ' + live.stderr.trim().split('\n').slice(-3).join(' | ').slice(0, 300) : '') });
 }
 
 function rpc(state, method, params) {
@@ -833,6 +886,7 @@ module.exports = {
   loadDownstream,
   getDownstream,
   startDownstream,
+  probe,
   rpc,
   shutdownAll,
   pool,

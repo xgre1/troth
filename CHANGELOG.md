@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A connector reports the state it is really in: `POST /api/mcp/probe` and
+  `troth mcp probe <name>` start the server and answer connected (with its
+  tools), sign_in_needed (with the address to visit), unreachable (with the
+  reason) or unknown. A bridge waiting for a sign-in is left running so the
+  sign-in can land, and its jail lets it listen on loopback for the browser's
+  redirect while local services stay out of reach.
 - Notes already on this machine become memory from the Memory page: the vaults
   Obsidian knows are offered, any folder of Markdown or text can be named, and
   the import goes down the reader road (`troth knowledge import`), one row per

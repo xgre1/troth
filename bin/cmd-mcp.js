@@ -35,9 +35,17 @@ module.exports = function run(ctx) {
   }
 
   const name = passthrough[1];
-  if ((sub !== 'approve' && sub !== 'reject') || !name) {
-    console.error('Usage: troth mcp pending | troth mcp approve <name> | troth mcp reject <name>');
+  if ((sub !== 'approve' && sub !== 'reject' && sub !== 'probe') || !name) {
+    console.error('Usage: troth mcp pending | troth mcp approve <name> | troth mcp reject <name> | troth mcp probe <name>');
     process.exit(2);
+  }
+
+  if (sub === 'probe') {
+    mcpClient.probe(name, { workspace: process.cwd() }).then((r) => {
+      console.log(JSON.stringify(r));
+      process.exit(r && r.state === 'connected' ? 0 : 1);
+    }).catch((e) => fail({ ok: false, error: 'probe_failed', detail: e && e.message }));
+    return;
   }
 
   if (sub === 'reject') {

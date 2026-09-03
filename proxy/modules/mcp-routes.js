@@ -47,7 +47,7 @@ function owns(url) {
   // /api/mcp/install?client=cursor still is.
   if (typeof url !== "string") return false;
   const p = url.split("?")[0];
-  return p === "/api/mcp/status" || p === "/api/mcp/install";
+  return p === "/api/mcp/status" || p === "/api/mcp/install" || p === "/api/mcp/probe";
 }
 
 // Prefer the local checkout/bundle as the marketplace source: it always
@@ -164,6 +164,26 @@ function handle(req, res, url, deps) {
     return true;
   }
 
+  // POST /api/mcp/probe {name, workspace?} → the state a connector is really
+  // in: connected (with its tools), sign_in_needed (with the address to
+  // visit), unreachable (with the reason), unknown.
+  if (req.method === "POST" && url === "/api/mcp/probe") {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: "unauthorized" }); return true; }
+    let buf = "";
+    req.on("data", (c) => { buf += c; });
+    req.on("end", async () => {
+      let body;
+      try { body = JSON.parse(buf || "{}"); } catch (_) { jsonResponse(res, 400, { error: "bad_json" }); return; }
+      const name = String(body.name || "").trim();
+      if (!name) { jsonResponse(res, 400, { error: "name required" }); return; }
+      try {
+        const client = require(path.join(coreRoot(), "shared-core", "tools", "mcp-client.js"));
+        const r = await client.probe(name, { workspace: body.workspace ? String(body.workspace) : undefined });
+        jsonResponse(res, 200, r);
+      } catch (e) { jsonResponse(res, 500, { state: "unreachable", error: e && e.message || String(e) }); }
+    });
+    return true;
+  }
   if (req.method === "POST" && url === "/api/mcp/install") {
     if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: "unauthorized" }); return true; }
 

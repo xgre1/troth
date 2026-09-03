@@ -1198,7 +1198,7 @@ if (command === "mcp") {
   // entry pending -> active and seals capability:mcp:<name>). Also handled
   // BEFORE the server starts: these print to stdout, which the MCP stdio
   // transport must never share.
-  if (passthrough[0] === "approve" || passthrough[0] === "pending" || passthrough[0] === "reject") {
+  if (passthrough[0] === "approve" || passthrough[0] === "pending" || passthrough[0] === "reject" || passthrough[0] === "probe") {
     require("./cmd-mcp.js")(__cliCtx);
     return;
   }
