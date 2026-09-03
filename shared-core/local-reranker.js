@@ -53,16 +53,39 @@ function _isDead() { return _deadAt > 0 && (Date.now() - _deadAt) < DEAD_RETRY_M
 function _markDead() { _deadAt = Date.now(); }
 let _modelDownloading = false;
 
-function _health(timeoutMs) {
+// What the port says: 'ok' (a healthy answer), 'busy' (something listens but
+// did not answer in time — a server mid-rerank, or one still loading its
+// model), 'down' (nothing listens). A busy server is alive; it is waited
+// for and never replaced.
+function _probe(timeoutMs) {
   return new Promise((resolve) => {
     const req = _http.request({ hostname: '127.0.0.1', port: PORT, path: '/health', method: 'GET', timeout: timeoutMs || 1200 }, (res) => {
       let b = ''; res.setEncoding('utf8'); res.on('data', (c) => { b += c; });
-      res.on('end', () => { try { resolve((JSON.parse(b) || {}).status === 'ok'); } catch (_) { resolve(false); } });
+      res.on('end', () => { try { resolve((JSON.parse(b) || {}).status === 'ok' ? 'ok' : 'busy'); } catch (_) { resolve('busy'); } });
     });
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve(false); });
+    req.on('error', (e) => resolve(e && (e.code === 'ECONNREFUSED' || e.code === 'ENOENT' || e.code === 'EHOSTUNREACH') ? 'down' : 'busy'));
+    req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve('busy'); });
     req.end();
   });
+}
+function _health(timeoutMs) { return _probe(timeoutMs).then((s) => s === 'ok'); }
+// How long one call waits for a busy server before going without it, and
+// how long a port may stay busy without ever answering before it is treated
+// as wedged and replaced.
+const BUSY_WAIT_MS = Math.max(0, Number(process.env.TROTH_SERVER_BUSY_WAIT_MS) || 5000);
+const WEDGED_MS = 90 * 1000;
+let _busySince = 0;
+async function _waitWhileBusy() {
+  const until = Date.now() + BUSY_WAIT_MS;
+  let s = 'busy';
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 400));
+    // Patient while waiting: a server mid-rerank answers its health check
+    // when the request in flight completes, a second or two later.
+    s = await _probe(2500);
+    if (s !== 'busy') break;
+  }
+  return s;
 }
 
 function _resolveModelPath() {
@@ -79,7 +102,20 @@ function _resolveModelPath() {
 // Ensure a local Metal llama-server in RERANKING mode. Idempotent + concurrency-safe.
 async function ensureServer() {
   if (_isDead()) return false;
-  if (await _health()) { _deadAt = 0; return true; }
+  const first = await _probe();
+  if (first === 'ok') { _deadAt = 0; _busySince = 0; return true; }
+  if (first === 'busy') {
+    // Alive and working: wait a little, and go without a verdict rather
+    // than replace it. Only a port that stays busy for minutes without one
+    // healthy answer is treated as wedged and started again.
+    if (!_busySince) _busySince = Date.now();
+    if (Date.now() - _busySince < WEDGED_MS) {
+      const s = await _waitWhileBusy();
+      if (s === 'ok') { _deadAt = 0; _busySince = 0; return true; }
+      if (s === 'busy') return false;
+    }
+  }
+  _busySince = 0;
   if (_serverPromise) return _serverPromise;
   _serverPromise = (async () => {
     let BIN = null;

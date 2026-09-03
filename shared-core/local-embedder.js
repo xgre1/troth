@@ -209,16 +209,36 @@ const EMB_PORT = parseInt(process.env.TROTH_EMBED_PORT || '11437', 10);
 // worth that. TROTH_NGL=999 restores full offload.
 const EMB_NGL = parseInt(process.env.TROTH_NGL || '0', 10) || 0;
 
-function _embServerHealth(timeoutMs) {
+// What the port says: 'ok' (a healthy answer), 'busy' (something listens but
+// did not answer in time — a server mid-batch, or one still loading its
+// model), 'down' (nothing listens). A busy server is alive; it is waited
+// for and never replaced.
+function _embProbe(timeoutMs) {
   return new Promise((resolve) => {
     const req = _http.request({ hostname: '127.0.0.1', port: EMB_PORT, path: '/health', method: 'GET', timeout: timeoutMs || 1200 }, (res) => {
       let b = ''; res.setEncoding('utf8'); res.on('data', (c) => { b += c; });
-      res.on('end', () => { try { resolve((JSON.parse(b) || {}).status === 'ok'); } catch (_) { resolve(false); } });
+      res.on('end', () => { try { resolve((JSON.parse(b) || {}).status === 'ok' ? 'ok' : 'busy'); } catch (_) { resolve('busy'); } });
     });
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve(false); });
+    req.on('error', (e) => resolve(e && (e.code === 'ECONNREFUSED' || e.code === 'ENOENT' || e.code === 'EHOSTUNREACH') ? 'down' : 'busy'));
+    req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve('busy'); });
     req.end();
   });
+}
+function _embServerHealth(timeoutMs) { return _embProbe(timeoutMs).then((s) => s === 'ok'); }
+const EMB_BUSY_WAIT_MS = Math.max(0, Number(process.env.TROTH_SERVER_BUSY_WAIT_MS) || 5000);
+const EMB_WEDGED_MS = 90 * 1000;
+let _embBusySince = 0;
+async function _embWaitWhileBusy() {
+  const until = Date.now() + EMB_BUSY_WAIT_MS;
+  let s = 'busy';
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 400));
+    // Patient while waiting: a server mid-batch answers its health check
+    // when the batch in flight completes, a second or two later.
+    s = await _embProbe(2500);
+    if (s !== 'busy') break;
+  }
+  return s;
 }
 
 function _resolveEmbedModelPath() {
@@ -271,7 +291,20 @@ async function _ensureEmbServer() {
     if (Date.now() - _embServerDeadAt < EMB_DEAD_RETRY_MS) return false;
     _embServerDead = false; _embServerLastError = null;
   }
-  if (await _embServerHealth()) return true;
+  const first = await _embProbe();
+  if (first === 'ok') { _embBusySince = 0; return true; }
+  if (first === 'busy') {
+    // Alive and working: wait a little, and go without an embedding rather
+    // than replace it. Only a port that stays busy for minutes without one
+    // healthy answer is treated as wedged and started again.
+    if (!_embBusySince) _embBusySince = Date.now();
+    if (Date.now() - _embBusySince < EMB_WEDGED_MS) {
+      const s = await _embWaitWhileBusy();
+      if (s === 'ok') { _embBusySince = 0; return true; }
+      if (s === 'busy') return false;
+    }
+  }
+  _embBusySince = 0;
   if (_embServerPromise) return _embServerPromise;
   _embServerPromise = (async () => {
     let BIN = null;
@@ -519,6 +552,7 @@ module.exports = {
   ensureContext,
   prepareModel,
   isAvailable,
+  ensureServer: _ensureEmbServer,
   status,
   MODEL_ID,
   CONTEXT_SIZE

@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A read of a registry by scope prefix (contexts, entities, instances) walks
+  the scope index, so binding a conversation costs milliseconds on a large
+  memory.
+- A local model server that answers late or is still loading is alive: the
+  reranker and the embedder wait for it, go without it when it stays busy,
+  and never start a second server over it.
 - The substrate opens in milliseconds on a large memory: every heal that runs
   at open walks only the rows written since the last open, and rows of one
   type are read newest first from an index instead of a sort of the whole
