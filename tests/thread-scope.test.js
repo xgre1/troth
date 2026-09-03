@@ -103,6 +103,12 @@ function t(name, fn) {
     assert.ok(hits.every((h) => typeof h._rerank === 'number'), 'each hit scored: ' + JSON.stringify(hits.map((h) => h._rerank)));
   });
 
+  await t('an explicit memory question reads across every thread', async () => {
+    const hits = await ask({ conversation_id: 'conv-a', contexts: ['ctx:alpha'], asked: true });
+    assert.ok(has(hits, /beta moved to Monday/), 'the other context answers an ask: ' + list(hits));
+    assert.ok(has(hits, /another live pane/) || has(hits, /beta deadline is monday now/), 'a live thread answers an ask: ' + list(hits));
+  });
+
   console.log('\nthread-scope: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })();

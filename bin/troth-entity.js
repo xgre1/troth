@@ -596,7 +596,8 @@ function main() {
         const hits = await recallMod.recall({
           query: event.input.text, class: 'all', audience: 'model_visible',
           cwd: CWD, limit: 3,
-          conversation_id: _conv || undefined, contexts: _bound ? [_bound] : []
+          conversation_id: _conv || undefined, contexts: _bound ? [_bound] : [],
+          asked: true
         });
         if (Array.isArray(hits) && hits.length) event = { ...event, recall: { hits } };
       } catch (_) { /* recall is a gift, never a gate */ }
@@ -1122,7 +1123,9 @@ function main() {
               audience: 'model_visible',
               cwd:      CWD,
               limit:    _runFull ? 3 : 2,
-              conversation_id: _convId || undefined, contexts: _ctxId ? [_ctxId] : []
+              conversation_id: _convId || undefined, contexts: _ctxId ? [_ctxId] : [],
+              // A recall-verb question is an explicit ask and reads across threads.
+              asked: _runFull
             });
             if (relevant.length) {
               // L2.2 — XML-tagged session memory block. Tag matches

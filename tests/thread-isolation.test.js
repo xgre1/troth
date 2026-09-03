@@ -53,5 +53,11 @@ t('the Claude Code road answers each thread from its own facts', () => {
   assert.strictEqual(by.get('q2').must_hit, 1, show(by.get('q2')));
 });
 
+t('a memory question is answered from the operator\'s own words without a reranker', () => {
+  const by = items('claude-code');
+  assert.strictEqual(by.get('q5').must_hit, 1, show(by.get('q5')));
+  assert.ok(/\[troth\/recall\]/.test(by.get('q5').text), 'the recall block is written: ' + by.get('q5').text.slice(0, 300));
+});
+
 console.log('\nthread-isolation: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

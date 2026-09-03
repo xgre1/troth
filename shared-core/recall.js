@@ -48,13 +48,17 @@ const VALID_AUDIENCES = ['model_visible', 'substrate_internal', 'synthesis_of_ex
 // One brain, many threads. A scoped read names its conversation and the
 // contexts it is bound to; what it serves is decided per row in _inScope.
 // A turn of another conversation is live while it is younger than the live
-// window, and a live thread never mounts unasked in another conversation.
+// window, and a live thread never mounts unasked in another conversation;
+// an explicit ask (opts.asked) reads across every thread.
 function _liveThreadMs() {
   const h = Number(process.env.TROTH_LIVE_THREAD_HOURS);
   return (Number.isFinite(h) && h >= 0 ? h : 6) * 3600000;
 }
 function _readScope(opts) {
   if (process.env.TROTH_CONTEXT_BINDING === '0') return null;
+  // An explicit memory question is an ask: the one mind answers across
+  // threads and contexts. The scope is for what is mounted unasked.
+  if (opts.asked) return null;
   const contexts = new Set();
   if (Array.isArray(opts.contexts)) for (const c of opts.contexts) if (c) contexts.add(String(c));
   if (opts.context_id) contexts.add(String(opts.context_id));

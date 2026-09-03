@@ -174,6 +174,12 @@ if (lessons.length) {
 try {
   if (prompt.trim().length >= 12 && !prompt.startsWith('/')) {
     const recall = require(pluginRoot + '/../shared-core/recall.js');
+    // A memory question ("what did we say about X", "τι είχαμε πει για X") is an
+    // explicit ask: recall reads across every thread for it, and below its
+    // hits are offered on naming the subject.
+    let memShaped = null;
+    try { memShaped = require(pluginRoot + '/../shared-core/memory-shaped.js'); } catch (_) { memShaped = null; }
+    const memoryAsk = !!(memShaped && memShaped.isMemoryShaped(prompt));
     // Every recall that is shown has been judged: the cross-encoder runs on
     // every prompt that reaches recall, short ones included. A short prompt
     // ("how is it going?", "I pinned it") matched on one word is exactly the
@@ -182,7 +188,7 @@ try {
     const _t0 = Date.now();
     const recallP = recall.recall({
       query: prompt, class: 'all', audience: 'model_visible', limit: 5, cwd, rerank: didRerank,
-      conversation_id: session || undefined, contexts: boundContext ? [boundContext] : []
+      conversation_id: session || undefined, contexts: boundContext ? [boundContext] : [], asked: memoryAsk
     }).catch(() => []);
     const _TIMEOUT = Symbol('timeout');
     const _raced = await Promise.race([
@@ -218,14 +224,17 @@ try {
     // Unsolicited memory earns its place. A cross-encoder score at or below
     // zero is the reranker's verdict that the memory does not answer this
     // prompt, and a block headed GROUND TRUTH is the wrong place for one.
-    // Where the reranker ran, only what it scored above zero is offered; when
-    // nothing clears, the block is not written at all.
-    const scored = Array.isArray(hits) && hits.some(h => Number.isFinite(h._rerank));
+    // Where the reranker ran, only what it scored above zero is offered.
     // No verdict, no block: when the reranker did not answer, nothing is
-    // offered as ground truth. Precision over presence.
-    const relevant = scored
-      ? hits.filter(h => Number.isFinite(h._rerank) && h._rerank > 0)
-      : [];
+    // offered as ground truth. Precision over presence. The one exception is
+    // a memory question ("what did we say about X"): the cross-encoder judges
+    // whether a passage answers a question, and a passage that merely says X
+    // answers that one, so there the operator's own words that name the
+    // subject are offered on that overlap, with or without a verdict.
+    // (memoryAsk and memShaped are read above, before the recall runs.)
+    const namesTheSubject = (h) => memoryAsk && memShaped.queryOverlap(prompt, h.statement) >= 0.5;
+    const relevant = (Array.isArray(hits) ? hits : []).filter(h =>
+      (Number.isFinite(h._rerank) && h._rerank > 0) || namesTheSubject(h));
     if (relevant.length) {
       // Split by WHOSE words these are before framing any of them as truth.
       //

@@ -12,6 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A memory question ("what did we say about X") is an explicit ask: recall
+  reads across every thread for it, and the per-prompt hook offers the
+  operator's own words that name the subject with or without the reranker's
+  verdict.
+- A conversation reads inside its own contexts: identity, the facts of those
+  contexts and the facts that name no context, its own turns, and another
+  conversation's turns only once they have cooled; a live thread never
+  reaches another conversation unasked. Every surface binds a conversation
+  by one chain (what it said it works on, the binding on record, the
+  directory, its file activity, a mention), the app's panes bind apart, and
+  `context_binding: false` turns the scope off.
+- A single recall candidate gets the reranker's verdict, and a dialogue turn
+  reaches the reranker as its words alone.
 - A questions file can be asked against a copy of a substrate on both memory
   roads (the per-prompt hook and the daemon's prefix), judged by what each
   block must and must not contain, and two such reports can be set side by
