@@ -76,6 +76,23 @@ t('an existing config keeps every foreign line and has its old troth entries rep
   assert.ok(fs.existsSync(cfg + '.bak-troth'), 'a backup was taken');
 });
 
+t('an empty inline map becomes a block, and an inline map with content is refused untouched', () => {
+  fs.writeFileSync(cfg, 'model: "x"\nmcp_servers: {}\nmemory: {}\n');
+  const r = hosts.installInto(hermes, { coreRoot: ROOT });
+  assert.ok(r.ok, JSON.stringify(r));
+  const text = fs.readFileSync(cfg, 'utf8');
+  assert.strictEqual((text.match(/^mcp_servers:/mg) || []).length, 1, 'one mcp_servers key: ' + text);
+  assert.strictEqual((text.match(/^memory:/mg) || []).length, 1, 'one memory key');
+  assert.ok(/^  troth-router:$/m.test(text) && /^  provider: troth$/m.test(text), text);
+  const inline = 'mcp_servers: { weather: { command: "npx" } }\n';
+  fs.writeFileSync(cfg, inline);
+  const refused = hosts.installInto(hermes, { coreRoot: ROOT });
+  assert.strictEqual(refused.ok, false, JSON.stringify(refused));
+  assert.strictEqual(fs.readFileSync(cfg, 'utf8'), inline, 'the file is untouched');
+  fs.writeFileSync(cfg, ['model: "anthropic/claude-opus-4"', 'mcp_servers:', '  weather:', '    command: "npx"', 'memory:', '  provider: mem0', ''].join('\n'));
+  assert.ok(hosts.installInto(hermes, { coreRoot: ROOT }).ok);
+});
+
 t('a second install changes nothing', () => {
   const before = fs.readFileSync(cfg, 'utf8');
   const r = hosts.installInto(hermes, { coreRoot: ROOT });

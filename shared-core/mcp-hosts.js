@@ -236,6 +236,17 @@ function _yamlChildRange(lines, block, name) {
 function _yamlUpsert(text, key, children) {
   let lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
   while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
+  // An empty inline map (`key: {}`) becomes a block; an inline map or scalar
+  // with content is a shape this merge does not read, and the file is left
+  // untouched rather than given a second key.
+  const inlineRe = new RegExp("^" + key + ":\\s*(\\S.*)$");
+  for (let i = 0; i < lines.length; i++) {
+    const m = inlineRe.exec(lines[i]);
+    if (!m) continue;
+    const value = m[1].replace(/\s*#.*$/, "").trim();
+    if (value === "{}" || value === "{ }" || value === "null" || value === "~") { lines[i] = key + ":"; break; }
+    throw new Error("config.yaml holds " + key + " as an inline value (" + value.slice(0, 40) + ") — merge by hand");
+  }
   if (!_yamlTopBlock(lines, key)) {
     if (lines.length) lines.push("");
     lines.push(key + ":");
@@ -273,8 +284,11 @@ function installIntoYaml(host, opts) {
     "    command: " + JSON.stringify(servers[n].command),
     "    args: [" + servers[n].args.map((a) => JSON.stringify(a)).join(", ") + "]"
   ] }));
-  let next = _yamlUpsert(text, "mcp_servers", children);
-  next = _yamlUpsert(next, "memory", [{ name: "provider", lines: ["  provider: troth"] }]);
+  let next;
+  try {
+    next = _yamlUpsert(text, "mcp_servers", children);
+    next = _yamlUpsert(next, "memory", [{ name: "provider", lines: ["  provider: troth"] }]);
+  } catch (e) { return { ok: false, error: e.message + ": " + cfgPath }; }
   const tmp = cfgPath + ".tmp" + process.pid;
   try { fs.writeFileSync(tmp, next); fs.renameSync(tmp, cfgPath); }
   catch (e) { try { fs.unlinkSync(tmp); } catch (e2) {} return { ok: false, error: "write " + cfgPath + ": " + e.message }; }
