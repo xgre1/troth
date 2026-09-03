@@ -443,7 +443,10 @@ function buildReconciledView(items, opts) {
   // Only the certain reasons (window, status) earn the mark; a statement
   // behind a verb- or subject-set-aside line stays open for judgment.
   const certainIds = new Set();
-  for (const a of aside) if (/time window|planned or cancelled|open obligation/.test(a.reason)) for (const ref of (a.item.refs || [])) certainIds.add(String(ref).replace(/^dialogue\.turn:/, ''));
+  // For a question about what is owned, an activity line is set aside for
+  // certain (an activity is never one of the tanks), and so are the turns
+  // that only attest it.
+  for (const a of aside) if (/time window|planned or cancelled|open obligation/.test(a.reason) || (ownAsk && /outside the question's verb/.test(a.reason))) for (const ref of (a.item.refs || [])) certainIds.add(String(ref).replace(/^dialogue\.turn:/, ''));
   for (const r of raw) if (r.role === 'new' && certainIds.has(String(r.id))) r.role = 'aside';
 
   // Cast: identities the mounted material mentions. Distinctness questions

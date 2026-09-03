@@ -68,6 +68,19 @@ t('the cast renders names only: an insult leaves the aliases and a word that is 
   assert.ok(/Nikos — colleague/.test(out), 'a real colleague stays');
 });
 
+t('for a question about what is owned, the turns that only attest a set-aside activity are marked, never judged', () => {
+  const own = [
+    { source: 'instance-pool', id: 'a1', statement: '[instance] activity: run troth — Running a benchmark [completed] (attested ×2)', refs: ['dialogue.turn:t1', 'dialogue.turn:t2'], _kind: 'activity', _qualifier: 'run', _entity: 'troth', _cos: 0.31 },
+    { source: 'commitment', id: 'f1', statement: 'User has a Mac Studio', ts: MAY },
+    { source: 'dialogue-window', id: 't1', statement: 'user: run the 102 benchmark on the studio', ts: SEP },
+    { source: 'dialogue-window', id: 't2', statement: 'user: run it again with the other reader', ts: SEP },
+  ];
+  const out = buildReconciledView(own, { question: 'How many Mac Studios do I have?', noun_head: 'studios', head_phrase: 'mac studios', reference_ts: SEP }).render();
+  const lines = out.split('\n');
+  assert.ok(lines.some((l) => /^S2. \[-\] user: run the 102/.test(l)), lines.filter((l) => /^S\d/.test(l)).join(' | '));
+  assert.ok(lines.some((l) => /^S1\. \[\+\] User has a Mac Studio/.test(l)), lines.filter((l) => /^S\d/.test(l)).join(' | '));
+});
+
 t('the extractor never writes the user, the assistant or a word of the chat as an entity', () => {
   const turns = [{ user_text: 'orea sinexise, I finished the sandbox work today and Nikos reviewed it' }];
   const text = JSON.stringify({ identities: [], instances: [
