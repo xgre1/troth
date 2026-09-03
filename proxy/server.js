@@ -2053,10 +2053,6 @@ const server = http.createServer((req, res) => {
           ).all(sinceTs);
         }
         out = { since_hours: maSince, activity: rows };
-      } else if (url === '/api/substrate/telemetry') {
-        // G10 — telemetry status (POST toggle is below as separate handler).
-        var tm = require('../shared-core/telemetry.js');
-        out = tm.status();
       } else if (url === '/api/substrate/scopes') {
         // G13 — list chameleon scopes + their counts. Powers the Research
         // screen (which corpora exist, how big, how much is searchable)
@@ -3937,28 +3933,6 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // GET/POST /api/substrate/telemetry — G10 telemetry status + toggle
-  if (req.method === 'GET' && url === '/api/substrate/telemetry') {
-    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
-    try {
-      const tm = require('../shared-core/telemetry.js');
-      jsonResponse(res, 200, tm.status());
-    } catch (e) { jsonResponse(res, 500, { error: 'telemetry status failed' }); }
-    return;
-  }
-  if (req.method === 'POST' && url === '/api/substrate/telemetry') {
-    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
-    let buf = ''; req.on('data', c => buf += c);
-    req.on('end', () => {
-      let body; try { body = JSON.parse(buf || '{}'); } catch (_) { body = {}; }
-      try {
-        const tm = require('../shared-core/telemetry.js');
-        const s = tm.setEnabled(!!body.enabled, body.endpoint);
-        jsonResponse(res, 200, s);
-      } catch (e) { jsonResponse(res, 500, { error: 'telemetry toggle failed', detail: e && e.message }); }
-    });
-    return;
-  }
 
   // POST /api/substrate/engrams/<uuid>/feedback — Tier 1 / Item B
   // Operator marks engram useful or wrong. Stored as a `decision`
@@ -4440,7 +4414,7 @@ const server = http.createServer((req, res) => {
       const store = codelens._store;
       let entities = 0;
       try { entities = store ? store.db.prepare('SELECT COUNT(*) n FROM entities').get().n : 0; } catch (_) { entities = 0; }
-      jsonResponse(res, 200, { ok: true, root: codelens._baseDir || null, indexed: !!store && entities > 0, entities, indexing: !!(st && st.indexed === false), stats: st });
+      jsonResponse(res, 200, { ok: true, root: codelens._baseDir || null, indexed: !!store && entities > 0, entities, indexing: !!(st && st.indexed === false), parser: !(st && st.parser === false), extensions: (st && st.extensions) || [], files: (st && st.files) || 0, platform: process.platform + '-' + process.arch, stats: st });
     } catch (e) { jsonResponse(res, 200, { ok: false, root: null, indexed: false, entities: 0, error: String(e && e.message || e) }); }
     return;
   }

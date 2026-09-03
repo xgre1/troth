@@ -1470,7 +1470,6 @@ body.op-on #op-row { color: var(--text-dim); }
   </div>
 
   <!--  Skills layer (Phase 1-9) — bundled + user-installed slash skills -->
-  <!-- G10: Telemetry opt-in -->
 
 <script>
 // The pulse loader: three numbers and a heartbeat say whether the memory
@@ -1666,29 +1665,9 @@ function gcRefreshSubstrate() {
   gcRefreshRevisions();
   gcRefreshWatcher();
   gcRefreshAnchorSuggest();
-  gcRefreshTelemetry();
   gcRefreshMcpActivity();
 }
 
-// G10 — telemetry status + toggle
-function gcRefreshTelemetry() {
-  fetch('/api/substrate/telemetry').then(function(r){ return r.json(); }).then(function(s){
-    var el = document.getElementById('sb-telemetry-status');
-    if (!el) return;
-    if (s.enabled) {
-      el.textContent = 'enabled · log: ' + (s.log_path || '—') + (s.endpoint ? ' · endpoint: ' + s.endpoint : '') + ' · id: ' + (s.installation_id || '—');
-    } else {
-      el.textContent = 'disabled. No data leaves this machine.';
-    }
-  }).catch(function(){});
-}
-function gcTelemetryToggle(enabled) {
-  fetch('/api/substrate/telemetry', { method: 'POST', headers: {'content-type':'application/json'}, body: JSON.stringify({ enabled: enabled }) })
-    .then(function(){ setTimeout(gcRefreshTelemetry, 100); })
-    .catch(function(){});
-}
-
-// G12 — per-host MCP tool activity
 function gcRefreshMcpActivity() {
   fetch('/api/substrate/mcp-activity?since_hours=168').then(function(r){ return r.json(); }).then(function(d){
     var box = document.getElementById('sb-mcp-activity');
@@ -2237,9 +2216,6 @@ function toggleUsdInfo(ev){
     });
   }
 }
-
-// (The Telemetry explainer now opens inline on Settings — the breath —
-// instead of a floating popover.)
 
 // One refresh must not be felt. Every write on this page goes through these
 // two: text lands only when it differs, markup only when its data signature
@@ -2887,24 +2863,6 @@ setInterval(function(){
       </div></div>
       <div id="mydata-path" style="display:none;font-size:11px;font-family:var(--mono);line-height:1.9;margin-top:10px;padding:10px;border:1px solid var(--glass-border);border-radius:6px;"></div>
     </div>
-    <div class="settings-card op-gated" data-settings-tab="telemetry">
-      <div class="card-title">Telemetry</div>
-      <div class="card-hint">Anonymous product counters &mdash; numbers only, never content. Off by default.</div>
-      <div id="sb-telemetry-status" style="font-size:11px;color:var(--text-muted);font-family:var(--mono);line-height:1.6;">checking&hellip;</div>
-      <a href="#" onclick="document.getElementById('telemetry-breath').classList.toggle('open');return false;" style="display:inline-block;margin-top:8px;color:var(--signal);text-decoration:none;font-size:11px;">what exactly can leave this machine?</a>
-      <div class="breath" id="telemetry-breath"><div style="font-size:11px;line-height:1.8;color:var(--text-dim);">
-        <b style="color:var(--text)">What it is:</b> counters that help improve troth &mdash; turns, engrams, drift alerts per day. Numbers only.<br>
-        <b style="color:var(--text)">Never in it:</b> your messages, your code, file paths, anything you typed. A filter drops any value that is not a number or a short label.<br>
-        <b style="color:var(--text)">Where it goes:</b> nowhere, by default. Enabled without an endpoint it only writes to <code>~/.troth/telemetry.log</code> on this machine &mdash; open the file and read it. It only ever posts to an endpoint you set yourself.<br>
-        <b style="color:var(--text)">Identity:</b> one random id. No account, no email, no machine name.
-      </div></div>
-      <div class="card-footer">
-        <button class="btn btn-ghost" onclick="gcTelemetryToggle(true)">Enable</button>
-        <button class="btn btn-ghost" onclick="gcTelemetryToggle(false)">Disable</button>
-      </div>
-    </div>
-
-
     <div class="settings-card op-gated" data-settings-tab="mindset">
       <div class="card-title">Mindset</div>
       <div class="card-hint">Injects a <b>research → plan → execute → verify → ask</b> discipline into every request. Adds a dual-view plan (FLASH / PROGRESS) so long tasks don't lose the ball.</div>
@@ -3294,7 +3252,7 @@ function navigate(p, opts){
   if(p==='substrate' && typeof loadCorpora === 'function') loadCorpora();
   if(p==='cli'){ loadCommands(); if(typeof setHelpTab==='function') setHelpTab(); }
   if(p==='analytics' && typeof loadAnalytics === 'function'){ loadAnalytics(); }
-  if(p==='settings'){ if(typeof setSettingsTab === 'function') setSettingsTab(); if(typeof gcRefreshTelemetry === 'function') gcRefreshTelemetry(); }
+  if(p==='settings'){ if(typeof setSettingsTab === 'function') setSettingsTab(); }
   if(p==='vault' && typeof loadVault === 'function') loadVault();
 }
 
@@ -5227,7 +5185,16 @@ function loadBrainGraph(){
     var ld=document.getElementById('brain-loading');
     if(!brainNodes.length){
       document.getElementById('brain-stats').textContent='';
-      if(ld){ld.style.display='';ld.innerHTML='No project is indexed yet.<br><span style="font-size:11px">Start troth inside a project, or type a project folder above and press Index.</span>';}
+      d3.select('#brain-svg').selectAll('*').remove();
+      if(ld){ld.style.display='';ld.textContent='';}
+      fetch('/api/codelens/status').then(function(r){return r.json()}).then(function(st){
+        if(!ld)return;
+        var root=st&&st.root;
+        if(root&&st.parser===false){ld.textContent='The code parser is not available on this machine ('+(st.platform||'this platform')+'). troth reads code with tree-sitter, which has no prebuilt binary here: install python3, make and a C++ compiler, run npm rebuild in the troth folder, then index again.';}
+        else if(root&&!st.files){ld.textContent='Nothing to map in '+root+': the map reads JavaScript, TypeScript and Python files, and none were found. Folders named node_modules, dist, build and vendor are skipped.';}
+        else if(root&&st.files&&!st.entities){ld.textContent=st.files+' files read in '+root+', nothing to map yet.';}
+        else{ld.innerHTML='No project is indexed yet.<br><span style="font-size:11px">Start troth inside a project, or type a project folder above and press Index.</span>';}
+      }).catch(function(){if(ld)ld.textContent='No project is indexed yet.';});
       return;
     }
     document.getElementById('brain-stats').textContent='the '+brainNodes.length+' most connected of '+((st.entities_total||0).toLocaleString())+' entities · worked on '+worked+' · has read '+known+' more';

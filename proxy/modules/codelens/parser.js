@@ -1,34 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// CodeLens parser — tree-sitter edition (v5.9).
+// CodeLens parser: tree-sitter per language plus tags.scm capture queries
+// that pull out definitions (function / class / method / interface / type /
+// enum / constant) and references (calls, instantiations, type usages). The
+// query files are Aider's, MIT-licensed, copied verbatim into
+// proxy/modules/codelens/queries/ with attribution preserved in each header.
 //
-// Replaces the previous regex-based parser, which had two structural
-// problems that hollowed out the entire CodeLens pipeline:
+// Languages: JavaScript and JSX (tree-sitter-javascript), TypeScript, TSX,
+// Python. Adding more is purely additive.
 //
-//   1. The PascalCase-only call detector caught perhaps 5% of real call
-//      edges. PageRank was therefore ranking on a graph populated almost
-//      entirely by `imports` and `extends` edges, so the "top-K most
-//      relevant entities" was really "top-K files with the most imports
-//      pointing at them" — decorative, not informative.
-//
-//   2. The TypeScript / JSX / arrow-export / destructured-export world
-//      was invisible. Modern frontend codebases were essentially empty
-//      to CodeLens.
-//
-// The fix is the Aider approach: tree-sitter parsers per language plus
-// hand-tuned `tags.scm` capture queries that pull out definitions
-// (function / class / method / interface / type / enum / constant) and
-// references (calls, instantiations, type usages). Aider's query files
-// are MIT-licensed and copied verbatim into proxy/modules/codelens/queries/
-// with attribution preserved in each file header.
-//
-// Languages supported in v5.9: JavaScript, JSX (via tree-sitter-javascript),
-// TypeScript, TSX, Python. Adding more is purely additive.
-//
-// If tree-sitter parsing throws for any reason (corrupt grammar, syntax
-// the parser can't recover from, missing query file), the file is silently
-// skipped. We deliberately do not fall back to the old regex parser —
-// having two code paths that produce different entity shapes was the
-// root cause of half the bugs in the previous module.
+// A file tree-sitter cannot parse (corrupt grammar, unrecoverable syntax,
+// missing query file) is skipped. There is no regex fallback on purpose: two
+// code paths producing different entity shapes is the trap.
 
 const fs = require('fs');
 const path = require('path');
@@ -94,20 +76,18 @@ const IGNORE_DIRS = new Set([
   'vendor', 'third_party', 'bower_components',
 ]);
 
-// A bundle is not source. proxy/ui/vendor/d3.v7.min.js — 273 KB of minified
-// third-party JavaScript — took 4960ms to parse, 73% of the entire index, in
-// one uninterrupted stretch that no amount of chunking could break up, to
-// produce entities named `a`, `b` and `t`. Named bundles are skipped by name;
-// the rest are caught by shape, because minifiers do not agree on suffixes.
+// A bundle is not source: minified third-party JavaScript parses in one long
+// uninterrupted stretch that no chunking can break up, to produce entities
+// named `a`, `b` and `t`. Named bundles are skipped by name; the rest are
+// caught by shape, because minifiers do not agree on suffixes.
 const BUNDLE_NAME = /\.(min|bundle|umd|iife)\.(js|mjs|cjs|ts)$/i;
 function looksMinified(content) {
   if (content.length < 50000) return false;          // small enough not to matter
-  // Bytes per line, over the WHOLE file. Measured on this tree: minified files
-  // land at 91,000 and 100,008 bytes per line; the largest real sources land at
-  // 45 to 52; and a file carrying a 70 KB data-URI constant plus 800 ordinary
-  // functions lands at 115. Two earlier attempts were worse — a 50 KB prefix
-  // fell entirely inside such a constant and judged the file on nothing, and a
-  // median missed d3, which keeps two short lines around one enormous one.
+  // Bytes per line over the whole file: minified files run to tens of
+  // thousands per line, real sources to well under a hundred, and a source
+  // carrying a large data-URI constant lands near a hundred. A prefix can fall
+  // entirely inside such a constant and judge the file on nothing; a median
+  // misses a bundle that keeps two short lines around one enormous one.
   const lines = content.split('\n').length;
   return (content.length / lines) > 300;
 }
@@ -306,10 +286,8 @@ function parseFile(filePath, content) {
     edges.push({ from: fromName, to: refName, relation });
   }
 
-  // Fourth pass: import / extends edges. Tree-sitter could do this too
-  // but the regex sweep is faster and we have battle-tested it across
-  // five versions. The point of tree-sitter is the call graph, not
-  // restating what `import x from "y"` means.
+  // Fourth pass: import / extends edges by regex. The point of tree-sitter is
+  // the call graph, not restating what `import x from "y"` means.
   if (langKey !== 'python') {
     const importRegex = /import\s+(?:\{([^}]+)\}|(\w+))?\s*(?:,\s*\{([^}]+)\})?\s*from\s+['"]([^'"]+)['"]/g;
     let m;
@@ -355,19 +333,14 @@ function parseFile(filePath, content) {
   return { entities, edges };
 }
 
-// walkFiles(dir, onFile, opts) — visit every indexable file and hand its
-// content to the caller WITHOUT parsing it.
+// walkFiles(dir, onFile, opts) visits every indexable file and hands its
+// content to the caller without parsing it: deciding what needs parsing is
+// cheap, parsing is not, and deciding stays separate from doing.
 //
-// scanDirectory used to parse every file it touched, and initIndex then hashed
-// the results to decide which ones actually needed parsing: the answer cost
-// more than the question. Measured on a 623-file tree, reading and hashing is
-// 13ms where reading and parsing is 7125ms, and that price was paid on every
-// boot even when nothing had changed. Deciding is now separate from doing.
-//
-// opts.maxFiles / opts.maxMs bound the walk. The desktop app points this at the
-// operator's whole home directory, where there is no natural limit at all; a
-// truncated index degrades a hint, while an unbounded one holds the port shut.
-// Returns { truncated, reason } so the caller can say so out loud.
+// opts.maxFiles / opts.maxMs bound the walk. Pointed at a whole home directory
+// there is no natural limit at all; a truncated index degrades a hint, while
+// an unbounded one holds the port shut. Returns { truncated, reason } so the
+// caller can say so out loud.
 function walkFiles(dir, onFile, opts) {
   opts = opts || {};
   const maxDepth = opts.maxDepth == null ? 5 : opts.maxDepth;
@@ -409,22 +382,19 @@ function walkFiles(dir, onFile, opts) {
   return { truncated: !!stop, reason: stop, files: seen };
 }
 
-// listFiles(dir, opts) — the paths only. No read, no parse.
-//
-// Separated from the work because the work has to be chunked: an index pass
-// that runs to completion in one tick blocks the event loop, and a blocked loop
-// cannot answer the port even after listen() has been called — moving the pass
-// later in the file bought nothing until the pass itself learned to yield.
-// Walking 13761 directories costs 0.4s; it is the reading and parsing that is
-// expensive, and that now happens in chunks the caller paces.
+// listFiles(dir, opts): the paths only, no read, no parse. Separated from the
+// work because the work has to be chunked: an index pass that runs to
+// completion in one tick blocks the event loop, and a blocked loop cannot
+// answer the port even after listen(). Walking directories is cheap; reading
+// and parsing is what costs, and that happens in chunks the caller paces.
 function listFiles(dir, opts) {
   opts = opts || {};
   const maxDepth = opts.maxDepth == null ? 5 : opts.maxDepth;
   const maxFiles = opts.maxFiles == null ? 20000 : opts.maxFiles;
-  // The 0.4s-for-13761-directories figure above holds for a local disk and
-  // is off by orders of magnitude for cloud-backed mounts, where a single
-  // readdir can block on network. Same per-directory time cap as walkFiles;
-  // callers that pass nothing still get a bounded walk.
+  // Cheap holds for a local disk and is off by orders of magnitude on a
+  // cloud-backed mount, where a single readdir can block on network. Same
+  // per-directory time cap as walkFiles; callers that pass nothing still get
+  // a bounded walk.
   const maxMs    = opts.maxMs == null ? 10000 : opts.maxMs;
   const startedAt = Date.now();
   const files = [];
@@ -541,4 +511,4 @@ function validateSyntax(filePath, content) {
   return { valid: false, error: top, errors: errors };
 }
 
-module.exports = { parseFile, scanDirectory, walkFiles, listFiles, looksMinified, validateSyntax };
+module.exports = { parseFile, scanDirectory, walkFiles, listFiles, looksMinified, validateSyntax, parserAvailable, SUPPORTED_EXTS };

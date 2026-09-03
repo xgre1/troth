@@ -122,6 +122,11 @@ function configWithRoot() {
       assert.strictEqual(r.status, 200, r.text.slice(0, 300));
       assert.strictEqual(r.json.ok, true);
       assert.strictEqual(path.resolve(r.json.root), PROJECT);
+      const st = await req(port, 'GET', '/api/codelens/status');
+      assert.strictEqual(typeof st.json.parser, 'boolean', 'parser availability is stated: ' + st.text.slice(0, 200));
+      assert.ok(Array.isArray(st.json.extensions) && st.json.extensions.indexOf('.js') >= 0, 'the extensions read are stated');
+      assert.ok(typeof st.json.platform === 'string' && st.json.platform.indexOf('-') > 0, 'the platform is stated');
+      assert.ok(st.json.files > 0, 'files read are counted: ' + st.text.slice(0, 200));
       const s = await waitFor(port, (j) => j.indexed === true && j.entities > 0, 60000);
       assert.strictEqual(path.resolve(s.json.root), PROJECT);
       const g = await req(port, 'GET', '/api/codelens/graph');

@@ -4,7 +4,7 @@ const fsp = require('fs').promises;
 const path = require('path');
 const crypto = require('crypto');
 const CodeStore = require('./store');
-const { listFiles, parseFile, looksMinified } = require('./parser');
+const { listFiles, parseFile, looksMinified, parserAvailable, SUPPORTED_EXTS } = require('./parser');
 const { personalizedPageRank } = require('./ranker');
 const { buildRepoMap } = require('./mapper');
 
@@ -17,15 +17,12 @@ let indexed = false;
 // When the agent edits file A, boost A's dependencies in the next query.
 const recentFiles = [];
 const MAX_RECENT = 10;
-// Bounds on a single index pass. The desktop app points the indexer at the
-// operator's entire home directory, which has no natural end; on this machine
-// that is 1816 files and 119 MB. A truncated index weakens a hint, an unbounded
-// one holds the port shut, so it is bounded and says so (stats.truncated).
-// Yield on ELAPSED TIME, not on a count. Counting files assumes every file
-// costs the same, and they do not: one file can carry hundreds of entities and
-// each is a synchronous SQLite insert, so 'every 64 files' was still a second
-// of held loop between breaths. This keeps the longest uninterrupted stretch
-// bounded no matter what the project looks like.
+// Bounds on a single index pass. The indexer can be pointed at a whole home
+// directory, which has no natural end. A truncated index weakens a hint, an
+// unbounded one holds the port shut, so the pass is bounded and says so
+// (stats.truncated). The yield is on elapsed time, not on a file count: one
+// file can carry hundreds of entities and each is a synchronous SQLite insert,
+// so a count still holds the loop for as long as the largest file takes.
 const YIELD_EVERY_MS = 40;
 let _lastYield = 0;
 function breathe() {
@@ -34,11 +31,9 @@ function breathe() {
   _lastYield = now;
   return new Promise((r) => setImmediate(r));
 }
-// 2000 was one directory away from biting: the operator's home holds 1816
-// indexable files. Past the cap the walk stops at the SAME first N every boot,
-// so the tail is not indexed late — it is never indexed — and stale-file
-// deletion is skipped for good. The wall clock is the real bound; the count is
-// only a backstop against a pathological tree.
+// Past the file cap the walk stops at the same first N every boot, so the tail
+// is never indexed and stale-file deletion is skipped for good. The wall clock
+// is the real bound; the count is a backstop against a pathological tree.
 const MAX_INDEX_FILES = parseInt(process.env.TROTH_CODELENS_MAX_FILES || '25000', 10);
 const MAX_INDEX_MS    = parseInt(process.env.TROTH_CODELENS_MAX_MS    || '10000', 10);
 let stats = { files: 0, entities: 0, edges: 0, queries: 0, avgQueryMs: 0 };
@@ -113,16 +108,14 @@ function resolveImportPath(importSource, fromFilePath, allFilePaths) {
 
 // Async on purpose. A pass that runs to completion in one tick blocks the
 // event loop, and a blocked loop cannot answer the port even after listen()
-// has returned — the dashboard was unreachable for as long as the walk took
-// whether the call sat before listen() or after it. Work is done in chunks
-// with a yield between them, so a request that arrives mid-index is answered
-// (with an empty repo map) instead of queued behind the filesystem.
+// has returned. Work is done in chunks with a yield between them, so a request
+// that arrives mid-index is answered (with an empty repo map) instead of
+// queued behind the filesystem.
 async function initIndex(dir) {
-  // A directory that holds projects is not one. The proxy hands this the
-  // "project dir", which inside a .app bundle is substituted with the
-  // operator's home — right for where state is kept, wrong for which codebase
-  // this is. Taken literally it walked an entire home directory, browser
-  // profiles and backups included, into a 201 MB index.
+  // A directory that holds projects is not one. Inside an app bundle the
+  // "project dir" handed in is the home directory: right for where state is
+  // kept, wrong for which codebase this is. Taken literally it walks the whole
+  // home, browser profiles and backups included.
   const projectId = require('../../../shared-core/project-id.js');
   if (!projectId.isIndexableRoot(dir)) {
     baseDir = null;
@@ -150,13 +143,10 @@ async function initIndex(dir) {
 
 
   const startMs = Date.now();
-  // ── Decide first, work second ──
-  // This used to parse every file it walked and only THEN hash the results to
-  // find out which ones needed parsing. Reading and hashing a 623-file tree
-  // costs 13ms; reading and parsing it costs 7125ms, and that was spent on
-  // every boot even when nothing had changed. Content is held only for the
-  // files that turn out to need it, so the peak footprint follows the diff and
-  // not the size of the operator's disk.
+  // Decide first, work second: reading and hashing a tree is cheap, parsing it
+  // is not, and on a warm boot nothing has changed. Content is held only for
+  // the files that turn out to need parsing, so the peak footprint follows the
+  // diff and not the size of the disk.
   const newFiles = [];
   const changedFiles = [];
   const currentPaths = [];
@@ -169,8 +159,7 @@ async function initIndex(dir) {
   let overBudget = false;
 
   for (let i = 0; i < listing.files.length; i++) {
-    // Yield to the loop every chunk. 32 files is ~0.4ms of hashing, far below
-    // anything a person perceives, and it keeps every request answerable.
+    // Yield to the loop every chunk so every request stays answerable.
     { const y = breathe(); if (y) await y; }
     if (budgetUntil && Date.now() > budgetUntil) { overBudget = true; break; }
 
@@ -214,11 +203,9 @@ async function initIndex(dir) {
   stats.truncated = walk.truncated ? walk.reason : null;
   const deleted = walk.truncated ? 0 : store.deleteStaleFiles(currentPaths);
 
-  // Parse ONLY what the diff says is worth parsing — and yield while doing it.
-  // Chunking the scan alone was not enough: on a cold boot every file is new,
-  // so this list is the whole project and parsing it in one pass held the loop
-  // for seven seconds. The port was open and accepting the whole time, which
-  // is worse than being closed — the request is taken and then not answered.
+  // Parse only what the diff says is worth parsing, and yield while doing it:
+  // on a cold boot every file is new, so this list is the whole project, and a
+  // port that accepts a request it cannot answer is worse than a closed one.
   const filesToIndex = [];
   {
     const pending = newFiles.concat(changedFiles);
@@ -270,11 +257,10 @@ async function initIndex(dir) {
       entityIds.push(id);
     }
     fileToEntityIds.set(file.filePath, entityIds);
-    // The hash is NOT written here. It is the record that says "this file is
-    // fully indexed", and edges are added in the pass below — writing it now
-    // meant that anything cutting in between (a budget, a crash, a restart)
-    // left the file marked done with no edges, and the next run believed the
-    // hash and never looked at it again. Silent, permanent, invisible.
+    // The hash is not written here. It is the record that says "this file is
+    // fully indexed", and edges are added in the pass below: written now,
+    // anything cutting in between (a budget, a crash, a restart) leaves the
+    // file marked done with no edges, and the next run trusts the hash.
   }
 
   // Pass 2: Resolve and add edges (only for new/changed files)
@@ -330,11 +316,9 @@ async function initIndex(dir) {
     }
   }
 
-  // NOW the hashes. A file is marked indexed only once its entities AND its
-  // edges are in, so a run that is cut short leaves those files looking
-  // unindexed — which is true — and the next run redoes them. The alternative,
-  // marking them done in the entity pass, made an interrupted run look
-  // finished forever.
+  // The hashes last. A file is marked indexed only once its entities and its
+  // edges are in, so a run that is cut short leaves those files unindexed,
+  // which is true, and the next run redoes them.
   for (let _h = 0; _h < filesToIndex.length; _h++) {
     { const y = breathe(); if (y) await y; }
     const f = filesToIndex[_h];
@@ -365,35 +349,23 @@ async function initIndex(dir) {
     console.log(`[CodeLens] ${unchangedCount} files unchanged, ${stats.entities} entities (${elapsed}ms — persistent cache hit)`);
   }
 
-  // Watch for changes. Debounced at 15 seconds (up from 2) so bursts of
-  // file writes during tool-heavy agent loops don't trigger a re-index
-  // storm. Filters the watched events down to source files only —
-  // node_modules, dotfiles, and anything whose extension is not in the
-  // CodeLens SUPPORTED_EXTS set (see parser.js) are skipped. Previously
-  // every .log / .json / .md / .db write would also fire a debounce
-  // reset, which kept the router busy on CPU during heavy sessions.
+  // Watch for changes, debounced at 15 seconds so bursts of file writes during
+  // tool-heavy agent loops do not trigger a re-index storm; only source files
+  // count (node_modules, dotfiles and unsupported extensions are skipped).
   //
-  // REGISTERED ONCE PER DIRECTORY. The debounce calls initIndex again, and
-  // initIndex used to end here, so every re-index added ANOTHER recursive
-  // watcher on the same tree. After an afternoon the proxy held hundreds of
-  // them, one file write woke all of them, and the machine re-indexed on a
-  // loop: 208 runs, every one reporting "81 files unchanged" after ~5s of
-  // hashing, which is a laptop that never idles: fans audible, proxy at the
-  // top of the CPU list. The guard is the whole fix; one registration and
-  // one shared debounce timer behave exactly as intended.
+  // Registered once per directory: the debounce calls initIndex again, and a
+  // watcher per call multiplies until one write wakes them all and the machine
+  // re-indexes on a loop. One registration, one shared debounce timer.
   //
-  // Watcher shape is per-platform. macOS/Windows recursive fs.watch is a
-  // single OS handle (FSEvents / ReadDirectoryChangesW) whatever the tree
-  // size. Linux emulates recursive with one inotify watch PER SUBDIRECTORY
-  // — node_modules and dot-dirs included, since the filter above runs
-  // after registration — and WATCH_DIR is the operator's whole home when
-  // the desktop app spawns the proxy, so it exhausts
-  // fs.inotify.max_user_watches (ENOSPC) before the filter ever helps.
-  // Linux gets non-recursive watches on just the directories that hold
-  // indexed files (directories born later re-index only on restart).
-  // Watch errors surface asynchronously on the FSWatcher — the try/catch
-  // never sees them, and unhandled they become uncaughtExceptions, one per
-  // failed inotify add — so the first error closes every watcher and
+  // Watcher shape is per platform. macOS/Windows recursive fs.watch is a single
+  // OS handle whatever the tree size. Linux emulates recursion with one inotify
+  // watch per subdirectory, node_modules and dot-dirs included since the filter
+  // runs after registration, so a whole home exhausts
+  // fs.inotify.max_user_watches (ENOSPC) before the filter helps. Linux gets
+  // non-recursive watches on just the directories that hold indexed files
+  // (directories born later re-index only on restart). Watch errors surface
+  // asynchronously on the FSWatcher; unhandled they become uncaughtExceptions,
+  // one per failed inotify add, so the first error closes every watcher and
   // auto re-index stops for the session.
   const SOURCE_EXTS = new Set(['.js', '.ts', '.tsx', '.jsx', '.mjs', '.cjs', '.py']);
   if (!initIndex._watching) initIndex._watching = new Set();
@@ -496,7 +468,7 @@ function queryContext(bodyStr) {
   return map;
 }
 
-function getStats() { return { ...stats, indexed }; }
+function getStats() { return { ...stats, indexed, parser: parserAvailable(), extensions: SUPPORTED_EXTS.slice() }; }
 
 // Record that a file was recently touched (Read/Write/Edit).
 // Called by the critic/hotcache when tool calls are detected.

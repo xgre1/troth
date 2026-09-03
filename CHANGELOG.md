@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The Code Map says why an index came back empty: the code parser has no
+  build on this machine, or the folder holds no JavaScript, TypeScript or
+  Python. `GET /api/codelens/status` reports `parser`, `extensions`, `files`
+  and `platform`.
 - Obsidian is one button on the Memory page: every vault Obsidian knows about
   is a row with its note count and an Import button, beside the chat history
   rows. `GET /api/memory/notes-sources` lists the vaults, `POST
@@ -385,6 +389,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `capability_store_unreachable`; sealed capabilities are never reported
   as missing because the store was down.
 - The sidebar version badge shows the version the proxy reports, on the first-run onboarding as well.
+
+### Removed
+- The Telemetry card and the `/api/substrate/telemetry` routes. Hook timings
+  and proxy errors stay in local files under `~/.troth/telemetry`; nothing is
+  sent anywhere.
+
 
 ## [0.1.18] — 2026-08-29
 
