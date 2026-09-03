@@ -2,9 +2,8 @@
 'use strict';
 
 // The harness inlines a hook's context only up to a size it does not
-// publish. Measured 2026-09-03: every output above about 21 KB was written to
-// a file with a 2 KB preview, so the model read two rules of fifty-six while
-// the organ believed it bound all of them. The block fits a budget that
+// publish: above about 21 KB the output goes to a file with a 2 KB preview,
+// and the model reads the preview. The block fits a budget that
 // leaves room for the recall and identity blocks beside it; a rule is shown
 // by its opening sentences, and the full text stays one rule_list away.
 const MAX_CHARS = 6000;

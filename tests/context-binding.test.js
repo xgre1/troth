@@ -80,7 +80,7 @@ t('a session that names nothing stays unbound', () => {
 
 t('a slug inside a longer word is no mention', () => {
   ctxReg.ensureContext('north');
-  assert.strictEqual(ctxReg.resolveMention('how much do I earn from northtzoglou'), null);
+  assert.strictEqual(ctxReg.resolveMention('how much do I earn from northwind'), null);
   assert.strictEqual(ctxReg.resolveMention('the north invoice is late'), 'ctx:north');
   assert.strictEqual(ctxReg.resolveMention('we talked about alpha-work and alpha work'), 'ctx:alpha-work');
 });
@@ -102,10 +102,10 @@ t('a declaration names a topic the registry does not know yet', () => {
 
 t('a text names a context by slug, phrase or entity alias', () => {
   const identity = require(path.join(CORE, 'entity-identity.js'));
-  identity.recordEntityIdentity({ name: 'Voya', agent_id: 'local-agent', kind: 'organization', aliases: ['Northwind', 'Παπαδόπουλο'] });
+  identity.recordEntityIdentity({ name: 'North', agent_id: 'local-agent', kind: 'organization', aliases: ['Northwind', 'Νόρθγουιντ'] });
   const names = ctxReg.contextNamer(['ctx:north', 'ctx:alpha-work']);
   assert.ok(names('the invoice from Northwind arrived'), 'entity alias');
-  assert.ok(names('μίλησα με τον Παπαδόπουλο σήμερα'), 'greek alias');
+  assert.ok(names('μίλησα με τον Νόρθγουιντ σήμερα'), 'greek alias');
   assert.ok(names('the alpha work review is Thursday'), 'phrase');
   assert.ok(!names('the beta work review is Thursday'), 'another context');
   assert.ok(ctxReg.namesAnyContext('alpha-work ships', ['ctx:alpha-work']));

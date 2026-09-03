@@ -677,8 +677,8 @@ function buildReconciledView(items, opts) {
         ? 'Memory statements ("=Ln" marks one already counted by ledger line Ln; "+" marks one the ledger does not cover - judge those individually' + (aside.length ? '; "-" marks one that attests only a set-aside line - not what the question counts' : '') + '):'
         : 'Memory statements:');
       // The same fact told five ways is one statement with five receipts:
-      // "User has a Mac Studio", "User owns a Mac Studio", "The user has a
-      // Mac Studio." fold into the first, which names the others. A raw
+      // "User has a road bike", "User owns a road bike", "The user has a
+      // road bike." fold into the first, which names the others. A raw
       // dialogue turn is never folded: its words are the evidence.
       const factKey = (s) => {
         const t = String(s || '').toLowerCase();

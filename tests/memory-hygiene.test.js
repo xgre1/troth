@@ -36,7 +36,7 @@ const ident = (canonical, kind, relation, aliases) => engram.recordEngram({
   inst('orea', 'Working as a software engineer using methodology');
   inst('user', 'Working on the sandbox');
   inst('Nikos', 'Reviewed the sandbox work');
-  ident('Anthropic', 'organization', "entity blocking the user's fable", ['contosso', 'i mana poutanes gioi tis anthropic']);
+  ident('Contoso', 'organization', "vendor blocking the user's build", ['contosso', 'i mana poutanes gioi tis contoso']);
   ident('orea', 'colleague', null, ['sinexise']);
   ident('Nikos', 'colleague', 'coworker', []);
   const doc = (cwd, title) => engram.recordEngram({
@@ -71,10 +71,10 @@ const ident = (canonical, kind, relation, aliases) => engram.recordEngram({
   await t('the registry keeps names only: the insult leaves the aliases, the verdict leaves the relation, the non-name leaves the registry', async () => {
     const reg = identity.loadRegistry({ fresh: true });
     const names = reg.map((x) => x.canonical).sort();
-    assert.deepStrictEqual(names, ['Anthropic', 'Nikos'], names.join(' | '));
-    const anth = reg.find((x) => x.canonical === 'Anthropic');
-    assert.deepStrictEqual(anth.aliases.sort(), ['Anthropic', 'contosso'], anth.aliases.join(' | '));
-    assert.strictEqual(anth.relation, null);
+    assert.deepStrictEqual(names, ['Contoso', 'Nikos'], names.join(' | '));
+    const co = reg.find((x) => x.canonical === 'Contoso');
+    assert.deepStrictEqual(co.aliases.sort(), ['Contoso', 'contosso'], co.aliases.join(' | '));
+    assert.strictEqual(co.relation, null);
     const st = reg.find((x) => x.canonical === 'Nikos');
     assert.strictEqual(st.relation, 'coworker');
   });

@@ -99,7 +99,7 @@ function seedContexts(opts) {
 
 // A context is mentioned when its slug or its de-dashed phrase appears as
 // whole words (any script); a slug inside a longer word ("north" inside
-// "northtzoglou") is no mention, and a denied slug never resolves.
+// "northwind") is no mention, and a denied slug never resolves.
 function _wordRe(needle) {
   const esc = String(needle).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[\\s_-]+');
   return new RegExp('(?<![\\p{L}\\p{N}])' + esc + '(?![\\p{L}\\p{N}])', 'iu');
@@ -115,7 +115,7 @@ function mentionsContext(text, c) {
 }
 // A registry entity carries a context when its slug is the context's slug,
 // or when it is a company, organization, project or product whose slug
-// begins with the context's slug ("northtzoglou" carries ctx:north, the
+// begins with the context's slug ("northwind" carries ctx:north, the
 // folder's short name for the company). A person never carries a context
 // by prefix.
 const CARRIER_KINDS = /^(organization|organisation|company|project|product|client|customer|employer|business|brand)$/i;
@@ -123,7 +123,7 @@ function _entityCarries(ident, slug) {
   if (!ident || !ident.slug || !slug) return false;
   if (ident.slug === slug) return true;
   if (!CARRIER_KINDS.test(String(ident.kind || ''))) return false;
-  // The company's short name as a folder ("north" for northtzoglou), or the
+  // The company's short name as a folder ("north" for northwind), or the
   // company's name leading a longer slug ("brightpress" for brightpress-tracker).
   return (slug.length >= 4 && ident.slug.startsWith(slug)) || (ident.slug.length >= 4 && slug.startsWith(ident.slug + '-'));
 }

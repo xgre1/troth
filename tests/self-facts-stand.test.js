@@ -24,26 +24,26 @@ const src = (text, before) => ({ text, before: before || '' });
 
 (async () => {
   await t('a third-person sentence naming the subject the message names stands', async () => {
-    assert.strictEqual(stands('The person is paid 600 a month by Northwind, part time', 'fact', 'Northwind', 'pay', src('vboya is 600 per month now part time, Northwind I mean')), true);
+    assert.strictEqual(stands('The person is paid 800 a month by Northwind, part time', 'fact', 'Northwind', 'pay', src('nw is 800 per month now part time, Northwind I mean')), true);
   });
   await t('a short message copied back is a quote and does not stand', async () => {
     assert.strictEqual(stands('Apla valame q4.', 'effort', 'q4', 'status', src('Apla valame q4.')), false);
-    assert.strictEqual(stands('einai + 145e to mina EYKA', 'fact', 'EYKA', 'pay', src('einai + 145e to mina EYKA')), false);
-    assert.strictEqual(stands('My studio machine sits in the living room', 'fact', 'studio machine', 'location', src('My studio machine sits in the living room')), true, 'a whole sentence naming its subject stands even verbatim');
-    assert.strictEqual(stands('exw sto xeri +2600-3100 tora', 'fact', 'xeri', 'amount', src('exw sto xeri +2600-3100 tora kai vlepoume')), false);
+    assert.strictEqual(stands('einai + 120e to mina EFKA', 'fact', 'EYKA', 'pay', src('einai + 120e to mina EFKA')), false);
+    assert.strictEqual(stands('My desk machine sits in the living room', 'fact', 'desk machine', 'location', src('My desk machine sits in the living room')), true, 'a whole sentence naming its subject stands even verbatim');
+    assert.strictEqual(stands('exw sto xeri +1200-1500 tora', 'fact', 'xeri', 'amount', src('exw sto xeri +1200-1500 tora kai vlepoume')), false);
   });
   await t('a subject none of the messages mention does not stand', async () => {
     assert.strictEqual(stands('The person does social media marketing for Nike', 'role', 'Nike', 'role', src('Κάνω social media marketing για τη Contoso', 'ok let us start')), false);
   });
   await t('a subject named two messages earlier stands', async () => {
-    assert.strictEqual(stands('From October Northwind pays the person 700 a month', 'fact', 'Northwind', 'pay', src('From October they raise me to seven hundred a month', 'I get six hundred a month at Northwind')), true);
+    assert.strictEqual(stands('From October Northwind pays the person 900 a month', 'fact', 'Northwind', 'pay', src('From October they raise me to nine hundred a month', 'I get eight hundred a month at Northwind')), true);
   });
   await t('a chat word or a pronoun is no subject', async () => {
     assert.strictEqual(stands('katse 3 meres tin evdomada enow re', 'fact', 'katse', 'schedule', src('katse 3 meres tin evdomada enow re, kai meta')), false);
     assert.strictEqual(stands('The person works two days a week there', 'fact', 'there', 'schedule', src('I work two days a week there')), false);
   });
   await t('a fact that does not name its subject does not stand', async () => {
-    assert.strictEqual(stands('The person is paid 600 a month', 'fact', 'Northwind', 'pay', src('Northwind pays me 600 a month')), false);
+    assert.strictEqual(stands('The person is paid 800 a month', 'fact', 'Northwind', 'pay', src('Northwind pays me 800 a month')), false);
   });
   await t('without a source turn the older rules alone decide', async () => {
     assert.strictEqual(stands('I work at Northwind two days a week', 'fact', 'Northwind', 'schedule'), true);

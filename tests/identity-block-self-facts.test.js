@@ -46,9 +46,9 @@ function runInjector(prompt) {
 
 console.log('\n=== identity block: the operator\'s own current facts ===\n');
 const MAY = Date.UTC(2026, 4, 4), SEP = Date.UTC(2026, 8, 2);
-writeEngram('idself-agent', 'the does not want background watchers left running from previous sessions', 2.0);
-const older = writeEngram('idself-agent', 'I work at Northwind for 700 euros a month', 1.0, { scope: 'consolidated:self', ts: MAY });
-writeEngram('idself-agent', 'I work at Northwind two days a week for 600 euros a month', 1.0, { scope: 'consolidated:self', ts: SEP, supersedes: [older], payload: { fact_kind: 'fact', subject: 'Northwind', attribute: 'pay' } });
+writeEngram('idself-agent', 'The operator does not want background watchers left running from previous sessions', 2.0);
+const older = writeEngram('idself-agent', 'I work at Northwind for 900 euros a month', 1.0, { scope: 'consolidated:self', ts: MAY });
+writeEngram('idself-agent', 'I work at Northwind two days a week for 800 euros a month', 1.0, { scope: 'consolidated:self', ts: SEP, supersedes: [older], payload: { fact_kind: 'fact', subject: 'Northwind', attribute: 'pay' } });
 // A self row the reader let through with nothing it is about: newer than
 // everything, and never the foundation.
 writeEngram('idself-agent', 'We just set the quant to q4', 1.0, { scope: 'consolidated:self', ts: Date.now(), payload: { fact_kind: 'fact', subject: '', attribute: 'other' } });
@@ -57,12 +57,12 @@ t('the core fact is the operator\'s own current statement, with the day it was s
   const ac = runInjector('please help me plan next week around the days I work at Northwind');
   const line = ac.split('\n').find((l) => l.startsWith('[troth/identity]')) || '';
   assert.ok(line, 'identity block present: ' + ac.slice(0, 300));
-  assert.ok(/\[core\] "I work at Northwind two days a week for 600 euros a month" \(as of 2026-09-02\)/.test(line), line);
+  assert.ok(/\[core\] "I work at Northwind two days a week for 800 euros a month" \(as of 2026-09-02\)/.test(line), line);
 });
 
 t('the row a newer statement retired never surfaces', () => {
   const ac = runInjector('please help me plan next week around the days I work at Northwind');
-  assert.ok(!/700 euros/.test(ac), ac.split('\n').find((l) => l.startsWith('[troth/identity]')));
+  assert.ok(!/900 euros/.test(ac), ac.split('\n').find((l) => l.startsWith('[troth/identity]')));
 });
 
 t('a self row with no subject never appears, core or topical', () => {
@@ -74,7 +74,7 @@ t('a self row with no subject never appears, core or topical', () => {
 t('a rule of thumb, whatever its salience, no longer takes the core slot', () => {
   const ac = runInjector('what should I do about the proxy restart routine this week');
   const line = ac.split('\n').find((l) => l.startsWith('[troth/identity]')) || '';
-  assert.ok(!/\[core\] "the does not want background watchers/.test(line), line);
+  assert.ok(!/\[core\] "The operator does not want background watchers/.test(line), line);
 });
 
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (_) {}

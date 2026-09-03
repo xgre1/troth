@@ -20,8 +20,8 @@ async function t(name, fn) { try { await fn(); console.log('  ✓ ' + name); pas
 console.log('\n=== self facts: one current fact per subject and attribute ===\n');
 const A = 'self-facts-test';
 const facts = new Map([
-  ['I get six hundred a month at Northwind', [{ kind: 'fact', what: 'I work at Northwind two days a week for 600 euros a month', subject: 'Northwind', attribute: 'pay' }]],
-  ['From October they raise me to seven hundred a month', [{ kind: 'fact', what: 'From October Northwind pays me 700 euros a month', subject: 'Northwind', attribute: 'pay' }]],
+  ['I get eight hundred a month at Northwind', [{ kind: 'fact', what: 'I work at Northwind two days a week for 800 euros a month', subject: 'Northwind', attribute: 'pay' }]],
+  ['From October they raise me to nine hundred a month', [{ kind: 'fact', what: 'From October Northwind pays me 900 euros a month', subject: 'Northwind', attribute: 'pay' }]],
   ['I go there on Wednesdays and Thursdays',   [{ kind: 'fact', what: 'I go to Northwind on Wednesdays and Thursdays', subject: 'Northwind', attribute: 'schedule' }]]
 ]);
 const view = { substrate_ctx: { agent_id: A, user_id: 'default', cwd: null }, read_self_facts: async (text) => facts.get(String(text).trim()) || [] };
@@ -30,7 +30,7 @@ const T0 = Date.now() - 10 * 60 * 1000;
 
 (async () => {
   await t('the first statement of a subject\'s pay lands with its subject and attribute', async () => {
-    dm.recordTurn({ agent_id: A, conversation_id: 's1', timestamp: T0, user_text: 'I get six hundred a month at Northwind', assistant_text: 'ok' });
+    dm.recordTurn({ agent_id: A, conversation_id: 's1', timestamp: T0, user_text: 'I get eight hundred a month at Northwind', assistant_text: 'ok' });
     const r = await bw.tasks.workingMemoryConsolidation.run(view);
     assert.ok(/promoted=1/.test(r.notes[0]), r.notes[0]);
     assert.ok(/\(given\)/.test(r.notes[0]), 'the note names the road: ' + r.notes[0]);
@@ -40,12 +40,12 @@ const T0 = Date.now() - 10 * 60 * 1000;
     assert.strictEqual(rows[0].payload.attribute, 'pay');
   });
   await t('a newer statement on the same subject and attribute supersedes the older row', async () => {
-    dm.recordTurn({ agent_id: A, conversation_id: 's2', timestamp: T0 + 60 * 1000, user_text: 'From October they raise me to seven hundred a month', assistant_text: 'ok' });
+    dm.recordTurn({ agent_id: A, conversation_id: 's2', timestamp: T0 + 60 * 1000, user_text: 'From October they raise me to nine hundred a month', assistant_text: 'ok' });
     const r = await bw.tasks.workingMemoryConsolidation.run(view);
     assert.ok(/promoted=1 superseded=1/.test(r.notes[0]), r.notes[0]);
     const rows = current();
     assert.strictEqual(rows.length, 1, rows.map((e) => e.statement).join(' | '));
-    assert.ok(/700 euros/.test(rows[0].statement), rows[0].statement);
+    assert.ok(/900 euros/.test(rows[0].statement), rows[0].statement);
     const raw = state.getAction(rows[0].id);
     const out = typeof raw.output === 'string' ? JSON.parse(raw.output) : raw.output;
     assert.strictEqual(out.lifetime && out.lifetime.reason, 'newer_on_subject');
@@ -68,9 +68,9 @@ const T0 = Date.now() - 10 * 60 * 1000;
     // older pay figure, one a machine fact nobody has stated since.
     const OLD = T0 - 3 * 24 * 60 * 60 * 1000;
     facts.set('Back then Northwind paid me five hundred a month', [{ kind: 'fact', what: 'Northwind paid me five hundred a month', subject: 'Northwind', attribute: 'pay' }]);
-    facts.set('My studio machine sits in the living room', [{ kind: 'fact', what: 'My studio machine sits in the living room', subject: 'studio machine', attribute: 'location' }]);
+    facts.set('My desk machine sits in the living room', [{ kind: 'fact', what: 'My desk machine sits in the living room', subject: 'desk machine', attribute: 'location' }]);
     dm.recordTurn({ agent_id: A, conversation_id: 'h1', timestamp: OLD, user_text: 'Back then Northwind paid me five hundred a month', assistant_text: 'ok' });
-    dm.recordTurn({ agent_id: A, conversation_id: 'h2', timestamp: OLD + 1000, user_text: 'My studio machine sits in the living room', assistant_text: 'ok' });
+    dm.recordTurn({ agent_id: A, conversation_id: 'h2', timestamp: OLD + 1000, user_text: 'My desk machine sits in the living room', assistant_text: 'ok' });
     dm.recordTurn({ agent_id: A, conversation_id: 'h3', timestamp: OLD + 2000, user_text: 'Back then Northwind paid me five hundred a month', assistant_text: 'ok' });
     process.env.TROTH_UNDERSTANDING_CATCHUP_TURNS = '2';
     let r = await bw.tasks.workingMemoryConsolidation.run(view);
@@ -82,7 +82,7 @@ const T0 = Date.now() - 10 * 60 * 1000;
     const rows = current();
     const pay = rows.filter((e) => e.payload.attribute === 'pay');
     assert.strictEqual(pay.length, 1, pay.map((e) => e.statement).join(' | '));
-    assert.ok(/700 euros/.test(pay[0].statement), 'the later statement stands: ' + pay[0].statement);
+    assert.ok(/900 euros/.test(pay[0].statement), 'the later statement stands: ' + pay[0].statement);
     assert.ok(rows.some((e) => /living room/.test(e.statement)), 'a fact only history states is known now');
     delete process.env.TROTH_UNDERSTANDING_CATCHUP_TURNS;
   });

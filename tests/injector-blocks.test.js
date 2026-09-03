@@ -26,8 +26,8 @@ t('topical overlap reads letters of any script', () => {
   const fn = new Function(m[0] + '; return tokenizeForOverlap;')();
   const toks = fn('Πόσα βγάζω από τον Παπαδόπουλο τον μήνα');
   assert.ok(toks.has('παπαδόπουλο') && toks.has('μήνα'), [...toks].join(' | '));
-  const en = fn('How many Mac Studios do I have');
-  assert.ok(en.has('mac') && en.has('studios'), [...en].join(' | '));
+  const en = fn('How many road bikes do I have');
+  assert.ok(en.has('road') && en.has('bikes'), [...en].join(' | '));
 });
 
 console.log('\ninjector-blocks: ' + pass + ' passed, ' + fail + ' failed');

@@ -383,8 +383,7 @@ await t('composition: the clause cap holds and degradation is the primary unchan
 await t('composition: three weddings told in different words are three occurrences, each recoverable', () => {
   // The S1 lesson, kept from the other side: three finished doings on one
   // generic entity with nothing in common but the word "wedding" are three
-  // lines, and every ingredient survives on its own line. (Fusing them and
-  // keeping the ingredients inside one row was the earlier, weaker guard.)
+  // lines, and every ingredient survives on its own line.
   const AG = 'compose-chimera';
   const T = (x) => [{ id: x, user_text: 'context turn' }];
   const mk = (desc, qual) => ({ kind: 'activity', entity: 'wedding season', description: desc, date_iso: null, status: 'completed', qualifier: qual, quantity: null, turn_idxs: [0] });
