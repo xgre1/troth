@@ -812,7 +812,7 @@ const _SELF_FACT_SCHEMA = {
 const _SELF_FACT_PROMPT = [
   'Read the message a person wrote to their assistant. List only DURABLE facts the person states ABOUT THEMSELVES - facts that would still be true next month:',
   'their role or occupation, a constraint they live with, a skill they have, something they like or dislike, something they made or did before, what they earn or are paid, how many days they work somewhere.',
-  'Write each fact as ONE complete sentence in the message\'s own language and words, naming what it is about ("I work at X two days a week for 600 a month", never "for 600 a month" alone). Not a fact: what is being done right now, a remark about the work at hand, a reaction, a plan for the next minutes, a number without the thing it belongs to. Ignore requests, anger, opinions about the assistant, and anything about other people. When nothing durable is stated, answer {"facts":[]}.',
+  'Write each fact as ONE self-contained sentence in the message\'s own language, in your own words and in the third person ("The person is paid 600 a month by X for two days a week"), naming what it is about the way the message names it; never copy the message back, and never name a subject the message does not mention. Not a fact: what is being done right now, a remark about the work at hand, a reaction, a plan for the next minutes, a number without the thing it belongs to. Ignore requests, anger, opinions about the assistant, and anything about other people. When nothing durable is stated, answer {"facts":[]}.',
   'For each fact also give "subject": the thing the fact is about, named as the message names it (an employer, a client, a project, a machine, a place), and "attribute": what about it the fact states: pay, schedule, role, status, amount, location, contact or other.',
   'Answer with ONE JSON object {"facts":[{"kind":"role|constraint|skill|liking|effort|fact","what":"...","subject":"...","attribute":"pay|schedule|role|status|amount|location|contact|other"}]} and nothing else; an empty list when there is none.',
   '', 'Message: '
@@ -885,9 +885,27 @@ const WM_WATERMARK_SCOPE = 'internal:wm_watermark';
 // status, amount, location, contact). A bare "fact" about nothing in
 // particular is a remark.
 const _STANDING_KINDS = new Set(['role', 'constraint', 'skill', 'liking', 'effort']);
-function _selfFactStands(what, kind, subject, attribute) {
+// A fact the reader returns stands on its subject: the message (or the two
+// before it) names the subject, the subject is a name and not a chat word,
+// the fact names its subject, and the fact is the reader's own sentence
+// rather than the message copied back — a copy is a quote, and a quote of
+// "we just set q4" is not a fact about the operator.
+const _SELF_SUBJECT_STOP = new Set(['me', 'i', 'my', 'we', 'you', 'it', 'this', 'that', 'there', 'here', 'they', 'them',
+  'εγώ', 'εγω', 'εμείς', 'εμεις', 'εσύ', 'εσυ', 'αυτό', 'αυτο', 'ego', 'egw', 'emeis', 'esy', 'esi', 'auto', 'katse', 'xeri', 'tora', 'twra']);
+function _normText(s) { return String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim(); }
+function _selfFactStands(what, kind, subject, attribute, source) {
   if (!what || String(what).split(/\s+/).length < 3) return false;
   if (!subject) return false;
+  if (source && typeof source === 'object') {
+    const w = _normText(what), text = _normText(source.text), before = _normText(source.before), subj = _normText(subject);
+    if (!subj || subj.length < 3 || _SELF_SUBJECT_STOP.has(subj)) return false;
+    try { if (!require('./entity-identity.js').aliasAcceptable(subject, subject)) return false; } catch (_) { /* no registry gate */ }
+    if (text && !text.includes(subj) && !(before && before.includes(subj))) return false;
+    // A short message copied back is a fragment ("we just set q4"); a whole
+    // sentence that names its subject stands even verbatim.
+    if (text && (w === text || text.includes(w)) && w.split(' ').length < 7) return false;
+    if (!w.includes(subj)) return false;
+  }
   if (_STANDING_KINDS.has(String(kind || ''))) return true;
   return !!attribute && attribute !== 'other';
 }
@@ -898,6 +916,8 @@ function _selfFactStands(what, kind, subject, attribute) {
 // what the operator said before it did.
 const WM_FLOOR_SCOPE = 'internal:wm_floor';
 const WM_CATCHUP_TURNS = () => { const n = Number(process.env.TROTH_UNDERSTANDING_CATCHUP_TURNS); return Number.isFinite(n) && n >= 0 ? n : 40; };
+// Turns the hygiene pass asks the self-facts pass to read again.
+const WM_REREAD_SCOPE = 'internal:wm_reread';
 const taskWorkingMemoryConsolidation = {
   name: 'wm_consolidation',
   cadence_ms: 10 * 60 * 1000,   // 10 min — slower than purpose_refresh,
@@ -971,10 +991,29 @@ const taskWorkingMemoryConsolidation = {
         }
       } catch (_) { catchUp = []; }
     }
+    // Turns the hygiene pass asked to be read again (a fact it retired came
+    // from them): read with the new turns, never counted for the watermark
+    // or the floor; each ask is consumed as its turn joins this run.
+    const rereadIds = new Set();
+    try {
+      const asks = (engram.listEngrams({ scope: WM_REREAD_SCOPE, audience: 'all', limit: 20 }) || [])
+        .filter((e) => e && e.scope === WM_REREAD_SCOPE && /^reread:\s*\S/.test(String(e.statement || '')));
+      const have = new Set(turns.map((r) => r.id));
+      for (const e of asks) {
+        const tid = String(e.statement || '').replace(/^reread:\s*/, '').trim();
+        const row = tid && !have.has(tid) ? state.getAction(tid) : null;
+        if (row && String(row.input).indexOf('"dialogue.turn"') !== -1) { turns.push(row); have.add(tid); rereadIds.add(tid); }
+        engram.recordEngram({
+          agent_id: ctx.agent_id || 'background-worker', statement: 'reread done: ' + tid, scope: 'internal:wm_reread_done',
+          source: 'background_worker.wm_consolidation', source_authority: 'plr_evolved', auto_verify: false, salience: 0.1,
+          extra_output: { lifetime: { supersedes: [e.id], reason: 'reread_done' } }
+        });
+      }
+    } catch (_) { /* no asks */ }
     if (!turns.length && !catchUp.length) {
       return { events: [], notes: ['wm_consolidation: no new turns since ' + new Date(watermark).toISOString() + (floor > 0 ? '; history read back to ' + new Date(floor).toISOString() : '')] };
     }
-    const newTurnCount = turns.length;
+    const newTurnCount = turns.length - rereadIds.size;
     turns = turns.concat(catchUp);
     // Dedup guard. This loop previously had a comment
     // promising "skip if substantially-duplicate fragment was already
@@ -1034,14 +1073,28 @@ const taskWorkingMemoryConsolidation = {
     const facts = new Map();
     let oldestRead = floor;
     const catchUpIds = new Set(catchUp.map((r) => r.id));
+    const recentTexts = [];
     for (const row of turns) {
       if (catchUpIds.has(row.id)) oldestRead = Math.min(oldestRead, row.timestamp || oldestRead);
-      else latestTs = Math.max(latestTs, row.timestamp);
+      else if (!rereadIds.has(row.id)) latestTs = Math.max(latestTs, row.timestamp);
       let inp;
       try { inp = typeof row.input === 'string' ? JSON.parse(row.input) : row.input; }
       catch (_) { continue; }
       const userText = (inp && inp.args && inp.args.user_text) || '';
       if (!userText || userText.length < 12) continue;
+      // The two turns before this one: "they" and "there" name what those
+      // named. From the run's own list when it holds them, else from the
+      // substrate.
+      let before = recentTexts.join(' ');
+      if (recentTexts.length < 5) {
+        try {
+          const earlier = (state.queryActions({ type: 'tool_call', until: (row.timestamp || 0) - 1, limit: 20, order: 'desc' }) || [])
+            .filter((r) => r.id !== row.id && String(r.input).indexOf('"dialogue.turn"') !== -1).slice(0, 5)
+            .map((r) => { try { const i = typeof r.input === 'string' ? JSON.parse(r.input) : r.input; return (i && i.args && i.args.user_text) || ''; } catch (_) { return ''; } });
+          before = earlier.concat(recentTexts).join(' ');
+        } catch (_) { /* no history → the message alone */ }
+      }
+      recentTexts.push(userText); if (recentTexts.length > 5) recentTexts.shift();
       let found = null;
       let fromReader = false;
       if (readFacts) { try { found = await readFacts(userText); fromReader = Array.isArray(found); } catch (_) { found = null; } }
@@ -1061,7 +1114,7 @@ const taskWorkingMemoryConsolidation = {
         // foundational fact for a day).
         // The patterns fire only on first-person self-statement shapes; the
         // subject rule is for what a model reader lets through.
-        if (fromReader && !_selfFactStands(what, kind, subject, attribute)) { skippedRemark++; continue; }
+        if (fromReader && !_selfFactStands(what, kind, subject, attribute, { text: userText, before })) { skippedRemark++; continue; }
         if (!facts.has(key)) facts.set(key, { fact: what, kind, subject, attribute, rows: [] });
         facts.get(key).rows.push(row);
         facts.get(key).turn_ts = Math.max(facts.get(key).turn_ts || 0, row.timestamp || 0);
@@ -1821,13 +1874,30 @@ const taskMemoryHygiene = {
     // 2b. Self facts that stand on nothing: a row with no subject, or a plain
     //     fact with no attribute, is a remark the reader let through.
     let retiredRemarks = 0;
+    const rereadTurns = new Set();
     try {
       const rows = engram.listEngrams({ scope: 'consolidated:self', audience: 'all', limit: 2000 }) || [];
       for (const row of rows) {
         scanned++;
         const p = row && row.payload;
         if (!p) continue;
-        if (_selfFactStands(row.statement, p.fact_kind, p.subject, p.attribute)) continue;
+        // The turn the fact was read from, and the two before it: a fact that
+        // copies its turn back, or names a subject none of them mention, goes.
+        let src;
+        let tid = null;
+        try {
+          tid = Array.isArray(p.turn_ids) && p.turn_ids[0] ? p.turn_ids[0] : null;
+          const turn = tid ? state.getAction(tid) : null;
+          const inp = turn ? (typeof turn.input === 'string' ? JSON.parse(turn.input) : turn.input) : null;
+          const text = inp && inp.args && inp.args.user_text;
+          if (text) {
+            const earlier = (state.queryActions({ type: 'tool_call', until: (turn.timestamp || 0) - 1, limit: 20, order: 'desc' }) || [])
+              .filter((r) => String(r.input).indexOf('"dialogue.turn"') !== -1).slice(0, 5)
+              .map((r) => { try { const i = typeof r.input === 'string' ? JSON.parse(r.input) : r.input; return (i && i.args && i.args.user_text) || ''; } catch (_) { return ''; } });
+            src = { text, before: earlier.join(' ') };
+          }
+        } catch (_) { src = undefined; }
+        if (_selfFactStands(row.statement, p.fact_kind, p.subject, p.attribute, src)) continue;
         const id = engram.recordEngram({
           agent_id: agentOf(row.id, fallbackAgent), user_id: ctx.user_id || 'default', cwd: null,
           statement: 'retired: a remark, not a fact (' + String(row.statement || '').slice(0, 40) + ')',
@@ -1835,7 +1905,16 @@ const taskMemoryHygiene = {
           auto_verify: false, salience: 0.1,
           extra_output: { lifetime: { supersedes: [row.id], reason: 'remark' } }
         });
-        if (id) retiredRemarks++;
+        if (id) { retiredRemarks++; if (tid) rereadTurns.add(tid); }
+      }
+      // The turns those rows came from are read again by the self-facts
+      // pass, so a fact the reader can state properly comes back in its
+      // own words.
+      for (const t of rereadTurns) {
+        engram.recordEngram({
+          agent_id: ctx.agent_id || 'background-worker', statement: 'reread: ' + t, scope: WM_REREAD_SCOPE,
+          source: 'background_worker.memory_hygiene', source_authority: 'plr_evolved', auto_verify: false, salience: 0.1
+        });
       }
     } catch (_) { /* no self facts yet */ }
     // 3. Document chunks read out of the assistant's own scratch (transcripts,
@@ -2226,6 +2305,7 @@ async function runDueTasks(opts) {
 }
 
 module.exports = {
+  selfFactStands: _selfFactStands,
   startWorker,
   hydrateLastRunFromRecords,
   runDueTasks,

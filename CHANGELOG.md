@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A fact the memory keeps about the operator stands on its subject: the
+  message or the turns just before it name the subject, the subject is a
+  name and not a chat word, the fact names its subject, and a short message
+  copied back is a fragment and is not kept; the reader writes facts in its
+  own words, third person, and names only what the message names. The daily
+  hygiene pass retires the rows that fail this against the turn they came
+  from.
 - The facets of one subject share their knowledge: contexts whose slugs
   share a leading word that the registry bears alone or that two of them
   share (troth-core, troth-files, troth-positioning) read as one family, and
