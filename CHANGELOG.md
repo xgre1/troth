@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A questions file can be asked against a copy of a substrate on both memory
+  roads (the per-prompt hook and the daemon's prefix), judged by what each
+  block must and must not contain, and two such reports can be set side by
+  side; a seeded two-conversations copy checks the harness itself.
 - A hook run writes a line when it begins and when it ends; the doctor counts
   a run that never ended as killed at its budget.
 - Every turn the session watcher records carries the conversation it was
