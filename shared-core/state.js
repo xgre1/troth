@@ -113,21 +113,32 @@ function db() {
   try {
     _db.prepare("UPDATE action_records SET audience='substrate_internal' WHERE audience IS NULL").run();
     _db.prepare("UPDATE action_records SET memory_class='operational' WHERE memory_class IS NULL").run();
+    // The re-stamps below read a JSON field of every candidate row, which
+    // on a large substrate is seconds of work — and every hook process opens
+    // the substrate. They run over the rows written since the last open
+    // (indexed on timestamp), so a clean open costs nothing and a row an
+    // older writer left behind is still caught the next time any process
+    // opens. The first open ever walks the whole table once.
+    _db.exec("CREATE TABLE IF NOT EXISTS substrate_meta (key TEXT PRIMARY KEY, value TEXT)");
+    const _healRow = _db.prepare("SELECT value FROM substrate_meta WHERE key='heal_since'").get();
+    const _healSince = _healRow && Number(_healRow.value) > 0 ? Number(_healRow.value) : 0;
+    const _healNow = Date.now();
     // Entity registry rows written before 2026-09-02 carry the episodic class
     // and compete in the general pool; recordEngram now derives identity for
     // scope entity:*. Re-stamp the old rows once per open (indexed on scope).
-    _db.prepare("UPDATE action_records SET memory_class='identity' WHERE memory_class='episodic' AND json_extract(output,'$.scope') LIKE 'entity:%'").run();
+    _db.prepare("UPDATE action_records SET memory_class='identity' WHERE memory_class='episodic' AND timestamp > @since AND json_extract(output,'$.scope') LIKE 'entity:%'").run({ since: _healSince });
     // The emphasis pile: raw user turns promoted verbatim because they were
     // loud (caps, profanity, repetition), scope consolidated:dialogue, and the
     // identity rows lifted from them. They stay as record and leave every
     // model-visible recall; nothing is deleted. Once per open, indexed on
     // (audience, memory_class).
-    _db.prepare("UPDATE action_records SET audience='substrate_internal' WHERE audience='model_visible' AND json_extract(output,'$.scope')='consolidated:dialogue'").run();
+    _db.prepare("UPDATE action_records SET audience='substrate_internal' WHERE audience='model_visible' AND timestamp > @since AND json_extract(output,'$.scope')='consolidated:dialogue'").run({ since: _healSince });
     // The substrate's own marks and signals (scope system:*): bookkeeping,
     // never a memory to serve back. Rows written before the write path
     // routed them internal are re-stamped once per open.
-    _db.prepare("UPDATE action_records SET audience='substrate_internal', memory_class='operational' WHERE audience='model_visible' AND json_extract(output,'$.scope') LIKE 'system:%'").run();
-    _db.prepare("UPDATE action_records SET audience='substrate_internal' WHERE audience='model_visible' AND json_extract(output,'$.scope')='identity' AND json_extract(output,'$.source')='identity-promotion.runOnce' AND json_extract(output,'$.payload.fact_kind') IS NULL").run();
+    _db.prepare("UPDATE action_records SET audience='substrate_internal', memory_class='operational' WHERE audience='model_visible' AND timestamp > @since AND json_extract(output,'$.scope') LIKE 'system:%'").run({ since: _healSince });
+    _db.prepare("UPDATE action_records SET audience='substrate_internal' WHERE audience='model_visible' AND timestamp > @since AND json_extract(output,'$.scope')='identity' AND json_extract(output,'$.source')='identity-promotion.runOnce' AND json_extract(output,'$.payload.fact_kind') IS NULL").run({ since: _healSince });
+    _db.prepare("INSERT OR REPLACE INTO substrate_meta (key, value) VALUES ('heal_since', ?)").run(String(_healNow - 60000));
   } catch (_) { /* columns not yet there (very first run before migrate) */ }
   return _db;
 }
