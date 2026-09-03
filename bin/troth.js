@@ -1899,7 +1899,24 @@ if (command === "doctor") {
       var _entries = (_ip && _ip.plugins && (_ip.plugins["troth@troth"] || _ip.plugins["troth"])) || [];
       var _plugVer = _entries.length ? String(_entries[_entries.length - 1].version || "?") : null;
       var _coreVer = String((require("../package.json") || {}).version || "?");
-      if (_plugVer) {
+      // A marketplace that is a directory on this machine runs the plugin
+      // from that directory: the hooks and MCP entry files are the ones in
+      // the checkout, whatever version the cache registry remembers.
+      var _fromHere = false;
+      try {
+        var _settings = JSON.parse(fs.readFileSync(path.join(HOME, ".claude", "settings.json"), "utf8"));
+        var _mk = (_settings && _settings.extraKnownMarketplaces) || {};
+        var _root = fs.realpathSync(path.join(__dirname, ".."));
+        for (var _mkName in _mk) {
+          var _src = _mk[_mkName] && _mk[_mkName].source;
+          if (!_src || _src.source !== "directory" || !_src.path) continue;
+          var _p = null; try { _p = fs.realpathSync(String(_src.path)); } catch (_e2) { _p = String(_src.path); }
+          if (_p === _root) { _fromHere = true; break; }
+        }
+      } catch (_e1) { /* no settings, or none we can read */ }
+      if (_fromHere) {
+        checks.push({ name: "Plugin in Claude Code", ok: true, detail: "runs from this checkout (directory marketplace) — hooks change on the next session, MCP servers on /mcp reconnect" });
+      } else if (_plugVer) {
         var _same = _plugVer === _coreVer;
         checks.push({
           name: "Plugin in Claude Code",
