@@ -1800,13 +1800,19 @@ const taskMemoryHygiene = {
     //    run, newest first, so a day's cycle stays within its budget.
     try {
       const kp = require('./knowledge-predicate.js');
+      // What earlier runs retired: the retiring rows name what they supersede.
+      const already = new Set();
+      for (const r of (state.queryActions({ type: 'commitment', scope: 'internal:retired', limit: 20000, order: 'desc' }) || [])) {
+        let o; try { o = typeof r.output === 'string' ? JSON.parse(r.output) : (r.output || {}); } catch (_) { continue; }
+        const sup = o && o.lifetime && o.lifetime.supersedes;
+        for (const id of (Array.isArray(sup) ? sup : (sup ? [sup] : []))) already.add(String(id));
+      }
       const rows = state.queryActions({ type: 'commitment', scope_prefix: 'docs:', limit: 4000, order: 'desc' }) || [];
       for (const row of rows) {
         scanned++;
-        if (!row || !row.cwd || !kp.isAssistantScratch(String(row.cwd) + '/x')) continue;
+        if (!row || !row.cwd || already.has(String(row.id)) || !kp.isAssistantScratch(String(row.cwd) + '/x')) continue;
         let out; try { out = typeof row.output === 'string' ? JSON.parse(row.output) : (row.output || {}); } catch (_) { continue; }
         if (!out || out.commitment_type !== 'engram') continue;
-        if (out.lifetime && out.lifetime.superseded_by) continue;
         const id = engram.recordEngram({
           agent_id: row.agent_id || fallbackAgent, user_id: ctx.user_id || 'default', cwd: null,
           statement: 'retired: assistant scratch, not knowledge (' + String(out.scope || '').slice(0, 40) + ')',
