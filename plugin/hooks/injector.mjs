@@ -744,6 +744,10 @@ if (prompt.length >= 30 && !prompt.startsWith('/')) {
       // be retrievable via troth_engram_search; they just won't poison the
       // always-present [troth/identity] block.
       if (isTransientScope(row.scope || out.scope)) continue;
+      // The operator's own facts about themselves enter below, current row
+      // per subject only, with the day they were said; here they would
+      // enter every row, the retired ones included.
+      if ((row.scope || out.scope) === 'consolidated:self') continue;
       const sal = typeof out.salience === 'number' ? out.salience : 1.0;
       const recency = row.timestamp ? Math.max(0, 1 - (Date.now() - row.timestamp) / (30 * 24 * 60 * 60 * 1000)) : 0.5;
       // Cwd boost — engrams from the current project get a +0.3 lift
@@ -807,6 +811,51 @@ if (prompt.length >= 30 && !prompt.startsWith('/')) {
       }
     } catch (_) { /* identity-pool boost is best-effort */ }
 
+    // What the operator has stated about themselves, as the memory's
+    // understanding keeps it: one current fact per subject and attribute
+    // (scope consolidated:self), an older row retired by the newer one that
+    // supersedes it. These are the operator's own words about their role,
+    // pay, machines and constraints, and they outrank a rule of thumb or a
+    // handoff note for the foundational slot; each carries the day it was
+    // said, so a fact is read as true as of then.
+    try {
+      const selfRows = state.queryActions({
+        type: 'commitment', scope: 'consolidated:self', limit: 80, order: 'desc'
+      }) || [];
+      const retired = new Set();
+      const parsed = [];
+      for (const row of selfRows) {
+        let out; try { out = JSON.parse(row.output); } catch (_) { continue; }
+        if (!out || out.commitment_type !== 'engram' || !out.statement) continue;
+        const sup = out.lifetime && Array.isArray(out.lifetime.supersedes) ? out.lifetime.supersedes : [];
+        for (const id of sup) retired.add(String(id));
+        parsed.push({ row, out });
+      }
+      for (const { row, out } of parsed) {
+        if (retired.has(String(row.id))) continue;
+        if (out.tier === 'flagged') continue;
+        const sal = typeof out.salience === 'number' ? out.salience : 1.0;
+        const recency = row.timestamp ? Math.max(0, 1 - (Date.now() - row.timestamp) / (30 * 24 * 60 * 60 * 1000)) : 0.5;
+        const stmtTokens = tokenizeForOverlap(out.statement);
+        let overlap = 0;
+        if (promptTokens.size && stmtTokens.size) {
+          for (const t of promptTokens) if (stmtTokens.has(t)) overlap++;
+        }
+        engs.push({
+          stmt: out.statement,
+          engram_id: row.id,
+          when: row.timestamp || null,
+          // Above the identity pool and above any rule of thumb: what the
+          // operator said about themselves is the foundation.
+          salience_score: sal + 0.3 * recency + 1.5,
+          topic_score:    sal * 0.3 + overlap * 0.6 + recency * 0.2 + 0.5,
+          overlap,
+          _cwd_match: false,
+          _self_fact: true
+        });
+      }
+    } catch (_) { /* self facts are best-effort */ }
+
     // Two-tier engram surfacing — fix for cross-cwd leak. Engrams from
     // OTHER projects were polluting current-project context (e.g.,
     // chatforge engrams surfacing while working on troth). Fix:
@@ -854,7 +903,10 @@ if (prompt.length >= 30 && !prompt.startsWith('/')) {
     if (surfaced.length) {
       const labels = surfaced.map((e, i) => {
         const tag = e === foundational ? 'core' : 'topic-relevant';
-        return '[' + tag + '] "' + e.stmt.slice(0, 80) + '"';
+        // The day a fact about the operator was said: a figure or a plan is
+        // true as of then, and a newer statement on the subject wins.
+        const asOf = e._self_fact && e.when ? ' (as of ' + new Date(e.when).toISOString().slice(0, 10) + ')' : '';
+        return '[' + tag + '] "' + e.stmt.slice(0, 80) + '"' + asOf;
       });
       idPieces.push('user facts: ' + labels.join(' | '));
     }
