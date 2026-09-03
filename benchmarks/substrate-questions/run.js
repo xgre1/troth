@@ -127,7 +127,7 @@ async function askEntity(item, defaults) {
     context_id: item.context_id || null,
     dialogue_window: 'daemon'
   });
-  return { text: r.body, ms: Date.now() - t0 };
+  return { text: r.body, ms: Date.now() - t0, dense: r.dense === true };
 }
 
 function askClaudeCode(item, defaults) {
@@ -168,7 +168,8 @@ function print(report, file) {
       const mark = it.leaks.length ? '✗' : (it.must_hit === it.must_total ? '✓' : '○');
       console.log('  ' + mark + ' ' + it.id + ' [' + it.must_hit + '/' + it.must_total +
         (it.leaks.length ? ' leak: ' + it.leaks.join(', ') : '') +
-        (it.missing.length ? ' missing: ' + it.missing.join(', ') : '') + '] ' + String(it.q).slice(0, 70));
+        (it.missing.length ? ' missing: ' + it.missing.join(', ') : '') + ']' +
+        (it.dense === false ? ' (no embedder)' : '') + ' ' + String(it.q).slice(0, 70));
     }
   }
   console.log('\nreport: ' + file + '\n');
@@ -195,7 +196,8 @@ async function main() {
       rows.push(Object.assign({
         id: item.id, q: item.q,
         conversation_id: item.conversation_id || null, context_id: item.context_id || null,
-        ms: r.ms, exit: r.exit == null ? null : r.exit, stderr: r.stderr || ''
+        ms: r.ms, exit: r.exit == null ? null : r.exit, stderr: r.stderr || '',
+        dense: r.dense == null ? null : !!r.dense
       }, j, { text: String(r.text || '').slice(0, 20000) }));
     }
     report.roads[road] = { summary: summarize(rows), items: rows };

@@ -69,6 +69,7 @@ async function assemblePrefix(opts) {
   // <memory_session> — the query-driven recall the daemon runs (:803-831). We
   // force full recall by routing; if the router says chitchat we still run a
   // recall so a poisoned engram gets its fair chance to surface.
+  let dense = false;
   if (query) {
     let intent = 'default';
     try { ({ intent } = intentRouter.route(query)); } catch (_) {}
@@ -83,6 +84,10 @@ async function assemblePrefix(opts) {
       conversation_id: opts.conversation_id || undefined,
       contexts: opts.context_id ? [opts.context_id] : []
     });
+    // Whether the dense arm answered this call: a hit carries a cosine only
+    // when the embedder was reachable, and a lexical-only read ranks
+    // differently, so a measurement must say which one it saw.
+    dense = relevant.some((h) => typeof h._semantic_cos === 'number');
     if (relevant.length) {
       lines.push('<memory_session intent="' + intent + '">');
       for (const h of relevant) {
@@ -118,7 +123,7 @@ async function assemblePrefix(opts) {
   const body = lines.join('\n');
   // The daemon prepends STABLE_PREFIX in the system-prompt framing; we return
   // both parts so callers can assert on the whole assembled surface.
-  return { stable_prefix: STABLE_PREFIX, body, full: STABLE_PREFIX + '\n\n' + body };
+  return { stable_prefix: STABLE_PREFIX, body, full: STABLE_PREFIX + '\n\n' + body, dense };
 }
 
 module.exports = { assemblePrefix, STABLE_PREFIX };
