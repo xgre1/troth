@@ -59,8 +59,8 @@ t('a run writes one report covering both roads', () => {
   assert.strictEqual(files.length, 1, files.join(','));
   report = JSON.parse(fs.readFileSync(path.join(out, files[0]), 'utf8'));
   assert.ok(report.roads.entity && report.roads['claude-code'], Object.keys(report.roads).join(','));
-  assert.strictEqual(report.roads.entity.items.length, 5);
-  assert.strictEqual(report.roads['claude-code'].items.length, 5);
+  assert.strictEqual(report.roads.entity.items.length, 6);
+  assert.strictEqual(report.roads['claude-code'].items.length, 6);
 });
 
 t('each road puts a block in front of the model', () => {

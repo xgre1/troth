@@ -43,6 +43,7 @@ function turn(conversation_id, context_id, ageHours, user_text, assistant_text) 
 fact('The deadline for alpha moved to Friday.', 'ctx:alpha');
 fact('The deadline for beta moved to Monday.', 'ctx:beta');
 fact('The deadline for taxes is in June every year.');
+fact('The alpha review deadline moved to Thursday, the office said.', 'ctx:office');
 turn('conv-a', 'ctx:alpha', 0.1, 'the alpha deadline is friday now', 'noted the alpha deadline');
 turn('conv-a2', 'ctx:alpha', 0.5, 'alpha deadline talk in another live pane', 'noted');
 turn('conv-a3', 'ctx:alpha', 30, 'alpha deadline talk from last week', 'noted then');
@@ -87,6 +88,13 @@ function t(name, fn) {
     const hits = await ask({ context_id: 'ctx:beta' });
     assert.ok(has(hits, /beta moved to Monday/) && has(hits, /beta deadline talk from last week/), list(hits));
     assert.ok(!has(hits, /alpha/), list(hits));
+  });
+
+  await t('a fact that names the bound context counts as bound wherever it was said', async () => {
+    const hits = await ask({ conversation_id: 'conv-a', contexts: ['ctx:alpha'] });
+    assert.ok(has(hits, /alpha review deadline/), 'named alpha, home elsewhere: ' + list(hits));
+    const other = await ask({ conversation_id: 'conv-b', contexts: ['ctx:beta'] });
+    assert.ok(!has(other, /alpha review deadline/), 'names alpha, so not beta: ' + list(other));
   });
 
   await t('TROTH_CONTEXT_BINDING=0 turns the scope off', async () => {

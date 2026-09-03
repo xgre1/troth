@@ -163,7 +163,7 @@ function _updateContextBinding(text, conv) {
     const ctxReg = require('../shared-core/context-registry.js');
     const t = String(text || '');
     if (/\b(δουλεύουμε|πάμε στο|switch to|working on|work on)\b/i.test(t)) {
-      const explicit = ctxReg.resolveMention(t);
+      const explicit = ctxReg.declaredContext(t);
       if (explicit) return _bindContext(explicit, 'explicit', t, conv);
     }
     if (_boundContextFor(conv)) return;

@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A row that names a bound context counts as bound wherever it was said: a
+  scoped recall and the hook's topical identity rows read the folder a
+  memory was written in as its home, never as its only subject. A write in
+  a bound conversation carries that conversation's binding. A context is
+  mentioned only as whole words, generic folder words never name a topic,
+  and "we are working on X" names a topic the registry does not know yet.
 - The proxy writes a copy of the substrate to a folder the operator names
   (`POST /api/repair/export {out_dir}`): the backup's bundle, placed under
   the home directory and outside the substrate's own folder.

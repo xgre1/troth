@@ -1673,13 +1673,16 @@ function recordAction(rec, searchText) {
   let _storedParent;
   // Context default-stamp at the substrate boundary — same one-shot-coverage
   // rationale as principal_id above: every session-carrying writer inherits
-  // the session's file-activity context without knowing the concept exists.
-  // NULL survives as "unbound" (read side treats it as ctx:unsorted —
+  // the conversation's recorded binding (what it said it works on), else
+  // the session's file-activity context, without knowing the concept
+  // exists. NULL survives as "unbound" (read side treats it as ctx:unsorted —
   // reachable by explicit recall, never auto-mounted).
   let _ctxStamp = rec.context_id || null;
   if (!_ctxStamp && rec.session_id && rec.type !== 'rejected_transition') {
-    try { _ctxStamp = require('./context-registry.js').resolveSessionContext(rec.session_id); }
-    catch (_) { _ctxStamp = null; }
+    try {
+      const _ctxReg = require('./context-registry.js');
+      _ctxStamp = _ctxReg.currentBinding(rec.session_id) || _ctxReg.resolveSessionContext(rec.session_id);
+    } catch (_) { _ctxStamp = null; }
   }
   try {
     // Default-stamp principal_id at the substrate boundary so EVERY writer

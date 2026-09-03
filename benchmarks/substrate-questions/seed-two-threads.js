@@ -77,19 +77,24 @@ turn('conv-volleyball', V, 25, 'our setter Maria signed for two more seasons', '
 turn('conv-volleyball', V, 20, 'next game is Saturday 18:00 at the indoor hall', 'Next game: Saturday 18:00, indoor hall.');
 fact('Volleyball training moved to Thursday at 20:30, the coach said.', V);
 
+// Said in another folder, about football: the folder does not matter.
+fact('Football tickets for Sunday cost 12 euros at the gate.', contexts.contextIdFor('office'));
+
 const questions = {
   cwd: PROJECT,
   items: [
     { id: 'q1', q: 'what did the coach say about training?', conversation_id: 'conv-football', context_id: F,
       must: ['Tuesday'], must_not: ['Thursday', 'volleyball'], note: 'same words as the other thread; only this thread\'s answer may appear' },
     { id: 'q2', q: 'what did the coach say about training?', conversation_id: 'conv-volleyball', context_id: V,
-      must: ['Thursday'], must_not: ['Tuesday', 'football'], note: 'the mirror of q1' },
+      must: ['Thursday'], must_not: ['Tuesday', 'football', 'tickets'], note: 'the mirror of q1' },
     { id: 'q3', q: 'when is our next match and where?', conversation_id: 'conv-football', context_id: F,
       must: ['Sunday', 'stadium'], must_not: ['Saturday', 'indoor'], note: 'thread facts, different words' },
     { id: 'q4', q: 'what stand mixer do I have?', conversation_id: 'conv-football', context_id: F,
       must: ['KitchenAid'], must_not: ['Maria', 'setter'], note: 'a shared fact reaches every thread' },
     { id: 'q5', q: 'what did we say about the setter Maria?', conversation_id: null, context_id: null,
-      must: ['Maria'], must_not: [], note: 'an unbound surface asking explicitly still gets the answer' }
+      must: ['Maria'], must_not: [], note: 'an unbound surface asking explicitly still gets the answer' },
+    { id: 'q6', q: 'how much are the tickets?', conversation_id: 'conv-football', context_id: F,
+      must: ['12'], must_not: ['Maria', 'volleyball'], note: 'a fact that names football, said in another folder' }
   ]
 };
 const QFILE = path.join(OUT, 'questions.json');

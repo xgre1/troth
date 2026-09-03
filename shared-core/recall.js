@@ -64,7 +64,11 @@ function _readScope(opts) {
   if (opts.context_id) contexts.add(String(opts.context_id));
   const conversation = opts.conversation_id ? String(opts.conversation_id) : null;
   if (!contexts.size && !conversation) return null;
-  return { conversation, contexts, now: Date.now(), live_ms: _liveThreadMs() };
+  let names = () => false;
+  if (contexts.size) {
+    try { names = require('./context-registry.js').contextNamer([...contexts]); } catch (_) { names = () => false; }
+  }
+  return { conversation, contexts, names, now: Date.now(), live_ms: _liveThreadMs() };
 }
 function _isTurn(row) {
   if (!row || row.type !== 'tool_call') return false;
@@ -76,13 +80,14 @@ function _inScope(hit, row, scope) {
   if (hit.class === 'identity') return true;
   if (!row) return true;
   const ctx = row.context_id || null;
-  const bound = !scope.contexts.size || (ctx != null && scope.contexts.has(ctx));
+  // Bound: no contexts asked, or the row's home is a bound context, or the
+  // row names a bound context (the folder it was said in does not matter).
+  const bound = !scope.contexts.size || (ctx != null && scope.contexts.has(ctx)) || scope.names(hit.statement);
   if (!_isTurn(row)) return bound || !ctx;
   const conv = row.session_id || null;
   if (scope.conversation && conv === scope.conversation) return true;
   if (Number(row.timestamp) > scope.now - scope.live_ms) return false;
-  if (!scope.contexts.size) return true;
-  return ctx != null && scope.contexts.has(ctx);
+  return bound;
 }
 // A dialogue turn is stored as "user: … / asst: …"; the cross-encoder judges
 // the words, not the frame.

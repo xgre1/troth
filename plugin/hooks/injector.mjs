@@ -65,9 +65,11 @@ if (!prompt.trim() || prompt.startsWith('/')) { allow(); }
 // Recall and the topical identity rows read inside it; identity, the
 // operator's self-facts, rules and facts that name no context are shared.
 let boundContext = null;
+let boundNamer = () => false;
 try {
   const ctxReg = require(pluginRoot + '/../shared-core/context-registry.js');
   boundContext = (ctxReg.bindSession({ session_id: session, cwd, text: prompt, agent_id: activeAgentId }) || {}).context_id || null;
+  if (boundContext) boundNamer = ctxReg.contextNamer([boundContext]);
 } catch (_) { /* unbound is a valid state */ }
 
 // Machine-generated turns ride the same hook but are not operator prompts:
@@ -769,8 +771,9 @@ if (prompt.length >= 30 && !prompt.startsWith('/')) {
       // per subject only, with the day they were said; here they would
       // enter every row, the retired ones included.
       if ((row.scope || out.scope) === 'consolidated:self') continue;
-      // A topical row of another context stays in that context.
-      if (boundContext && row.context_id && row.context_id !== boundContext) continue;
+      // A topical row of another context stays in that context, unless it
+      // names the bound one: the folder it was said in does not matter.
+      if (boundContext && row.context_id && row.context_id !== boundContext && !boundNamer(out.statement)) continue;
       const sal = typeof out.salience === 'number' ? out.salience : 1.0;
       const recency = row.timestamp ? Math.max(0, 1 - (Date.now() - row.timestamp) / (30 * 24 * 60 * 60 * 1000)) : 0.5;
       // Cwd boost — engrams from the current project get a +0.3 lift
