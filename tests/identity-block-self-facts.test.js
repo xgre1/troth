@@ -65,10 +65,10 @@ t('the row a newer statement retired never surfaces', () => {
   assert.ok(!/700 euros/.test(ac), ac.split('\n').find((l) => l.startsWith('[troth/identity]')));
 });
 
-t('a self row with no subject never takes the core slot', () => {
-  const ac = runInjector('please help me plan next week around the days I work at Northwind');
+t('a self row with no subject never appears, core or topical', () => {
+  const ac = runInjector('we just set the quant, please help me plan the days I work at Northwind');
   const line = ac.split('\n').find((l) => l.startsWith('[troth/identity]')) || '';
-  assert.ok(!/\[core\] "We just set the quant/.test(line), line);
+  assert.ok(!/We just set the quant/.test(line), line);
 });
 
 t('a rule of thumb, whatever its salience, no longer takes the core slot', () => {
