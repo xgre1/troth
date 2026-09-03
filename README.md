@@ -334,6 +334,8 @@ Copyright (C) 2026 troth. AGPL-3.0-only. See [LICENSE](LICENSE) for the terms, a
 
 Contributions big and small are welcome, from a typo to an engine adapter. The shortest path in: [AGENTS.md](AGENTS.md) orients you (or your AI) inside the tree in minutes, `npm test` runs the whole suite, and AI-assisted PRs are welcome as long as you read what you sign. Recall quality (`shared-core/`), provider adapters and price tables (`proxy/modules/`), the Linux path of the login service, and anywhere the Quick start loses a stranger: that confusion is a bug, file it.
 
+Looking for something concrete to pick up? [`docs/HELP-WANTED.md`](docs/HELP-WANTED.md) lists scoped items with their place in the code.
+
 Every commit needs a `Signed-off-by:` line ([DCO](https://developercertificate.org/), never a CLA). See [CONTRIBUTING.md](CONTRIBUTING.md) and the [code of conduct](CODE_OF_CONDUCT.md).
 
 ---
