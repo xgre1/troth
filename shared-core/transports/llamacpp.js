@@ -124,6 +124,36 @@ function makeLlamaCppTransport(opts) {
     return Object.keys(out).length ? out : null;
   }
 
+  // A conversation keeps one slot, so its KV cache stays where the next call
+  // finds it. Slots are read once a minute from /props; a server that does not
+  // answer has one.
+  const _slots = new Map();
+  function totalSlots(host) {
+    const hit = _slots.get(host);
+    if (hit && (Date.now() - hit.at) < 60000) return Promise.resolve(hit.n);
+    return new Promise((resolve) => {
+      let url; try { url = new URL('/props', host); } catch (_) { resolve(1); return; }
+      const lib = url.protocol === 'https:' ? https : http;
+      const done = (n) => { _slots.set(host, { at: Date.now(), n }); resolve(n); };
+      const rq = lib.request({ method: 'GET', hostname: url.hostname, port: url.port || (url.protocol === 'https:' ? 443 : 80), path: url.pathname, timeout: 2000 }, (res) => {
+        let buf = ''; res.setEncoding('utf8'); res.on('data', (c) => { buf += c; });
+        res.on('end', () => { let n = 1; try { const j = JSON.parse(buf); if (Number(j.total_slots) > 0) n = Number(j.total_slots); } catch (_) {} done(n); });
+      });
+      rq.on('error', () => done(1));
+      rq.on('timeout', () => { try { rq.destroy(); } catch (_) {} done(1); });
+      rq.end();
+    });
+  }
+  async function resolveSlot(host, options) {
+    if (options && options.slot_id != null) return options.slot_id;
+    const n = await totalSlots(host);
+    if (!(n > 1)) return 0;
+    const key = String((options && options.conversation_id) || 'default');
+    let h = 5381;
+    for (let i = 0; i < key.length; i++) h = ((h * 33) ^ key.charCodeAt(i)) >>> 0;
+    return h % n;
+  }
+
   function stream(req) {
     const host  = hostDefault || cfg.llamacppHost();
     const model = (req.options && req.options.model) || modelDefault || cfg.llamacppModel();
@@ -206,6 +236,7 @@ function makeLlamaCppTransport(opts) {
 
       if (aborted) { ended = true; emit({ done: true, _abort_reason: 'aborted_pre_request' }); return; }
 
+      const idSlot = await resolveSlot(host, req.options);
       const bodyObj = {
         model,
         messages,
@@ -234,9 +265,7 @@ function makeLlamaCppTransport(opts) {
         // between requests. Without this, llama-server may rotate slots
         // and the next call's prefix re-tokenizes from scratch. Substrate
         // also needs the slot id to subsequently save its KV state.
-        ...((req.options && req.options.slot_id != null)
-          ? { id_slot: req.options.slot_id }
-          : {}),
+        ...(idSlot != null ? { id_slot: idSlot } : {}),
         // chain-of-thought / thinking-mode handling.
         //
         // The substrate IS the cross-turn deliberation layer (persistent

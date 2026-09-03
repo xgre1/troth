@@ -1018,7 +1018,10 @@ var routingPrefs = {
   // Read from config.dispatch_prefer in loadProviders() and consulted by the
   // chain order below — was previously IGNORED (pill did nothing). Default
   // 'local' keeps the sane "trivial chat stays on-device" behavior.
-  dispatch_prefer: "local"
+  dispatch_prefer: "local",
+  // true when config.dispatch_prefer was written by the operator; a derived
+  // preference never sends the lead to a local host on another machine.
+  dispatch_prefer_explicit: false
 };
 
 // Pristine defaults — captured ONCE at module load so loadProviders() can
@@ -1089,7 +1092,9 @@ function loadProviders() {
     // pills. Read it so the chain order below honors the user's choice.
     if (cfg.dispatch_prefer === 'local' || cfg.dispatch_prefer === 'hosted') {
       routingPrefs.dispatch_prefer = cfg.dispatch_prefer;
+      routingPrefs.dispatch_prefer_explicit = true;
     } else {
+      routingPrefs.dispatch_prefer_explicit = false;
       // Nothing chosen yet, which is every fresh install. The default used to
       // be the constant 'local', so a machine with no local model advertised
       // "this Mac first" and sent the first message somewhere that does not
@@ -2595,6 +2600,55 @@ function buildPinFailure(name) {
 var _lastEffectiveChain = null;
 function getEffectiveChain() { return _lastEffectiveChain; }
 
+// The local lane: a server on this machine is free and private and leads
+// by default; a host on another machine is that machine's load, so it leads
+// only when the operator chose it, never carries background reading unless
+// understanding_named_host opens it, and no local server is handed a
+// request its context cannot hold while a hosted lane exists.
+var LOCAL_PROPS_TTL_MS = 60 * 1000;
+var localProps = { host: "", at: 0, n_ctx: 0, total_slots: 0, pending: false };
+function isLoopbackName(h) {
+  var s = String(h || "").toLowerCase().replace(/^https?:\/\//, "").replace(/[\/].*$/, "").replace(/:\d+$/, "");
+  return s === "127.0.0.1" || s === "localhost" || s === "::1" || s === "[::1]" || s === "0.0.0.0";
+}
+function isBackgroundSource(src) { return /^(question-shape|instance-extraction)$/.test(String(src || "")); }
+function namedHostOpenToBackground() {
+  try { return require("../../shared-core/transport-config.js").flag("understanding_named_host"); } catch (_) { return false; }
+}
+function refreshLocalProps() {
+  var key = String(providers.local.host || "") + ":" + String(providers.local.port || "");
+  if (localProps.pending) return;
+  if (localProps.host === key && (Date.now() - localProps.at) < LOCAL_PROPS_TTL_MS) return;
+  localProps.pending = true;
+  (async function () {
+    try {
+      var r = await fetch("http://" + providers.local.host + ":" + (providers.local.port || 1234) + "/props", { signal: AbortSignal.timeout(2500) });
+      var j = r.ok ? await r.json() : null;
+      var ctx = j && j.default_generation_settings && Number(j.default_generation_settings.n_ctx);
+      localProps = { host: key, at: Date.now(), n_ctx: ctx > 0 ? ctx : 0, total_slots: (j && Number(j.total_slots)) || 0, pending: false };
+    } catch (_) { localProps = { host: key, at: Date.now(), n_ctx: 0, total_slots: 0, pending: false }; }
+  })();
+}
+function localFits(bodyStr, n_ctx) {
+  var ctx = n_ctx > 0 ? n_ctx : 16384;
+  var est = Math.ceil(String(bodyStr || "").length / 3.5);
+  return est <= Math.floor(ctx * 0.8);
+}
+// Pure: which local entry survives the gates for this request.
+function gateLocal(g) {
+  var loc = g.loc;
+  if (!loc) return null;
+  var here = isLoopbackName(g.host);
+  if (!here && isBackgroundSource(g.source) && !g.namedOpen) return null;
+  if (g.byokCount > 0 && !localFits(g.bodyStr, g.n_ctx)) return null;
+  return loc;
+}
+// Pure: does the local lane lead simple and medium requests.
+function localLeads(prefs, host) {
+  if (prefs.dispatch_prefer === "hosted") return false;
+  return isLoopbackName(host) || !!prefs.dispatch_prefer_explicit;
+}
+
 function callFallbackChain(bodyStr, cfcOpts) {
   // cfcOpts.wantMeta — opt-in richer return for in-process callers (the
   // entity's router transport): resolves { body, served_by: { provider,
@@ -2705,8 +2759,12 @@ function callFallbackChain(bodyStr, cfcOpts) {
     }
     return null;
   }
-  var loc = localEntry();
   var byok = activeByok();
+  refreshLocalProps();
+  var loc = gateLocal({
+    loc: localEntry(), host: providers.local.host, source: cfcOpts.source,
+    namedOpen: namedHostOpenToBackground(), byokCount: byok.length, bodyStr: bodyStr, n_ctx: localProps.n_ctx
+  });
 
   // Lead engine honors the user's dispatch_prefer pill (was ignored before):
   //   'local'  ("This Mac first")     → local leads simple + medium, cloud for hard
@@ -2714,7 +2772,7 @@ function callFallbackChain(bodyStr, cfcOpts) {
   // HARD always leads with the cloud frontier in BOTH modes — local 7B/35B-class
   // models aren't ideal for architectural/security/long-horizon work — degrading
   // to local only if BYOK is empty (cooldown / none configured) beats a 502.
-  var preferLocal = routingPrefs.dispatch_prefer !== 'hosted';
+  var preferLocal = localLeads(routingPrefs, providers.local.host);
   // The byokProviders array is COST-ordered (cheap lanes first) — right
   // for the local-first economy mode's backups, WRONG as a lead order.
   // 'Best quality first' must mean exactly that, and the hard tier leads
@@ -3588,6 +3646,11 @@ module.exports = { onAuthEvent: onAuthEvent, getEffectiveChain: getEffectiveChai
     isProviderHealthy: isProviderHealthy,
     markProviderFailed: markProviderFailed,
     markProviderHealthy: markProviderHealthy,
-    detectPinReason: detectPinReason
+    detectPinReason: detectPinReason,
+    isLoopbackName: isLoopbackName,
+    isBackgroundSource: isBackgroundSource,
+    localFits: localFits,
+    gateLocal: gateLocal,
+    localLeads: localLeads
   }
 };

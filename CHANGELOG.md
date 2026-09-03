@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The local engine lane knows where it lives: a model server on this machine
+  leads simple and medium requests by default, a server on another machine
+  leads only when the operator chose it in Settings and rides last otherwise,
+  background reading takes a server on another machine only under
+  `understanding_named_host`, and no local server is handed a request its
+  context cannot hold while a hosted lane exists (the context is read from
+  the server once a minute).
+- A conversation keeps one llama.cpp slot across its calls, so the server
+  finds its cache where it left it; the situation block names the minute
+  and rides at the tail of the turn context, after the blocks that do not
+  change between turns.
 - The per-prompt hook waits up to six seconds for recall on a large memory
   (`TROTH_HOOK_RECALL_MS`) before it goes on without a block.
 - The reranker gives every memory a verdict whatever its length: each document

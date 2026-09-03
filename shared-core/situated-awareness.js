@@ -184,7 +184,7 @@ function renderForPrefix(snapshot, opts) {
   if (!snapshot) return '';
   const lines = ['<situation>'];
   if (snapshot.time) {
-    lines.push('  time: ' + snapshot.time.iso_time + ' ' + snapshot.time.tz +
+    lines.push('  time: ' + String(snapshot.time.iso_time).slice(0, 16) + 'Z ' + snapshot.time.tz +
                ' (' + snapshot.time.day_of_week + ' ' + snapshot.time.hour_local + 'h local)');
   }
   if (snapshot.cwd) lines.push('  cwd: ' + snapshot.cwd);

@@ -821,6 +821,7 @@ function main() {
       // get full weight; other-project identity engrams get downweighted
       // (still possible to surface on very high authority, but unlikely
       // to crowd the top-8).
+      let situationBlock = '';
       let CURRENT_PROJECT = '__ephemeral__';
       try {
         const projectIdMod = require('../shared-core/project-id.js');
@@ -836,11 +837,7 @@ function main() {
       try {
         const sa = require('../shared-core/situated-awareness.js');
         const snap = sa.getSituationSnapshot({ cwd: CWD });
-        const block = sa.renderForPrefix(snap);
-        if (block) {
-          lines.push(block);
-          lines.push('');
-        }
+        situationBlock = sa.renderForPrefix(snap) || '';
       } catch (_) { /* situated awareness is best-effort */ }
 
       // L0 — identity envelope (always-on, query-independent). Per
@@ -1427,6 +1424,7 @@ function main() {
         }
       }
 
+      if (situationBlock) { lines.push(''); lines.push(situationBlock); }
       return lines.join('\n');
     };
   }

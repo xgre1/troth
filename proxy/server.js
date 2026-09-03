@@ -6062,7 +6062,7 @@ const server = http.createServer((req, res) => {
       // Out-param: callFallbackChain fills.pinFailure when a routing pin is
       // set and the pinned engine could not serve (excluded or its own call
       // 429/401'd). Fresh object per request so concurrent turns never share.
-      const fbOpts = { pinFailure: null };
+      const fbOpts = { pinFailure: null, source: String((req.headers && req.headers['x-troth-source']) || '') };
       const fbResult = await callFallbackChain(body, fbOpts);
       if (fbResult && typeof fbResult === 'string') {
         let responseBody = processResponse(fbResult, false);
@@ -6100,7 +6100,7 @@ const server = http.createServer((req, res) => {
       // Out-param: filled with a pin-failure descriptor when a routing pin is
       // set and the pinned engine could not serve. Read after the chain
       // resolves; a fresh object per request keeps concurrent turns isolated.
-      const fbOpts = { pinFailure: null };
+      const fbOpts = { pinFailure: null, source: String((req.headers && req.headers['x-troth-source']) || '') };
       let fbResult = await callFallbackChain(body, fbOpts);
       // Aider infinite-output prefilling — if response was truncated at max_tokens, continue
       if (fbResult && typeof fbResult === 'string') {
