@@ -45,6 +45,51 @@ const entityAxis = require('./entity-axis.js');
 const VALID_CLASSES   = ['identity', 'episodic', 'semantic', 'procedural', 'all'];
 const VALID_AUDIENCES = ['model_visible', 'substrate_internal', 'synthesis_of_external', 'all'];
 
+// One brain, many threads. A scoped read names its conversation and the
+// contexts it is bound to; what it serves is decided per row in _inScope.
+// A turn of another conversation is live while it is younger than the live
+// window, and a live thread never mounts unasked in another conversation.
+function _liveThreadMs() {
+  const h = Number(process.env.TROTH_LIVE_THREAD_HOURS);
+  return (Number.isFinite(h) && h >= 0 ? h : 6) * 3600000;
+}
+function _readScope(opts) {
+  if (process.env.TROTH_CONTEXT_BINDING === '0') return null;
+  const contexts = new Set();
+  if (Array.isArray(opts.contexts)) for (const c of opts.contexts) if (c) contexts.add(String(c));
+  if (opts.context_id) contexts.add(String(opts.context_id));
+  const conversation = opts.conversation_id ? String(opts.conversation_id) : null;
+  if (!contexts.size && !conversation) return null;
+  return { conversation, contexts, now: Date.now(), live_ms: _liveThreadMs() };
+}
+function _isTurn(row) {
+  if (!row || row.type !== 'tool_call') return false;
+  const inp = row.input;
+  if (typeof inp === 'string') return inp.indexOf('"dialogue.turn"') !== -1;
+  return !!(inp && inp.tool_name === 'dialogue.turn');
+}
+function _inScope(hit, row, scope) {
+  if (hit.class === 'identity') return true;
+  if (!row) return true;
+  const ctx = row.context_id || null;
+  const bound = !scope.contexts.size || (ctx != null && scope.contexts.has(ctx));
+  if (!_isTurn(row)) return bound || !ctx;
+  const conv = row.session_id || null;
+  if (scope.conversation && conv === scope.conversation) return true;
+  if (Number(row.timestamp) > scope.now - scope.live_ms) return false;
+  if (!scope.contexts.size) return true;
+  return ctx != null && scope.contexts.has(ctx);
+}
+// A dialogue turn is stored as "user: … / asst: …"; the cross-encoder judges
+// the words, not the frame.
+function _rerankText(r) {
+  let s = String(r.statement || '');
+  if (r.source === 'dialogue' || /^user:\s/i.test(s)) {
+    s = s.replace(/^user:\s*/i, '').replace(/\s*\/\s*asst:\s*/i, '. ');
+  }
+  return s.slice(0, 1200);
+}
+
 // Token split mirroring engram.js / entity-axis.js so scoring is
 // consistent across surfaces. Splits on anything that is NOT a letter
 // (any script — Greek, Latin, Cyrillic, etc) or digit. Unicode property
@@ -1015,10 +1060,10 @@ async function recall(opts) {
   // OFF by default (per-turn latency ~0.4-0.8s on the every-turn path); callers
   // opt in with opts.rerank=true. Graceful-degrade: reranker unavailable / down →
   // keep the blend order (never blocks or errors recall).
-  if (opts.rerank && results.length > 1 && q && q.length >= 3) {
+  if (opts.rerank && results.length >= 1 && q && q.length >= 3) {
     try {
       const reranker = require('./local-reranker.js');
-      const scores = await _phaseAsync('rerank', () => reranker.rerank(q, results.map(r => String(r.statement || '').slice(0, 1200))));
+      const scores = await _phaseAsync('rerank', () => reranker.rerank(q, results.map(_rerankText)));
       if (Array.isArray(scores)) {
         for (let i = 0; i < results.length; i++) {
           if (typeof scores[i] === 'number') results[i]._rerank = Number(scores[i].toFixed(4));
@@ -1058,11 +1103,20 @@ async function recall(opts) {
     }
     results = _deduped;
   }
-  if (opts.context_id && process.env.TROTH_CONTEXT_BINDING === '1' && results.length) {
+  // One brain, many threads. A caller that names its conversation and its
+  // bound contexts reads: identity always; a fact that names no context or
+  // a bound one (a fact without a home is general knowledge); its own turns;
+  // another conversation's turns only once cooled, and only from a bound
+  // context; a turn without a home never unasked. A caller with a
+  // conversation but no context keeps the whole cooled history and no other
+  // live thread. TROTH_CONTEXT_BINDING=0 turns the scope off; the legacy
+  // context_id option is one bound context.
+  const scope = _readScope(opts);
+  if (scope && results.length) {
     try {
-      const _ctxRows = state.getActionsByIds(results.map((r) => r.id)) || [];
-      const _ctxById = new Map(_ctxRows.map((r) => [r.id, r.context_id || null]));
-      results = results.filter((r) => r.class === 'identity' || _ctxById.get(r.id) === opts.context_id);
+      const rows = state.getActionsByIds(results.map((r) => r.id)) || [];
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      results = results.filter((r) => _inScope(r, byId.get(r.id), scope));
     } catch (_) { /* filter unavailable → unfiltered pool stands */ }
   }
   // Collapse the (wider) candidate pool back to the requested `limit`.

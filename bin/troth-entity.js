@@ -136,39 +136,45 @@ const perceptionTail   = require('../shared-core/perception/perception-tail.js')
 let AGENT_ID = require('../shared-core/agent-id.js').resolveAgentId();
 const USER_ID  = process.env.TROTH_ENTITY_USER_ID  || 'default';
 const CWD      = process.env.TROTH_ENTITY_CWD      || process.cwd();
-let _boundContext = null;
-function _bindContext(ctxId, by, trigger) {
-  if (!ctxId || ctxId === _boundContext) return;
-  _boundContext = ctxId;
+// A conversation binds to a context; the app's panes are conversations, so
+// the binding is held per conversation id (null for a surface that carries
+// none), never once for the whole daemon.
+const _boundByConversation = new Map();
+const _convKey = (conv) => (conv == null ? null : String(conv));
+function _boundContextFor(conv) { return _boundByConversation.get(_convKey(conv)) || null; }
+function _bindContext(ctxId, by, trigger, conv) {
+  const key = _convKey(conv);
+  if (!ctxId || ctxId === _boundByConversation.get(key)) return;
+  _boundByConversation.set(key, ctxId);
   try {
     const ar = require('../shared-core/action-record.js');
     const st = require('../shared-core/state.js');
     st.recordAction({
       id: ar.uuidv7(), timestamp: Date.now(), type: 'decision',
-      agent_id: AGENT_ID, cwd: CWD, context_id: ctxId,
+      agent_id: AGENT_ID, cwd: CWD, context_id: ctxId, session_id: key,
       audience: 'substrate_internal', memory_class: 'operational',
       input: { kind: 'context_bind' },
       output: { kind: 'context_bind', context_id: ctxId, bound_by: by, trigger: String(trigger || '').slice(0, 140) }
     }, 'context_bind ' + ctxId + ' ' + by);
   } catch (_) { /* binding survives without the audit row */ }
 }
-function _updateContextBinding(text) {
+function _updateContextBinding(text, conv) {
   try {
     const ctxReg = require('../shared-core/context-registry.js');
     const t = String(text || '');
     if (/\b(δουλεύουμε|πάμε στο|switch to|working on|work on)\b/i.test(t)) {
       const explicit = ctxReg.resolveMention(t);
-      if (explicit) return _bindContext(explicit, 'explicit', t);
+      if (explicit) return _bindContext(explicit, 'explicit', t, conv);
     }
-    if (_boundContext) return;
+    if (_boundContextFor(conv)) return;
     const base = path.basename(CWD || '');
     const cwdCtx = ctxReg.contextIdFor(base);
     if (cwdCtx && CWD !== require('os').homedir() &&
         ctxReg.listContexts().some((c) => c.context_id === cwdCtx)) {
-      return _bindContext(cwdCtx, 'cwd', base);
+      return _bindContext(cwdCtx, 'cwd', base, conv);
     }
     const mention = ctxReg.resolveMention(t);
-    if (mention) _bindContext(mention, 'mention', t);
+    if (mention) _bindContext(mention, 'mention', t, conv);
   } catch (_) { /* unbound is a valid state */ }
 }
 // Coherence by derivation: when NOTHING above
@@ -225,12 +231,15 @@ if (BACKBONE === 'claude_cli') {
 // thesis. Opt out with TROTH_ENTITY_AGENTIC=0 for legacy single-shot.
 const AGENTIC_DEFAULT = process.env.TROTH_ENTITY_AGENTIC === '0' ? false : true;
 
+// Context binding is on: a conversation reads inside its bound contexts and
+// the shared core. `context_binding: false` in the config turns the scope
+// off (recall.js reads TROTH_CONTEXT_BINDING=0).
 if (!process.env.TROTH_CONTEXT_BINDING) {
   try {
     const _cfg = JSON.parse(require('fs').readFileSync(
       require('../shared-core/config-file.js').configPath(), 'utf8')) || {};
-    if (_cfg.context_binding === true) process.env.TROTH_CONTEXT_BINDING = '1';
-  } catch (_) { /* no config → flag stays off */ }
+    if (_cfg.context_binding === false) process.env.TROTH_CONTEXT_BINDING = '0';
+  } catch (_) { /* no config → the scope stays on */ }
 }
 
 // switchableFaculties() — the faculties an EXPLICIT /engine may land on, read
@@ -575,17 +584,19 @@ function main() {
   const decide = async (view, event) => {
     if (event && event.type === 'user_input' && event.input &&
         typeof event.input.text === 'string') {
-      _updateContextBinding(event.input.text);
+      _updateContextBinding(event.input.text, eventConversationId(event));
     }
     if (_memShaped && event && event.type === 'user_input' && event.input &&
         typeof event.input.text === 'string' && !event.recall &&
         _memShaped.isMemoryShaped(event.input.text)) {
       try {
         const recallMod = require('../shared-core/recall.js');
+        const _conv = eventConversationId(event);
+        const _bound = _boundContextFor(_conv);
         const hits = await recallMod.recall({
           query: event.input.text, class: 'all', audience: 'model_visible',
           cwd: CWD, limit: 3,
-          context_id: (process.env.TROTH_CONTEXT_BINDING === '1' && _boundContext) ? _boundContext : undefined
+          conversation_id: _conv || undefined, contexts: _bound ? [_bound] : []
         });
         if (Array.isArray(hits) && hits.length) event = { ...event, recall: { hits } };
       } catch (_) { /* recall is a gift, never a gate */ }
@@ -1101,6 +1112,8 @@ function main() {
             // we just stop pre-filtering by type, so what reaches the
             // budget is the most relevant memory, regardless of which
             // pipeline wrote it.
+            const _convId = (action && action.options && action.options.conversation_id) || null;
+            const _ctxId = _boundContextFor(_convId);
             const recallMod = require('../shared-core/recall.js');
             // Phase K: recall is async (optional embedding rerank).
             const relevant = await recallMod.recall({
@@ -1109,7 +1122,7 @@ function main() {
               audience: 'model_visible',
               cwd:      CWD,
               limit:    _runFull ? 3 : 2,
-              context_id: (process.env.TROTH_CONTEXT_BINDING === '1' && _boundContext) ? _boundContext : undefined
+              conversation_id: _convId || undefined, contexts: _ctxId ? [_ctxId] : []
             });
             if (relevant.length) {
               // L2.2 — XML-tagged session memory block. Tag matches
@@ -1984,7 +1997,7 @@ function main() {
         dialogueMemory.recordTurn({
           agent_id: AGENT_ID,
           cwd: CWD,
-          context_id: _boundContext,
+          context_id: _boundContextFor(_ts.conversation_id),
           user_id: USER_ID,
           user_text: action.prompt || '',
           assistant_text: res.text,
@@ -2048,7 +2061,7 @@ function main() {
         dialogueMemory.recordTurn({
           agent_id: AGENT_ID,
           cwd: CWD,
-          context_id: _boundContext,
+          context_id: _boundContextFor(_ts.conversation_id),
           user_id: USER_ID,
           user_text: action.prompt,
           assistant_text: '',

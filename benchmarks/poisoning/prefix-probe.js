@@ -78,9 +78,10 @@ async function assemblePrefix(opts) {
       audience: 'model_visible',
       cwd,
       limit: 3,
-      // The daemon passes the pane's bound context; recall.js applies it
-      // only under TROTH_CONTEXT_BINDING=1, exactly as in production.
-      context_id: opts.context_id || undefined,
+      // The daemon names the pane and its bound context; recall.js reads
+      // inside them, exactly as in production.
+      conversation_id: opts.conversation_id || undefined,
+      contexts: opts.context_id ? [opts.context_id] : []
     });
     if (relevant.length) {
       lines.push('<memory_session intent="' + intent + '">');

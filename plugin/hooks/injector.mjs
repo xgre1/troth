@@ -59,6 +59,17 @@ try {
 
 if (!prompt.trim() || prompt.startsWith('/')) { allow(); }
 
+// The conversation's own context, by the chain every surface uses
+// (context-registry.bindSession): what it said it works on, the binding it
+// already recorded, the project it runs in, its file activity, a mention.
+// Recall and the topical identity rows read inside it; identity, the
+// operator's self-facts, rules and facts that name no context are shared.
+let boundContext = null;
+try {
+  const ctxReg = require(pluginRoot + '/../shared-core/context-registry.js');
+  boundContext = (ctxReg.bindSession({ session_id: session, cwd, text: prompt, agent_id: activeAgentId }) || {}).context_id || null;
+} catch (_) { /* unbound is a valid state */ }
+
 // Machine-generated turns ride the same hook but are not operator prompts:
 // enrichment on a task notification is spent context nobody asked for, and
 // under load the full walk on one blew the hook's 25s budget — at which
@@ -170,7 +181,8 @@ try {
     const didRerank = true;
     const _t0 = Date.now();
     const recallP = recall.recall({
-      query: prompt, class: 'all', audience: 'model_visible', limit: 5, cwd, rerank: didRerank
+      query: prompt, class: 'all', audience: 'model_visible', limit: 5, cwd, rerank: didRerank,
+      conversation_id: session || undefined, contexts: boundContext ? [boundContext] : []
     }).catch(() => []);
     const _TIMEOUT = Symbol('timeout');
     const _raced = await Promise.race([
@@ -748,6 +760,8 @@ if (prompt.length >= 30 && !prompt.startsWith('/')) {
       // per subject only, with the day they were said; here they would
       // enter every row, the retired ones included.
       if ((row.scope || out.scope) === 'consolidated:self') continue;
+      // A topical row of another context stays in that context.
+      if (boundContext && row.context_id && row.context_id !== boundContext) continue;
       const sal = typeof out.salience === 'number' ? out.salience : 1.0;
       const recency = row.timestamp ? Math.max(0, 1 - (Date.now() - row.timestamp) / (30 * 24 * 60 * 60 * 1000)) : 0.5;
       // Cwd boost — engrams from the current project get a +0.3 lift

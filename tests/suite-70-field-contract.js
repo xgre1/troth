@@ -164,17 +164,17 @@ test('FC-8: a context-stamped write is filterable by context_id end to end', () 
     'both writer paths (dialogue turn and engram) carried the stamp to the column');
 });
 
-test('FC-9: with binding on, recall serves the bound context and starves the rest', () => {
+test('FC-9: a bound read serves its context and starves the rest', () => {
   const out = inSandbox([
-    "process.env.TROTH_CONTEXT_BINDING = '1';",
+    "const H = 3600000;",
     "const dm = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'dialogue-memory.js')) + ");",
     "const recall = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'recall.js')) + ");",
     "const ctxReg = require(" + JSON.stringify(path.join(ROOT, 'shared-core', 'context-registry.js')) + ");",
     "const mk = ctxReg.ensureContext('alpha-work');",
     "const again = ctxReg.ensureContext('alpha-work');",
-    "dm.recordTurn({ agent_id: 'fc', user_text: 'the alpha deadline moved to friday', assistant_text: 'noted the deadline', context_id: 'ctx:alpha-work' });",
-    "dm.recordTurn({ agent_id: 'fc', user_text: 'the beta deadline moved to monday', assistant_text: 'noted that too', context_id: 'ctx:beta-work' });",
-    "dm.recordTurn({ agent_id: 'fc', user_text: 'an unsorted deadline note', assistant_text: 'noted loosely' });",
+    "dm.recordTurn({ agent_id: 'fc', user_text: 'the alpha deadline moved to friday', assistant_text: 'noted the deadline', context_id: 'ctx:alpha-work', timestamp: Date.now() - 30 * H });",
+    "dm.recordTurn({ agent_id: 'fc', user_text: 'the beta deadline moved to monday', assistant_text: 'noted that too', context_id: 'ctx:beta-work', timestamp: Date.now() - 30 * H });",
+    "dm.recordTurn({ agent_id: 'fc', user_text: 'an unsorted deadline note', assistant_text: 'noted loosely', timestamp: Date.now() - 30 * H });",
     "(async () => {",
     "  const bound = await recall.recall({ query: 'deadline moved', class: 'all', audience: 'model_visible', limit: 10, context_id: 'ctx:alpha-work' });",
     "  const open = await recall.recall({ query: 'deadline moved', class: 'all', audience: 'model_visible', limit: 10 });",
@@ -193,7 +193,7 @@ test('FC-9: with binding on, recall serves the bound context and starves the res
   assert.ok(out.boundHits >= 1, 'the bound read still surfaces the in-context memory');
   assert.strictEqual(out.boundLeak, 0,
     'neither the other context nor the unsorted row crosses into a bound read — the leak this whole design exists to stop');
-  assert.ok(out.openHits >= out.boundHits, 'the unbound read keeps seeing everything (flag scopes reads only when a context is passed)');
+  assert.ok(out.openHits >= out.boundHits, 'a read that names no conversation and no context keeps seeing everything');
 });
 
 test('FC-10: a session whose file activity names a context stamps every later write in it', () => {

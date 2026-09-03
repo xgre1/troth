@@ -154,6 +154,71 @@ function resolveSessionContext(sessionId) {
   return ctx;
 }
 
+// The context a conversation is bound to, by the chain every surface uses:
+// an explicit statement in this message ("working on X", "πάμε στο X") wins;
+// else the binding already recorded for the session; else the directory the
+// session runs in, when that names a registered context and is not a home
+// folder; else the session's own file activity; else a plain mention in the
+// message. A new binding is recorded as a context_bind decision in the
+// session, so every later read of the session agrees with this one.
+const BIND_RE = /\b(δουλεύουμε|πάμε στο|switch to|working on|work on)\b/i;
+
+function currentBinding(sessionId) {
+  if (!sessionId) return null;
+  try {
+    const rows = state.queryActions({ type: 'decision', session_id: sessionId, limit: 40 }) || [];
+    for (const r of rows) {
+      let inp = r.input;
+      if (typeof inp === 'string') { try { inp = JSON.parse(inp); } catch (_) { inp = null; } }
+      if (inp && inp.kind === 'context_bind' && r.context_id) return r.context_id;
+    }
+  } catch (_) { /* no record → unbound */ }
+  return null;
+}
+
+function recordBinding(ctxId, by, opts) {
+  try {
+    const ar = require('./action-record.js');
+    state.recordAction({
+      id: ar.uuidv7(), timestamp: Date.now(), type: 'decision',
+      agent_id: opts.agent_id || 'context-registry', session_id: opts.session_id || null,
+      cwd: opts.cwd || null, context_id: ctxId,
+      audience: 'substrate_internal', memory_class: 'operational',
+      input: { kind: 'context_bind' },
+      output: { kind: 'context_bind', context_id: ctxId, bound_by: by, trigger: String(opts.trigger || '').slice(0, 140) }
+    }, 'context_bind ' + ctxId + ' ' + by);
+  } catch (_) { /* the binding holds for this read without its audit row */ }
+}
+
+function bindSession(opts) {
+  opts = opts || {};
+  const text = String(opts.text || '');
+  const current = currentBinding(opts.session_id);
+  const bind = (ctx, by) => {
+    if (ctx && ctx !== current) {
+      recordBinding(ctx, by, { session_id: opts.session_id, cwd: opts.cwd, agent_id: opts.agent_id, trigger: text });
+    }
+    return { context_id: ctx, by };
+  };
+  if (BIND_RE.test(text)) {
+    const explicit = resolveMention(text);
+    if (explicit) return bind(explicit, 'explicit');
+  }
+  if (current) return { context_id: current, by: 'recorded' };
+  const cwd = opts.cwd ? String(opts.cwd) : '';
+  const base = path.basename(cwd);
+  const cwdCtx = base ? contextIdFor(base) : null;
+  if (cwdCtx && cwd !== os.homedir() && !_DENY.has(slugify(base)) &&
+      listContexts().some((c) => c.context_id === cwdCtx)) {
+    return bind(cwdCtx, 'cwd');
+  }
+  const voted = resolveSessionContext(opts.session_id);
+  if (voted) return bind(voted, 'activity');
+  const mention = resolveMention(text);
+  if (mention) return bind(mention, 'mention');
+  return { context_id: null, by: null };
+}
+
 module.exports = {
   slugify,
   contextIdFor,
@@ -162,6 +227,8 @@ module.exports = {
   seedContexts,
   resolveMention,
   resolveSessionContext,
+  currentBinding,
+  bindSession,
   REGISTRY_SCOPE_PREFIX,
   CTX_PREFIX,
   UNSORTED

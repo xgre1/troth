@@ -56,6 +56,10 @@ const F = contexts.contextIdFor('football');
 const V = contexts.contextIdFor('volleyball');
 contexts.ensureContext('football', { source: 'two-threads:seed' });
 contexts.ensureContext('volleyball', { source: 'two-threads:seed' });
+// Each pane said what it works on: the binding the hook and the daemon record
+// on that first message, so a later read of the pane knows its context.
+contexts.bindSession({ session_id: 'conv-football', cwd: PROJECT, text: 'we are working on football today' });
+contexts.bindSession({ session_id: 'conv-volleyball', cwd: PROJECT, text: 'we are working on volleyball today' });
 
 // Shared by every thread.
 fact("The operator's stand mixer is a KitchenAid Artisan.");
