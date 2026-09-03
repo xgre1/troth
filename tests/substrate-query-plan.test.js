@@ -35,5 +35,17 @@ t('queryActions by type in time order takes the same road', () => {
   assert.ok(/idx_ar_type_ts/.test(p) && !/TEMP B-TREE/.test(p), p);
 });
 
+t('a registry read by scope prefix walks the scope index', () => {
+  const Database = require('better-sqlite3');
+  const seen = [];
+  const orig = Database.prototype.prepare;
+  Database.prototype.prepare = function (sql) { if (/FROM action_records/i.test(sql) && /scope/i.test(sql)) seen.push(sql); return orig.call(this, sql); };
+  try { state.queryActions({ type: 'commitment', scope_prefix: 'context:registry:', limit: 200 }); } finally { Database.prototype.prepare = orig; }
+  assert.ok(seen.length >= 1, 'the query ran');
+  const p = plan(seen[seen.length - 1].replace(/@scope_from/g, "'context:registry:'").replace(/@scope_to/g, "'context:registry;'").replace(/@(\w+)/g, "'x'"));
+  assert.ok(/idx_ar_output_scope/.test(p), p);
+  assert.ok(!/idx_ar_type\b/.test(p), p);
+});
+
 console.log('\nsubstrate-query-plan: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

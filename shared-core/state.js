@@ -2162,13 +2162,19 @@ function queryActions(opts) {
   opts = opts || {};
   const where = [];
   const bind = {};
-  if (opts.type)         { where.push('type = @type');                 bind.type = opts.type; }
-  if (opts.agent_id)     { where.push('agent_id = @agent_id');         bind.agent_id = opts.agent_id; }
-  if (opts.principal_id) { where.push('principal_id = @principal_id'); bind.principal_id = opts.principal_id; }
-  if (opts.session_id)   { where.push('session_id = @session_id');     bind.session_id = opts.session_id; }
-  if (opts.cwd)          { where.push('cwd = @cwd');                   bind.cwd = opts.cwd; }
-  if (opts.parent_id)    { where.push('parent_id = @parent_id');       bind.parent_id = opts.parent_id; }
-  if (opts.context_id)   { where.push('context_id = @context_id');     bind.context_id = opts.context_id; }
+  // With a scope prefix the scope index is the road; the unary plus keeps the
+  // planner off every other indexed column, each of which would walk far
+  // more rows (every row of a type, of a principal, of an agent) and read
+  // the scope out of the JSON of each.
+  const steerToScope = !!(opts.scope_prefix && String(opts.scope_prefix).replace(/[%_]/g, ''));
+  const col = (name) => (steerToScope ? '+' + name : name);
+  if (opts.type)         { where.push(col('type') + ' = @type');                 bind.type = opts.type; }
+  if (opts.agent_id)     { where.push(col('agent_id') + ' = @agent_id');         bind.agent_id = opts.agent_id; }
+  if (opts.principal_id) { where.push(col('principal_id') + ' = @principal_id'); bind.principal_id = opts.principal_id; }
+  if (opts.session_id)   { where.push(col('session_id') + ' = @session_id');     bind.session_id = opts.session_id; }
+  if (opts.cwd)          { where.push(col('cwd') + ' = @cwd');                   bind.cwd = opts.cwd; }
+  if (opts.parent_id)    { where.push(col('parent_id') + ' = @parent_id');       bind.parent_id = opts.parent_id; }
+  if (opts.context_id)   { where.push(col('context_id') + ' = @context_id');     bind.context_id = opts.context_id; }
   if (opts.since)        { where.push('timestamp >= @since');          bind.since = opts.since; }
   if (opts.until)        { where.push('timestamp <= @until');          bind.until = opts.until; }
   // Filter by input.kind (JSON-extracted). Lets callers filter without
@@ -2201,15 +2207,22 @@ function queryActions(opts) {
     bind.scope = opts.scope;
   }
   if (opts.scope_prefix) {
-    where.push("json_extract(output,'$.scope') LIKE @scope_prefix");
-    bind.scope_prefix = String(opts.scope_prefix).replace(/[%_]/g, '') + '%';
+    // A range on the scope expression is served from the scope index; a
+    // LIKE never is, and on a large substrate that meant a sort of every
+    // row of the type on each read of a registry.
+    const p = String(opts.scope_prefix).replace(/[%_]/g, '');
+    if (p) {
+      where.push("json_extract(output,'$.scope') >= @scope_from AND json_extract(output,'$.scope') < @scope_to");
+      bind.scope_from = p;
+      bind.scope_to = p.slice(0, -1) + String.fromCharCode(p.charCodeAt(p.length - 1) + 1);
+    }
   }
   //  column filters. audience + memory_class are
   // first-class columns (not JSON-embedded); SQL-prunable directly.
   // Without these, recall.js had to read the whole table and JS-filter
   // (the partition bug we set out to fix).
-  if (opts.audience)     { where.push('audience = @audience');         bind.audience = opts.audience; }
-  if (opts.memory_class) { where.push('memory_class = @memory_class'); bind.memory_class = opts.memory_class; }
+  if (opts.audience)     { where.push(col('audience') + ' = @audience');         bind.audience = opts.audience; }
+  if (opts.memory_class) { where.push(col('memory_class') + ' = @memory_class'); bind.memory_class = opts.memory_class; }
   const whereSQL = where.length ? 'WHERE ' + where.join(' AND ') : '';
   // forExport lets a deliberate full-substrate export (atlas) read PAST the
   // 1000 recall clamp and pull the entire mind. It is ONLY for full-substrate
