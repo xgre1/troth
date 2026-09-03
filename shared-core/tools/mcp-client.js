@@ -506,10 +506,18 @@ async function getDownstream(name, opts) {
 // so the sign-in can land; a server that answers nothing is stopped.
 const PROBE_MS = 12 * 1000;
 const SIGN_IN_INIT_MS = 5 * 60 * 1000;
-const AUTH_URL_RE = /(?:visit|open|authorize|go to)[^\n]*?(https?:\/\/[^\s"'<>]+)/i;
+// The address to visit: on the line that asks for it, or on one of the two
+// lines after, or any address that names an authorization endpoint.
 function _authUrl(stderr) {
-  const m = String(stderr || '').match(AUTH_URL_RE);
-  return m ? m[1].replace(/[.,;:)]+$/, '') : null;
+  const lines = String(stderr || '').split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const cue = /visit|authoriz|browser|sign[- ]?in/i.test(lines[i]);
+    for (let j = i; j <= Math.min(i + 2, lines.length - 1); j++) {
+      const m = lines[j].match(/https?:\/\/[^\s"'<>]+/);
+      if (m && (cue || /authorize|oauth|client_id=/i.test(m[0]))) return m[0].replace(/[.,;:)]+$/, '');
+    }
+  }
+  return null;
 }
 async function probe(name, opts) {
   const t0 = Date.now();

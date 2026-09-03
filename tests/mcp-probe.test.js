@@ -17,6 +17,7 @@ const registry = path.join(HOME, 'mcp-clients.json');
 fs.writeFileSync(registry, JSON.stringify({ mcpServers: {
   'answers': { command: process.execPath, args: [path.join(__dirname, 'fixtures', 'mcp-fake-ok.js')] },
   'asks-signin': { command: process.execPath, args: [path.join(__dirname, 'fixtures', 'mcp-fake-signin.js')] },
+  'asks-signin-two-lines': { command: process.execPath, args: ['-e', 'process.stderr.write("[123] Please authorize this client by visiting:\\nhttps://auth.example.test/oauth/authorize?client_id=k&state=s\\n[123] Could not open a browser automatically. Please copy and paste the URL above into your browser.\\n[123] Authentication required. Waiting for authorization...\\n"); setInterval(() => {}, 1000)'] },
   'dies': { command: process.execPath, args: ['-e', 'process.stderr.write("missing token\\n"); process.exit(3)'] },
   'silent': { command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'] }
 } }));
@@ -41,6 +42,11 @@ console.log('\n=== the state a connector is really in ===\n');
     assert.strictEqual(r.state, 'sign_in_needed', JSON.stringify(r));
     assert.strictEqual(r.url, 'http://127.0.0.1:1/oauth/authorize?client_id=abc&state=xyz');
     assert.ok(r.ms < 12000, 'answered before the probe window closed: ' + r.ms);
+  });
+  await t('the address on the line after the request is found too', async () => {
+    const r = await client.probe('asks-signin-two-lines');
+    assert.strictEqual(r.state, 'sign_in_needed', JSON.stringify(r));
+    assert.strictEqual(r.url, 'https://auth.example.test/oauth/authorize?client_id=k&state=s');
   });
   await t('a server that dies is unreachable, with its last words', async () => {
     const r = await client.probe('dies');
