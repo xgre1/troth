@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Background understanding spends only a model server on this machine: the
+  knowledge, self-facts and instance passes take the configured llama.cpp
+  host when it is loopback, a named host only when
+  `TROTH_UNDERSTANDING_LOCAL_HOST=1` says it may be spent, and the knowledge
+  pass rides the proxy engine only under `TROTH_KNOWLEDGE_ENGINE=1`.
+- A word about a freeze is not a freeze: the constraint wall registers "do
+  nothing" only when it is spoken as an order; a preference, a question or a
+  quotation that carries the words leaves the wall as it was. "Do what's
+  needed, fix it" lifts a general freeze even when a negation stands
+  elsewhere in the message, and a URL with no scheme that names this machine
+  is a local write.
 - A fresh session sees its open goals live, with the findings the knowledge
   pass recorded for each, whether or not the entity daemon refreshed the
   orientation snapshot.

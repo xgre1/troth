@@ -106,26 +106,46 @@ function _actionClass(word) {
 const LIFT_GENERIC = [
   /^(?:ok\s+)?(?:go|proceed|continue)\b/i,
   /προχώρα|προχωρα|συνέχισε|συνεχισε/i,
-  /\b(?:proxora|sinexise|sinexizoume)\b/i
+  /\b(?:proxora|sinexise|sinexizoume)\b/i,
+  // "do what is needed", "fix it": the operator putting the work back in
+  // the partner's hands is the end of a generic freeze.
+  /κάνε\s+αυτά\s+που\s+πρέπει|κανε\s+αυτα\s+που\s+πρεπει|φτιάξ['\s]?το|φτιαξ['\s]?το|\bkane\s+auta\s+pou\s+prepei\b|\bftiaxto\b|\bftiax'?to\b|\bfix\s+it\b|\bdo\s+what(?:'s|\s+is)\s+needed\b/i
 ];
 
 // A negation within reach of the verb flips the meaning of the whole
 // message — "μην κάνεις push" contains "push" and must never read as a lift.
 const NEGATION = /\b(?:min|mhn|don'?t|do\s+not|not|oxi|xoris|stop)\b|μην?\s|όχι|χωρίς/i;
 
+// A freeze phrase is an order only when the operator utters it as one. The
+// same words inside a preference ("better do nothing than mediocre work"),
+// a question ("what do you mean, do nothing?"), a condition or a quotation
+// describe an order; they do not give one.
+const NOT_AN_ORDER_LEADIN = /(?:καλύτερα|καλυτερα|kalytera|kalitera|better|εννοείς|εννοεις|ennoeis|you\s+mean|meaning|τι\s+είναι\s+αυτό|αν|if|whether|ότι|οτι|oti|that|γιατί|γιατι|why|said|είπες|ειπες|eipes)\s*(?:[,;:—-]\s*)?(?:να|na|to)?(?:\s*[,;]?\s*(?:να|na))*\s*$/i;
+function _spokenAsOrder(t, index) {
+  const before = t.slice(Math.max(0, index - 48), index);
+  if (NOT_AN_ORDER_LEADIN.test(before)) return false;
+  // Inside quotation marks the phrase is being talked about.
+  const plainQuotes = (before.match(/"/g) || []).length;
+  if (plainQuotes % 2 === 1) return false;
+  const opened = (before.match(/[«“]/g) || []).length;
+  const closed = (before.match(/["»”]/g) || []).length;
+  if (opened > closed) return false;
+  return true;
+}
+
 function detectFreeze(text) {
   const t = String(text || '');
   if (!t.trim()) return null;
   for (const re of SCOPED_PATTERNS) {
     const m = t.match(re);
-    if (m) {
+    if (m && _spokenAsOrder(t, m.index)) {
       const cls = _actionClass(m[1]);
       return { scope: cls || 'outward', quote: m[0].trim() };
     }
   }
   for (const re of FREEZE_PATTERNS) {
     const m = t.match(re);
-    if (m) return { scope: 'outward', quote: m[0].trim() };
+    if (m && _spokenAsOrder(t, m.index)) return { scope: 'outward', quote: m[0].trim() };
   }
   return null;
 }
@@ -137,7 +157,15 @@ function detectLift(text, active) {
   const t = String(text || '');
   if (!t.trim() || !Array.isArray(active) || !active.length) return [];
   const lifted = [];
-  const negated = NEGATION.test(t);
+  // A negation counts when it stands in the same clause as the words that
+  // would lift: "μην κάνεις push" keeps a push freeze; the "μην" of the
+  // question before "κάνε αυτά που πρέπει" belongs to that question.
+  const negatedNear = (idx) => {
+    const before = t.slice(0, idx);
+    let cut = before.length - 24;
+    for (const stop of [';', '.', '!', '?', ',', '\n']) cut = Math.max(cut, before.lastIndexOf(stop));
+    return NEGATION.test(before.slice(Math.max(0, cut)));
+  };
   for (const row of active) {
     const scope = row.input && row.input.scope;
     if (scope && scope !== 'outward') {
@@ -145,13 +173,17 @@ function detectLift(text, active) {
       const words = Object.keys(ACTION_WORDS).filter(w => ACTION_WORDS[w] === scope);
       // \b only fences ASCII words; Greek action words match bare (same
       // ASCII-only-\b lesson as the pattern lists above).
-      const hit = words.some(w => (/^[\x00-\x7F]+$/.test(w)
-        ? new RegExp('\\b' + w + '\\b', 'i')
-        : new RegExp(w, 'i')).test(t));
-      if (hit && !negated) lifted.push(row);
+      let hitAt = -1;
+      for (const w of words) {
+        const re = /^[\x00-\x7F]+$/.test(w) ? new RegExp('\\b' + w + '\\b', 'i') : new RegExp(w, 'i');
+        const m = re.exec(t);
+        if (m) { hitAt = m.index; break; }
+      }
+      if (hitAt >= 0 && !negatedNear(hitAt)) lifted.push(row);
     } else {
       // generic: continue-words lift it; a scoped action word alone does not
-      if (!negated && LIFT_GENERIC.some(re => re.test(t))) lifted.push(row);
+      const m = LIFT_GENERIC.map((re) => re.exec(t)).find(Boolean);
+      if (m && !negatedNear(m.index)) lifted.push(row);
     }
   }
   return lifted;
@@ -272,7 +304,10 @@ function isOutwardCommand(cmd) {
     const mutating = /(?:-X|--request)[=\s]+(?:POST|PUT|PATCH|DELETE)\b/i.test(c) ||
                      /(?:\s|^)(?:-d|--data(?:-\w+)?|-F|--form|-T|--upload-file)\b/.test(c);
     if (mutating) {
-      const host = (c.match(/https?:\/\/([^\/\s"']+)/i) || [])[1] || '';
+      // A URL with no scheme is still a URL: curl defaults to http. A bare
+      // loopback address is this machine; any other bare host stays remote.
+      const host = (c.match(/https?:\/\/([^\/\s"']+)/i) || [])[1]
+        || (c.match(/(?:^|\s)((?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?)(?=[\/\s"']|$)/i) || [])[1] || '';
       if (!_LOCAL_HOST.test(host)) return { outward: true, action: 'upload', why: 'HTTP write to ' + (host || 'a remote host') };
     }
   }
