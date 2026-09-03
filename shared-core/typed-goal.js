@@ -70,7 +70,9 @@ function _projectOne(row) {
     deadline:     typeof out.deadline     === 'string' ? out.deadline     : null,
     regime:       (out.regime === 'sandbox' || out.regime === 'host') ? out.regime : null,
     project_id:   typeof out.project_id   === 'string' ? out.project_id   : null,
-    ts:           row.timestamp || null
+    ts:           row.timestamp || null,
+    // What the knowledge pass found for this goal so far.
+    findings:     goalStatus.countFindings ? goalStatus.countFindings(row.id) : 0
   };
 }
 

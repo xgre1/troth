@@ -6778,7 +6778,7 @@ server.listen(listenPort, BIND_HOST, () => {
           // install keeps alive. Local engine when it answers, else the
           // operator's engine under the daily budget; TROTH_UNDERSTANDING=0
           // keeps it out.
-          .concat(process.env.TROTH_UNDERSTANDING === '0' ? [] : [bw.tasks.workingMemoryConsolidation, bw.tasks.instanceConsolidation, bw.tasks.memoryHygiene]),
+          .concat(process.env.TROTH_UNDERSTANDING === '0' ? [] : [bw.tasks.workingMemoryConsolidation, bw.tasks.instanceConsolidation, bw.tasks.memoryHygiene, bw.tasks.knowledgeUnderstanding]),
         cross_process_lease: true,
         idle_threshold_ms: Math.max(parseInt(process.env.TROTH_MAINT_IDLE_MS || '60000', 10) || 60000, 0),
         tick_ms: Math.max(parseInt(process.env.TROTH_MAINT_TICK_MS || '30000', 10) || 30000, 250),

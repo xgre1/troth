@@ -722,7 +722,8 @@ const taskPurposeRefresh = {
     } catch (_) {}
     try {
       const tg = require('./typed-goal.js');
-      openGoals = (tg.listGoals({ status: 'open', limit: 3 }) || []).map(g => g.statement);
+      openGoals = (tg.listGoals({ status: 'open', limit: 3 }) || [])
+        .map(g => g.statement + (g.findings > 0 ? ' (' + g.findings + ' finding' + (g.findings === 1 ? '' : 's') + ' recorded)' : ''));
     } catch (_) {}
     try {
       const rows = state.queryActions({ type: 'decision', cwd, limit: 5, order: 'desc' }) || [];
@@ -2341,6 +2342,7 @@ module.exports = {
     // these by name; a name missing here is a task that never runs.
     workingMemoryConsolidation: taskWorkingMemoryConsolidation,
     instanceConsolidation:      taskInstanceConsolidation,
-    memoryHygiene:              taskMemoryHygiene
+    memoryHygiene:              taskMemoryHygiene,
+    knowledgeUnderstanding:     require('./knowledge-understanding.js').task
   }
 };

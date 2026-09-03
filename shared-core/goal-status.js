@@ -292,8 +292,55 @@ function isInBackoff(goalId, opts) {
   return Date.now() < b.backoff_until_ts;
 }
 
+// ── Findings ──────────────────────────────────────────────────────
+// What the knowledge pass found for a goal: a fact read from a source that
+// answers it. Same append-only marker pattern, chained to the goal; a goal
+// with findings stays open until the operator or the pursuit closes it.
+function markFinding(opts) {
+  opts = opts || {};
+  if (!opts.goal_id) throw new Error('goal-status.markFinding: goal_id required');
+  if (opts.knowledge_id && listFindings(opts.goal_id).some((f) => f.knowledge_id === opts.knowledge_id)) return null;
+  return engram.recordEngram({
+    agent_id: opts.agent_id || 'background-worker',
+    cwd:      opts.cwd || null,
+    user_id:  opts.user_id || null,
+    statement: 'GOAL FINDING: ' + String(opts.statement || '').slice(0, 400),
+    salience:  1,
+    scope:     'system:goal-finding',
+    parent_id: opts.goal_id,
+    source:    opts.source || 'background_worker.knowledge_understanding',
+    source_authority: 'plr_evolved',
+    audience:  'substrate_internal',
+    memory_class: 'operational',
+    auto_verify: false,
+    extra_output: { payload: { knowledge_id: opts.knowledge_id || null, source_title: opts.source_title || null, source_ref: opts.source_ref || null } }
+  });
+}
+
+function listFindings(goalId, opts) {
+  if (!goalId) return [];
+  const limit = Math.min(parseInt((opts && opts.limit) || 50), 500);
+  try {
+    const rows = state.queryActions({ type: 'commitment', parent_id: goalId, limit: limit * 2 }) || [];
+    const out = [];
+    for (const r of rows) {
+      let parsed; try { parsed = JSON.parse(r.output); } catch (_) { continue; }
+      if (!parsed || parsed.scope !== 'system:goal-finding') continue;
+      const p = parsed.payload || {};
+      out.push({ marker_id: r.id, goal_id: r.parent_id, ts: r.timestamp, statement: String(parsed.statement || '').replace(/^GOAL FINDING:\s*/, ''), knowledge_id: p.knowledge_id || null, source_title: p.source_title || null, source_ref: p.source_ref || null });
+      if (out.length >= limit) break;
+    }
+    return out;
+  } catch (_) { return []; }
+}
+
+function countFindings(goalId) { return listFindings(goalId, { limit: 500 }).length; }
+
 module.exports = {
   markSatisfied,
+  markFinding,
+  listFindings,
+  countFindings,
   markAbandoned,
   // SS15.4-lite — operator pause/resume
   markPaused,

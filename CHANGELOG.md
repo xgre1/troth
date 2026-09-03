@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- What the partner read becomes what it knows: a knowledge pass in the
+  maintenance worker reads each newly kept document once and records the
+  durable facts it states as knowledge, each with its source and the day it
+  was read; a fact that answers an open goal is recorded as that goal's
+  finding, and the session orientation shows how many findings a goal has.
 - A fact the memory keeps about the operator stands on its subject: the
   message or the turns just before it name the subject, the subject is a
   name and not a chat word, the fact names its subject, and a short message
