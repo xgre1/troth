@@ -1004,6 +1004,12 @@ const _parseTimeWindow = (query, referenceTs) => require('./time-window.js').par
 
   const _countShaped = /\b(how many|how much|how often|total|count|number of|order of|first to last|earliest to latest|the (two|three|four|five|six|seven) )\b|πόσ(α|ες|ους|η|ο)\b|σύνολ|με τη σειρά/i.test(String(opts.query || ''));
   const _reqShaped = /\b(can you (recommend|suggest)|any (tips|suggestions|recommendations|ideas)|what should i|could you (recommend|suggest)|suggest some|recommend some|what time|when did i|what day)\b/i.test(String(opts.query || ''));
+  // A question about the last time, the latest or the most recent of
+  // something is answered by the newest relevant item, so the ranked set
+  // is put newest first before it is returned (measured: "when did we last
+  // restart the proxy" came back with four turns from months before).
+  // Greek has no \b in this engine: its word edges are spelled out.
+  const _recencyShaped = /\b(last time|when did we last|when did i last|most recent(?:ly)?|latest|the last (?:one|time)|last (?:restart|run|change|update|commit|deploy|session|visit))\b|(?:^|[^\p{L}])(?:πότε|ποτε)(?:[^\p{L}]|$).*(?:τελευταί|τελευται)|τελευταία φορά|πιο πρόσφατ/iu.test(String(opts.query || ''));
   const k        = Math.max(1, Math.min(20, (opts.k || 5) + (_countShaped ? 6 : 0) + (!_countShaped && _reqShaped ? 6 : 0)));
   if (!query) return [];
 
@@ -1508,6 +1514,13 @@ const _parseTimeWindow = (query, referenceTs) => require('./time-window.js').par
         }
         for (const it of added) final.push(it);
       } catch (_) { /* continuation arm is additive — never fatal */ }
+    }
+    if (_recencyShaped) {
+      const isMount = (it) => it && (it.source === 'instance-pool' || it.source === 'identity-cast');
+      const ranked = final.filter((it) => !isMount(it)).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+      const mounts = final.filter(isMount);
+      final.length = 0;
+      for (const it of ranked.concat(mounts)) final.push(it);
     }
     _triggerPLR(final);
     return final;

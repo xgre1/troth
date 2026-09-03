@@ -119,6 +119,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no name, an insult riding as an alias, a relation that is a sentence. It
   works through superseding rows, never a delete, and its ledger note
   counts what it touched.
+- A question about the last time, the latest or the most recent of
+  something, in English or Greek, is answered newest first.
 - A count of what happened or what is owned leaves plans out: "how many
   tanks do I have" is not answered by a tank the user is thinking of setting
   up, while a question about plans keeps its planned lines. The same object
