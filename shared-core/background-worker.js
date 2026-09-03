@@ -1725,6 +1725,79 @@ function hydrateLastRunFromRecords(cwd, stateOverride) {
   return lastRun;
 }
 
+// Memory hygiene. What the write gates refuse today may already stand in
+// the pool from before they existed: an occurrence whose entity is the user
+// or a word of the chat, a registry row carrying an insult as an alias, a
+// name that is no name, a relation that is a verdict sentence. Each is
+// retired or rewritten through the same audited write every other pass
+// uses (a superseding row), never deleted; the ledger note counts them.
+const taskMemoryHygiene = {
+  name: 'memory_hygiene',
+  cadence_ms: 24 * 60 * 60 * 1000,
+  run: async function (view) {
+    const ctx = (view && view.substrate_ctx) || {};
+    const engram = require('./engram.js');
+    const state = require('./state.js');
+    const ic = require('./instance-consolidation.js');
+    const identity = require('./entity-identity.js');
+    const agentOf = (id, fallback) => { try { const r = state.getAction(id); return (r && r.agent_id) || fallback; } catch (_) { return fallback; } };
+    const fallbackAgent = ctx.agent_id || 'maintenance';
+    let retiredInstances = 0, cleanedIdentities = 0, retiredIdentities = 0, scanned = 0;
+    // 1. Occurrences whose entity is not an entity.
+    try {
+      const rows = engram.listEngrams({ scope_prefix: ic.SCOPE_PREFIX, audience: 'all', limit: 2000 }) || [];
+      for (const row of rows) {
+        scanned++;
+        const inst = row && row.payload && row.payload.instance;
+        if (!inst || !ic.notAnEntity(inst.entity)) continue;
+        const id = engram.recordEngram({
+          agent_id: agentOf(row.id, fallbackAgent), user_id: ctx.user_id || 'default', cwd: null,
+          statement: 'retired: not an entity (' + String(inst.entity).slice(0, 40) + ')',
+          scope: 'internal:retired', source: 'background_worker.memory_hygiene', source_authority: 'plr_evolved',
+          auto_verify: false, salience: 0.1,
+          extra_output: { lifetime: { supersedes: [row.id], reason: 'not_an_entity' } }
+        });
+        if (id) retiredInstances++;
+      }
+    } catch (_) { /* the pool may be absent on a fresh install */ }
+    // 2. Registry rows: a name that is no name is retired; refused aliases
+    //    and a relation that is a sentence are rewritten out.
+    try {
+      const idents = identity.loadRegistry({ fresh: true }) || [];
+      for (const it of idents) {
+        scanned++;
+        const agent = agentOf(it.id, fallbackAgent);
+        if (!identity.aliasAcceptable(it.canonical, it.canonical)) {
+          const id = engram.recordEngram({
+            agent_id: agent, user_id: ctx.user_id || 'default', cwd: null,
+            statement: 'retired: not a name (' + String(it.canonical).slice(0, 40) + ')',
+            scope: 'internal:retired', source: 'background_worker.memory_hygiene', source_authority: 'plr_evolved',
+            auto_verify: false, salience: 0.1,
+            extra_output: { lifetime: { supersedes: [it.id], reason: 'not_a_name' } }
+          });
+          if (id) retiredIdentities++;
+          continue;
+        }
+        const aliases = it.aliases.filter((a) => identity.aliasAcceptable(a, it.canonical));
+        const relationOk = identity.relationAcceptable(it.relation);
+        if (aliases.length === it.aliases.length && relationOk) continue;
+        const relation = relationOk ? it.relation : null;
+        const statement = it.canonical + (it.kind ? ' — ' + it.kind : '') + (relation ? ' (' + relation + ')' : '') +
+          (aliases.length > 1 ? '; also known as: ' + aliases.filter((a) => a !== it.canonical).join(', ') : '');
+        const id = engram.recordEngram({
+          agent_id: agent, user_id: ctx.user_id || 'default', cwd: null,
+          statement, scope: identity.SCOPE_PREFIX + it.slug, source: 'background_worker.memory_hygiene', source_authority: 'plr_evolved',
+          auto_verify: false,
+          extra_output: { payload: { entity_identity: { slug: it.slug, canonical: it.canonical, kind: it.kind, relation, aliases } }, lifetime: { supersedes: [it.id], reason: 'hygiene' } }
+        });
+        if (id) cleanedIdentities++;
+      }
+      try { identity._resetCacheForTests(); } catch (_) {}
+    } catch (_) { /* the registry may be absent */ }
+    return { events: [], notes: ['memory_hygiene: scanned=' + scanned + ' instances_retired=' + retiredInstances + ' identities_cleaned=' + cleanedIdentities + ' identities_retired=' + retiredIdentities] };
+  }
+};
+
 const DEFAULT_TASKS = [taskContradictionScan, taskDormantReview, taskStateSummary, taskDriftScan, taskEngramGc, taskAnchorSuggest, taskIdentityExtract, taskReconsolidationReview, taskBackup, taskOrchestrationReview, taskHypothesisGeneration, taskPurposeRefresh, taskWorkingMemoryConsolidation, taskInstanceConsolidation, taskEmbeddingBackfill, taskDormancyWarn, taskWalReplicate, taskImportSync, taskLedgerPrune, taskCarriedFreeze, taskOutcomeFold, taskKnowledgeDrain];
 // Closed-extension worker tasks (guarded optional require — absent in the open build).
 try { const _ext = require('./core-ext.js'); if (Array.isArray(_ext.workerTasks)) DEFAULT_TASKS.push(..._ext.workerTasks); } catch (_) {}
@@ -2114,6 +2187,7 @@ module.exports = {
     // The memory's understanding. The proxy's maintenance worker mounts
     // these by name; a name missing here is a task that never runs.
     workingMemoryConsolidation: taskWorkingMemoryConsolidation,
-    instanceConsolidation:      taskInstanceConsolidation
+    instanceConsolidation:      taskInstanceConsolidation,
+    memoryHygiene:              taskMemoryHygiene
   }
 };

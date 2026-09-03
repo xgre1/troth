@@ -1455,6 +1455,7 @@ module.exports = {
   makeLlamacppExtractor,
   makeProxyExtractor,
   makeExtractor,
+  notAnEntity: _notAnEntity,
   engineBudget,
   spendEngine,
   SCOPE_PREFIX,

@@ -114,6 +114,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the last day and how often one ran past its budget, and which errors the
   proxy answered with. Small files under ~/.troth/telemetry, never leaving
   the machine.
+- A daily hygiene pass retires what the write gates refuse: an occurrence
+  whose entity is the user or a word of the chat, a registry name that is
+  no name, an insult riding as an alias, a relation that is a sentence. It
+  works through superseding rows, never a delete, and its ledger note
+  counts what it touched.
 - A count of what happened or what is owned leaves plans out: "how many
   tanks do I have" is not answered by a tank the user is thinking of setting
   up, while a question about plans keeps its planned lines. The same object

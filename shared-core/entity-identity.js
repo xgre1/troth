@@ -148,6 +148,15 @@ const _ALIAS_PROFANE = /\b(?:fuck\w*|shit\w*|bitch\w*|asshole|bastard|malak\w*|p
 // is "you did", "bro" is the operator's friend).
 const _NOT_A_NAME = new Set(['orea', 'oraia', 'ekanes', 'ekana', 'sinexise', 'synexise', 'loipon', 'nai', 'oxi', 'ela', 'bro', 'file', 'malista', 'entaxei', 'endaxei', 'ok', 'okay', 'kai', 'ti', 'pou', 'gia', 'apo', 'tora', 'meta', 'prin', 'user', 'me', 'you', 'him', 'her', 'them',
   'ωραία', 'ωραια', 'έκανες', 'εκανες', 'συνέχισε', 'συνεχισε', 'λοιπόν', 'λοιπον', 'ναι', 'όχι', 'οχι', 'έλα', 'ελα', 'ρε', 'μπρο', 'εντάξει', 'ενταξει', 'μάλιστα', 'και', 'τι', 'που', 'για', 'από', 'τώρα', 'μετά', 'πριν']);
+// A relation is a role in a few words ("cousin", "employer", "service
+// provider"), never a verdict sentence read off one angry turn.
+function _relationAcceptable(relation) {
+  const r = String(relation || '').trim();
+  if (!r) return true;
+  if (r.length > 40 || r.split(/\s+/).length > 4) return false;
+  if (_ALIAS_PROFANE.test(r)) return false;
+  return true;
+}
 function _aliasAcceptable(alias, canonical) {
   const a = String(alias || '').trim();
   if (!a) return false;
@@ -170,13 +179,17 @@ function recordEntityIdentity(opts) {
     agent_id: opts.agent_id, principal: opts.principal, fresh: true
   });
   if (!_aliasAcceptable(canonical, canonical)) return null;
+  // Every alias the row will carry passes the same gate, the ones already
+  // on the row included: a rewrite is also a cleaning.
   const aliases = _mergeAliases([
-    existing ? existing.aliases : [],
+    (existing ? existing.aliases : []).filter((a) => _aliasAcceptable(a, canonical)),
     [canonical],
     (Array.isArray(opts.aliases) ? opts.aliases : []).filter((a) => _aliasAcceptable(a, canonical))
   ]);
   const kind = opts.kind ? String(opts.kind) : (existing ? existing.kind : null);
-  const relation = opts.relation ? String(opts.relation) : (existing ? existing.relation : null);
+  const offered = opts.relation && _relationAcceptable(opts.relation) ? String(opts.relation) : null;
+  const kept = existing && _relationAcceptable(existing.relation) ? existing.relation : null;
+  const relation = opts.replace_relation ? offered : (offered || kept);
 
   if (existing &&
       aliases.length === existing.aliases.length &&
@@ -299,6 +312,7 @@ module.exports = {
   linkableNames,
   normAlias: _normAlias,
   aliasAcceptable: _aliasAcceptable,
+  relationAcceptable: _relationAcceptable,
   SCOPE_PREFIX,
   _resetCacheForTests
 };
