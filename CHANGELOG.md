@@ -124,6 +124,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The assistant's own scratch is never the operator's knowledge: transcripts,
   tool results, hook outputs and scratchpad files are not queued when read,
   and chunks already taken from such folders are retired by the hygiene pass.
+- A self fact stands on its subject: the reader keeps what would still be
+  true next month and names what it is about; a remark about the work at
+  hand is never kept, never leads the identity block, and the hygiene pass
+  retires any that stand in the pool.
 - A count of what happened or what is owned leaves plans out: "how many
   tanks do I have" is not answered by a tank the user is thinking of setting
   up, while a question about plans keeps its planned lines. The same object

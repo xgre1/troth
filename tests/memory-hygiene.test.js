@@ -48,11 +48,20 @@ const ident = (canonical, kind, relation, aliases) => engram.recordEngram({
   doc('/Users/x/.claude/projects/-Users-x/abc/tool-results', 'mcp-plugin-troth-recall-1788.txt');
   doc('/Users/x/.claude/projects/-Users-x', 'hook-5b61-7-additionalContext.txt');
   doc('/Users/x/Documents/research', 'llama-cpp-notes.md');
+  const self = (statement, payload) => engram.recordEngram({
+    agent_id: A, user_id: 'default', cwd: null, statement, scope: 'consolidated:self', source: 'background_worker.wm_consolidation', source_authority: 'plr_evolved', auto_verify: false,
+    extra_output: { payload: Object.assign({ fact_kind: 'fact', reps: 1 }, payload) }
+  });
+  self('Apla valame q4.', { subject: null, attribute: null });
+  self('I work at Northwind two days a week', { subject: 'Northwind', attribute: 'schedule' });
 
   await t('occurrences whose entity is not an entity are retired; a real one stands', async () => {
     const r = await bw.tasks.memoryHygiene.run({ substrate_ctx: { agent_id: A, user_id: 'default', cwd: null } });
     assert.ok(/instances_retired=2/.test(r.notes[0]), r.notes[0]);
     assert.ok(/docs_retired=2/.test(r.notes[0]), r.notes[0]);
+    assert.ok(/remarks_retired=1/.test(r.notes[0]), r.notes[0]);
+    const selfRows = engram.listEngrams({ scope: 'consolidated:self', audience: 'all', agent_id: A, limit: 20 }) || [];
+    assert.deepStrictEqual(selfRows.map((x) => x.statement), ['I work at Northwind two days a week'], selfRows.map((x) => x.statement).join(' | '));
     const docs = engram.listEngrams({ scope_prefix: 'docs:', audience: 'all', agent_id: A, limit: 20 }) || [];
     assert.deepStrictEqual(docs.map((d) => d.statement.slice(1, 20)), ['llama-cpp-notes.md '], docs.map((d) => d.statement).join(' | '));
     const rows = engram.listEngrams({ scope_prefix: 'instance:', audience: 'all', agent_id: A, limit: 20 }) || [];
@@ -72,7 +81,7 @@ const ident = (canonical, kind, relation, aliases) => engram.recordEngram({
 
   await t('a second run finds nothing left to clean', async () => {
     const r = await bw.tasks.memoryHygiene.run({ substrate_ctx: { agent_id: A, user_id: 'default', cwd: null } });
-    assert.ok(/instances_retired=0 identities_cleaned=0 identities_retired=0 docs_retired=0/.test(r.notes[0]), r.notes[0]);
+    assert.ok(/instances_retired=0 identities_cleaned=0 identities_retired=0 remarks_retired=0 docs_retired=0/.test(r.notes[0]), r.notes[0]);
   });
 
   console.log('\nmemory-hygiene: ' + pass + ' passed, ' + fail + ' failed');

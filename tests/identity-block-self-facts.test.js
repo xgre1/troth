@@ -28,6 +28,7 @@ function writeEngram(agent_id, statement, salience, opts) {
   opts = opts || {};
   const output = { statement, commitment_type: 'engram', salience: salience || 1.0, tier: 'working', truth_score: 1.0 };
   if (opts.scope) output.scope = opts.scope;
+  if (opts.payload) output.payload = opts.payload;
   if (opts.supersedes) output.lifetime = { supersedes: opts.supersedes, reason: 'newer_on_subject' };
   const rec = { id: ar.uuidv7(), timestamp: opts.ts || Date.now(), type: 'commitment', agent_id, cwd: '/tmp/idself-cwd', user_id: 'default', input: { source: 'idself-test' }, output };
   state.recordAction(rec, ar.toSearchText(rec));
@@ -47,7 +48,10 @@ console.log('\n=== identity block: the operator\'s own current facts ===\n');
 const MAY = Date.UTC(2026, 4, 4), SEP = Date.UTC(2026, 8, 2);
 writeEngram('idself-agent', 'the does not want background watchers left running from previous sessions', 2.0);
 const older = writeEngram('idself-agent', 'I work at Northwind for 700 euros a month', 1.0, { scope: 'consolidated:self', ts: MAY });
-writeEngram('idself-agent', 'I work at Northwind two days a week for 600 euros a month', 1.0, { scope: 'consolidated:self', ts: SEP, supersedes: [older] });
+writeEngram('idself-agent', 'I work at Northwind two days a week for 600 euros a month', 1.0, { scope: 'consolidated:self', ts: SEP, supersedes: [older], payload: { fact_kind: 'fact', subject: 'Northwind', attribute: 'pay' } });
+// A self row the reader let through with nothing it is about: newer than
+// everything, and never the foundation.
+writeEngram('idself-agent', 'We just set the quant to q4', 1.0, { scope: 'consolidated:self', ts: Date.now(), payload: { fact_kind: 'fact', subject: '', attribute: 'other' } });
 
 t('the core fact is the operator\'s own current statement, with the day it was said', () => {
   const ac = runInjector('please help me plan next week around the days I work at Northwind');
@@ -59,6 +63,12 @@ t('the core fact is the operator\'s own current statement, with the day it was s
 t('the row a newer statement retired never surfaces', () => {
   const ac = runInjector('please help me plan next week around the days I work at Northwind');
   assert.ok(!/700 euros/.test(ac), ac.split('\n').find((l) => l.startsWith('[troth/identity]')));
+});
+
+t('a self row with no subject never takes the core slot', () => {
+  const ac = runInjector('please help me plan next week around the days I work at Northwind');
+  const line = ac.split('\n').find((l) => l.startsWith('[troth/identity]')) || '';
+  assert.ok(!/\[core\] "We just set the quant/.test(line), line);
 });
 
 t('a rule of thumb, whatever its salience, no longer takes the core slot', () => {

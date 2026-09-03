@@ -841,13 +841,19 @@ if (prompt.length >= 30 && !prompt.startsWith('/')) {
         if (promptTokens.size && stmtTokens.size) {
           for (const t of promptTokens) if (stmtTokens.has(t)) overlap++;
         }
+        // A fact that stands on a subject (an employer's pay, a machine's
+        // place, a role, a constraint) is foundation; a self row with no
+        // subject is a remark and only ever topical.
+        const pl = out.payload || {};
+        const standingKind = /^(role|constraint|skill|liking|effort)$/.test(String(pl.fact_kind || ''));
+        const stands = !!pl.subject && (standingKind || (!!pl.attribute && pl.attribute !== 'other'));
         engs.push({
           stmt: out.statement,
           engram_id: row.id,
           when: row.timestamp || null,
           // Above the identity pool and above any rule of thumb: what the
           // operator said about themselves is the foundation.
-          salience_score: sal + 0.3 * recency + 1.5,
+          salience_score: sal + 0.3 * recency + (stands ? 1.5 : -1.0),
           topic_score:    sal * 0.3 + overlap * 0.6 + recency * 0.2 + 0.5,
           overlap,
           _cwd_match: false,

@@ -86,6 +86,18 @@ const T0 = Date.now() - 10 * 60 * 1000;
     assert.ok(rows.some((e) => /living room/.test(e.statement)), 'a fact only history states is known now');
     delete process.env.TROTH_UNDERSTANDING_CATCHUP_TURNS;
   });
+  await t('a remark with no subject is never kept', async () => {
+    facts.set('we just set the quant to q4 for now', [{ kind: 'fact', what: 'We just set the quant to q4', subject: '', attribute: 'other' }]);
+    facts.set('I cannot work from the office these months', [{ kind: 'constraint', what: 'I cannot work from the office these months', subject: 'office', attribute: 'other' }]);
+    dm.recordTurn({ agent_id: A, conversation_id: 'm1', timestamp: Date.now() - 30000, user_text: 'we just set the quant to q4 for now', assistant_text: 'ok' });
+    dm.recordTurn({ agent_id: A, conversation_id: 'm2', timestamp: Date.now() - 20000, user_text: 'I cannot work from the office these months', assistant_text: 'ok' });
+    process.env.TROTH_UNDERSTANDING_CATCHUP_TURNS = '0';
+    const r = await bw.tasks.workingMemoryConsolidation.run(view);
+    assert.ok(/promoted=1/.test(r.notes[0]) && /skipped_remark=1/.test(r.notes[0]), r.notes[0]);
+    assert.ok(current().some((e) => /office/.test(e.statement)), 'a constraint stands on its kind');
+    assert.ok(!current().some((e) => /q4/.test(e.statement)), 'the remark is not a fact');
+    delete process.env.TROTH_UNDERSTANDING_CATCHUP_TURNS;
+  });
   await t('with the catch-up off, history stays unread', async () => {
     process.env.TROTH_UNDERSTANDING_CATCHUP_TURNS = '0';
     const r = await bw.tasks.workingMemoryConsolidation.run(view);

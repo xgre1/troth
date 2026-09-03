@@ -810,9 +810,9 @@ const _SELF_FACT_SCHEMA = {
   required: ['facts']
 };
 const _SELF_FACT_PROMPT = [
-  'Read the message a person wrote to their assistant. List only durable facts the person states ABOUT THEMSELVES:',
+  'Read the message a person wrote to their assistant. List only DURABLE facts the person states ABOUT THEMSELVES - facts that would still be true next month:',
   'their role or occupation, a constraint they live with, a skill they have, something they like or dislike, something they made or did before, what they earn or are paid, how many days they work somewhere.',
-  'Write each fact as ONE complete sentence in the message\'s own language and words, naming what it is about ("I work at X two days a week for 600 a month", never "for 600 a month" alone). Ignore requests, anger, opinions about the assistant, and anything about other people.',
+  'Write each fact as ONE complete sentence in the message\'s own language and words, naming what it is about ("I work at X two days a week for 600 a month", never "for 600 a month" alone). Not a fact: what is being done right now, a remark about the work at hand, a reaction, a plan for the next minutes, a number without the thing it belongs to. Ignore requests, anger, opinions about the assistant, and anything about other people. When nothing durable is stated, answer {"facts":[]}.',
   'For each fact also give "subject": the thing the fact is about, named as the message names it (an employer, a client, a project, a machine, a place), and "attribute": what about it the fact states: pay, schedule, role, status, amount, location, contact or other.',
   'Answer with ONE JSON object {"facts":[{"kind":"role|constraint|skill|liking|effort|fact","what":"...","subject":"...","attribute":"pay|schedule|role|status|amount|location|contact|other"}]} and nothing else; an empty list when there is none.',
   '', 'Message: '
@@ -879,6 +879,18 @@ function _selfFactReader() {
 // run fell back to the last hour, and the same turns were read again each
 // cadence).
 const WM_WATERMARK_SCOPE = 'internal:wm_watermark';
+// What a self-fact needs to stand: a subject, and either a kind that is a
+// standing property of the person (a role, a constraint, a skill, a liking,
+// an effort they made) or a named attribute of the subject (pay, schedule,
+// status, amount, location, contact). A bare "fact" about nothing in
+// particular is a remark.
+const _STANDING_KINDS = new Set(['role', 'constraint', 'skill', 'liking', 'effort']);
+function _selfFactStands(what, kind, subject, attribute) {
+  if (!what || String(what).split(/\s+/).length < 3) return false;
+  if (!subject) return false;
+  if (_STANDING_KINDS.has(String(kind || ''))) return true;
+  return !!attribute && attribute !== 'other';
+}
 // How far back the pass has read: turns older than the floor are history
 // the organ has not read yet. A bounded slice of them is read each run
 // under the daily engine budget, oldest last, until the floor reaches the
@@ -1009,6 +1021,7 @@ const taskWorkingMemoryConsolidation = {
     let promoted = 0;
     let superseded = 0;
     let skippedOlder = 0;
+    let skippedRemark = 0;
     let skippedDup = 0;
     let latestTs = watermark;
     const selfStatements = require('./self-statements.js');
@@ -1028,7 +1041,8 @@ const taskWorkingMemoryConsolidation = {
       const userText = (inp && inp.args && inp.args.user_text) || '';
       if (!userText || userText.length < 12) continue;
       let found = null;
-      if (readFacts) { try { found = await readFacts(userText); } catch (_) { found = null; } }
+      let fromReader = false;
+      if (readFacts) { try { found = await readFacts(userText); fromReader = Array.isArray(found); } catch (_) { found = null; } }
       if (!Array.isArray(found)) {
         found = selfStatements.extractSelfStatements(userText).map((s) => ({ kind: s.kind, what: s.what }));
       }
@@ -1039,6 +1053,13 @@ const taskWorkingMemoryConsolidation = {
         const key = what.toLowerCase();
         const subject = String((f && f.subject) || '').replace(/\s+/g, ' ').trim().slice(0, 80) || null;
         const attribute = String((f && f.attribute) || '').trim().toLowerCase().slice(0, 24) || null;
+        // A fact stands on its subject: a sentence with nothing it is about,
+        // or a plain "fact" with no attribute, is a remark, and a remark is
+        // not kept (measured: "we just set q4" became the operator's
+        // foundational fact for a day).
+        // The patterns fire only on first-person self-statement shapes; the
+        // subject rule is for what a model reader lets through.
+        if (fromReader && !_selfFactStands(what, kind, subject, attribute)) { skippedRemark++; continue; }
         if (!facts.has(key)) facts.set(key, { fact: what, kind, subject, attribute, rows: [] });
         facts.get(key).rows.push(row);
         facts.get(key).turn_ts = Math.max(facts.get(key).turn_ts || 0, row.timestamp || 0);
@@ -1107,7 +1128,7 @@ const taskWorkingMemoryConsolidation = {
     } catch (_) {}
     return {
       events: [],
-      notes: ['wm_consolidation (' + road + '): scanned=' + newTurnCount + ' history=' + catchUp.length + ' promoted=' + promoted + ' superseded=' + superseded + ' skipped_dup=' + skippedDup + ' skipped_older=' + skippedOlder +
+      notes: ['wm_consolidation (' + road + '): scanned=' + newTurnCount + ' history=' + catchUp.length + ' promoted=' + promoted + ' superseded=' + superseded + ' skipped_dup=' + skippedDup + ' skipped_older=' + skippedOlder + ' skipped_remark=' + skippedRemark +
               ' watermark→' + new Date(latestTs).toISOString()]
     };
   }
@@ -1794,6 +1815,26 @@ const taskMemoryHygiene = {
       }
       try { identity._resetCacheForTests(); } catch (_) {}
     } catch (_) { /* the registry may be absent */ }
+    // 2b. Self facts that stand on nothing: a row with no subject, or a plain
+    //     fact with no attribute, is a remark the reader let through.
+    let retiredRemarks = 0;
+    try {
+      const rows = engram.listEngrams({ scope: 'consolidated:self', audience: 'all', limit: 2000 }) || [];
+      for (const row of rows) {
+        scanned++;
+        const p = row && row.payload;
+        if (!p) continue;
+        if (_selfFactStands(row.statement, p.fact_kind, p.subject, p.attribute)) continue;
+        const id = engram.recordEngram({
+          agent_id: agentOf(row.id, fallbackAgent), user_id: ctx.user_id || 'default', cwd: null,
+          statement: 'retired: a remark, not a fact (' + String(row.statement || '').slice(0, 40) + ')',
+          scope: 'internal:retired', source: 'background_worker.memory_hygiene', source_authority: 'plr_evolved',
+          auto_verify: false, salience: 0.1,
+          extra_output: { lifetime: { supersedes: [row.id], reason: 'remark' } }
+        });
+        if (id) retiredRemarks++;
+      }
+    } catch (_) { /* no self facts yet */ }
     // 3. Document chunks read out of the assistant's own scratch (transcripts,
     //    tool results, hook outputs) are not the operator's knowledge. The
     //    folder a document came from is the row's cwd; a bounded slice per
@@ -1823,7 +1864,7 @@ const taskMemoryHygiene = {
         if (id) retiredDocs++;
       }
     } catch (_) { /* no documents yet */ }
-    return { events: [], notes: ['memory_hygiene: scanned=' + scanned + ' instances_retired=' + retiredInstances + ' identities_cleaned=' + cleanedIdentities + ' identities_retired=' + retiredIdentities + ' docs_retired=' + retiredDocs] };
+    return { events: [], notes: ['memory_hygiene: scanned=' + scanned + ' instances_retired=' + retiredInstances + ' identities_cleaned=' + cleanedIdentities + ' identities_retired=' + retiredIdentities + ' remarks_retired=' + retiredRemarks + ' docs_retired=' + retiredDocs] };
   }
 };
 
