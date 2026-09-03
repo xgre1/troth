@@ -184,6 +184,7 @@ async function ensureServer() {
           '-lv', '0', // errors only (see log note above)
           '--port', String(PORT), '--host', '127.0.0.1',
           '-c', String(CONTEXT_SIZE),
+          '-b', String(CONTEXT_SIZE), '-ub', String(CONTEXT_SIZE),
           '-ngl', String(flags.ngl),
           '--threads', String(flags.threads)
           // Same as the embedder: Linux needs the loader pointed at the
@@ -240,38 +241,52 @@ function _touchUse() {
   } catch (_) { /* stamping must never break a real call */ }
 }
 
-async function rerank(query, docs) {
-  _touchUse();
-  if (!query || !Array.isArray(docs) || !docs.length) return null;
-  if (!(await ensureServer())) return null;
+// A document longer than the server's batch fails the whole request, and
+// one long memory would cost every other its verdict. Each document is cut to
+// a budget, and a batch the server still calls too large is retried shorter.
+const DOC_CHARS = Math.max(200, parseInt(process.env.TROTH_RERANK_DOC_CHARS || '600', 10) || 600);
+
+function _post(query, docs) {
   return new Promise((resolve) => {
-    const body = JSON.stringify({ query: String(query), documents: docs.map(d => String(d || '')) });
+    const body = JSON.stringify({ query: String(query), documents: docs });
     const req = _http.request({
       hostname: '127.0.0.1', port: PORT, path: '/rerank', method: 'POST',
       headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
       timeout: 30000
     }, (res) => {
       let b = ''; res.setEncoding('utf8'); res.on('data', (c) => { b += c; });
-      res.on('end', () => {
-        try {
-          const d = JSON.parse(b);
-          const r = d && d.results;
-          if (!Array.isArray(r)) { resolve(null); return; }
-          const out = new Array(docs.length).fill(null);
-          for (const row of r) {
-            const idx = (typeof row.index === 'number') ? row.index : null;
-            const sc  = (typeof row.relevance_score === 'number') ? row.relevance_score
-                      : (typeof row.score === 'number') ? row.score : null;
-            if (idx != null && idx >= 0 && idx < out.length) out[idx] = sc;
-          }
-          resolve(out);
-        } catch (_) { resolve(null); }
-      });
+      res.on('end', () => { let d = null; try { d = JSON.parse(b); } catch (_) { d = null; } resolve({ status: res.statusCode, data: d }); });
     });
     req.on('error', () => resolve(null));
     req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve(null); });
     req.write(body); req.end();
   });
+}
+
+async function rerank(query, docs) {
+  _touchUse();
+  if (!query || !Array.isArray(docs) || !docs.length) return null;
+  if (!(await ensureServer())) return null;
+  let cap = DOC_CHARS;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const r = await _post(String(query), docs.map((d) => String(d || '').slice(0, cap)));
+    if (!r) return null;
+    const rows = r.data && r.data.results;
+    if (Array.isArray(rows)) {
+      const out = new Array(docs.length).fill(null);
+      for (const row of rows) {
+        const idx = (typeof row.index === 'number') ? row.index : null;
+        const sc  = (typeof row.relevance_score === 'number') ? row.relevance_score
+                  : (typeof row.score === 'number') ? row.score : null;
+        if (idx != null && idx >= 0 && idx < out.length) out[idx] = sc;
+      }
+      return out;
+    }
+    const msg = String((r.data && r.data.error && r.data.error.message) || '');
+    if (r.status === 500 && /too large/i.test(msg) && cap > 300) { cap = Math.max(300, Math.floor(cap / 2)); continue; }
+    return null;
+  }
+  return null;
 }
 
 function isAvailable() { return !_isDead() && !!_resolveModelPath(); }

@@ -197,10 +197,13 @@ try {
       query: prompt, class: 'all', audience: 'model_visible', limit: 5, cwd, rerank: didRerank,
       conversation_id: session || undefined, contexts: boundContext ? [boundContext] : [], asked: memoryAsk
     }).catch(() => []);
+    // Recall on a large memory takes seconds in a fresh process; the hook
+    // waits this long for it before going on without a block.
+    const RECALL_WAIT_MS = Math.max(1000, parseInt(process.env.TROTH_HOOK_RECALL_MS || '6000', 10) || 6000);
     const _TIMEOUT = Symbol('timeout');
     const _raced = await Promise.race([
       recallP,
-      new Promise((res) => setTimeout(() => res(_TIMEOUT), 3500))
+      new Promise((res) => setTimeout(() => res(_TIMEOUT), RECALL_WAIT_MS))
     ]);
     const _timedOut = _raced === _TIMEOUT;
     const hits = _timedOut ? [] : _raced;
@@ -228,20 +231,17 @@ try {
         }
       }
     } catch (_) { /* trace must never break recall */ }
-    // Unsolicited memory earns its place. A cross-encoder score at or below
-    // zero is the reranker's verdict that the memory does not answer this
-    // prompt, and a block headed GROUND TRUTH is the wrong place for one.
-    // Where the reranker ran, only what it scored above zero is offered.
-    // No verdict, no block: when the reranker did not answer, nothing is
-    // offered as ground truth. Precision over presence. The one exception is
-    // a memory question ("what did we say about X"): the cross-encoder judges
-    // whether a passage answers a question, and a passage that merely says X
-    // answers that one, so there the operator's own words that name the
-    // subject are offered on that overlap, with or without a verdict.
-    // (memoryAsk and memShaped are read above, before the recall runs.)
+    // Unsolicited memory earns its place. The cross-encoder answers in logits
+    // on a scale that moves with the question, so a memory is offered when it
+    // stands within reach of the best-scored one and the best is not hopeless;
+    // no verdict, no block. The one exception is a memory question ("what did
+    // we say about X"): a passage that names X answers it, so the operator's
+    // own words that name the subject are offered on that overlap alone.
     const namesTheSubject = (h) => memoryAsk && memShaped.queryOverlap(prompt, h.statement) >= 0.5;
+    const scored = (Array.isArray(hits) ? hits : []).filter(h => Number.isFinite(h._rerank));
+    const top = scored.length ? Math.max(...scored.map(h => h._rerank)) : null;
     const relevant = (Array.isArray(hits) ? hits : []).filter(h =>
-      (Number.isFinite(h._rerank) && h._rerank > 0) || namesTheSubject(h));
+      (Number.isFinite(h._rerank) && earnsPlace(h._rerank, top)) || namesTheSubject(h));
     if (relevant.length) {
       // Split by WHOSE words these are before framing any of them as truth.
       //
@@ -701,6 +701,11 @@ if (ctx && ctx.context) pieces.push(ctx.context);
 //      current prompt + last user turn (catches what's relevant NOW,
 //      not just what's most salient overall)
 //   3. ANCHORS — top-2 active anchors (substrate's stated commitments)
+function earnsPlace(rr, top) {
+  const FLOOR = -3, REACH = 2;
+  return Number.isFinite(rr) && Number.isFinite(top) && rr >= FLOOR && rr >= top - REACH;
+}
+
 function tokenizeForOverlap(text) {
   const stop = new Set(['the','a','an','is','are','to','of','in','and','or','for','on','at','with','by','from','that','this','it','as','i','you','we','they','my','your','our','be','have','has','had','do','does','did','not','no','yes']);
   // Letters of any script: a Greek prompt overlaps a Greek fact.

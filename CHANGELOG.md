@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The per-prompt hook waits up to six seconds for recall on a large memory
+  (`TROTH_HOOK_RECALL_MS`) before it goes on without a block.
+- The reranker gives every memory a verdict whatever its length: each document
+  is cut to a budget before it reaches the server, and a batch the server
+  still calls too large is asked again shorter, so one long memory never
+  costs the others their score.
+- The per-prompt hook offers a memory when it stands within reach of the
+  best-scored one and the best is not hopeless, on the cross-encoder's own
+  scale for that question; a memory question still offers the operator's
+  words that name its subject.
 - Background understanding reads with a model server on this machine: the
   knowledge, self-facts and instance passes take the configured llama.cpp
   host when it is loopback, a named host only when `understanding_named_host`
