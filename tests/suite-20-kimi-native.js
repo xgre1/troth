@@ -459,10 +459,13 @@ test('ENGINE-PIN-SWITCH: a hard pin still LISTS and BINDS the operator\'s other 
   const fs2 = require('fs');
   const home = fs2.mkdtempSync(path.join(os2.tmpdir(), 'engine-pin-switch-'));
   fs2.mkdirSync(path.join(home, '.troth'), { recursive: true });
+  // Every credentialed engine points at a black hole (127.0.0.1 refuses the
+  // connection at once): the case is about which faculty a switch binds to,
+  // never about a provider answering, and a test never leaves the machine.
   fs2.writeFileSync(path.join(home, '.troth', 'config.json'), JSON.stringify({
     providers: {
-      deepseek:   { enabled: true,  apiKey: 'sk-fake-deepseek' },
-      anthropic:  { enabled: true,  apiKey: 'sk-fake-anthropic' },
+      deepseek:   { enabled: true,  apiKey: 'sk-fake-deepseek', endpoint: '127.0.0.1' },
+      anthropic:  { enabled: true,  apiKey: 'sk-fake-anthropic', endpoint: '127.0.0.1' },
       local:      { enabled: true,  host: '127.0.0.1', port: 1234 },
       openrouter: { enabled: false, apiKey: 'sk-fake-or' },  // OFF    -> never offered
       xai:        { enabled: true }                          // no key -> never offered
