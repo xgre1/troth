@@ -122,7 +122,10 @@ const CARRIER_KINDS = /^(organization|organisation|company|project|product|clien
 function _entityCarries(ident, slug) {
   if (!ident || !ident.slug || !slug) return false;
   if (ident.slug === slug) return true;
-  return slug.length >= 4 && ident.slug.startsWith(slug) && CARRIER_KINDS.test(String(ident.kind || ''));
+  if (!CARRIER_KINDS.test(String(ident.kind || ''))) return false;
+  // The company's short name as a folder ("north" for northtzoglou), or the
+  // company's name leading a longer slug ("brightpress" for brightpress-tracker).
+  return (slug.length >= 4 && ident.slug.startsWith(slug)) || (ident.slug.length >= 4 && slug.startsWith(ident.slug + '-'));
 }
 function resolveMention(text) {
   const t = String(text || '');
@@ -289,6 +292,9 @@ function contextNamer(contexts) {
     const names = new Set([slug]);
     const phrase = slug.replace(/-/g, ' ');
     if (phrase !== slug && phrase.length >= 4) names.add(phrase);
+    // The subject's own word names every facet: "troth" for troth-core.
+    const fam = contextFamily(id);
+    if (fam.head) names.add(fam.head);
     for (const ident of identities) {
       if (!ident || !_entityCarries(ident, slug)) continue;
       for (const n of [ident.canonical].concat(ident.aliases || [])) {
@@ -307,6 +313,35 @@ function contextNamer(contexts) {
 }
 function namesAnyContext(text, contexts) { return contextNamer(contexts)(text); }
 function isDeniedSlug(slug) { return _DENY.has(String(slug || '').toLowerCase()); }
+
+// A subject has facets: troth-core, troth-positioning and troth-files are
+// one subject, troth, and knowledge flows across its facets. The family of
+// a context is the leading word of its slug when at least two registry
+// contexts share that word (one of them may bear it alone); a lone context
+// is its own family. Live threads stay apart regardless; this is about
+// knowledge.
+function contextFamily(contextId) {
+  const id = String(contextId || '');
+  const one = { head: null, members: new Set(id ? [id] : []) };
+  if (!id.startsWith(CTX_PREFIX)) return one;
+  const slug = id.slice(CTX_PREFIX.length);
+  const head = slug.split('-')[0];
+  if (!head || head.length < 3 || _DENY.has(head)) return one;
+  const kin = listContexts().filter((c) => c.slug === head || c.slug.startsWith(head + '-'));
+  if (kin.length < 2) return one;
+  const members = new Set([id]);
+  for (const c of kin) members.add(c.context_id);
+  return { head, members };
+}
+// Every context a bound read covers: the given ones and their families.
+function scopeContexts(contexts) {
+  const out = new Set();
+  for (const raw of (contexts || [])) {
+    const fam = contextFamily(raw);
+    for (const m of fam.members) out.add(m);
+  }
+  return out;
+}
 
 // What the operator declared they work on: the registered context the
 // statement names, else a context minted from the name in the statement
@@ -348,6 +383,8 @@ module.exports = {
   contextNamer,
   declaredContext,
   isDeniedSlug,
+  contextFamily,
+  scopeContexts,
   resolveSessionContext,
   currentBinding,
   bindSession,

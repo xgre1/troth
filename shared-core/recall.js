@@ -64,11 +64,18 @@ function _readScope(opts) {
   if (opts.context_id) contexts.add(String(opts.context_id));
   const conversation = opts.conversation_id ? String(opts.conversation_id) : null;
   if (!contexts.size && !conversation) return null;
+  // A bound read covers the bound contexts and their families (the facets
+  // of one subject), and names any of them.
+  let covered = contexts;
   let names = () => false;
   if (contexts.size) {
-    try { names = require('./context-registry.js').contextNamer([...contexts]); } catch (_) { names = () => false; }
+    try {
+      const reg = require('./context-registry.js');
+      covered = reg.scopeContexts([...contexts]);
+      names = reg.contextNamer([...covered]);
+    } catch (_) { covered = contexts; names = () => false; }
   }
-  return { conversation, contexts, names, now: Date.now(), live_ms: _liveThreadMs() };
+  return { conversation, contexts: covered, names, now: Date.now(), live_ms: _liveThreadMs() };
 }
 function _isTurn(row) {
   if (!row || row.type !== 'tool_call') return false;

@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The facets of one subject share their knowledge: contexts whose slugs
+  share a leading word that the registry bears alone or that two of them
+  share (troth-core, troth-files, troth-positioning) read as one family, and
+  the subject's own word names every facet. Live threads stay apart
+  regardless.
 - A read of a registry by scope prefix (contexts, entities, instances) walks
   the scope index, so binding a conversation costs milliseconds on a large
   memory.

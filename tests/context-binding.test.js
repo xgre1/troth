@@ -124,6 +124,25 @@ t('a company whose name begins with a context slug carries that context', () => 
   assert.strictEqual(ctxReg.resolveMention('Brightpress SA called about the job'), 'ctx:bright');
 });
 
+t('the facets of one subject are one family', () => {
+  ctxReg.ensureContext('troth-core');
+  ctxReg.ensureContext('troth-files');
+  ctxReg.ensureContext('troth-positioning');
+  ctxReg.ensureContext('lonework');
+  const fam = ctxReg.contextFamily('ctx:troth-core');
+  assert.strictEqual(fam.head, 'troth');
+  assert.ok(fam.members.has('ctx:troth-files') && fam.members.has('ctx:troth-positioning'), [...fam.members].join(','));
+  const lone = ctxReg.contextFamily('ctx:lonework');
+  assert.strictEqual(lone.head, null);
+  assert.deepStrictEqual([...lone.members], ['ctx:lonework']);
+  const covered = ctxReg.scopeContexts(['ctx:troth-positioning']);
+  assert.ok(covered.has('ctx:troth-core') && covered.has('ctx:troth-files'), [...covered].join(','));
+  assert.ok(!covered.has('ctx:lonework'));
+  const names = ctxReg.contextNamer(['ctx:troth-core']);
+  assert.ok(names('the troth pricing page lists three tiers'), 'the subject word names every facet');
+  assert.ok(!names('the trothless pricing page'), 'whole words only');
+});
+
 t('a write in a bound session carries the binding without any file activity', () => {
   ctxReg.bindSession({ session_id: 's10', cwd: '/w/other', text: 'we are working on alpha work' });
   const id = ar.uuidv7();
