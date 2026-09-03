@@ -445,9 +445,18 @@ function recomputeFromSubstrate(stateModule, opts) {
     order: 'desc'
   }) || [];
 
-  // Most recent intent shapes the current_intent's `what` / `why`.
-  if (intentRows.length > 0) {
-    const top = actionRec.fromRow(intentRows[0]);
+  // The most recent DELIBERATE intent shapes the current_intent's `what` /
+  // `why`: a goal read from a verb and its object or set on purpose, one
+  // line, short. A fallback intent is the message itself and says nothing
+  // about what the work is.
+  const deliberate = intentRows.map((r) => actionRec.fromRow(r)).find((rec) => {
+    const inp = rec && rec.input;
+    if (!inp || inp.extraction === 'fallback_no_verb') return false;
+    const g = inp.goal == null ? '' : String(inp.goal);
+    return g.length > 0 && g.length <= 200 && g.indexOf('\n') === -1;
+  }) || null;
+  if (deliberate) {
+    const top = deliberate;
     const goal = top && top.input && top.input.goal;
     const constraint = top && top.input && top.input.constraint;
     if (goal || constraint) {

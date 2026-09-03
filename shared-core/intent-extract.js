@@ -127,10 +127,33 @@ function _hash(s) {
 }
 
 // ── Step 4: detect verb ───────────────────────────────────────────────────
+// An imperative opens the message or follows a lead-in ("please", "can
+// you", "now", a clause break). A verb met mid-sentence is a word of the
+// sentence, in whatever language the sentence is in.
+const LEAD_IN_RE = /(?:^|[.;:!?,\-\u2014(]\s*|\b(?:please|pls|plz|now|then|also|and|so|ok|okay|first|next|finally|just|to|me|us|you|it|kindly|go|let'?s|lets|can you|could you|would you|will you|i want you to|i need you to|need to|want to|have to|should|must|help me|try to|go ahead and)\s+)$/i;
+const VERB_RE_ALL = new RegExp(VERB_RE.source, 'gi');
 function _detectVerb(s) {
-  const m = s.match(VERB_RE);
-  if (!m) return { verb: null, index: -1 };
-  return { verb: m[1].toLowerCase(), index: m.index };
+  VERB_RE_ALL.lastIndex = 0;
+  let m;
+  while ((m = VERB_RE_ALL.exec(s)) !== null) {
+    if (LEAD_IN_RE.test(s.slice(0, m.index))) return { verb: m[1].toLowerCase(), index: m.index };
+  }
+  return { verb: null, index: -1 };
+}
+
+// A pasted transcript or log is somebody else's words: lines with a
+// timestamp or a speaker prefix, or a long block of many lines.
+const CHAT_LINE_RE = /^\s*(?:\[?\d{1,2}[\/.:-]\d{1,2}[^\]\n]{0,24}\]?\s*)?[^\n:]{1,40}:\s\S/;
+const TIMESTAMP_LINE_RE = /^\s*\[?\d{1,2}[\/.:-]\d{1,2}(?:[\/.:-]\d{2,4})?[, ]/;
+function _isPasted(prompt) {
+  const raw = typeof prompt === 'string' ? prompt : '';
+  const lines = raw.split('\n').filter((l) => l.trim());
+  if (lines.length >= 3) {
+    let shaped = 0;
+    for (const l of lines) if (TIMESTAMP_LINE_RE.test(l) || CHAT_LINE_RE.test(l) || /^\s*[>|]/.test(l)) shaped++;
+    if (shaped >= 2 && shaped >= Math.ceil(lines.length / 3)) return true;
+  }
+  return raw.length > 1200 && lines.length >= 8;
 }
 
 // ── Step 5: detect object after verb ──────────────────────────────────────
@@ -219,6 +242,7 @@ function _confidence(verb, object, hasCriteria, hasConstraints) {
 
 // ── Public API ────────────────────────────────────────────────────────────
 function extractIntent(prompt) {
+  if (_isPasted(prompt)) return { ok: false, confidence: 0, intent: null, reason: 'pasted_text' };
   const s = _normalize(prompt);
   const reject = _shouldReject(s);
   if (reject) return { ok: false, confidence: 0, intent: null, reason: reject };
@@ -283,6 +307,7 @@ function extractIntent(prompt) {
 
 module.exports = {
   extractIntent,
+  _isPasted,
   // Exposed for tests + downstream tooling (negative-knowledge fingerprinting in P16.5).
   _normalize,
   _shouldReject,
