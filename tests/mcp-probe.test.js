@@ -18,6 +18,7 @@ fs.writeFileSync(registry, JSON.stringify({ mcpServers: {
   'answers': { command: process.execPath, args: [path.join(__dirname, 'fixtures', 'mcp-fake-ok.js')] },
   'asks-signin': { command: process.execPath, args: [path.join(__dirname, 'fixtures', 'mcp-fake-signin.js')] },
   'asks-signin-two-lines': { command: process.execPath, args: ['-e', 'process.stderr.write("[123] Please authorize this client by visiting:\\nhttps://auth.example.test/oauth/authorize?client_id=k&state=s\\n[123] Could not open a browser automatically. Please copy and paste the URL above into your browser.\\n[123] Authentication required. Waiting for authorization...\\n"); setInterval(() => {}, 1000)'] },
+  'discovering': { command: process.execPath, args: ['-e', 'process.stderr.write("[9] Discovering OAuth server configuration...\\n[9] Discovered authorization server: https://api.example.test\\n"); setInterval(() => {}, 1000)'] },
   'dies': { command: process.execPath, args: ['-e', 'process.stderr.write("missing token\\n"); process.exit(3)'] },
   'silent': { command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'] }
 } }));
@@ -47,6 +48,11 @@ console.log('\n=== the state a connector is really in ===\n');
     const r = await client.probe('asks-signin-two-lines');
     assert.strictEqual(r.state, 'sign_in_needed', JSON.stringify(r));
     assert.strictEqual(r.url, 'https://auth.example.test/oauth/authorize?client_id=k&state=s');
+  });
+  await t('a bare authorization server address is not the sign-in address', async () => {
+    const r = await client.probe('discovering');
+    assert.notStrictEqual(r.state, 'sign_in_needed', JSON.stringify(r));
+    assert.strictEqual(r.state, 'unreachable');
   });
   await t('a server that dies is unreachable, with its last words', async () => {
     const r = await client.probe('dies');

@@ -506,16 +506,14 @@ async function getDownstream(name, opts) {
 // so the sign-in can land; a server that answers nothing is stopped.
 const PROBE_MS = 12 * 1000;
 const SIGN_IN_INIT_MS = 5 * 60 * 1000;
-// The address to visit: on the line that asks for it, or on one of the two
-// lines after, or any address that names an authorization endpoint.
+// The address to visit: an authorization request, the one address that
+// carries the client and the response it expects. A bare server address
+// ("Discovered authorization server: https://…") is not one.
 function _authUrl(stderr) {
-  const lines = String(stderr || '').split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    const cue = /visit|authoriz|browser|sign[- ]?in/i.test(lines[i]);
-    for (let j = i; j <= Math.min(i + 2, lines.length - 1); j++) {
-      const m = lines[j].match(/https?:\/\/[^\s"'<>]+/);
-      if (m && (cue || /authorize|oauth|client_id=/i.test(m[0]))) return m[0].replace(/[.,;:)]+$/, '');
-    }
+  const all = String(stderr || '').match(/https?:\/\/[^\s"'<>]+/g) || [];
+  for (const raw of all) {
+    const u = raw.replace(/[.,;:)]+$/, '');
+    if (/\/authorize\b|\/oauth\/|[?&](client_id|response_type|redirect_uri)=/i.test(u)) return u;
   }
   return null;
 }
@@ -550,7 +548,7 @@ async function probe(name, opts) {
       return done({ state: 'unreachable', error: (settled.e && settled.e.message || String(settled.e)) + tail });
     }
     const url = live ? _authUrl(live.stderr) : null;
-    if (url) return done({ state: 'sign_in_needed', url });
+    if (url) return done({ state: 'sign_in_needed', url, said: live.stderr.trim().slice(-1200) });
     if (live && live.exited) return done({ state: 'unreachable', error: 'the server ' + live.exited + (live.stderr ? ': ' + live.stderr.trim().split('\n').slice(-3).join(' | ').slice(0, 300) : '') });
   }
   if (live && live.proc) { try { live.proc.kill('SIGTERM'); } catch (_) {} }
