@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Notes already on this machine become memory from the Memory page: the vaults
+  Obsidian knows are offered, any folder of Markdown or text can be named, and
+  the import goes down the reader road (`troth knowledge import`), one row per
+  note. A file under eighty bytes holds nothing the reader keeps and is not
+  queued, the same floor the reader applies to an excerpt.
+- `troth mcp install hermes` wires the four troth servers into Hermes Agent's
+  config.yaml, names troth as its memory provider and places the provider
+  files where Hermes loads plugins, touching no other line of the file.
+- The shell wall reads an order with here-document bodies removed: the words
+  of a power order inside a file being written are data, the same words as a
+  command stay refused, and a credential inside the document is still refused.
 - troth is a memory provider for Hermes Agent (`integrations/hermes/memory/troth`):
   before each model call Hermes receives the context a prompt gets, the
   session starts with troth's orientation, and every turn is recorded back

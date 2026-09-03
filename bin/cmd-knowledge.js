@@ -169,7 +169,9 @@ if (command === "knowledge") {
     'i'
   );
   // Files smaller than this are noise (license badges, single-line README's, etc.)
-  var MIN_FILE_BYTES = 200;
+  // The reader keeps an excerpt of eighty characters or more; a file under
+  // that holds nothing it would keep.
+  var MIN_FILE_BYTES = 80;
   // Files bigger than this we still ingest but warn — likely a transcript / data dump
   var BIG_FILE_BYTES = 5 * 1024 * 1024;
 

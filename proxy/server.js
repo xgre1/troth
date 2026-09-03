@@ -3557,6 +3557,31 @@ const server = http.createServer((req, res) => {
   // a final {"result":{...}} into ~/.troth/import-chats.log; nothing read it,
   // so the UI could only say "started" and then go quiet for the length of a
   // months-deep walk. Tail the log rather than hold an HTTP connection open.
+  // Notes already on this machine: the vaults Obsidian knows, and any folder
+  // of Markdown or text the operator names, go to the reader road.
+  if (req.method === 'GET' && url === '/api/memory/notes-sources') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    try { jsonResponse(res, 200, { vaults: require('../shared-core/notes-import.js').detectVaults() }); }
+    catch (e) { jsonResponse(res, 200, { vaults: [], error: String(e && e.message || e) }); }
+    return;
+  }
+  if (req.method === 'POST' && url === '/api/memory/import-notes') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    let nbody = '';
+    req.on('data', c => nbody += c);
+    req.on('end', () => {
+      let body;
+      try { body = JSON.parse(nbody || '{}'); } catch (_) { jsonResponse(res, 400, { error: 'bad_json' }); return; }
+      try {
+        const ni = require('../shared-core/notes-import.js');
+        const check = ni.checkFolder(body.path);
+        if (!check.ok) { jsonResponse(res, 400, { error: 'bad_folder', detail: check.error }); return; }
+        const r = ni.startImport(check.path);
+        jsonResponse(res, 200, Object.assign({ notes: check.notes, obsidian: check.obsidian }, r));
+      } catch (e) { jsonResponse(res, 500, { error: 'import_failed', detail: String(e && e.message || e) }); }
+    });
+    return;
+  }
   if (req.method === 'GET' && url === '/api/memory/import-status') {
     if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
     try {

@@ -58,6 +58,7 @@ function hosts() {
   return [
     { id: "claude", label: "Claude Code", cfg: path.join(HOME, ".claude.json"), tcc: false },
     { id: "cursor", label: "Cursor", cfg: path.join(HOME, ".cursor", "mcp.json"), tcc: false },
+    { id: "hermes", label: "Hermes Agent", cfg: path.join(HOME, ".hermes", "config.yaml"), format: "yaml", provider: path.join(HOME, ".hermes", "plugins", "memory", "troth"), tcc: false },
     { id: "windsurf", label: "Windsurf", cfg: path.join(HOME, ".codeium", "windsurf", "mcp_config.json"), tcc: false },
     { id: "cline", label: "Cline (VS Code)", cfg: path.join(HOME, "Library", "Application Support", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"), tcc: true },
     { id: "claude_desktop", label: "Claude Desktop", cfg: path.join(HOME, "Library", "Application Support", "Claude", "claude_desktop_config.json"), tcc: true },
@@ -207,7 +208,111 @@ function ensureClaudeAllow(prefix) {
   }
 }
 
+// ── YAML hosts (Hermes Agent) ────────────────────────────────────────────────
+// The same merge-only, fail-closed, backed-up, atomic write, on a YAML file
+// edited as text: only the troth entries under mcp_servers and the provider
+// line under memory are ours, every other line stays as written.
+function _yamlTopBlock(lines, key) {
+  const re = new RegExp("^" + key + ":\\s*(#.*)?$");
+  let start = -1;
+  for (let i = 0; i < lines.length; i++) if (re.test(lines[i])) { start = i; break; }
+  if (start < 0) return null;
+  let end = start + 1;
+  while (end < lines.length && (lines[end].trim() === "" || /^\s/.test(lines[end]) || /^#/.test(lines[end]))) end++;
+  while (end > start + 1 && lines[end - 1].trim() === "") end--;
+  return { start, end };
+}
+function _yamlChildRange(lines, block, name) {
+  const re = new RegExp("^  " + name.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&") + ":(\\s.*)?$");
+  for (let i = block.start + 1; i < block.end; i++) {
+    if (!re.test(lines[i])) continue;
+    let j = i + 1;
+    while (j < block.end && (lines[j].trim() === "" || /^   /.test(lines[j]) || /^\s+#/.test(lines[j]))) j++;
+    while (j > i + 1 && lines[j - 1].trim() === "") j--;
+    return { start: i, end: j };
+  }
+  return null;
+}
+function _yamlUpsert(text, key, children) {
+  let lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
+  while (lines.length && lines[lines.length - 1].trim() === "") lines.pop();
+  if (!_yamlTopBlock(lines, key)) {
+    if (lines.length) lines.push("");
+    lines.push(key + ":");
+    for (const c of children) lines.push(...c.lines);
+    return lines.join("\n") + "\n";
+  }
+  for (const c of children) {
+    const block = _yamlTopBlock(lines, key);
+    const r = _yamlChildRange(lines, block, c.name);
+    if (r) lines.splice(r.start, r.end - r.start, ...c.lines);
+    else lines.splice(block.start + 1, 0, ...c.lines);
+  }
+  return lines.join("\n") + "\n";
+}
+function _yamlHas(text, key, name) {
+  const lines = String(text || "").split("\n");
+  const block = _yamlTopBlock(lines, key);
+  return !!(block && _yamlChildRange(lines, block, name));
+}
+function installIntoYaml(host, opts) {
+  const cfgPath = host.cfg;
+  let text = "";
+  if (fs.existsSync(cfgPath)) {
+    text = fs.readFileSync(cfgPath, "utf8");
+    try { fs.copyFileSync(cfgPath, cfgPath + ".bak-troth"); } catch (e) { /* best effort */ }
+  } else {
+    try { fs.mkdirSync(path.dirname(cfgPath), { recursive: true }); }
+    catch (e) { return { ok: false, error: "mkdir " + path.dirname(cfgPath) + ": " + e.message }; }
+  }
+  const { servers, missing } = trothServers(opts);
+  const names = Object.keys(servers);
+  if (!names.length) return { ok: false, error: "no troth MCP servers found under plugin/mcp-servers — install looks incomplete" };
+  const children = names.map((n) => ({ name: n, lines: [
+    "  " + n + ":",
+    "    command: " + JSON.stringify(servers[n].command),
+    "    args: [" + servers[n].args.map((a) => JSON.stringify(a)).join(", ") + "]"
+  ] }));
+  let next = _yamlUpsert(text, "mcp_servers", children);
+  next = _yamlUpsert(next, "memory", [{ name: "provider", lines: ["  provider: troth"] }]);
+  const tmp = cfgPath + ".tmp" + process.pid;
+  try { fs.writeFileSync(tmp, next); fs.renameSync(tmp, cfgPath); }
+  catch (e) { try { fs.unlinkSync(tmp); } catch (e2) {} return { ok: false, error: "write " + cfgPath + ": " + e.message }; }
+  const back = fs.readFileSync(cfgPath, "utf8");
+  for (const n of names) if (!_yamlHas(back, "mcp_servers", n)) return { ok: false, error: "the written config does not carry " + n + ": " + cfgPath };
+  if (!/^  provider:\s*troth\s*$/m.test(back)) return { ok: false, error: "the written config does not name troth as the memory provider: " + cfgPath };
+  const coreRoot = (opts && opts.coreRoot) || path.resolve(__dirname, "..");
+  const src = path.join(coreRoot, "integrations", "hermes", "memory", "troth");
+  const copied = [];
+  if (host.provider) {
+    try {
+      fs.mkdirSync(host.provider, { recursive: true });
+      for (const f of ["__init__.py", "plugin.yaml", "README.md"]) {
+        const from = path.join(src, f);
+        if (!fs.existsSync(from)) return { ok: false, error: "provider file missing in this install: " + from };
+        fs.copyFileSync(from, path.join(host.provider, f));
+        copied.push(f);
+      }
+    } catch (e) { return { ok: false, error: "provider install " + host.provider + ": " + e.message }; }
+  }
+  const router = provisionRouterConfig(opts);
+  return { ok: true, added: names, pruned: [], missing, cfgPath, router, provider: host.provider, provider_files: copied,
+    note: "Hermes reads troth as its memory provider; keep one memory by setting memory.memory_enabled: false in " + cfgPath };
+}
+function hostStatusYaml(host) {
+  if (!fs.existsSync(host.cfg)) return "no config yet";
+  try {
+    const text = fs.readFileSync(host.cfg, "utf8");
+    const ours = SERVER_NAMES.filter((n) => _yamlHas(text, "mcp_servers", n));
+    const provider = /^  provider:\s*troth\s*$/m.test(text);
+    if (ours.length === SERVER_NAMES.length) return "wired (" + ours.length + " servers" + (provider ? ", memory provider" : "") + ")";
+    if (ours.length) return "partial (" + ours.length + "/" + SERVER_NAMES.length + " servers)";
+    return provider ? "memory provider only" : "not wired";
+  } catch (e) { return "config unreadable"; }
+}
+
 function installInto(host, opts) {
+  if (host.format === "yaml") return installIntoYaml(host, opts);
   if (host.id === "claude" && claudePluginInstalled() && !(opts && opts.force)) {
     // The plugin provides the same gateway surface; still (re)provision the
     // router config so the gateway reaches its downstream with healed paths,
@@ -280,6 +385,7 @@ function installInto(host, opts) {
 }
 
 function hostStatus(host) {
+  if (host.format === "yaml") return hostStatusYaml(host);
   if (host.id === "claude" && claudePluginInstalled()) return "wired via plugin";
   if (!fs.existsSync(host.cfg)) return "no config yet";
   try {

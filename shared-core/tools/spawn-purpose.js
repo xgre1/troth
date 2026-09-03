@@ -43,6 +43,10 @@ const PURPOSES = {
   // asking for the context a prompt gets): argv is ours, the prompt travels
   // on stdin, the child is short-lived.
   'hook-context': { kind: 'trusted-plumbing' },
+  // The product's own CLI reading a folder of notes into the spool: argv is
+  // ours (the path the operator named), detached, logged to the substrate
+  // folder.
+  'knowledge-import': { kind: 'trusted-plumbing' },
   // ground-walled purposes; adopters pick one consciously and the profile
   // tightens per purpose without touching call sites again.
   'inference':   { kind: 'ground', ground: 'confine' },

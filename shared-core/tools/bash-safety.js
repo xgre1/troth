@@ -595,6 +595,29 @@ function _checkEgress(command, isAllowedFn) {
   return null;
 }
 
+// A here-document body is data on its way into a file, never an order: the
+// order patterns read the command with those bodies removed. Credential
+// literals are still read everywhere, a body included.
+function _withoutHeredocBodies(command) {
+  const lines = String(command).split('\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    out.push(line);
+    const m = /<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\2/.exec(line);
+    i++;
+    if (!m) continue;
+    const term = m[3], dash = m[1] === '-';
+    while (i < lines.length) {
+      const t = dash ? lines[i].replace(/^\t+/, '') : lines[i];
+      i++;
+      if (t === term) { out.push(lines[i - 1]); break; }
+    }
+  }
+  return out.join('\n');
+}
+
 function isCommandSafe(command, ctx) {
   if (typeof command !== 'string' || !command.length) {
     return { allowed: false, reason: 'empty_command', severity: 'block' };
@@ -621,8 +644,9 @@ function isCommandSafe(command, ctx) {
   }
 
   // Layer 1 — pattern check. First match wins (deterministic).
+  const orders = _withoutHeredocBodies(command);
   for (const p of DANGEROUS_PATTERNS) {
-    if (p.pattern.test(command)) {
+    if (p.pattern.test(orders)) {
       return {
         allowed:  false,
         reason:   'dangerous_pattern',
@@ -651,6 +675,7 @@ function isCommandSafe(command, ctx) {
 module.exports = {
   isCommandSafe,
   DANGEROUS_PATTERNS,
+  _withoutHeredocBodies,
   CREDENTIAL_LITERALS,
   // exposed for tests
   _reachedPaths,
