@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - A hook run writes a line when it begins and when it ends; the doctor counts
   a run that never ended as killed at its budget.
+- Every turn the session watcher records carries the conversation it was
+  said in, and a read of recent turns returns it, so two conversations are
+  two conversations in the substrate.
 - The identity block leaves out a self row that stands on nothing, core or
   topical, and the cast renders only beside a ledger line or a count of
   people.

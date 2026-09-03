@@ -242,6 +242,9 @@ function recentTurns(opts) {
         user_text,
         assistant_text,
         faculty,
+        // The conversation the turn was said in: part of its identity, so a
+        // reader can keep threads apart.
+        conversation_id: rec.session_id || null,
         // cwd + agent_id surfaced as METADATA so callers can use them as
         // soft signals (same-cwd or same-surface turns slightly more
         // salient) without losing cross-folder/cross-surface continuity.

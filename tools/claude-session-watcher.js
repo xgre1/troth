@@ -90,6 +90,9 @@ function saveCursor(c) {
 // Read appended bytes from `offset` to current EOF, parse + record
 // as turns. Returns {written, redacted, skipped, newOffset}.
 async function processAppend(filePath, offset, agent_id, pendingState) {
+  // The transcript file is the conversation: its name is the id every turn
+  // is recorded under, so two conversations never look like one.
+  const conversationId = path.basename(filePath, '.jsonl');
   let stat;
   try { stat = fs.statSync(filePath); } catch (_) { return { written: 0, redacted: 0, skipped: 0, newOffset: offset }; }
   if (stat.size <= offset) return { written: 0, redacted: 0, skipped: 0, newOffset: offset };
@@ -118,6 +121,7 @@ async function processAppend(filePath, offset, agent_id, pendingState) {
       if (redactedUser !== pendingUser.text || redactedAsst !== text) redacted++;
       const ok = dialogueMemory.recordTurn({
         agent_id, user_id: 'default',
+        conversation_id: conversationId,
         cwd:            pendingUser.cwd || obj.cwd || null,
         user_text:      redactedUser.slice(0, MAX_TEXT_CHARS),
         assistant_text: redactedAsst.slice(0, MAX_TEXT_CHARS),

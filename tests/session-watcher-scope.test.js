@@ -72,6 +72,10 @@ function transcript(dir, sessionId, cwd, userText, assistantText) {
     assert.ok(!texts.some((x) => /bench haystack/.test(x)), 'the throwaway home never enters memory');
     const alpha = turns.find((x) => /alpha project/.test(String(x.user_text || '')));
     assert.strictEqual(alpha && alpha.cwd, '/Users/someone/code/alpha', 'the turn carries the project it was said in');
+    const beta = turns.find((x) => /beta project/.test(String(x.user_text || '')));
+    const convOf = (x) => x && (x.conversation_id || x.session_id) || null;
+    assert.ok(convOf(alpha), 'the turn carries the conversation it was said in: ' + JSON.stringify(alpha));
+    assert.ok(convOf(beta) && convOf(beta) !== convOf(alpha), 'two transcripts are two conversations');
   });
 
   console.log('\nsession-watcher-scope: ' + pass + ' passed, ' + fail + ' failed\n');
