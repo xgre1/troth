@@ -93,6 +93,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that is nobody's name never appears as an alias or an entry, and the
   extractor never writes the user, the assistant or such a word as the
   entity of an occurrence.
+- What the operator states about themselves is one current fact per
+  subject and attribute: the reader returns whole sentences that name their
+  subject, a newer statement of an employer's pay or a machine's place
+  supersedes the older row (kept as history), a fact from an older turn
+  never replaces a later one, and the pass reads each turn once - its
+  watermark is written and read under one name. The ledger note names the
+  road the reader took.
+- A web search the partner runs is research: its results enter the
+  knowledge queue under the search itself, the way a fetched page does.
 - A count of what happened or what is owned leaves plans out: "how many
   tanks do I have" is not answered by a tank the user is thinking of setting
   up, while a question about plans keeps its planned lines. The same object

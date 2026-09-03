@@ -812,7 +812,7 @@ const _SELF_FACT_SCHEMA = {
 const _SELF_FACT_PROMPT = [
   'Read the message a person wrote to their assistant. List only durable facts the person states ABOUT THEMSELVES:',
   'their role or occupation, a constraint they live with, a skill they have, something they like or dislike, something they made or did before, what they earn or are paid, how many days they work somewhere.',
-  'Write each fact as a short phrase in the message\'s own language and words. Ignore requests, anger, opinions about the assistant, and anything about other people.',
+  'Write each fact as ONE complete sentence in the message\'s own language and words, naming what it is about ("I work at X two days a week for 600 a month", never "for 600 a month" alone). Ignore requests, anger, opinions about the assistant, and anything about other people.',
   'For each fact also give "subject": the thing the fact is about, named as the message names it (an employer, a client, a project, a machine, a place), and "attribute": what about it the fact states: pay, schedule, role, status, amount, location, contact or other.',
   'Answer with ONE JSON object {"facts":[{"kind":"role|constraint|skill|liking|effort|fact","what":"...","subject":"...","attribute":"pay|schedule|role|status|amount|location|contact|other"}]} and nothing else; an empty list when there is none.',
   '', 'Message: '
@@ -835,9 +835,10 @@ function _selfFactReader() {
     if (await probe(proxy + '/health')) return { road: 'engine', call: qs.makeProxyShapeCall({ host: proxy, model: process.env.TROTH_INSTANCE_EXTRACT_MODEL || 'claude-sonnet-5', timeout_ms: 20000 }) };
     return { road: 'none', call: null };
   };
-  return async function readFacts(text) {
+  const readFacts = async function readFacts(text) {
     if (!pickP) pickP = pick();
     const picked = await pickP;
+    readFacts.road = picked ? picked.road : 'none';
     if (!picked || !picked.call) return null;
     // The engine road spends the shared daily budget, one turn per read;
     // when it is spent the English patterns stand until the next day.
@@ -852,6 +853,7 @@ function _selfFactReader() {
     let j; try { j = JSON.parse(s.slice(a, b + 1)); } catch (_) { return null; }
     return Array.isArray(j && j.facts) ? j.facts : null;
   };
+  return readFacts;
 }
 
 // during attention spikes / sleep. The substrate's dialogue.turn rows are
@@ -871,6 +873,12 @@ function _selfFactReader() {
 // scope='system:wm_consolidation:watermark'. Read at task start to find
 // last-processed timestamp; written at task end with the latest dialogue
 // ts processed. Idempotent: re-running with the same watermark is a no-op.
+// The scope the watermark is written under and read from: one name, so a
+// rename can never leave the reader looking for a row the writer no longer
+// writes (measured: the reader searched a scope the writer had left, every
+// run fell back to the last hour, and the same turns were read again each
+// cadence).
+const WM_WATERMARK_SCOPE = 'internal:wm_watermark';
 const taskWorkingMemoryConsolidation = {
   name: 'wm_consolidation',
   cadence_ms: 10 * 60 * 1000,   // 10 min — slower than purpose_refresh,
@@ -882,9 +890,9 @@ const taskWorkingMemoryConsolidation = {
     // Find watermark — last processed dialogue ts.
     let watermark = 0;
     try {
-      const marks = engram.listEngrams({ audience: 'substrate_internal', limit: 10 }) || [];
+      const marks = engram.listEngrams({ scope: WM_WATERMARK_SCOPE, audience: 'all', limit: 5 }) || [];
       const lastMark = marks
-        .filter(e => e && e.scope === 'system:wm_consolidation:watermark')
+        .filter(e => e && e.scope === WM_WATERMARK_SCOPE)
         .sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
       if (lastMark && lastMark.statement) {
         const m = lastMark.statement.match(/processed_through:\s*(\d+)/);
@@ -929,24 +937,45 @@ const taskWorkingMemoryConsolidation = {
     // promoted statement is deterministically 'operator emphasized: '+fragment,
     // so identical user emphasis yields a byte-identical statement.
     const _seenPromoted = new Set();
+    // The current fact per subject and attribute (an employer's pay, a
+    // machine's location): a newer statement on the same pair supersedes
+    // the older row, so recall serves one current fact and keeps the
+    // older one as history.
+    const _bySubject = new Map();
+    const _subjectKey = (subject, attribute) => {
+      const s = String(subject || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+      const a = String(attribute || '').toLowerCase().trim();
+      return s && a && a !== 'other' ? s + '|' + a : null;
+    };
     try {
       const existingPromoted = engram.listEngrams({
-        scope: 'consolidated:self', limit: 500
+        scope: 'consolidated:self', audience: 'all', agent_id: ctx.agent_id || undefined, limit: 500
       }) || [];
       for (const e of existingPromoted) {
         const s = e && e.statement;
         if (s) _seenPromoted.add(String(s).replace(/\s+/g, ' ').trim().toLowerCase());
+        const p = e && e.payload;
+        const k = p ? _subjectKey(p.subject, p.attribute) : null;
+        const turnTs = p && Number.isFinite(p.turn_ts) ? p.turn_ts : (e.ts || 0);
+        if (k && e.id && !(_bySubject.has(k) && (_bySubject.get(k).turn_ts || 0) > turnTs)) _bySubject.set(k, { id: e.id, turn_ts: turnTs, statement: s });
       }
     } catch (_) { /* best-effort; empty set just means no prior-run dedup */ }
 
-    // Read each new turn for what it states about the operator. One row per
-    // distinct fact, in the operator's words, with the attesting turns counted.
+    // Read each new turn for what it states about the operator, oldest turn
+    // first so a later statement of the same subject is the one that stands.
+    // One row per distinct fact, in the operator's words, with the attesting
+    // turns counted.
+    turns.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
     let promoted = 0;
+    let superseded = 0;
+    let skippedOlder = 0;
     let skippedDup = 0;
     let latestTs = watermark;
     const selfStatements = require('./self-statements.js');
     let readFacts = null;
-    try { readFacts = _selfFactReader(); } catch (_) { readFacts = null; }
+    let road = 'patterns';
+    if (view && typeof view.read_self_facts === 'function') { readFacts = view.read_self_facts; road = 'given'; }
+    else { try { readFacts = _selfFactReader(); road = readFacts ? (readFacts.road || 'engine') : 'patterns'; } catch (_) { readFacts = null; } }
     const facts = new Map();
     for (const row of turns) {
       latestTs = Math.max(latestTs, row.timestamp);
@@ -965,14 +994,25 @@ const taskWorkingMemoryConsolidation = {
         if (what.length < 4 || what.length > 200) continue;
         const kind = String((f && f.kind) || 'fact').toLowerCase();
         const key = what.toLowerCase();
-        if (!facts.has(key)) facts.set(key, { fact: what, kind, rows: [] });
+        const subject = String((f && f.subject) || '').replace(/\s+/g, ' ').trim().slice(0, 80) || null;
+        const attribute = String((f && f.attribute) || '').trim().toLowerCase().slice(0, 24) || null;
+        if (!facts.has(key)) facts.set(key, { fact: what, kind, subject, attribute, rows: [] });
         facts.get(key).rows.push(row);
+        facts.get(key).turn_ts = Math.max(facts.get(key).turn_ts || 0, row.timestamp || 0);
       }
     }
     for (const [key, f] of facts) {
       if (_seenPromoted.has(key)) { skippedDup++; continue; }
       _seenPromoted.add(key);
       const first = f.rows[0];
+      const sk = _subjectKey(f.subject, f.attribute);
+      const prior = sk ? _bySubject.get(sk) : null;
+      // A fact from a turn older than the row that stands is history already:
+      // it never replaces what the operator said later.
+      if (prior && (prior.turn_ts || 0) > (f.turn_ts || 0)) { skippedOlder++; continue; }
+      const supersedes = prior && prior.id && String(prior.statement || '').trim().toLowerCase() !== key ? [prior.id] : null;
+      const extra = { payload: { fact_kind: f.kind, subject: f.subject, attribute: f.attribute, turn_ts: f.turn_ts || null, reps: f.rows.length, turn_ids: f.rows.map((r) => r.id).slice(0, 12) } };
+      if (supersedes) extra.lifetime = { supersedes, reason: 'newer_on_subject' };
       const wrote = engram.recordEngram({
         agent_id: ctx.agent_id || 'background-worker',
         cwd: first.cwd || ctx.cwd || null,
@@ -983,9 +1023,9 @@ const taskWorkingMemoryConsolidation = {
         source_authority: 'plr_evolved',
         provenance_ref: 'dialogue.turn:' + first.id,
         auto_verify: false,
-        extra_output: { payload: { fact_kind: f.kind, reps: f.rows.length, turn_ids: f.rows.map((r) => r.id).slice(0, 12) } }
+        extra_output: extra
       });
-      if (wrote) promoted++;
+      if (wrote) { promoted++; if (supersedes) superseded++; if (sk) _bySubject.set(sk, { id: wrote, turn_ts: f.turn_ts || 0, statement: f.fact }); }
     }
     // Update watermark.
     try {
@@ -999,7 +1039,7 @@ const taskWorkingMemoryConsolidation = {
         // "processed_through: <ms>" — pure bookkeeping noise the partner
         // surfaced as a memory. 'internal:' routes it to
         // substrate_internal/operational where it belongs.
-        scope: 'internal:wm_watermark',
+        scope: WM_WATERMARK_SCOPE,
         source: 'background_worker.wm_consolidation',
         source_authority: 'plr_evolved',
         auto_verify: false,
@@ -1008,7 +1048,7 @@ const taskWorkingMemoryConsolidation = {
     } catch (_) {}
     return {
       events: [],
-      notes: ['wm_consolidation: scanned=' + turns.length + ' promoted=' + promoted + ' skipped_dup=' + skippedDup +
+      notes: ['wm_consolidation (' + road + '): scanned=' + turns.length + ' promoted=' + promoted + ' superseded=' + superseded + ' skipped_dup=' + skippedDup + ' skipped_older=' + skippedOlder +
               ' watermark→' + new Date(latestTs).toISOString()]
     };
   }
