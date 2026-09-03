@@ -102,6 +102,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   road the reader took.
 - A web search the partner runs is research: its results enter the
   knowledge queue under the search itself, the way a fetched page does.
+- The identity block every prompt carries leads with what the operator has
+  stated about themselves - the current fact per subject, with the day it
+  was said - ahead of any rule of thumb, and never a row a newer statement
+  retired.
+- The self-facts pass also reads the history before its watermark, a
+  bounded slice per run under the daily engine budget (40 turns by default,
+  TROTH_UNDERSTANDING_CATCHUP_TURNS), moving its floor back until the first
+  turn; a fact read from history never replaces a later statement.
 - A count of what happened or what is owned leaves plans out: "how many
   tanks do I have" is not answered by a tank the user is thinking of setting
   up, while a question about plans keeps its planned lines. The same object
