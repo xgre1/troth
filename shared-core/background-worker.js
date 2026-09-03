@@ -1742,7 +1742,7 @@ const taskMemoryHygiene = {
     const identity = require('./entity-identity.js');
     const agentOf = (id, fallback) => { try { const r = state.getAction(id); return (r && r.agent_id) || fallback; } catch (_) { return fallback; } };
     const fallbackAgent = ctx.agent_id || 'maintenance';
-    let retiredInstances = 0, cleanedIdentities = 0, retiredIdentities = 0, scanned = 0;
+    let retiredInstances = 0, cleanedIdentities = 0, retiredIdentities = 0, retiredDocs = 0, scanned = 0;
     // 1. Occurrences whose entity is not an entity.
     try {
       const rows = engram.listEngrams({ scope_prefix: ic.SCOPE_PREFIX, audience: 'all', limit: 2000 }) || [];
@@ -1794,7 +1794,30 @@ const taskMemoryHygiene = {
       }
       try { identity._resetCacheForTests(); } catch (_) {}
     } catch (_) { /* the registry may be absent */ }
-    return { events: [], notes: ['memory_hygiene: scanned=' + scanned + ' instances_retired=' + retiredInstances + ' identities_cleaned=' + cleanedIdentities + ' identities_retired=' + retiredIdentities] };
+    // 3. Document chunks read out of the assistant's own scratch (transcripts,
+    //    tool results, hook outputs) are not the operator's knowledge. The
+    //    folder a document came from is the row's cwd; a bounded slice per
+    //    run, newest first, so a day's cycle stays within its budget.
+    try {
+      const kp = require('./knowledge-predicate.js');
+      const rows = state.queryActions({ type: 'commitment', scope_prefix: 'docs:', limit: 4000, order: 'desc' }) || [];
+      for (const row of rows) {
+        scanned++;
+        if (!row || !row.cwd || !kp.isAssistantScratch(String(row.cwd) + '/x')) continue;
+        let out; try { out = typeof row.output === 'string' ? JSON.parse(row.output) : (row.output || {}); } catch (_) { continue; }
+        if (!out || out.commitment_type !== 'engram') continue;
+        if (out.lifetime && out.lifetime.superseded_by) continue;
+        const id = engram.recordEngram({
+          agent_id: row.agent_id || fallbackAgent, user_id: ctx.user_id || 'default', cwd: null,
+          statement: 'retired: assistant scratch, not knowledge (' + String(out.scope || '').slice(0, 40) + ')',
+          scope: 'internal:retired', source: 'background_worker.memory_hygiene', source_authority: 'plr_evolved',
+          auto_verify: false, salience: 0.1,
+          extra_output: { lifetime: { supersedes: [row.id], reason: 'assistant_scratch' } }
+        });
+        if (id) retiredDocs++;
+      }
+    } catch (_) { /* no documents yet */ }
+    return { events: [], notes: ['memory_hygiene: scanned=' + scanned + ' instances_retired=' + retiredInstances + ' identities_cleaned=' + cleanedIdentities + ' identities_retired=' + retiredIdentities + ' docs_retired=' + retiredDocs] };
   }
 };
 

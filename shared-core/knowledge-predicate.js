@@ -26,11 +26,22 @@ const NOT_KNOWLEDGE_DIR = /(^|\/)(node_modules|\.git|dist|build|out|coverage|ven
 const MIN_KNOWLEDGE_BYTES = 200;   // a stub or a placeholder is not a document
 const MAX_KNOWLEDGE_BYTES = 2 * 1024 * 1024;
 
+// The assistant's own scratch is never the operator's knowledge: the
+// transcripts, tool results and hook outputs Claude Code keeps under
+// ~/.claude/projects, the session scratchpads, and the harness's throwaway
+// homes. Reading one of them is work, not research (measured: a hook's
+// additionalContext file came back as a document in recall).
+const ASSISTANT_SCRATCH = /(^|\/)(\.claude\/projects|tool-results|scratchpad|claude-[0-9]+|troth-test-home-[^/]*|\.troth\/(?:telemetry|desktop|codelens|archive))(\/|$)/;
+function isAssistantScratch(absPath) {
+  return ASSISTANT_SCRATCH.test(String(absPath || '').replace(/\\/g, '/'));
+}
+
 function isKnowledgeFile(absPath) {
   const p = String(absPath || '');
   if (!p) return false;
   if (NOT_KNOWLEDGE_DIR.test(p)) return false;
+  if (isAssistantScratch(p)) return false;
   return KNOWLEDGE_EXT.test(p);
 }
 
-module.exports = { isKnowledgeFile, KNOWLEDGE_EXT, NOT_KNOWLEDGE_DIR, MIN_KNOWLEDGE_BYTES, MAX_KNOWLEDGE_BYTES };
+module.exports = { isAssistantScratch, isKnowledgeFile, KNOWLEDGE_EXT, NOT_KNOWLEDGE_DIR, MIN_KNOWLEDGE_BYTES, MAX_KNOWLEDGE_BYTES };

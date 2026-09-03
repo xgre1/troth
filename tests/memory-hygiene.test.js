@@ -39,10 +39,22 @@ const ident = (canonical, kind, relation, aliases) => engram.recordEngram({
   ident('Anthropic', 'organization', "entity blocking the user's fable", ['contosso', 'i mana poutanes gioi tis anthropic']);
   ident('orea', 'colleague', null, ['sinexise']);
   ident('Nikos', 'colleague', 'coworker', []);
+  const doc = (cwd, title) => engram.recordEngram({
+    agent_id: A, user_id: 'default', cwd,
+    statement: '[' + title + ' #1] some chunk of text that was read',
+    scope: 'docs:seen:' + title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 20), source: 'seen:abc', source_authority: 'plr_evolved', auto_verify: false,
+    extra_output: { provenance: { tier: 'operator', ref: null } }
+  });
+  doc('/Users/x/.claude/projects/-Users-x/abc/tool-results', 'mcp-plugin-troth-recall-1788.txt');
+  doc('/Users/x/.claude/projects/-Users-x', 'hook-5b61-7-additionalContext.txt');
+  doc('/Users/x/Documents/research', 'llama-cpp-notes.md');
 
   await t('occurrences whose entity is not an entity are retired; a real one stands', async () => {
     const r = await bw.tasks.memoryHygiene.run({ substrate_ctx: { agent_id: A, user_id: 'default', cwd: null } });
     assert.ok(/instances_retired=2/.test(r.notes[0]), r.notes[0]);
+    assert.ok(/docs_retired=2/.test(r.notes[0]), r.notes[0]);
+    const docs = engram.listEngrams({ scope_prefix: 'docs:', audience: 'all', agent_id: A, limit: 20 }) || [];
+    assert.deepStrictEqual(docs.map((d) => d.statement.slice(1, 20)), ['llama-cpp-notes.md '], docs.map((d) => d.statement).join(' | '));
     const rows = engram.listEngrams({ scope_prefix: 'instance:', audience: 'all', agent_id: A, limit: 20 }) || [];
     assert.deepStrictEqual(rows.map((x) => x.payload.instance.entity).sort(), ['Nikos'], rows.map((x) => x.statement).join(' | '));
   });
@@ -60,7 +72,7 @@ const ident = (canonical, kind, relation, aliases) => engram.recordEngram({
 
   await t('a second run finds nothing left to clean', async () => {
     const r = await bw.tasks.memoryHygiene.run({ substrate_ctx: { agent_id: A, user_id: 'default', cwd: null } });
-    assert.ok(/instances_retired=0 identities_cleaned=0 identities_retired=0/.test(r.notes[0]), r.notes[0]);
+    assert.ok(/instances_retired=0 identities_cleaned=0 identities_retired=0 docs_retired=0/.test(r.notes[0]), r.notes[0]);
   });
 
   console.log('\nmemory-hygiene: ' + pass + ' passed, ' + fail + ' failed');

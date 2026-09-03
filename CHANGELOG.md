@@ -121,6 +121,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   counts what it touched.
 - A question about the last time, the latest or the most recent of
   something, in English or Greek, is answered newest first.
+- The assistant's own scratch is never the operator's knowledge: transcripts,
+  tool results, hook outputs and scratchpad files are not queued when read,
+  and chunks already taken from such folders are retired by the hygiene pass.
 - A count of what happened or what is owned leaves plans out: "how many
   tanks do I have" is not answered by a tank the user is thinking of setting
   up, while a question about plans keeps its planned lines. The same object
