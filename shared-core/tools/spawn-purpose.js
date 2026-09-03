@@ -39,6 +39,10 @@ const PURPOSES = {
   // the vault: argv comes from a closed source table in vault-capture.js, the
   // child is short-lived, and the value stays in the parent.
   'vault-capture': { kind: 'trusted-plumbing' },
+  // The product's own hook scripts run for another host (a memory provider
+  // asking for the context a prompt gets): argv is ours, the prompt travels
+  // on stdin, the child is short-lived.
+  'hook-context': { kind: 'trusted-plumbing' },
   // ground-walled purposes; adopters pick one consciously and the profile
   // tightens per purpose without touching call sites again.
   'inference':   { kind: 'ground', ground: 'confine' },

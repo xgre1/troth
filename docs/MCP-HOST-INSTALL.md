@@ -147,6 +147,35 @@ Speak MCP `initialize`, then `tools/list`, then `tools/call`. Direct
 spawn only works from a full checkout or the app bundle (the servers
 require sibling `proxy/` + `shared-core/`).
 
+### Hermes Agent (`~/.hermes/config.yaml`)
+
+Hermes reads MCP servers from the `mcp_servers` block of its config. The
+same four stdio servers, with the gateway alone enough for most work:
+
+```yaml
+mcp_servers:
+  troth-router:
+    command: "/abs/path/to/node"
+    args: ["/abs/path/to/troth/plugin/mcp-servers/troth-router/server.mjs"]
+  troth-bash:
+    command: "/abs/path/to/node"
+    args: ["/abs/path/to/troth/plugin/mcp-servers/troth-bash/server.mjs"]
+  troth-cache:
+    command: "/abs/path/to/node"
+    args: ["/abs/path/to/troth/plugin/mcp-servers/troth-cache/server.mjs"]
+  troth-hashline:
+    command: "/abs/path/to/node"
+    args: ["/abs/path/to/troth/plugin/mcp-servers/troth-hashline/server.mjs"]
+```
+
+Tools reach Hermes through its own reasoning layer, in the terminal and
+through its messaging gateway alike (`hermes gateway setup`, then `hermes
+gateway start`: Telegram, Discord, Slack, WhatsApp, Signal, Email). Memory
+that arrives on its own every turn, the way the Claude Code hooks deliver
+it, is the troth memory provider for Hermes (`integrations/hermes/`): it
+asks the proxy for the same per-prompt context the hooks build and records
+each turn back into the substrate.
+
 ## `agent_id` strategy
 
 Per the substrate's "engine swap doesn't break identity" claim

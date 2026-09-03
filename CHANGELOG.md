@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- troth is a memory provider for Hermes Agent (`integrations/hermes/memory/troth`):
+  before each model call Hermes receives the context a prompt gets, the
+  session starts with troth's orientation, and every turn is recorded back
+  into the substrate. Any host asks the proxy for that context over
+  `POST /api/context/prompt` and `POST /api/context/session`, which return
+  what the hooks build. The Hermes recipe for the MCP servers is in
+  docs/MCP-HOST-INSTALL.md.
 - The chat surface names every tool with its target (the command it runs, the
   file it reads or edits, the host it fetches, the server and tool it calls),
   writes each tool as a line of the transcript with its time when it took a

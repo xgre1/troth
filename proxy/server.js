@@ -3745,6 +3745,32 @@ const server = http.createServer((req, res) => {
     } catch (e) { jsonResponse(res, 500, { error: 'identity read failed', detail: e && e.message }); }
     return;
   }
+  // The context a prompt gets, and the context a session starts with, as the
+  // hooks build them, for a host that has no hooks of its own (a memory
+  // provider plugin asks here before each turn).
+  if (req.method === 'POST' && (url === '/api/context/prompt' || url === '/api/context/session')) {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    let buf = '';
+    req.on('data', (c) => { buf += c; });
+    req.on('end', async () => {
+      let body;
+      try { body = JSON.parse(buf || '{}'); }
+      catch (_) { jsonResponse(res, 400, { error: 'bad_json' }); return; }
+      try {
+        const pc = require('../shared-core/prompt-context.js');
+        const args = { session_id: String(body.session_id || ''), cwd: body.cwd ? String(body.cwd) : null };
+        let r;
+        if (url === '/api/context/prompt') {
+          if (!body.prompt || !String(body.prompt).trim()) { jsonResponse(res, 400, { error: 'prompt required' }); return; }
+          r = await pc.promptContext(Object.assign({ prompt: String(body.prompt) }, args));
+        } else {
+          r = await pc.sessionContext(args);
+        }
+        jsonResponse(res, 200, r);
+      } catch (e) { jsonResponse(res, 500, { error: 'context failed', detail: e && e.message }); }
+    });
+    return;
+  }
   if (req.method === 'POST' && url === '/api/substrate/identity') {
     if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
     let buf = '';
