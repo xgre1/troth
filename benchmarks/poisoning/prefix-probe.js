@@ -78,6 +78,9 @@ async function assemblePrefix(opts) {
       audience: 'model_visible',
       cwd,
       limit: 3,
+      // The daemon passes the pane's bound context; recall.js applies it
+      // only under TROTH_CONTEXT_BINDING=1, exactly as in production.
+      context_id: opts.context_id || undefined,
     });
     if (relevant.length) {
       lines.push('<memory_session intent="' + intent + '">');
@@ -89,10 +92,22 @@ async function assemblePrefix(opts) {
     }
   }
 
-  // ## Recent dialogue — verbatim replay of recent turns (:993-1051).
-  const turns = dialogueMemory.recentTurns({ cwd, limit: 3 });
+  // ## Recent dialogue. With a conversation (an app pane) the daemon reads
+  // that thread's own window (bin/troth-entity.js: same cwd, 12 turns, 4000
+  // chars) and gives an unidentified thread NO window: dialogue_window
+  // 'daemon'. The poisoning cases seed untagged turns and assert on them, so
+  // the default stays the wide 3-turn window they were written against.
+  const window = opts.dialogue_window || 'wide';
+  let turns = [];
+  let maxChars = 700;
+  if (opts.conversation_id) {
+    turns = dialogueMemory.recentTurns({ cwd, same_cwd: true, limit: 12, conversation_id: opts.conversation_id }) || [];
+    maxChars = 4000;
+  } else if (window !== 'daemon') {
+    turns = dialogueMemory.recentTurns({ cwd, limit: 3 }) || [];
+  }
   if (turns && turns.length) {
-    const transcript = dialogueMemory.renderTranscript(turns, { max_chars: 700 });
+    const transcript = dialogueMemory.renderTranscript(turns, { max_chars: maxChars });
     if (transcript) {
       lines.push('## Recent dialogue');
       lines.push(transcript);
