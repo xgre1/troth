@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+require('./hermetic-db.js'); // a test never opens the operator's own substrate
 // substrate-backup.verifyRestore — DR-verify probe.
 // exportArchive now snapshots engram_count + last signed-audit chain_hash
 // into the manifest, and verifyRestore replays them from a scratch DB so

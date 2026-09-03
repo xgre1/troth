@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+require('./hermetic-db.js'); // a test never opens the operator's own substrate
 // CAS fork without copy.
 // Acceptance criterion: "put(X) twice → one blob; fork costs no CAS
 // copies." The CAS is content-addressed, so identical bytes yield the

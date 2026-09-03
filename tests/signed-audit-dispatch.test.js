@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+require('./hermetic-db.js'); // a test never opens the operator's own substrate
 // signed-audit-on-dispatch — every successful (or thrown) control-channel
 // dispatch must extend the tamper-evident signed-audit chain so the operator
 // can structurally prove what the substrate did. design

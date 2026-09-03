@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+require('./hermetic-db.js'); // a test never opens the operator's own substrate
 // Vault value never leaks.
 // Acceptance criterion: "vault value never in any intent payload or
 // engram." The vault stores secrets that the substrate auto-attaches to

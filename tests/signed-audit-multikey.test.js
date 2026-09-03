@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+require('./hermetic-db.js'); // a test never opens the operator's own substrate
 // Multi-key signed-audit verifier (C7 v2). Rotated keys must still verify
 // older chain rows: the chain is forever, but the active signing key may
 // rotate (compromise rumor, scheduled hygiene, hardware swap). v1 only

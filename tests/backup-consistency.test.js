@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+require('./hermetic-db.js'); // a test never opens the operator's own substrate
 // Mid-commit-kill snapshot consistency.
 // Acceptance criterion: "mid-commit kill → consistent snapshot."
 // The translation: a backup taken while writes are in flight must restore

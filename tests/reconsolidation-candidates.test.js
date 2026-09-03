@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+require('./hermetic-db.js'); // a test never opens the operator's own substrate
 // Reconsolidation candidates on the read path.
 // Acceptance criterion: "reconsolidation candidates appear on read
 // path (currently 0)." The lability-reconsolidation module reads recent

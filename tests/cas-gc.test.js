@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+require('./hermetic-db.js'); // a test never opens the operator's own substrate
 // CAS garbage collection.
 // Acceptance criterion: "expired artifact GC'd, pinned untouched."
 // casGC() walks every blob under _casDir(), unlinks the ones whose
