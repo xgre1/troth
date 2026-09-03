@@ -26,7 +26,7 @@ t('the host is listed with a YAML config and a provider folder', () => {
   assert.ok(hermes, 'hermes host');
   assert.strictEqual(hermes.cfg, cfg);
   assert.strictEqual(hermes.format, 'yaml');
-  assert.ok(hermes.provider.endsWith(path.join('.hermes', 'plugins', 'memory', 'troth')));
+  assert.ok(hermes.provider.endsWith(path.join('.hermes', 'plugins', 'troth')));
   assert.strictEqual(hosts.hostStatus(hermes), 'no config yet');
 });
 
@@ -98,6 +98,14 @@ t('a second install changes nothing', () => {
   const r = hosts.installInto(hermes, { coreRoot: ROOT });
   assert.ok(r.ok, JSON.stringify(r));
   assert.strictEqual(fs.readFileSync(cfg, 'utf8'), before);
+});
+
+t('HERMES_HOME moves the config and the provider folder', () => {
+  process.env.HERMES_HOME = path.join(HOME, 'elsewhere');
+  const h = hosts.hosts().find((x) => x.id === 'hermes');
+  assert.strictEqual(h.cfg, path.join(HOME, 'elsewhere', 'config.yaml'));
+  assert.strictEqual(h.provider, path.join(HOME, 'elsewhere', 'plugins', 'troth'));
+  delete process.env.HERMES_HOME;
 });
 
 t('the CLI lists the host', () => {

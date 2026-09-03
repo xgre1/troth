@@ -1,5 +1,3 @@
 name: troth
 version: 0.1.0
 description: troth as the memory of Hermes Agent - the same per-prompt context the Claude Code hooks build, and every turn recorded back into the substrate.
-capabilities:
-  - memory_provider

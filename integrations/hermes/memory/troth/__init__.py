@@ -100,8 +100,8 @@ class TrothMemoryProvider(MemoryProvider):
         except Exception:
             return ""
 
-    def prefetch(self, query, *args, **kwargs):
-        session_id = kwargs.get("session_id") or self._session_id
+    def prefetch(self, query, *args, session_id="", **kwargs):
+        session_id = session_id or self._session_id
         try:
             r = self._post("/api/context/prompt", {"prompt": str(query or ""), "session_id": session_id, "cwd": self._cwd})
             return str(r.get("context") or "")
@@ -127,16 +127,15 @@ class TrothMemoryProvider(MemoryProvider):
         except Exception:
             pass
 
-    def sync_turn(self, *args, **kwargs):
-        user = kwargs.get("user_message") or kwargs.get("user") or kwargs.get("query") or (args[0] if len(args) > 0 else None)
-        assistant = kwargs.get("assistant_message") or kwargs.get("assistant") or kwargs.get("response") or (args[1] if len(args) > 1 else None)
-        self._record("user", user)
-        self._record("assistant", assistant)
+    def sync_turn(self, user_content="", assistant_content="", *, session_id="", messages=None, **kwargs):
+        if session_id:
+            self._session_id = str(session_id)
+        self._record("user", user_content)
+        self._record("assistant", assistant_content)
 
-    def on_memory_write(self, *args, **kwargs):
-        text = kwargs.get("content") or kwargs.get("text") or (args[0] if args else None)
-        if text:
-            self._record("assistant", "[memory] " + str(text))
+    def on_memory_write(self, action="", target="", content="", metadata=None, **kwargs):
+        if content:
+            self._record("assistant", "[memory " + str(action or "note") + "] " + str(content))
 
     def on_pre_compress(self, *args, **kwargs):
         return None

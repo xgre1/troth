@@ -8,7 +8,7 @@ is recorded back into the substrate.
 
 ## Install
 
-Copy this folder to `~/.hermes/plugins/memory/troth/`, then:
+Copy this folder to `~/.hermes/plugins/troth/` (or run `troth mcp install hermes`, which does this and wires the servers), then:
 
 ```
 hermes memory setup      # choose troth; proxy_url defaults to http://127.0.0.1:8000

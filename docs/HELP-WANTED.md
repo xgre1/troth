@@ -10,7 +10,7 @@ not claim.
 ## Surfaces
 
 **Hermes Agent, verified live.** troth ships a memory provider for Hermes
-(`integrations/hermes/memory/troth`) and `troth mcp install hermes` writes the
+(`integrations/hermes/memory/troth`, installed to `<hermes home>/plugins/troth`) and `troth mcp install hermes` writes the
 wiring. The provider is written against the published provider contract and
 has not been exercised inside a running Hermes. Wanted: a run that shows the
 prompt context arriving before each turn and the turn recorded back, and a

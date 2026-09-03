@@ -53,12 +53,17 @@ function home() {
 // tcc: true = the config lives under ~/Library of ANOTHER app, so probing or
 // writing it can trigger the macOS App Data Protection prompt. Surfaces only
 // write these hosts when the operator names them explicitly.
+// Hermes keeps everything under HERMES_HOME when the operator sets it.
+function hermesHome() {
+  return process.env.HERMES_HOME || path.join(home(), ".hermes");
+}
+
 function hosts() {
   const HOME = home();
   return [
     { id: "claude", label: "Claude Code", cfg: path.join(HOME, ".claude.json"), tcc: false },
     { id: "cursor", label: "Cursor", cfg: path.join(HOME, ".cursor", "mcp.json"), tcc: false },
-    { id: "hermes", label: "Hermes Agent", cfg: path.join(HOME, ".hermes", "config.yaml"), format: "yaml", provider: path.join(HOME, ".hermes", "plugins", "memory", "troth"), tcc: false },
+    { id: "hermes", label: "Hermes Agent", cfg: path.join(hermesHome(), "config.yaml"), format: "yaml", provider: path.join(hermesHome(), "plugins", "troth"), tcc: false },
     { id: "windsurf", label: "Windsurf", cfg: path.join(HOME, ".codeium", "windsurf", "mcp_config.json"), tcc: false },
     { id: "cline", label: "Cline (VS Code)", cfg: path.join(HOME, "Library", "Application Support", "Code", "User", "globalStorage", "saoudrizwan.claude-dev", "settings", "cline_mcp_settings.json"), tcc: true },
     { id: "claude_desktop", label: "Claude Desktop", cfg: path.join(HOME, "Library", "Application Support", "Claude", "claude_desktop_config.json"), tcc: true },
