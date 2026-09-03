@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A hook run writes a line when it begins and when it ends; the doctor counts
+  a run that never ended as killed at its budget.
 - The identity block leaves out a self row that stands on nothing, core or
   topical, and the cast renders only beside a ledger line or a count of
   people.
@@ -27,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   left them model-visible, and never served back as a memory.
 - The same words recorded more than once come back from recall as one item
   that says how many more tellings it stands for.
+- Opening the substrate is cheap again: the re-stamps that read a JSON
+  field of every candidate row now cover only the rows written since the
+  last open, so a hook process no longer walks the whole table on start.
 - A credential the operator already holds moves into the vault by name.
   `troth vault capture gh` (or `keychain`, or `env`) has the proxy, the
   process holding the unlocked session, read the value from that tool and

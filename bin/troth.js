@@ -1857,9 +1857,9 @@ if (command === "doctor") {
     var _dayAgo = Date.now() - 24 * 60 * 60 * 1000;
     var _hs = _tel.hookSummary(_dayAgo, { budget_ms: 4000 });
     if (_hs.runs > 0) {
-      var _slow = _hs.hooks.slice(0, 3).map(function (h) { return h.hook.replace(/\.mjs$/, "") + " p95 " + Math.round(h.p95) + " ms" + (h.over_budget ? " (" + h.over_budget + "/" + h.n + " over)" : ""); });
+      var _slow = _hs.hooks.slice(0, 3).map(function (h) { return h.hook.replace(/\.mjs$/, "") + (h.p95 != null ? " p95 " + Math.round(h.p95) + " ms" : "") + (h.over_budget ? " (" + h.over_budget + "/" + h.n + " over" + (h.killed ? ", " + h.killed + " killed" : "") + ")" : ""); });
       var _okH = _hs.over_budget === 0 || (_hs.over_budget / _hs.runs) < 0.02;
-      checks.push({ name: "Hook latency (24 h)", ok: _okH, detail: _hs.runs + " runs · " + _slow.join(" · ") + (_okH ? "" : " — " + _hs.over_budget + " runs past 4 s: their output was discarded by the harness") });
+      checks.push({ name: "Hook latency (24 h)", ok: _okH, detail: _hs.runs + " runs · " + _slow.join(" · ") + (_okH ? "" : " — " + _hs.over_budget + " runs past 4 s" + (_hs.killed ? " (" + _hs.killed + " killed at the budget)" : "") + ": their output was discarded by the harness") });
     } else {
       checks.push({ name: "Hook latency (24 h)", ok: true, detail: "no hook runs recorded yet (they are written from the next session on)" });
     }

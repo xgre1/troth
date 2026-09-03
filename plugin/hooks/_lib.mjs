@@ -91,12 +91,17 @@ export function _currentPayload() { return _lastPayload; }
 // (~/.troth/telemetry/hook-timing.jsonl, never leaving the machine). The
 // harness discards a hook's output past its budget without a word; the
 // doctor reads these lines and says which hook is slow and how often.
+// A run writes a line when it begins and a line when it ends. A run the
+// harness killed at its budget has no end line; the doctor counts those.
 const _hookStartedAt = Date.now();
+const _hookName = String(process.argv[1] || '').split('/').pop() || '?';
+let _telemetry = null;
+try { _telemetry = require(pluginRoot + '/../shared-core/telemetry.js'); } catch { _telemetry = null; }
+try { if (_telemetry) _telemetry.append('hook-timing.jsonl', { hook: _hookName, pid: process.pid, began: true }); } catch { /* best-effort */ }
 process.on('exit', () => {
   try {
-    const hook = String(process.argv[1] || '').split('/').pop() || '?';
     const event = _lastPayload && _lastPayload.hook_event_name ? String(_lastPayload.hook_event_name) : null;
-    require(pluginRoot + '/../shared-core/telemetry.js').append('hook-timing.jsonl', { hook, event, ms: Date.now() - _hookStartedAt });
+    if (_telemetry) _telemetry.append('hook-timing.jsonl', { hook: _hookName, pid: process.pid, event, ms: Date.now() - _hookStartedAt });
   } catch { /* a timing line is never worth a failed hook */ }
 });
 

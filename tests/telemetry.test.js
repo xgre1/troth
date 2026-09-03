@@ -54,6 +54,20 @@ t('the hook summary names the slow hook and counts runs past the budget', () => 
   assert.strictEqual(s.hooks[1].over_budget, 0);
 });
 
+t('a run that began and never ended counts as killed at the budget', () => {
+  const now = Date.now();
+  tel.append('hook-timing.jsonl', { hook: 'standing-rules.mjs', pid: 111, began: true, ts: now - 120000 });
+  tel.append('hook-timing.jsonl', { hook: 'standing-rules.mjs', pid: 222, began: true, ts: now - 120000 });
+  tel.append('hook-timing.jsonl', { hook: 'standing-rules.mjs', pid: 222, event: 'UserPromptSubmit', ms: 800, ts: now - 119000 });
+  tel.append('hook-timing.jsonl', { hook: 'standing-rules.mjs', pid: 333, began: true, ts: now - 1000 });
+  const s = tel.hookSummary(0, { budget_ms: 4000, now });
+  const row = s.hooks.find((h) => h.hook === 'standing-rules.mjs');
+  assert.strictEqual(row.killed, 1, JSON.stringify(row));
+  assert.strictEqual(row.n, 2, 'one ended run and one killed run; the run still inside its grace is neither');
+  assert.strictEqual(row.over_budget, 1);
+  assert.strictEqual(s.killed, 1);
+});
+
 t('the error summary counts by reason and keeps the last message', () => {
   tel.append('proxy-errors.jsonl', { where: 'request_failed', msg: 'socket hang up' });
   tel.append('proxy-errors.jsonl', { where: 'request_failed', msg: 'ECONNRESET' });
@@ -82,6 +96,7 @@ t('the doctor reads both into its two lines', () => {
   const hook = out.split('\n').find((l) => /Hook latency \(24 h\)/.test(l)) || '';
   const err = out.split('\n').find((l) => /Proxy errors \(24 h\)/.test(l)) || '';
   assert.ok(/injector p95 4800 ms \(1\/5 over\)/.test(hook), hook || out.slice(0, 400));
+  assert.ok(/standing-rules[^·]*\(1\/2 over, 1 killed\)/.test(hook), hook);
   assert.ok(/3 · request_failed ×2 · all_providers_failed ×1/.test(err), err);
 });
 

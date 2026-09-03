@@ -57,22 +57,37 @@ function _pct(sorted, q) {
 
 // Per hook: runs, median and 95th-percentile duration, and how many ran past
 // the budget (the harness discards a hook's output past its timeout).
+// A run that began more than a grace period ago and never ended was
+// killed by the harness at its budget: it counts as a timeout, and as a
+// run past the budget.
 function hookSummary(since, opts) {
   opts = opts || {};
   const budgetMs = Number.isFinite(opts.budget_ms) ? opts.budget_ms : 4000;
+  const graceMs = Number.isFinite(opts.grace_ms) ? opts.grace_ms : 60000;
+  const now = Number.isFinite(opts.now) ? opts.now : Date.now();
   const by = new Map();
+  const began = new Map();   // hook|pid -> ts
+  const ended = new Set();
   for (const r of read('hook-timing.jsonl', since)) {
     const hook = String(r.hook || '?');
-    if (!by.has(hook)) by.set(hook, []);
-    by.get(hook).push(Number(r.ms) || 0);
+    if (r.began) { if (r.pid != null) began.set(hook + '|' + r.pid, Number(r.ts) || 0); continue; }
+    if (!by.has(hook)) by.set(hook, { ms: [], killed: 0 });
+    by.get(hook).ms.push(Number(r.ms) || 0);
+    if (r.pid != null) ended.add(hook + '|' + r.pid);
+  }
+  for (const [key, ts] of began) {
+    if (ended.has(key) || now - ts < graceMs) continue;
+    const hook = key.split('|')[0];
+    if (!by.has(hook)) by.set(hook, { ms: [], killed: 0 });
+    by.get(hook).killed++;
   }
   const rows = [];
-  for (const [hook, ms] of by) {
-    const sorted = ms.slice().sort((a, b) => a - b);
-    rows.push({ hook, n: sorted.length, p50: _pct(sorted, 0.5), p95: _pct(sorted, 0.95), max: sorted[sorted.length - 1], over_budget: sorted.filter((x) => x > budgetMs).length });
+  for (const [hook, v] of by) {
+    const sorted = v.ms.slice().sort((a, b) => a - b);
+    rows.push({ hook, n: sorted.length + v.killed, p50: _pct(sorted, 0.5), p95: _pct(sorted, 0.95), max: sorted.length ? sorted[sorted.length - 1] : null, killed: v.killed, over_budget: sorted.filter((x) => x > budgetMs).length + v.killed });
   }
-  rows.sort((a, b) => (b.p95 || 0) - (a.p95 || 0));
-  return { since: since || 0, budget_ms: budgetMs, hooks: rows, runs: rows.reduce((n, r) => n + r.n, 0), over_budget: rows.reduce((n, r) => n + r.over_budget, 0) };
+  rows.sort((a, b) => (b.over_budget - a.over_budget) || ((b.p95 || 0) - (a.p95 || 0)));
+  return { since: since || 0, budget_ms: budgetMs, hooks: rows, runs: rows.reduce((n, r) => n + r.n, 0), over_budget: rows.reduce((n, r) => n + r.over_budget, 0), killed: rows.reduce((n, r) => n + r.killed, 0) };
 }
 
 // Proxy errors: how many, and which reasons lead.
