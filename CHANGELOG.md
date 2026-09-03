@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The proxy writes a copy of the substrate to a folder the operator names
+  (`POST /api/repair/export {out_dir}`): the backup's bundle, placed under
+  the home directory and outside the substrate's own folder.
 - A memory question ("what did we say about X") is an explicit ask: recall
   reads across every thread for it, and the per-prompt hook offers the
   operator's own words that name the subject with or without the reranker's

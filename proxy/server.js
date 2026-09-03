@@ -1044,6 +1044,35 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // A copy of the substrate in a folder the operator names: the same bundle
+  // the backup writes, placed under the home directory and outside the
+  // substrate's own folder, for measurement on a copy and for moving a
+  // memory between machines.
+  if (req.method === 'POST' && url === '/api/repair/export') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    readJsonBody(req).then((body) => {
+      try {
+        const asked = body && typeof body.out_dir === 'string' ? body.out_dir.trim() : '';
+        const outDir = asked ? path.resolve(asked) : '';
+        const home = require('os').homedir();
+        const substrate = require('../shared-core/troth-home.js').trothDir();
+        const inside = (p, root) => p === root || p.startsWith(root + path.sep);
+        if (!outDir || !path.isAbsolute(outDir) || !inside(outDir, home) || inside(outDir, substrate)) {
+          jsonResponse(res, 400, { error: 'out_dir must be an absolute folder under the home directory and outside the substrate folder' });
+          return;
+        }
+        fs.mkdirSync(outDir, { recursive: true });
+        const backup = require('../shared-core/substrate-backup.js');
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const dest = path.join(outDir, 'substrate-' + stamp);
+        const r = backup.exportArchive({ out_path: dest });
+        const ok = !(r && r.ok === false);
+        jsonResponse(res, ok ? 200 : 500, { ok, path: dest, db: path.join(dest, 'state.db'), result: r || null });
+      } catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
+    }).catch((e) => { jsonResponse(res, 400, { error: String(e && e.message || e) }); });
+    return;
+  }
+
   // Restart from the dashboard: a detached helper waits for this process to
   // release the port, then starts a fresh proxy from disk. No port bump, no
   // stray sibling.
