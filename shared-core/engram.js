@@ -856,7 +856,7 @@ function listEngrams(opts) {
       if (out.length >= limit) break;
     }
     return out;
-  } catch (_) { return []; }
+  } catch (e) { if (opts.throw_on_error) throw e; return []; }
 }
 
 // ── Embedding (best-effort, fallback-safe) ──────────────────────────────

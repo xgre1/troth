@@ -125,13 +125,27 @@ function _activeGlobalPath() {
 }
 
 // Read a whole registry-shaped file (not just .mcpServers - the pending
-// file carries a sibling "notes" map). {} on absent/unreadable/malformed.
+// file carries a sibling "notes" map). {} when the file is absent or empty;
+// an unreadable or malformed file is an error that names it, never {}.
 function _readRegistryObject(p) {
-  if (!p || !fs.existsSync(p)) return {};
-  try {
-    const obj = JSON.parse(fs.readFileSync(p, 'utf8'));
-    return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
-  } catch (_) { return {}; }
+  if (!p) return {};
+  let raw;
+  try { raw = fs.readFileSync(p, 'utf8'); }
+  catch (e) {
+    if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return {};
+    const err = new Error('cannot read ' + p + ': ' + ((e && e.code) || (e && e.message) || 'unknown'));
+    err.code = 'REGISTRY_UNREADABLE'; err.path = p;
+    throw err;
+  }
+  if (!raw.trim()) return {};
+  let obj;
+  try { obj = JSON.parse(raw); }
+  catch (e) {
+    const err = new Error('cannot parse ' + p + ': ' + (e && e.message));
+    err.code = 'REGISTRY_MALFORMED'; err.path = p;
+    throw err;
+  }
+  return (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
 }
 
 // Atomic + private: temp file in the SAME directory (rename must not
@@ -648,13 +662,16 @@ const mcpDescribe = {
 // has already sealed authority. This does NOT weaken STVC - it only surfaces
 // authority the operator already sealed; writeIntent's predicate wall still
 // runs on the result (and refuses if nothing covers the scope). Returns
-// { capability_ref, grounded_in } or null.
+// { capability_ref, grounded_in }, null when nothing sealed covers the scope,
+// or { unreachable } when the store itself could not be read.
 function _autoResolveMcpAuthorization(scope, irreversibilityClass) {
   if (typeof scope !== 'string' || scope.indexOf('intent:mcp:call:') !== 0) return null;
   let intentMod, eng;
   try { intentMod = require('../intent.js'); } catch (_) { return null; }
   try { eng = require('../engram.js'); }       catch (_) { return null; }
-  const pool = eng.listEngrams({ principal: null, audience: 'all', limit: 2000 }) || [];
+  let pool;
+  try { pool = eng.listEngrams({ principal: null, audience: 'all', limit: 2000, throw_on_error: true }) || []; }
+  catch (e) { return { unreachable: (e && (e.code || e.message)) || 'unknown' }; }
   const now = Date.now();
   const ranks = intentMod.IRREVERSIBILITY_RANK || {};
   const wantCls = irreversibilityClass || 'low';
@@ -751,6 +768,18 @@ const mcpCall = {
     // faculty is NOT asked to thread capability_ref/grounded_in - same
     // ergonomics as bare intent_emit.
     const auth = _autoResolveMcpAuthorization(scope, irreversibility_class);
+    if (auth && auth.unreachable) {
+      return {
+        ok: false,
+        refused: true,
+        stage: 'authorize',
+        server: args.server,
+        tool: args.tool,
+        reason: 'capability_store_unreachable',
+        detail: auth.unreachable,
+        hint: 'the capability store could not be opened, so nothing about the seal is known. Sealed capabilities stay valid; restore access to the substrate and retry.'
+      };
+    }
 
     const write = intentMod.writeIntent({
       scope,

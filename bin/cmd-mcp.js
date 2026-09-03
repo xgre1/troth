@@ -27,9 +27,14 @@ module.exports = function run(ctx) {
   if (sub === 'pending') {
     // List staged requests. config stays out of the line (it can carry env
     // key NAMES); the app fetches details from the file if it needs them.
-    const rows = mcpClient.listPendingServers().map((r) => ({
-      name: r.name, transport: r.transport, note: r.note, requested_at: r.requested_at
-    }));
+    let rows;
+    try {
+      rows = mcpClient.listPendingServers().map((r) => ({
+        name: r.name, transport: r.transport, note: r.note, requested_at: r.requested_at
+      }));
+    } catch (e) {
+      fail({ ok: false, error: e && e.code === 'REGISTRY_MALFORMED' ? 'pending_malformed' : 'pending_unreadable', detail: e && e.message, path: e && e.path });
+    }
     console.log(JSON.stringify({ ok: true, pending: rows }));
     process.exit(0);
   }
@@ -49,7 +54,9 @@ module.exports = function run(ctx) {
   }
 
   if (sub === 'reject') {
-    const r = mcpClient.rejectPendingServer(name);
+    let r;
+    try { r = mcpClient.rejectPendingServer(name); }
+    catch (e) { fail({ ok: false, error: e && e.code === 'REGISTRY_MALFORMED' ? 'pending_malformed' : 'pending_unreadable', detail: e && e.message, path: e && e.path }); }
     if (!r.ok) fail({ ok: false, error: r.reason, name: name });
     console.log(JSON.stringify({ ok: true, rejected: name }));
     process.exit(0);

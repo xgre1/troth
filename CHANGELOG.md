@@ -376,6 +376,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   telling the reader to count them separately only on explicit evidence.
 
 ### Fixed
+- The operator passphrase is read from the terminal itself, hidden, and the
+  read blocks until Enter whatever state stdin is in; without a terminal it
+  is read from stdin and waits instead of failing.
+- `troth mcp pending`, `approve` and `reject` report a staging file that
+  cannot be read or parsed, naming it, instead of an empty list.
+- An `mcp_call` whose capability store cannot be opened is refused as
+  `capability_store_unreachable`; sealed capabilities are never reported
+  as missing because the store was down.
 - The sidebar version badge shows the version the proxy reports, on the first-run onboarding as well.
 
 ## [0.1.18] — 2026-08-29

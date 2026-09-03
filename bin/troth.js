@@ -714,29 +714,12 @@ function _getOperatorSigner(prompt) {
 }
 
 function _readPassphraseSync(prompt) {
-  if (process.env.TROTH_OPERATOR_PASSPHRASE) {
-    return process.env.TROTH_OPERATOR_PASSPHRASE;
-  }
-  // Best-effort hidden read. tty.ReadStream doesn't expose a sync
-  // password mode in core Node — we fall back to a visible prompt with
-  // a warning so the operator knows to clear their scrollback.
-  process.stdout.write(prompt + ' (visible — clear scrollback after): ');
-  var buf = Buffer.alloc(1024);
-  var len = 0;
-  try {
-    var fd = process.stdin.fd;
-    while (true) {
-      var n = fs.readSync(fd, buf, len, buf.length - len, null);
-      if (n === 0) break;
-      len += n;
-      if (buf.indexOf(0x0a, len - n) >= 0) break;
-      if (len >= buf.length - 1) break;
-    }
-  } catch (e) {
-    console.error('failed to read passphrase: ' + e.message);
+  try { return require('../shared-core/tty-passphrase.js').readPassphraseSync(prompt); }
+  catch (e) {
+    if (e && e.code === 'INTERRUPTED') process.exit(130);
+    console.error('failed to read passphrase: ' + (e && e.message));
     process.exit(2);
   }
-  return buf.slice(0, len).toString('utf8').replace(/\r?\n$/, '');
 }
 
 require('./cmd-init.js')(__cliCtx);
