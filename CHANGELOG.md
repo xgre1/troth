@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   set-aside activity line are marked, never judged.
 - The self-facts pass keeps one current watermark row: each run's mark
   supersedes the last.
+- The substrate's own marks and signals (scope system:*) are bookkeeping:
+  written as internal rows, re-stamped once at open when an older writer
+  left them model-visible, and never served back as a memory.
 - A credential the operator already holds moves into the vault by name.
   `troth vault capture gh` (or `keychain`, or `env`) has the proxy, the
   process holding the unlocked session, read the value from that tool and

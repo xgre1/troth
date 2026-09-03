@@ -123,6 +123,10 @@ function db() {
     // model-visible recall; nothing is deleted. Once per open, indexed on
     // (audience, memory_class).
     _db.prepare("UPDATE action_records SET audience='substrate_internal' WHERE audience='model_visible' AND json_extract(output,'$.scope')='consolidated:dialogue'").run();
+    // The substrate's own marks and signals (scope system:*): bookkeeping,
+    // never a memory to serve back. Rows written before the write path
+    // routed them internal are re-stamped once per open.
+    _db.prepare("UPDATE action_records SET audience='substrate_internal', memory_class='operational' WHERE audience='model_visible' AND json_extract(output,'$.scope') LIKE 'system:%'").run();
     _db.prepare("UPDATE action_records SET audience='substrate_internal' WHERE audience='model_visible' AND json_extract(output,'$.scope')='identity' AND json_extract(output,'$.source')='identity-promotion.runOnce' AND json_extract(output,'$.payload.fact_kind') IS NULL").run();
   } catch (_) { /* columns not yet there (very first run before migrate) */ }
   return _db;

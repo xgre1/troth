@@ -245,7 +245,9 @@ function recordEngram(opts) {
     // Caller can always override via opts.audience / opts.memory_class.
     const _scope = opts.scope || null;
     const _isHandoff  = typeof _scope === 'string' && _scope.indexOf('handoff:') === 0;
-    const _isInternal = typeof _scope === 'string' && _scope.indexOf('internal:') === 0;
+    // Bookkeeping scopes: the substrate's own marks and signals, never a
+    // memory to serve back (a drift signal, a watermark, a run marker).
+    const _isInternal = typeof _scope === 'string' && (_scope.indexOf('internal:') === 0 || _scope.indexOf('system:') === 0);
     const _isIdentity = _scope === 'identity';
     // Entity registry rows (entity-identity.js, scope entity:<slug>) are the
     // cast, not episodes: read by loadRegistry (scope prefix) and mounted by
