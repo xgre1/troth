@@ -52,8 +52,16 @@ t('every statement carries its day and the older figure names the newer statemen
   assert.ok(!/is newer on this subject/.test(s2), s2);
 });
 
-t('the cast renders names only: an insult leaves the aliases and a word that is nobody\'s name leaves the cast', () => {
+t('a fact question with no ledger line renders no cast at all', () => {
   const out = buildReconciledView(items, { question: Q, noun_head: 'earn', reference_ts: SEP }).render();
+  assert.ok(!/^C\d+\./m.test(out), out.split('\n').filter((l) => /^C\d/.test(l)).join(' | '));
+  assert.ok(!/Known people and entities/.test(out));
+});
+
+t('the cast renders names only: an insult leaves the aliases and a word that is nobody\'s name leaves the cast', () => {
+  // Beside a ledger line about the subject the cast renders, cleaned.
+  const withLedger = items.map((it) => it.id === 'i1' ? Object.assign({}, it, { statement: '[instance] activity: worked Northwind — Two days a week at the office [completed] (attested ×1)', _entity: 'Northwind', _cos: 0.6 }) : it);
+  const out = buildReconciledView(withLedger, { question: Q, noun_head: 'earn', reference_ts: SEP }).render();
   assert.ok(/C\d+\. Anthropic — entity blocking the user's fable \(also: contosso\)/.test(out), out.split('\n').filter((l) => /^C\d/.test(l)).join(' | '));
   assert.ok(!/poutanes/.test(out), 'no insult rendered');
   assert.ok(!/orea — colleague/.test(out), 'orea is not a person');

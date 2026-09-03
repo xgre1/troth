@@ -642,7 +642,12 @@ function buildReconciledView(items, opts) {
         });
         lines.push('');
       }
-      if (cast.length) {
+      // The cast is a glossary for reading a ledger, or the list a
+      // person-headed count is counted over. A fact question with no ledger
+      // line gets neither (measured: fifteen entities under a pay question).
+      const _PERSON_HEADS_EARLY = new Set(['person', 'people', 'doctor', 'dentist', 'specialist', 'therapist', 'physician', 'friend', 'cousin', 'relative', 'sibling', 'colleague', 'neighbor', 'neighbour', 'provider', 'practitioner', 'contact', 'member', 'guest']);
+      const castWanted = cast.length && (ledger.some((l) => !l.folded_into) || (head && _PERSON_HEADS_EARLY.has(head)));
+      if (castWanted) {
         // The counting clause converts "distinct people mentioned nearby"
         // into "distinct occurrences" when the counted thing is NOT people
         // (measured: a weddings count read the cast's four people as four

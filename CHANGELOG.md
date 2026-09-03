@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The identity block leaves out a self row that stands on nothing, core or
+  topical, and the cast renders only beside a ledger line or a count of
+  people.
 - A credential the operator already holds moves into the vault by name.
   `troth vault capture gh` (or `keychain`, or `env`) has the proxy, the
   process holding the unlocked session, read the value from that tool and
