@@ -879,6 +879,13 @@ function _selfFactReader() {
 // run fell back to the last hour, and the same turns were read again each
 // cadence).
 const WM_WATERMARK_SCOPE = 'internal:wm_watermark';
+// How far back the pass has read: turns older than the floor are history
+// the organ has not read yet. A bounded slice of them is read each run
+// under the daily engine budget, oldest last, until the floor reaches the
+// first turn - so an install whose organ started late still comes to know
+// what the operator said before it did.
+const WM_FLOOR_SCOPE = 'internal:wm_floor';
+const WM_CATCHUP_TURNS = () => { const n = Number(process.env.TROTH_UNDERSTANDING_CATCHUP_TURNS); return Number.isFinite(n) && n >= 0 ? n : 40; };
 const taskWorkingMemoryConsolidation = {
   name: 'wm_consolidation',
   cadence_ms: 10 * 60 * 1000,   // 10 min — slower than purpose_refresh,
@@ -919,9 +926,42 @@ const taskWorkingMemoryConsolidation = {
           return inp && inp.tool_name === 'dialogue.turn';
         });
     } catch (_) { turns = []; }
-    if (!turns.length) {
-      return { events: [], notes: ['wm_consolidation: no new turns since ' + new Date(watermark).toISOString()] };
+    // Catch-up: a slice of turns older than the floor, when the day's engine
+    // budget leaves room for it. The floor starts at the watermark and moves
+    // back one slice per run; a fact read from an old turn never replaces a
+    // later statement (see skipped_older below).
+    let floor = 0;
+    let floorRow = null;
+    try {
+      const marks = engram.listEngrams({ scope: WM_FLOOR_SCOPE, audience: 'all', limit: 5 }) || [];
+      floorRow = marks.filter(e => e && e.scope === WM_FLOOR_SCOPE).sort((a, b) => (b.ts || 0) - (a.ts || 0))[0] || null;
+      if (floorRow && floorRow.statement) {
+        const m = floorRow.statement.match(/processed_back_to:\s*(\d+)/);
+        if (m) floor = parseInt(m[1], 10) || 0;
+      }
+    } catch (_) {}
+    if (!floor) floor = watermark;
+    let catchUp = [];
+    const catchUpMax = WM_CATCHUP_TURNS();
+    if (catchUpMax > 0 && floor > 0) {
+      try {
+        const budgetLeft = require('./instance-consolidation.js').engineBudget().remaining;
+        if (budgetLeft > catchUpMax) {
+          const older = state.queryActions({ type: 'tool_call', until: floor - 1, limit: catchUpMax * 3, order: 'desc' }) || [];
+          for (const r of older) {
+            if (catchUp.length >= catchUpMax) break;
+            let inp;
+            try { inp = typeof r.input === 'string' ? JSON.parse(r.input) : r.input; } catch (_) { continue; }
+            if (inp && inp.tool_name === 'dialogue.turn') catchUp.push(r);
+          }
+        }
+      } catch (_) { catchUp = []; }
     }
+    if (!turns.length && !catchUp.length) {
+      return { events: [], notes: ['wm_consolidation: no new turns since ' + new Date(watermark).toISOString() + (floor > 0 ? '; history read back to ' + new Date(floor).toISOString() : '')] };
+    }
+    const newTurnCount = turns.length;
+    turns = turns.concat(catchUp);
     // Dedup guard. This loop previously had a comment
     // promising "skip if substantially-duplicate fragment was already
     // promoted" but NO code implementing it, and it writes with
@@ -977,8 +1017,11 @@ const taskWorkingMemoryConsolidation = {
     if (view && typeof view.read_self_facts === 'function') { readFacts = view.read_self_facts; road = 'given'; }
     else { try { readFacts = _selfFactReader(); road = readFacts ? (readFacts.road || 'engine') : 'patterns'; } catch (_) { readFacts = null; } }
     const facts = new Map();
+    let oldestRead = floor;
+    const catchUpIds = new Set(catchUp.map((r) => r.id));
     for (const row of turns) {
-      latestTs = Math.max(latestTs, row.timestamp);
+      if (catchUpIds.has(row.id)) oldestRead = Math.min(oldestRead, row.timestamp || oldestRead);
+      else latestTs = Math.max(latestTs, row.timestamp);
       let inp;
       try { inp = typeof row.input === 'string' ? JSON.parse(row.input) : row.input; }
       catch (_) { continue; }
@@ -1027,6 +1070,22 @@ const taskWorkingMemoryConsolidation = {
       });
       if (wrote) { promoted++; if (supersedes) superseded++; if (sk) _bySubject.set(sk, { id: wrote, turn_ts: f.turn_ts || 0, statement: f.fact }); }
     }
+    // The floor moves back to the oldest turn read this run; when the slice
+    // was empty the history is read through and the floor stands.
+    if (catchUp.length && oldestRead < floor) {
+      try {
+        engram.recordEngram({
+          agent_id: ctx.agent_id || 'background-worker',
+          statement: 'processed_back_to: ' + oldestRead,
+          scope: WM_FLOOR_SCOPE,
+          source: 'background_worker.wm_consolidation',
+          source_authority: 'plr_evolved',
+          auto_verify: false,
+          salience: 0.1,
+          extra_output: floorRow && floorRow.id ? { lifetime: { supersedes: [floorRow.id], reason: 'floor_moved' } } : undefined
+        });
+      } catch (_) { /* the floor is best-effort; the next run reads the same slice again */ }
+    }
     // Update watermark.
     try {
       engram.recordEngram({
@@ -1048,7 +1107,7 @@ const taskWorkingMemoryConsolidation = {
     } catch (_) {}
     return {
       events: [],
-      notes: ['wm_consolidation (' + road + '): scanned=' + turns.length + ' promoted=' + promoted + ' superseded=' + superseded + ' skipped_dup=' + skippedDup + ' skipped_older=' + skippedOlder +
+      notes: ['wm_consolidation (' + road + '): scanned=' + newTurnCount + ' history=' + catchUp.length + ' promoted=' + promoted + ' superseded=' + superseded + ' skipped_dup=' + skippedDup + ' skipped_older=' + skippedOlder +
               ' watermark→' + new Date(latestTs).toISOString()]
     };
   }

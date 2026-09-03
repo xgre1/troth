@@ -63,6 +63,35 @@ const T0 = Date.now() - 10 * 60 * 1000;
     assert.ok(/promoted=0/.test(r.notes[0]) && /skipped_dup=1/.test(r.notes[0]), r.notes[0]);
     assert.strictEqual(current().length, 2);
   });
+  await t('history before the watermark is read back a slice per run, and never overrides a later statement', async () => {
+    // Three turns older than everything read so far: two of them state an
+    // older pay figure, one a machine fact nobody has stated since.
+    const OLD = T0 - 3 * 24 * 60 * 60 * 1000;
+    facts.set('Back then Northwind paid me five hundred a month', [{ kind: 'fact', what: 'Northwind paid me five hundred a month', subject: 'Northwind', attribute: 'pay' }]);
+    facts.set('My studio machine sits in the living room', [{ kind: 'fact', what: 'My studio machine sits in the living room', subject: 'studio machine', attribute: 'location' }]);
+    dm.recordTurn({ agent_id: A, conversation_id: 'h1', timestamp: OLD, user_text: 'Back then Northwind paid me five hundred a month', assistant_text: 'ok' });
+    dm.recordTurn({ agent_id: A, conversation_id: 'h2', timestamp: OLD + 1000, user_text: 'My studio machine sits in the living room', assistant_text: 'ok' });
+    dm.recordTurn({ agent_id: A, conversation_id: 'h3', timestamp: OLD + 2000, user_text: 'Back then Northwind paid me five hundred a month', assistant_text: 'ok' });
+    process.env.TROTH_UNDERSTANDING_CATCHUP_TURNS = '2';
+    let r = await bw.tasks.workingMemoryConsolidation.run(view);
+    assert.ok(/scanned=0 history=2/.test(r.notes[0]), r.notes[0]);
+    r = await bw.tasks.workingMemoryConsolidation.run(view);
+    assert.ok(/scanned=0 history=1/.test(r.notes[0]), r.notes[0]);
+    r = await bw.tasks.workingMemoryConsolidation.run(view);
+    assert.ok(/no new turns/.test(r.notes[0]) && /history read back to/.test(r.notes[0]), r.notes[0]);
+    const rows = current();
+    const pay = rows.filter((e) => e.payload.attribute === 'pay');
+    assert.strictEqual(pay.length, 1, pay.map((e) => e.statement).join(' | '));
+    assert.ok(/700 euros/.test(pay[0].statement), 'the later statement stands: ' + pay[0].statement);
+    assert.ok(rows.some((e) => /living room/.test(e.statement)), 'a fact only history states is known now');
+    delete process.env.TROTH_UNDERSTANDING_CATCHUP_TURNS;
+  });
+  await t('with the catch-up off, history stays unread', async () => {
+    process.env.TROTH_UNDERSTANDING_CATCHUP_TURNS = '0';
+    const r = await bw.tasks.workingMemoryConsolidation.run(view);
+    assert.ok(/no new turns/.test(r.notes[0]), r.notes[0]);
+    delete process.env.TROTH_UNDERSTANDING_CATCHUP_TURNS;
+  });
   console.log('\nself-facts-supersede: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })();
