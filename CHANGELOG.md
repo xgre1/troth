@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The chat surface names every tool with its target (the command it runs, the
+  file it reads or edits, the host it fetches, the server and tool it calls),
+  writes each tool as a line of the transcript with its time when it took a
+  while, and under the fixed layout keeps the composer one height for the
+  whole turn with the working state on the status row.
 - The local engine lane knows where it lives: a model server on this machine
   leads simple and medium requests by default, a server on another machine
   leads only when the operator chose it in Settings and rides last otherwise,

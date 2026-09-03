@@ -207,6 +207,9 @@ function releaseFixedUI() {
 // the composer when the turn ends.
 let hideComposer = null;
 let meterWriter  = null;
+// What the partner is doing right now, shown on the status row under the
+// fixed layout so the composer keeps one height for the whole turn.
+let statusWork = null;
 function out(s) {
   if (hideComposer) hideComposer();
   if (!fixedUI) { process.stdout.write(s); return; }
@@ -237,8 +240,8 @@ function drawStatus() {
   const w5 = (win5 && (win5.tin || win5.tout))
     ? color(DIM, '5h ↑' + fmtTok(win5.tin) + ' ↓' + fmtTok(win5.tout))
     : '';
-  const line = (eng || tot || w5)
-    ? '  ' + [eng ? silverDim(eng) : null, tot || null, w5 || null].filter(Boolean).join(color(DIM, '  ·  '))
+  const line = (eng || tot || w5 || statusWork)
+    ? '  ' + [eng ? silverDim(eng) : null, tot || null, w5 || null, statusWork || null].filter(Boolean).join(color(DIM, '  ·  '))
     : '';
   process.stdout.write('\x1b7\x1b[' + termRows() + ';1H\x1b[K' + line + '\x1b8');
 }
@@ -457,22 +460,42 @@ function facultyLabel(faculty) {
 }
 function toolVerb(name, args) {
   const a = args || {};
-  switch (name) {
-    case 'cached_read':
-    case 'hashline_read':
-      return a.file_path ? 'reading ' + basename(a.file_path) : 'reading';
-    case 'cached_grep':    return a.pattern ? 'searching "' + String(a.pattern).slice(0, 24) + '"' : 'searching';
-    case 'glob':           return 'matching files';
+  const n = String(name || '');
+  const key = n.toLowerCase();
+  const base = (p) => String(p || '').replace(/[\/\\]+$/, '').split(/[\/\\]/).pop();
+  const head = (t, w) => { const one = String(t || '').replace(/\s+/g, ' ').trim(); return one.length > w ? one.slice(0, w - 1) + '…' : one; };
+  const host = (u) => { try { return new URL(String(u)).host; } catch (_) { return head(u, 40); } };
+  const mcp = n.match(/^mcp__(?:plugin_troth_)?([a-z0-9-]+)__([a-z0-9_]+)$/i);
+  if (mcp) return 'calling ' + mcp[1] + '.' + mcp[2] + (a.command ? ': ' + head(a.command, 48) : a.file_path ? ' ' + base(a.file_path) : '');
+  switch (key) {
+    case 'bash': case 'run': case 'shell':
+      return a.command ? 'running: ' + head(a.command, 56) : 'running shell';
+    case 'read': case 'cached_read': case 'hashline_read':
+      return a.file_path ? 'reading ' + base(a.file_path) : 'reading';
+    case 'write':
+      return a.file_path ? 'writing ' + base(a.file_path) : 'writing';
+    case 'edit': case 'multiedit': case 'hashline_edit': case 'notebookedit':
+      return a.file_path ? 'editing ' + base(a.file_path) : 'editing';
+    case 'grep': case 'cached_grep':
+      return a.pattern ? 'searching "' + head(a.pattern, 24) + '"' : 'searching';
+    case 'glob':
+      return a.pattern ? 'matching ' + head(a.pattern, 32) : 'matching files';
+    case 'webfetch': case 'web_fetch':
+      return a.url ? 'fetching ' + host(a.url) : 'fetching a page';
+    case 'websearch': case 'web_search':
+      return a.query ? 'searching the web: ' + head(a.query, 40) : 'searching the web';
+    case 'browse': case 'browser_session':
+      return a.url ? 'browsing ' + host(a.url) : (a.action ? 'browser: ' + head(a.action, 32) : 'browsing');
+    case 'task': case 'agent':
+      return a.description ? 'delegating: ' + head(a.description, 44) : 'delegating';
     case 'engram_record':  return 'remembering';
-    case 'engram_search':  return 'recalling';
-    case 'hashline_edit':  return a.file_path ? 'editing ' + basename(a.file_path) : 'editing';
-    case 'bash':           return 'running shell';
-    case 'mcp_call':       return a.server ? 'calling MCP ' + a.server : 'calling MCP';
-    case 'mcp_list':
-    case 'mcp_describe':   return 'inspecting MCP';
+    case 'engram_search': case 'troth_recall': return 'recalling';
+    case 'dialogue_recent': case 'dialogue_search': return 'reading the dialogue';
+    case 'mcp_call':       return a.server ? 'calling ' + a.server + (a.tool ? '.' + a.tool : '') : 'calling MCP';
+    case 'mcp_list': case 'mcp_describe': return 'inspecting MCP';
   }
-  if (name && name.startsWith('mcp__')) return 'calling MCP';
-  return 'using ' + (name || 'tool');
+  const first = [a.command, a.file_path, a.url, a.query, a.pattern].find((v) => typeof v === 'string' && v.trim());
+  return 'using ' + (n || 'tool') + (first ? ': ' + head(first, 40) : '');
 }
 
 const fmtTok = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : String(n || 0);
@@ -823,6 +846,7 @@ function start() {
     // panel with a second drawn beneath it. Whole-frame repaints carry no
     // absolute state, so a scroll costs a frame instead of the layout.
     function drawMeterRow(lead) {
+      if (fixedUI) { statusWork = lead; drawStatus(); redraw(); return; }
       spinnerLead = lead;
       redraw();
     }
@@ -1246,6 +1270,7 @@ function start() {
   // Track per-turn faculty + cumulative tool count for the response trailer.
   let turnFaculty = null;
   let turnTools = 0;
+    const toolStarts = new Map();
   let turnStart = 0;
 
   child.stderr.setEncoding('utf8');
@@ -1330,10 +1355,25 @@ function start() {
           // full text still prints once on 'response' (no partial paint).
           spinner.stream(String(msg.content || '').length);
           break;
-        case 'tool_request':
+        case 'tool_request': {
           turnTools++;
-          spinner.update(toolVerb(msg.name, msg.args || msg.input));
+          const verb = toolVerb(msg.name, msg.args || msg.input);
+          toolStarts.set(String(msg.id || turnTools), { verb, at: Date.now() });
+          out(color(DIM, '  ◦ ' + verb) + '\n');
+          spinner.update(verb);
           break;
+        }
+        case 'tool_result': {
+          const key = String(msg.id || '');
+          const started = toolStarts.get(key);
+          if (started) {
+            toolStarts.delete(key);
+            const ms = Date.now() - started.at;
+            if (ms >= 2000) out(color(DIM, '    · ' + (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + 's') + '\n');
+          }
+          spinner.update(null);
+          break;
+        }
         case 'response': {
           // A cancelled turn still finishes upstream and its reply still
           // arrives. Dropping the text is right, but the working indicator
