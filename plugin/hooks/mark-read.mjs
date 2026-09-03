@@ -52,6 +52,34 @@ if (tool === 'WebFetch') {
   } catch (_) { /* a fetch must never fail because we wanted to keep it */ }
 }
 
+// WebSearch — a search the partner ran. The results are the research: the
+// titles, addresses and snippets the partner read before it answered. They
+// enter the same queue as a fetched page under the search itself as the
+// reference, so a later question meets what was found, not only what was
+// asked (measured: months of research left only the questions behind).
+if (tool === 'WebSearch') {
+  try {
+    const query = String(input.query || '').trim();
+    const resp = payload.tool_response;
+    let body = '';
+    if (typeof resp === 'string') body = resp;
+    else if (resp && typeof resp === 'object') {
+      body = String(resp.result || resp.content || resp.text || '');
+      if (!body && Array.isArray(resp.content)) {
+        body = resp.content.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n');
+      }
+      if (!body && Array.isArray(resp.results)) {
+        body = resp.results.map((r) => [r.title, r.url, r.snippet || r.description || ''].filter(Boolean).join(' — ')).join('\n');
+      }
+    }
+    if (query && body.trim().length >= 200) {
+      const text = 'Web search: ' + query + '\n\n' + body;
+      const sha = createHash('sha256').update('search:' + query + '\n' + body).digest('hex').slice(0, 32);
+      state.spoolKnowledge({ kind: 'web', ref: 'search:' + query.slice(0, 200), sha, bytes: text.length, payload: text, why: null });
+    }
+  } catch (_) { /* a search must never fail because we wanted to keep it */ }
+}
+
 // Grep/Glob don't always carry file_path; fall back to pattern/path fields.
 const candidates = new Set();
 for (const field of ['file_path', 'notebook_path', 'path']) {

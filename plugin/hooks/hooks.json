@@ -95,7 +95,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Read|Grep|Glob|WebFetch",
+        "matcher": "Read|Grep|Glob|WebFetch|WebSearch",
         "hooks": [
           {
             "type": "command",
