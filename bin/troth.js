@@ -1847,6 +1847,26 @@ if (command === "doctor") {
     });
   } catch (_e) { /* the understanding line is optional — doctor must finish */ }
 
+  // The machine's own telemetry: how long each hook took over the last day
+  // and how often it ran past the budget the harness gives it, and which
+  // errors the proxy answered with. Both are files under ~/.troth/telemetry
+  // that never leave the machine; without them a slow hook is a feeling and
+  // an error is a number nobody can read.
+  try {
+    var _tel = require("../shared-core/telemetry.js");
+    var _dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    var _hs = _tel.hookSummary(_dayAgo, { budget_ms: 4000 });
+    if (_hs.runs > 0) {
+      var _slow = _hs.hooks.slice(0, 3).map(function (h) { return h.hook.replace(/\.mjs$/, "") + " p95 " + Math.round(h.p95) + " ms" + (h.over_budget ? " (" + h.over_budget + "/" + h.n + " over)" : ""); });
+      var _okH = _hs.over_budget === 0 || (_hs.over_budget / _hs.runs) < 0.02;
+      checks.push({ name: "Hook latency (24 h)", ok: _okH, detail: _hs.runs + " runs · " + _slow.join(" · ") + (_okH ? "" : " — " + _hs.over_budget + " runs past 4 s: their output was discarded by the harness") });
+    } else {
+      checks.push({ name: "Hook latency (24 h)", ok: true, detail: "no hook runs recorded yet (they are written from the next session on)" });
+    }
+    var _es = _tel.errorSummary(_dayAgo);
+    checks.push({ name: "Proxy errors (24 h)", ok: _es.n === 0, detail: _es.n === 0 ? "none" : (_es.n + " · " + _es.reasons.slice(0, 2).map(function (r) { return r.where + " ×" + r.count; }).join(" · ") + (_es.last && _es.last.msg ? " · last: " + String(_es.last.msg).slice(0, 80) : "")) });
+  } catch (_e) { /* telemetry is optional — doctor must finish */ }
+
   // Login service sanity. Not-installed is a fact, not a failure; a
   // service whose unit points at a tree that no longer exists IS one —
   // launchd keeps respawning a ghost and the operator sees a dead port

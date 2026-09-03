@@ -87,6 +87,19 @@ const PAGED_TYPES = new Set(['read', 'edit', 'search', 'tool_call']);
 let _lastPayload = null;
 export function _currentPayload() { return _lastPayload; }
 
+// How long this hook took, written on exit to the machine's own telemetry
+// (~/.troth/telemetry/hook-timing.jsonl, never leaving the machine). The
+// harness discards a hook's output past its budget without a word; the
+// doctor reads these lines and says which hook is slow and how often.
+const _hookStartedAt = Date.now();
+process.on('exit', () => {
+  try {
+    const hook = String(process.argv[1] || '').split('/').pop() || '?';
+    const event = _lastPayload && _lastPayload.hook_event_name ? String(_lastPayload.hook_event_name) : null;
+    require(pluginRoot + '/../shared-core/telemetry.js').append('hook-timing.jsonl', { hook, event, ms: Date.now() - _hookStartedAt });
+  } catch { /* a timing line is never worth a failed hook */ }
+});
+
 export async function readStdinJson() {
   let data = '';
   for await (const chunk of process.stdin) data += chunk;

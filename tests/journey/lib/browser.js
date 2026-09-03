@@ -129,6 +129,9 @@ async function open(root) {
         try { page.close(); } catch (_) {}
         try { browser.close(); } catch (_) {}
         if (up.spawned && up.pid) { try { process.kill(up.pid, 'SIGTERM'); } catch (_) {} }
+        // The throwaway profile goes with the browser: a run leaves nothing
+        // behind in the temp directory.
+        setTimeout(() => { try { fs.rmSync(profile, { recursive: true, force: true }); } catch (_) {} }, 1500).unref();
       })();
     },
   };

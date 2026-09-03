@@ -110,6 +110,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bounded slice per run under the daily engine budget (40 turns by default,
   TROTH_UNDERSTANDING_CATCHUP_TURNS), moving its floor back until the first
   turn; a fact read from history never replaces a later statement.
+- The doctor reads the machine's own telemetry: how long each hook took over
+  the last day and how often one ran past its budget, and which errors the
+  proxy answered with. Small files under ~/.troth/telemetry, never leaving
+  the machine.
 - A count of what happened or what is owned leaves plans out: "how many
   tanks do I have" is not answered by a tank the user is thinking of setting
   up, while a question about plans keeps its planned lines. The same object

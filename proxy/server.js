@@ -82,6 +82,14 @@ function kickEmbedVerify() {
 // /api/logs) before they hit disk or screen. Pure-function module, no
 // side effects, safe to require before the console instrumentation.
 const secrets = require('./modules/secrets');
+// An error the proxy answered with is written to the machine's own
+// telemetry (~/.troth/telemetry/proxy-errors.jsonl) so the doctor can say
+// how many and which kind, after the log ring has forgotten them.
+function noteError(where, msg) {
+  try {
+    require('../shared-core/telemetry.js').append('proxy-errors.jsonl', { where: String(where || 'other'), msg: secrets.redact(String(msg || '')).slice(0, 300) });
+  } catch (_) { /* telemetry is best-effort */ }
+}
 
 // Log ring buffer — must be before module requires to capture init logs.
 // Every line is run through secrets.redact() so API keys, Bearer tokens,
@@ -152,6 +160,7 @@ function writePinFailure(res, fbOpts) {
   const pf = fbOpts && fbOpts.pinFailure;
   if (!pf || !pf.set) return false;
   try { stats.errors++; } catch (_) {}
+  noteError('pinned_engine_failed', pf.provider + ': ' + pf.reason);
   try { log('Pinned engine ' + pf.provider + ' failed closed (' + pf.reason + '), returning 400 fail-fast'); } catch (_) {}
   if (!res.headersSent) {
     const payload = JSON.stringify(pf.body);
@@ -6008,6 +6017,7 @@ const server = http.createServer((req, res) => {
       // exponential-backoff retry storm.
       if (writePinFailure(res, fbOpts)) return;
       stats.errors++;
+      noteError('all_providers_failed', 'Anthropic API + fallback chain');
       res.writeHead(502, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ type: 'error', error: { type: 'api_error', message: 'All providers failed (Anthropic API + fallback chain)' } }));
       return;
@@ -6219,6 +6229,7 @@ const server = http.createServer((req, res) => {
         if (routerMod.isLocalAvailable && !routerMod.isLocalAvailable()) {
           log('Fallback chain failed — local backend unavailable; returning 503 to client');
           stats.errors++;
+          noteError('local_backend_unavailable', 'fallback chain failed');
           if (!res.headersSent) {
             res.writeHead(503, { 'content-type': 'application/json' });
             res.end(JSON.stringify({ error: 'all_providers_unavailable', message: 'No cloud provider answered and the local backend is unreachable. Check provider API keys, quotas, or start the local backend.' }));
@@ -6283,6 +6294,7 @@ const server = http.createServer((req, res) => {
       res.end(responseBody);
     } catch (err) {
       stats.errors++;
+      noteError('request_failed', err && err.message);
       log('ERR: ' + err.message);
       // Don't leak BACKEND_HOST:BACKEND_PORT in the response body — when
       // bound on 0.0.0.0 (Tailscale) any peer hitting the proxy with a
