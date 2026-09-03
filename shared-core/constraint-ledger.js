@@ -107,8 +107,7 @@ const LIFT_GENERIC = [
   /^(?:ok\s+)?(?:go|proceed|continue)\b/i,
   /προχώρα|προχωρα|συνέχισε|συνεχισε/i,
   /\b(?:proxora|sinexise|sinexizoume)\b/i,
-  // "do what is needed", "fix it": the operator putting the work back in
-  // the partner's hands is the end of a generic freeze.
+  // handing the work back ends a generic freeze, never a scoped one
   /κάνε\s+αυτά\s+που\s+πρέπει|κανε\s+αυτα\s+που\s+πρεπει|φτιάξ['\s]?το|φτιαξ['\s]?το|\bkane\s+auta\s+pou\s+prepei\b|\bftiaxto\b|\bftiax'?to\b|\bfix\s+it\b|\bdo\s+what(?:'s|\s+is)\s+needed\b/i
 ];
 
@@ -116,10 +115,8 @@ const LIFT_GENERIC = [
 // message — "μην κάνεις push" contains "push" and must never read as a lift.
 const NEGATION = /\b(?:min|mhn|don'?t|do\s+not|not|oxi|xoris|stop)\b|μην?\s|όχι|χωρίς/i;
 
-// A freeze phrase is an order only when the operator utters it as one. The
-// same words inside a preference ("better do nothing than mediocre work"),
-// a question ("what do you mean, do nothing?"), a condition or a quotation
-// describe an order; they do not give one.
+// Freeze words led in by a preference, a question, a condition or a
+// quotation describe an order; they do not give one.
 const NOT_AN_ORDER_LEADIN = /(?:καλύτερα|καλυτερα|kalytera|kalitera|better|εννοείς|εννοεις|ennoeis|you\s+mean|meaning|τι\s+είναι\s+αυτό|αν|if|whether|ότι|οτι|oti|that|γιατί|γιατι|why|said|είπες|ειπες|eipes)\s*(?:[,;:—-]\s*)?(?:να|na|to)?(?:\s*[,;]?\s*(?:να|na))*\s*$/i;
 function _spokenAsOrder(t, index) {
   const before = t.slice(Math.max(0, index - 48), index);
@@ -157,9 +154,7 @@ function detectLift(text, active) {
   const t = String(text || '');
   if (!t.trim() || !Array.isArray(active) || !active.length) return [];
   const lifted = [];
-  // A negation counts when it stands in the same clause as the words that
-  // would lift: "μην κάνεις push" keeps a push freeze; the "μην" of the
-  // question before "κάνε αυτά που πρέπει" belongs to that question.
+  // A negation counts only inside the clause of the lifting words.
   const negatedNear = (idx) => {
     const before = t.slice(0, idx);
     let cut = before.length - 24;

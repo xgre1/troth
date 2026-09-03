@@ -6,9 +6,10 @@
 // the day it was read, and links a fact to an open goal it answers, so a
 // research goal shows what was found instead of staying open forever.
 //
-// Roads: the local engine when it answers, else the operator's engine through
-// the proxy under the shared daily budget; a reader given by the caller in
-// tests. TROTH_KNOWLEDGE_LLM=0 turns the pass off.
+// Roads: the llama.cpp host when it is on this machine (or opened with
+// `understanding_named_host`), else the proxy engine under the shared daily
+// budget when `knowledge_engine` is on; a reader given by the caller in tests.
+// TROTH_KNOWLEDGE_LLM=0 turns the pass off.
 
 const KU_WATERMARK_SCOPE = 'internal:ku_watermark';
 const KU_SOURCES_PER_RUN = () => { const n = Number(process.env.TROTH_KNOWLEDGE_SOURCES_PER_RUN); return Number.isFinite(n) && n >= 0 ? n : 4; };
@@ -32,8 +33,8 @@ const PROMPT = [
   '', 'Document: '
 ].join('\n');
 
-// The reader: the local engine when it answers, else the operator's engine
-// through the proxy, one turn of the shared daily budget per source.
+// The reader: an engine on this machine when it answers, else the proxy
+// engine when `knowledge_engine` is on, one turn of the daily budget per source.
 function makeReader() {
   if (process.env.TROTH_KNOWLEDGE_LLM === '0') return null;
   const qs = require('./question-shape.js');
@@ -44,10 +45,10 @@ function makeReader() {
     try { host = require('./transport-config.js').understandingHost(); } catch (_) { host = null; }
     const probe = async (url) => { try { const r = await fetch(url, { signal: AbortSignal.timeout(1500) }); return !!r.ok; } catch (_) { return false; } };
     if (host && await probe(String(host).replace(/\/+$/, '') + '/health')) return { road: 'local', call: qs.makeShapeCall({ host, timeout_ms: 20000 }) };
-    // The operator's engine through the proxy only when the operator opened
-    // it to this pass (TROTH_KNOWLEDGE_ENGINE=1): reading the web on a paid
-    // engine is a spend nobody asked for.
-    if (String(process.env.TROTH_KNOWLEDGE_ENGINE || '') !== '1') return { road: 'none', call: null };
+    // The proxy engine reads only once `knowledge_engine` opens it to this pass.
+    let engineOpen = false;
+    try { engineOpen = require('./transport-config.js').flag('knowledge_engine'); } catch (_) { engineOpen = false; }
+    if (!engineOpen) return { road: 'none', call: null };
     const proxy = 'http://127.0.0.1:' + (process.env.GF_PORT || '8000');
     if (await probe(proxy + '/health')) return { road: 'engine', call: qs.makeProxyShapeCall({ host: proxy, model: process.env.TROTH_INSTANCE_EXTRACT_MODEL || 'claude-sonnet-5', timeout_ms: 30000 }) };
     return { road: 'none', call: null };

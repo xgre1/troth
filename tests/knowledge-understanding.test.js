@@ -6,6 +6,7 @@
 // with their source and day, links a fact to an open goal it answers, moves
 // its watermark, and a question then finds the fact. The reader is given, so
 // no engine runs.
+process.env.TROTH_CONFIG_PATH = require('os').tmpdir() + '/troth-ku-' + process.pid + '-config.json';
 process.env.STATE_DB_PATH = require('os').tmpdir() + '/troth-ku-' + process.pid + '.db';
 require('./hermetic-db.js');
 const assert = require('assert');
@@ -97,6 +98,22 @@ const chunk = (scope, title, n, text, ref, ts) => engram.recordEngram({
     const r = await ku.run(ctx);
     assert.ok(/no reader/.test(r.notes[0]), r.notes[0]);
     delete process.env.TROTH_KNOWLEDGE_LLM;
+  });
+
+  await t('the reader takes an engine on this machine, a named host only when opened, the proxy engine only when knowledge_engine is on', async () => {
+    const fs = require('fs');
+    const tc = require(path.join(CORE, 'transport-config.js'));
+    const cfg = process.env.TROTH_CONFIG_PATH;
+    process.env.TROTH_LLAMACPP_HOST = 'http://engine-box.local:1234';
+    assert.strictEqual(tc.understandingHost(), null, 'a named host is not taken on its own');
+    assert.strictEqual(tc.flag('knowledge_engine'), false, 'the proxy engine is closed by default');
+    fs.writeFileSync(cfg, JSON.stringify({ understanding_named_host: true, knowledge_engine: true }));
+    assert.strictEqual(tc.understandingHost(), 'http://engine-box.local:1234', 'config.json opens the named host');
+    assert.strictEqual(tc.flag('knowledge_engine'), true, 'config.json opens the proxy engine');
+    fs.unlinkSync(cfg);
+    process.env.TROTH_LLAMACPP_HOST = 'http://127.0.0.1:11436';
+    assert.strictEqual(tc.understandingHost(), 'http://127.0.0.1:11436', 'a host on this machine is always taken');
+    delete process.env.TROTH_LLAMACPP_HOST;
   });
 
   console.log('\nknowledge-understanding: ' + pass + ' passed, ' + fail + ' failed');

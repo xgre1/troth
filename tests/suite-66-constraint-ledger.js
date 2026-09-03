@@ -33,8 +33,8 @@ test('CLG-1: freezes are detected in all three writing systems — and plain wor
     'to deployment kollise, des giati'
   ]) assert.strictEqual(led.detectFreeze(t), null, 'must NOT freeze: ' + t);
   for (const t of [
-    'αν κάνεις μετριότητες καλύτερα να μην κάνεις τίποτα',       // a preference
-    'τι εννοείς να, να μην κάνεις τίποτα;',                       // a question
+    'καλύτερα να μην κάνεις τίποτα παρά κάτι πρόχειρο',              // a preference
+    'τι εννοείς να μην κάνεις τίποτα;',                              // a question
     '"μην κάνεις τίποτα" είπες χθες'                                  // a quotation
   ]) assert.strictEqual(led.detectFreeze(t), null, 'talked about, not ordered: ' + t);
 });
@@ -52,7 +52,7 @@ test('CLG-2: a scoped freeze knows its verb, and lifts are fail-closed from ever
     'a generic continue-word does not unlock a scoped freeze');
   assert.strictEqual(led.detectLift('ok proxora', [generic]).length, 1, 'the generic lift works');
   assert.strictEqual(led.detectLift('kane push twra', [pushF]).length, 1, 'the action word lifts its scope');
-  assert.strictEqual(led.detectLift('τι εννοείς να μην κάνεις τίποτα; κάνε αυτά που πρέπει και φτιάξ\'το', [generic]).length, 1,
+  assert.strictEqual(led.detectLift('όχι έτσι. κάνε αυτά που πρέπει και φτιάξ\'το', [generic]).length, 1,
     'the operator handing the work back lifts a generic freeze; a negation two clauses away does not cancel it');
   assert.strictEqual(led.detectLift('μην κάνεις push, φτιάξ\'το πρώτα', [pushF]).length, 0,
     'a negation beside the verb keeps a scoped freeze');

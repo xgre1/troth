@@ -49,7 +49,12 @@ const BUILT_IN_DEFAULTS = Object.freeze({
   // Examples: "claude-haiku-4-5", "gemma3:4b", "qwen3:1.7b". The user
   // is expected to ensure the chosen model is reachable via their
   // configured providers — no auto-discovery here.
-  voice_fast_model: null
+  voice_fast_model: null,
+  // The understanding passes (knowledge, self-facts, instance) may read with
+  // the named llama.cpp host, not only one on this machine.
+  understanding_named_host: false,
+  // The knowledge pass may read with the proxy engine (the chat budget).
+  knowledge_engine: false
 });
 
 // Maps a logical field name to the env var the user can set to override.
@@ -60,7 +65,9 @@ const ENV_KEYS = Object.freeze({
   ollama_host:    'TROTH_OLLAMA_HOST',
   ollama_model:   'TROTH_OLLAMA_MODEL',
   embedding_host: 'TROTH_EMBEDDING_HOST',
-  slot_save_path: 'TROTH_SLOT_SAVE_PATH'
+  slot_save_path: 'TROTH_SLOT_SAVE_PATH',
+  understanding_named_host: 'TROTH_UNDERSTANDING_LOCAL_HOST',
+  knowledge_engine: 'TROTH_KNOWLEDGE_ENGINE'
 });
 
 let _fileCache = null;
@@ -93,6 +100,12 @@ function get(field) {
   const file = readConfigFile();
   if (file && file[field] != null && file[field] !== '') return file[field];
   return BUILT_IN_DEFAULTS[field];
+}
+
+// A yes/no field: config.json holds a boolean, an env var holds 1/true/yes.
+function flag(field) {
+  const v = get(field);
+  return v === true || v === 1 || /^(?:1|true|yes|on)$/i.test(String(v));
 }
 
 // Per-field convenience accessors. Same resolution logic, just less
@@ -171,22 +184,21 @@ function writePatch(patch) {
   }
 }
 
-// A host on this machine: the only engine the understanding passes take on
-// their own. The chat engine may live on another machine the operator
-// pointed at; background reading never rides it unasked, since a pass that
-// ticks every ten minutes turns someone's studio into a space heater.
+// The understanding passes read only with an engine on this machine unless the
+// operator opens the named host to them: a pass that ticks every ten minutes is
+// sustained load on that host.
 function isLoopbackHost(h) {
   const m = /^(?:https?:\/\/)?([^\/:\s]+|\[[^\]]+\])/i.exec(String(h || '').trim());
   const host = m ? m[1].toLowerCase() : '';
   return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]' || host === '0.0.0.0';
 }
-// The local engine host the understanding passes may use: the llama.cpp
-// host when it is on this machine, or any host the operator opened to them
-// with TROTH_UNDERSTANDING_LOCAL_HOST=1.
+// The engine host the understanding passes may read with: the llama.cpp host
+// when it is on this machine, or the named host once `understanding_named_host`
+// opens it to them.
 function understandingHost() {
   const h = llamacppHost();
   if (!h) return null;
-  if (isLoopbackHost(h) || process.env.TROTH_UNDERSTANDING_LOCAL_HOST === '1') return h;
+  if (isLoopbackHost(h) || flag('understanding_named_host')) return h;
   return null;
 }
 
@@ -195,6 +207,7 @@ module.exports = {
   llamacppHost,
   understandingHost,
   isLoopbackHost,
+  flag,
   llamacppModel,
   ollamaHost,
   ollamaModel,

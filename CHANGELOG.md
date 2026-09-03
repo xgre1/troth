@@ -12,11 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Background understanding spends only a model server on this machine: the
+- Background understanding reads with a model server on this machine: the
   knowledge, self-facts and instance passes take the configured llama.cpp
-  host when it is loopback, a named host only when
-  `TROTH_UNDERSTANDING_LOCAL_HOST=1` says it may be spent, and the knowledge
-  pass rides the proxy engine only under `TROTH_KNOWLEDGE_ENGINE=1`.
+  host when it is loopback, a named host only when `understanding_named_host`
+  is on, and the knowledge pass reads with the proxy engine only when
+  `knowledge_engine` is on. Both are config.json fields (env
+  `TROTH_UNDERSTANDING_LOCAL_HOST`, `TROTH_KNOWLEDGE_ENGINE`) and show in the
+  settings snapshot.
 - A word about a freeze is not a freeze: the constraint wall registers "do
   nothing" only when it is spoken as an order; a preference, a question or a
   quotation that carries the words leaves the wall as it was. "Do what's
