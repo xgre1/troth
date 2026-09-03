@@ -1517,6 +1517,26 @@ const _parseTimeWindow = (query, referenceTs) => require('./time-window.js').par
         for (const it of added) final.push(it);
       } catch (_) { /* continuation arm is additive — never fatal */ }
     }
+    // The same words recorded more than once (a goal set three ways, a fact
+    // told twice) are one item: the best-ranked stays and says how many
+    // more tellings it stands for.
+    {
+      const keyOf = (it) => String(it && it.statement || '').toLowerCase()
+        .replace(/^(?:\[[^\]]*\]\s*)+/, '').replace(/^user invoked \/goal\s*/, '').replace(/^(?:\[[^\]]*\]\s*)+/, '')
+        .replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+      const seenKey = new Map();
+      const kept = [];
+      for (const it of final) {
+        if (!it || it.source === 'instance-pool' || it.source === 'identity-cast') { kept.push(it); continue; }
+        const k = keyOf(it);
+        if (k.length < 20) { kept.push(it); continue; }
+        const first = seenKey.get(k);
+        if (first) { first.also_told = (first.also_told || 0) + 1; if ((it.ts || 0) > (first.ts || 0)) first.latest_ts = Math.max(first.latest_ts || 0, it.ts || 0); continue; }
+        seenKey.set(k, it);
+        kept.push(it);
+      }
+      if (kept.length !== final.length) { final.length = 0; for (const it of kept) final.push(it); }
+    }
     if (_recencyShaped) {
       const isMount = (it) => it && (it.source === 'instance-pool' || it.source === 'identity-cast');
       const ranked = final.filter((it) => !isMount(it)).sort((a, b) => (b.ts || 0) - (a.ts || 0));

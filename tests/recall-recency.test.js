@@ -42,6 +42,17 @@ const DAY = 86400000;
     assert.ok(/first restart/.test(items[0].statement), items[0].statement.slice(0, 100));
   });
 
+  await t('the same words recorded three ways come back as one item that counts the others', async () => {
+    const engramMod = engram;
+    const text = 'research which local models run well on this laptop through llama.cpp and record the findings';
+    engramMod.recordEngram({ agent_id: A, user_id: 'default', cwd: null, statement: text, scope: 'goal', source: 'test', auto_verify: false });
+    engramMod.recordEngram({ agent_id: A, user_id: 'default', cwd: null, statement: '[research] ' + text, scope: 'goal', source: 'test', auto_verify: false });
+    engramMod.recordEngram({ agent_id: A, user_id: 'default', cwd: null, statement: 'user invoked /goal [research] ' + text, scope: 'goal', source: 'test', auto_verify: false });
+    const items = await engram.retrieveRelevant({ query: 'what research did we do on local models through llama.cpp?', audience: 'model_visible', k: 6, rerank: false });
+    const hits = items.filter((i) => /run well on this laptop/.test(i.statement));
+    assert.strictEqual(hits.length, 1, hits.map((h) => h.statement).join(' | '));
+    assert.strictEqual(hits[0].also_told, 2);
+  });
   console.log('\nrecall-recency: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })();
