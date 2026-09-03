@@ -1422,7 +1422,7 @@ async function makeExtractor(opts) {
   let local = opts.local_host;
   if (local === undefined) { try { local = require('./transport-config.js').llamacppHost(); } catch (_) { local = null; } }
   if (local && await probe(String(local).replace(/\/+$/, '') + '/health')) {
-    return { road: 'local', llmCall: makeLlamacppExtractor({ host: local }), limit: null };
+    return { road: 'local', llmCall: makeLlamacppExtractor({ host: local }), limit: Number(process.env.TROTH_INSTANCE_EXTRACT_LOCAL_TURNS) || 20 };
   }
   if (String(process.env.TROTH_INSTANCE_EXTRACT_ENGINE || '') === '0') {
     return { road: 'none', llmCall: null, limit: null, reason: 'local engine unreachable; the engine road is off (TROTH_INSTANCE_EXTRACT_ENGINE=0)' };
@@ -1443,7 +1443,23 @@ async function makeExtractor(opts) {
   return { road: 'none', llmCall: null, limit: null, reason: 'no local engine and no proxy reachable' };
 }
 
+// One pass over the window on the road given; when the local engine drops
+// the call (a timeout on a window it cannot finish), the same window goes
+// once through the operator's engine under the daily budget, so a slow
+// local engine retains no window forever.
+async function runPassWithFallback(passOpts, road, opts) {
+  opts = opts || {};
+  const first = await runPass(Object.assign({}, passOpts, { llmCall: road.llmCall, limit: road.limit || undefined }));
+  if (!first.transport_error || road.road !== 'local') return { stats: first, road: road.road };
+  let engine = null;
+  try { engine = await (opts.engineRoad ? opts.engineRoad() : makeExtractor({ cwd: passOpts.cwd || null, local_host: null })); } catch (_) { engine = null; }
+  if (!engine || !engine.llmCall || engine.road === 'local') return { stats: first, road: road.road };
+  const second = await runPass(Object.assign({}, passOpts, { llmCall: engine.llmCall, limit: engine.limit || undefined }));
+  return { stats: second, road: 'local→' + engine.road, local_error: first.transport_error };
+}
+
 module.exports = {
+  runPassWithFallback,
   enabled,
   entailmentEnabled,
   buildCombinedPrompt,

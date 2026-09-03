@@ -28,7 +28,7 @@ console.log('\n=== extractor road ===\n');
     const r = await ic.makeExtractor({ probe, local_host: 'http://local:1234', proxy_host: 'http://127.0.0.1:8000' });
     assert.strictEqual(r.road, 'local');
     assert.strictEqual(typeof r.llmCall, 'function');
-    assert.strictEqual(r.limit, null, 'no budget on the local road');
+    assert.strictEqual(r.limit, 20, 'a bounded window on the local road, never the engine budget');
   });
 
   await t('without a local engine the proxy road carries a budget of turns', async () => {
@@ -78,6 +78,40 @@ console.log('\n=== extractor road ===\n');
     delete process.env.TROTH_UNDERSTANDING_DAILY_TURNS;
   });
 
-  console.log('\nextractor-road: ' + pass + ' passed, ' + fail + ' failed\n');
+  
+await t('the local road carries a bounded window', async () => {
+  const road = await ic.makeExtractor({ local_host: 'http://127.0.0.1:1', probe: async () => true });
+  assert.strictEqual(road.road, 'local');
+  assert.strictEqual(road.limit, 20);
+});
+
+await t('a window the local engine drops goes once through the engine road', async () => {
+  const dm = require(path.join(__dirname, '..', 'shared-core', 'dialogue-memory.js'));
+  const A = 'fallback-road-test';
+  dm.recordTurn({ agent_id: A, conversation_id: 'f1', timestamp: Date.now() - 60000, user_text: 'I went to the dentist on Tuesday for a cleaning, the third visit this year.', assistant_text: 'noted.' });
+  const v2 = (rows) => JSON.stringify({ identities: [], instances: rows });
+  const local = { road: 'local', limit: 20, llmCall: async () => { throw new Error('This operation was aborted'); } };
+  let engineCalls = 0;
+  const engine = { road: 'engine', limit: 60, llmCall: async () => { engineCalls++; return v2([{ kind: 'visit', entity: 'dentist', description: 'cleaning, third visit this year', date_iso: null, status: 'completed', qualifier: 'visited', quantity: null, turn_idxs: [0], quote: 'went to the dentist on Tuesday for a cleaning' }]); } };
+  const r = await ic.runPassWithFallback({ agent_id: A, user_id: 'default', cwd: null }, local, { engineRoad: async () => engine });
+  assert.strictEqual(engineCalls, 1);
+  assert.strictEqual(r.road, 'local→engine');
+  assert.ok(/aborted/.test(r.local_error), r.local_error);
+  assert.strictEqual(r.stats.written, 1, JSON.stringify(r.stats));
+  assert.ok(r.stats.advanced, 'the window advanced through the engine road');
+});
+
+await t('a window the local engine reads stays on the local road', async () => {
+  const A = 'local-road-test';
+  const dm = require(path.join(__dirname, '..', 'shared-core', 'dialogue-memory.js'));
+  dm.recordTurn({ agent_id: A, conversation_id: 'l1', timestamp: Date.now() - 60000, user_text: 'Nothing about me here, just a question about the weather today.', assistant_text: 'ok' });
+  let engineCalls = 0;
+  const local = { road: 'local', limit: 20, llmCall: async () => JSON.stringify({ identities: [], instances: [] }) };
+  const r = await ic.runPassWithFallback({ agent_id: A, user_id: 'default', cwd: null }, local, { engineRoad: async () => { engineCalls++; return null; } });
+  assert.strictEqual(engineCalls, 0);
+  assert.strictEqual(r.road, 'local');
+});
+
+console.log('\nextractor-road: ' + pass + ' passed, ' + fail + ' failed\n');
   process.exit(fail ? 1 : 0);
 })();

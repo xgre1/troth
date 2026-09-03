@@ -1165,13 +1165,13 @@ const taskInstanceConsolidation = {
       // retained and the next cadence retries.
       road = await ic.makeExtractor({ cwd: ctx.cwd || null });
       if (!road.llmCall) return { events: [], notes: ['instance_consolidation: window retained (' + road.reason + ')'] };
-      stats = await ic.runPass({
+      const run = await ic.runPassWithFallback({
         agent_id: ctx.agent_id || 'background-worker',
         user_id: ctx.user_id || 'default',
         cwd: ctx.cwd || null,
-        llmCall: road.llmCall,
-        limit: road.limit || undefined
-      });
+      }, road);
+      stats = run.stats;
+      road = { road: run.road, llmCall: road.llmCall, limit: road.limit };
     } catch (e) {
       return { events: [], notes: ['instance_consolidation: ' + String(e && e.message || e)] };
     }
