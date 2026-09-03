@@ -70,6 +70,7 @@ function boot(port) {
     const v = ni.detectVaults();
     assert.deepStrictEqual(v.map((x) => x.path), [vault]);
     assert.strictEqual(v[0].name, 'my-vault');
+    assert.ok(v[0].notes >= 1, 'a vault carries its note count: ' + JSON.stringify(v[0]));
     assert.strictEqual(v[0].app, 'obsidian');
   });
   await t('a folder is checked before anything reads it', async () => {

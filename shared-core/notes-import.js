@@ -39,7 +39,7 @@ function detectVaults() {
       try { ok = fs.statSync(p).isDirectory(); } catch (_) { ok = false; }
       if (!ok) continue;
       seen.add(p);
-      out.push({ path: p, name: path.basename(p), app: 'obsidian', open: !!(vaults[id] && vaults[id].open) });
+      out.push({ path: p, name: path.basename(p), app: 'obsidian', open: !!(vaults[id] && vaults[id].open), notes: countNotes(p, 5000) });
     }
   }
   return out;

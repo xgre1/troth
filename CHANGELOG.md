@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Obsidian is one button on the Memory page: every vault Obsidian knows about
+  is a row with its note count and an Import button, beside the chat history
+  rows. `GET /api/memory/notes-sources` lists the vaults, `POST
+  /api/memory/import-notes` reads one into memory.
+- Hermes Agent has an Install button on the Settings page beside Cursor,
+  Windsurf, Cline and Claude Desktop, and a Wire button in the onboarding, the
+  same road as `troth mcp install hermes`.
 - A connector reports the state it is really in: `POST /api/mcp/probe` and
   `troth mcp probe <name>` start the server and answer connected (with its
   tools), sign_in_needed (with the address to visit), unreachable (with the
@@ -367,6 +374,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one event, the same head and the same cast with no date pinning them apart,
   close to a single line; a pair the ledger declines to merge carries a mark
   telling the reader to count them separately only on explicit evidence.
+
+### Fixed
+- The sidebar version badge shows the version the proxy reports, on the first-run onboarding as well.
 
 ## [0.1.18] — 2026-08-29
 
