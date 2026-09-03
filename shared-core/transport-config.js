@@ -171,9 +171,30 @@ function writePatch(patch) {
   }
 }
 
+// A host on this machine: the only engine the understanding passes take on
+// their own. The chat engine may live on another machine the operator
+// pointed at; background reading never rides it unasked, since a pass that
+// ticks every ten minutes turns someone's studio into a space heater.
+function isLoopbackHost(h) {
+  const m = /^(?:https?:\/\/)?([^\/:\s]+|\[[^\]]+\])/i.exec(String(h || '').trim());
+  const host = m ? m[1].toLowerCase() : '';
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]' || host === '0.0.0.0';
+}
+// The local engine host the understanding passes may use: the llama.cpp
+// host when it is on this machine, or any host the operator opened to them
+// with TROTH_UNDERSTANDING_LOCAL_HOST=1.
+function understandingHost() {
+  const h = llamacppHost();
+  if (!h) return null;
+  if (isLoopbackHost(h) || process.env.TROTH_UNDERSTANDING_LOCAL_HOST === '1') return h;
+  return null;
+}
+
 module.exports = {
   get,
   llamacppHost,
+  understandingHost,
+  isLoopbackHost,
   llamacppModel,
   ollamaHost,
   ollamaModel,

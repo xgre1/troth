@@ -41,10 +41,13 @@ function makeReader() {
   let pickP = null;
   const pick = async () => {
     let host = null;
-    try { host = require('./transport-config.js').llamacppHost(); } catch (_) { host = null; }
+    try { host = require('./transport-config.js').understandingHost(); } catch (_) { host = null; }
     const probe = async (url) => { try { const r = await fetch(url, { signal: AbortSignal.timeout(1500) }); return !!r.ok; } catch (_) { return false; } };
     if (host && await probe(String(host).replace(/\/+$/, '') + '/health')) return { road: 'local', call: qs.makeShapeCall({ host, timeout_ms: 20000 }) };
-    if (String(process.env.TROTH_INSTANCE_EXTRACT_ENGINE || '') === '0') return { road: 'none', call: null };
+    // The operator's engine through the proxy only when the operator opened
+    // it to this pass (TROTH_KNOWLEDGE_ENGINE=1): reading the web on a paid
+    // engine is a spend nobody asked for.
+    if (String(process.env.TROTH_KNOWLEDGE_ENGINE || '') !== '1') return { road: 'none', call: null };
     const proxy = 'http://127.0.0.1:' + (process.env.GF_PORT || '8000');
     if (await probe(proxy + '/health')) return { road: 'engine', call: qs.makeProxyShapeCall({ host: proxy, model: process.env.TROTH_INSTANCE_EXTRACT_MODEL || 'claude-sonnet-5', timeout_ms: 30000 }) };
     return { road: 'none', call: null };

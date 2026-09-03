@@ -828,7 +828,7 @@ function _selfFactReader() {
   let pickP = null;
   const pick = async () => {
     let host = null;
-    try { host = require('./transport-config.js').llamacppHost(); } catch (_) { host = null; }
+    try { host = require('./transport-config.js').understandingHost(); } catch (_) { host = null; }
     const probe = async (url) => { try { const r = await fetch(url, { signal: AbortSignal.timeout(1500) }); return !!r.ok; } catch (_) { return false; } };
     if (host && await probe(String(host).replace(/\/+$/, '') + '/health')) return { road: 'local', call: qs.makeShapeCall({ host, timeout_ms: 8000 }) };
     if (String(process.env.TROTH_INSTANCE_EXTRACT_ENGINE || '') === '0') return { road: 'none', call: null };

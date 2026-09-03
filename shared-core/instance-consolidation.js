@@ -1420,7 +1420,7 @@ async function makeExtractor(opts) {
     try { const r = await fetch(url, { signal: AbortSignal.timeout(opts.probe_ms || 1500) }); return !!r.ok; } catch (_) { return false; }
   });
   let local = opts.local_host;
-  if (local === undefined) { try { local = require('./transport-config.js').llamacppHost(); } catch (_) { local = null; } }
+  if (local === undefined) { try { local = require('./transport-config.js').understandingHost(); } catch (_) { local = null; } }
   if (local && await probe(String(local).replace(/\/+$/, '') + '/health')) {
     return { road: 'local', llmCall: makeLlamacppExtractor({ host: local }), limit: Number(process.env.TROTH_INSTANCE_EXTRACT_LOCAL_TURNS) || 20 };
   }
