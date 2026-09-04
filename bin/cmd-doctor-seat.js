@@ -75,6 +75,22 @@ function proxyChecks(ctx) {
   var hits = parseInt((idx.match(/hits:(\d+)/) || [])[1] || '0', 10);
   checks.push({ name: 'Recall latency', ok: !!j && ms < 1500, detail: !j ? ('no answer in ' + ms + ' ms') : (ms + ' ms · ' + phases.filter(function (p) { return !/^index_rows/.test(p); }).join(' ')) });
   checks.push({ name: 'Dense index', ok: rows > 0 && hits > 0, detail: rows > 0 ? (rows + ' vectors, ' + hits + ' candidates for the probe') : 'not built — pure-semantic recall is off until the proxy warms it' });
+  // The maintenance worker beside the loop: alive, in which process, how
+  // often it had to be started again, and whether its last cycle failed.
+  var rb = get(host, port, '/api/memory/readiness', 20000);
+  var rj = null; try { rj = JSON.parse(rb || ''); } catch (_) { rj = null; }
+  var w = rj && rj.worker;
+  var hostInfo = w && w.host;
+  if (!w) {
+    checks.push({ name: 'Maintenance worker', ok: false, detail: 'the readiness answer names no worker — the proxy started without one (TROTH_MAINTENANCE=0?)' });
+  } else {
+    var alive = !hostInfo || hostInfo.alive !== false;
+    var err = w.last_tick_error;
+    var where = hostInfo && hostInfo.process === 'child' ? ('its own process' + (hostInfo.pid ? ' (pid ' + hostInfo.pid + ')' : '')) : 'the proxy process';
+    var again = hostInfo && hostInfo.restarts ? (', started again ' + hostInfo.restarts + 'x') : '';
+    var okW = alive && !err && !(hostInfo && hostInfo.restarts > 3);
+    checks.push({ name: 'Maintenance worker', ok: okW, detail: (alive ? 'runs in ' + where : 'not running') + again + (err ? ' — last cycle failed: ' + String(err).slice(0, 120) : '') + (hostInfo && hostInfo.last_note ? ' · ' + String(hostInfo.last_note).slice(0, 90) : '') });
+  }
   return checks;
 }
 
