@@ -81,12 +81,27 @@ async function runFetch(args) {
   return _withPage(async (s) => {
     const text = await _navExtract(s, url, 'document.body ? document.body.innerText : ""');
     const content = String(text == null ? '' : text);
-    return {
+    // A page past the cap is cut, and the cut is SAID beside the content,
+    // never written into it: a marker inside the text turned a cut JSON
+    // document into one that fails to parse at the cap with no reason
+    // given. The content is a clean prefix; truncated/total_chars tell the
+    // reader what it holds.
+    const cap = MAX_CHARS();
+    const cut = content.length > cap;
+    const out = {
       type: 'text', url,
-      content: content.length > MAX_CHARS() ? content.slice(0, MAX_CHARS()) + '\n…(truncated; ' + content.length + ' chars)' : content,
+      content: cut ? content.slice(0, cap) : content,
       audience: 'external',
       provenance: { source: 'web_fetch:' + url, tier: 'untrusted' },
     };
+    if (cut) {
+      out.truncated = true;
+      out.total_chars = content.length;
+      out.kept_chars = cap;
+      out.note = 'the page is ' + content.length + ' characters; content holds the first ' + cap +
+        (/^\s*[\[{]/.test(content) ? '. It is a JSON document, so this prefix does not parse: fetch a smaller resource or the specific fields you need.' : '.');
+    }
+    return out;
   });
 }
 
