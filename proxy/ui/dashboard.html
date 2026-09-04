@@ -11,21 +11,17 @@
 <link rel="apple-touch-icon" href="/icon-192.png">
 <link rel="icon" href="/icon-192.png">
 <title>troth</title>
-<!-- No webfont request. Opening this page used to fetch IBM Plex from Google,
-     which handed the operator's IP and User-Agent to a third party every time,
-     while README says nothing phones home. IBM Plex still leads the stack for
-     anyone who has it installed; otherwise the page falls back to the system
+<!-- No webfont request: a fetch to a font CDN hands the visitor's IP and
+     User-Agent to a third party, and nothing here phones home. IBM Plex
+     leads the stack for anyone who has it installed; otherwise the system
      pairing, which on macOS is SF Pro and SF Mono. -->
 <style>
-/* ─── Troth tokens — PURE CHROME ──────
-   Operator decision: pure chrome, NO color at all. Token NAMES are
-   preserved (--bond, --signal, --green, --red, --yellow …) so every
-   existing CSS rule, inline style, and JS-injected `var(--…)` resolves
-   unchanged — only the VALUES are remapped onto a neutral chrome scale.
-   The dark UI shell stays (canvas #050505, surfaces, hairlines); only
-   the COLOR accent is removed. Accent tokens now resolve to chrome
-   silver / white / neutral greys — status is read by BRIGHTNESS, never
-   by hue. Chrome silver = #A8B5C7 (flat chrome, dream-logo §favicon).
+/* ─── Troth tokens — pure chrome ──────
+   No color at all. Token names are preserved (--bond, --signal, --green,
+   --red, --yellow …) so every CSS rule, inline style and JS-injected
+   `var(--…)` resolves unchanged; only the values map onto a neutral chrome
+   scale. The dark shell stays (canvas #050505, surfaces, hairlines); status
+   is read by brightness, never by hue. Chrome silver = #A8B5C7.
      canvas #050505 · surface #0A0A0C · chrome #A8B5C7 · text #fff
 ------------------------------------------------------------------------ */
 :root {
@@ -437,8 +433,8 @@ select option:checked { background-color: #1A1A1F; }
    (.settings-card, .sidebar, .run-card, .toast, …) carry their own blur
    above; this catches the inline-styled panels (hero, mind, substrate,
    code-map, conn-strip, providers-catalog, analytics, memory, cost). */
-/* The MCP connect card + its sub-panels (Task 2) — explicit glass so the
-   panel matches even though it's class-based. */
+/* The MCP connect card + its sub-panels: explicit glass so the panel
+   matches even though it is class-based. */
 
 /* Accessibility fallback — when the OS asks for less transparency or
    motion, drop the blur entirely and serve solid neutral fills so the
@@ -469,8 +465,7 @@ select option:checked { background-color: #1A1A1F; }
 }
 
 /* ── Finish layer ─────────────────────────────────────────────────────────
-   Stats. These classes shipped with no CSS at all — the busiest card on the
-   home page rendered as bare text in a grid. Quiet tiles, tabular digits. */
+   Stats: quiet tiles, tabular digits. */
 .stat { padding: 13px 16px 12px; background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--r-sm); transition: border-color .18s; }
 .stat:hover { border-color: var(--glass-border); }
 .stat-label { font-family: var(--mono); font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--text-muted); }
@@ -536,11 +531,10 @@ body.nav-adv-open #nav-advanced { display: block; }
 /* Open-repo-only surfaces: hidden the moment the app owns the machine. */
 body.ctx-app .open-only { display: none !important; }
 
-/* A2 operator gating. With the troth app installed
-   (body.ctx-app) the dashboard boots as a read-only observatory: deep
-   controls hide behind Operator mode (body.op-on) and app-owned surfaces
-   point to the app instead. Open-repo installs never gate: this is their
-   only GUI. */
+/* Operator gating. With the troth app installed (body.ctx-app) the
+   dashboard boots as a read-only observatory: deep controls hide behind
+   Operator mode (body.op-on) and app-owned surfaces point to the app
+   instead. Open-repo installs never gate: this is their only GUI. */
 .point-to-app { display: none; }
 body.ctx-app:not(.op-on) .point-to-app { display: block; }
 body.ctx-app:not(.op-on) .app-owned { display: none !important; }
@@ -618,13 +612,6 @@ body.op-on #op-row { color: var(--text-dim); }
     </div>
     </div><!-- /nav-advanced -->
     <div class="nav-sep"></div>
-    <!-- ACTIVITY. "Jobs" nav removed: the worker-spawn
-         flow (Docker container running another Claude Code agent) is the
-         exact agent-framework pattern the substrate-as-subject thesis
-         rejects. /api/runs + bin/runner.js stay in the codebase so the
-         partner can use Docker sandboxing for scoped workers, but
-         it's no longer a first-class operator surface — the operator
-         talks to the partner, not to a worker pool. -->
     <!-- SETUP -->
     <div class="nav-item" data-page="settings" onclick="navigate('settings')">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
@@ -635,9 +622,9 @@ body.op-on #op-row { color: var(--text-dim); }
       <span>Help</span>
     </div>
   </nav>
-  <!-- A2: Operator-mode switch. Shown only when the troth
-       app owns this machine (body.ctx-app). Off = read-only observatory;
-       on = full control plane. One-time honest warning on first enable. -->
+  <!-- Operator-mode switch. Shown only when the troth app owns this machine
+       (body.ctx-app). Off = read-only observatory; on = full control plane.
+       One-time honest warning on first enable. -->
   <div id="op-row" onclick="toggleOperatorMode()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
     <span class="op-dot"></span>
@@ -664,10 +651,6 @@ body.op-on #op-row { color: var(--text-dim); }
     <span class="conn-label">Proxy</span>
     <span class="conn-status" id="conn-proxy-text">checking…</span>
   </div>
-  <!-- 'claude' env-command quick-copy removed  — substrate-as-mind
-       says troth cli is primary; the Claude-binary path is an escape hatch.
-       The same ANTHROPIC_BASE_URL=... env command lives in CLI Reference →
-       Advanced (deterministic single-click copy). Topbar stays minimal. -->
 </div>
 
 <div class="page active" id="page-dashboard">
@@ -679,9 +662,8 @@ body.op-on #op-row { color: var(--text-dim); }
        (.point-to-app visibility). Everything technical below carries
        op-gated and returns with Operator mode; open-repo installs see the
        full control plane and never this card. -->
-  <!-- Shown in EVERY context. This carried .point-to-app (app-only) for a
-       while, which hid the one plain-language answer this page has from the
-       only audience with no other surface to get it. -->
+  <!-- Shown in every context: the one plain-language answer this page has, and
+       the only surface some installs have. -->
   <div id="dash-plain-hero" style="margin:18px 0 22px;padding:24px 28px;background:var(--bg-card);border:1px solid var(--bond-muted);border-radius:14px;">
     <div style="display:flex;align-items:baseline;justify-content:space-between;gap:14px;margin-bottom:18px;flex-wrap:wrap;">
       <div style="display:flex;align-items:baseline;gap:14px;">
@@ -717,9 +699,8 @@ body.op-on #op-row { color: var(--text-dim); }
         </div>
         <div id="dash-enabled-providers" style="display:flex;gap:8px;flex-wrap:wrap;">checking…</div>
       </div>
-      <!-- Routing, as one line where the engines are — was a whole card
-           repeating the same engine a third time. dash-total-cost lives in
-           the sentinel block; the hero owns the money. -->
+      <!-- Routing, as one line beside the engines. dash-total-cost lives in the
+           sentinel block; the hero owns the money. -->
       <div style="text-align:right;font-size:12px;color:var(--text-dim);">
         <span style="font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:0.12em;color:var(--text-muted);margin-right:8px;">Routing</span>
         <span id="dash-routing"></span>
@@ -730,8 +711,8 @@ body.op-on #op-row { color: var(--text-dim); }
     </div>
   </div>
 
-  <!-- Row 2: Per-provider usage table. Hidden until there is a first request:
-       before that it was a row of zeros echoing tiles that already say zero. -->
+  <!-- Per-provider usage table, hidden until the first request: before that it
+       is a row of zeros echoing tiles that already say zero. -->
   <div id="dash-usage-card" class="op-gated" style="display:none;margin-top:14px;padding:14px 18px;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       <div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);">Usage Per Provider</div>
@@ -751,22 +732,10 @@ body.op-on #op-row { color: var(--text-dim); }
     </table>
   </div>
 
-  <!-- The Routing card dissolved into a single line inside Engines: with the
-       chips right there, a card restating the same engine was the clutter. -->
 
-  <!-- Four legacy rows lived here — engine telemetry cells reading "—",
-       Reflexion/Trajectory counters, a memory browser whose two buttons
-       opened empty tables on every substrate we can find, and a fourth
-       telling of cost. The pages that own those facts are one click away;
-       the ids stay below as sentinels so their writers no-op. -->
-  <!--: Opus 4.7 Telemetry card deleted. Eight cells of
-       developer-only jargon (Auth Mode / Tokenizer Drift / Compression
-       Buffer / Alibaba Caps / Vision Validator / /ultrareview / Error
-       Taxonomy / Cache Hit Ratio) all defaulting to "—" looked like
-       broken plumbing to operators. The hidden IDs (dash-authmode, etc.)
-       are kept as zero-width sentinels so any JS still writing to them
-       no-ops without throwing. Diagnostics belong behind a /diagnostics
-       route, not on the operator's home dashboard. -->
+  <!-- Sentinel ids (dash-authmode and kin): zero-width, so the writers that
+       still address them no-op without throwing. The facts they carry belong
+       to the pages that own them, one click away. -->
   <div style="display:none">
     <span id="dash-intelligence"></span><span id="dash-codelens"></span>
     <span id="dash-workflow"></span><span id="dash-critic"></span>
@@ -814,10 +783,6 @@ body.op-on #op-row { color: var(--text-dim); }
 </div>
 
 
-<!-- Jobs/Runs/Schedules operator pages removed ( pivot; empty
-     stubs deleted). The backends stay live in server.js
-     (/api/runs, /api/schedules, bin/runner.js) for scoped workers;
-     the operator talks to the partner via app / CLI, not a worker pool. -->
 
 <div class="page" id="page-logs">
   <div class="page-title" style="display:flex;align-items:baseline;gap:14px;">
@@ -968,10 +933,9 @@ body.op-on #op-row { color: var(--text-dim); }
     <span style="font-size:10px;color:var(--text-muted);font-weight:400;letter-spacing:1px;text-transform:uppercase;">what your partner remembers</span>
   </div>
 
-  <!-- Memory stack: what powers recall on THIS machine, with an honest state
+  <!-- Memory stack: what powers recall on this machine, with an honest state
        per part. Present without Operator mode on purpose: whether memory is
-       real is the first thing a newcomer needs to know, and until now it was
-       only visible inside the first-run overlay. -->
+       real is the first thing a newcomer needs to know. -->
   <div class="settings-card full-width">
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;">
       <div class="stat"><div class="stat-label">memories</div><div class="stat-value" id="mem-total">&mdash;</div></div>
@@ -1000,14 +964,11 @@ body.op-on #op-row { color: var(--text-dim); }
 
   </div>
 
-  <!-- What is being taken in, on its own.
-       This lived INSIDE "Import your chat history", so a progress line about
-       ingested DOCUMENTS read as if the operator's Claude Code sessions were
-       being processed — they asked exactly that (2026-08-11) while the backlog
-       was 4,656 document passages and zero chat sessions. A status that
-       belongs to the whole memory cannot sit inside one of its sources.
-       "Recent memories" went with it: the Substrate page already lists every
-       record, so repeating eight of them here was noise wearing a heading. -->
+  <!-- What is being taken in, on its own card. A status that belongs to the
+       whole memory cannot sit inside one of its sources: a progress line about
+       ingested documents under the chat-history import reads as if the chat
+       sessions were being processed. The Substrate page lists every record, so
+       no "recent memories" repeat here. -->
   <div class="settings-card full-width" id="intake-card" style="display:none">
     <div class="card-title">Taking in</div>
     <div class="card-hint">What your partner is reading and indexing right now. This runs only while you are idle and stops when it is done.</div>
@@ -1015,13 +976,12 @@ body.op-on #op-row { color: var(--text-dim); }
     <div id="intake-stream" style="margin-top:10px;font-size:11px"></div>
   </div>
 
-  <!-- What troth is running on this machine, and what it costs.
-       Exists because "why is the laptop hot" needed a shell to answer. The
-       inventory is the same one the idle reaper works from; the numbers are
-       the two that identify a burner (CPU time consumed, resident memory)
-       rather than the one that lies about it (instantaneous %CPU). A row
-       that will be collected says when, so a forgotten model server reads
-       as "closes in 12m", not as a mystery. -->
+  <!-- What troth is running on this machine, and what it costs. The inventory
+       is the same one the idle reaper works from; the numbers are the two that
+       identify a burner (CPU time consumed, resident memory) rather than the
+       one that lies about it (instantaneous %CPU). A row that will be
+       collected says when, so a forgotten model server reads as "closes in
+       12m", not as a mystery. -->
   <div class="settings-card full-width" id="sysload-card" style="display:none">
     <div class="card-title">Running now</div>
     <div class="card-hint">Everything troth keeps alive on this machine. Idle model servers and the agent's browser close themselves; nothing here needs you.</div>
@@ -1052,9 +1012,8 @@ body.op-on #op-row { color: var(--text-dim); }
 <div class="page" id="page-ai-setup">
   <div class="page-title">Engines</div>
 
-  <!-- A2: with the troth app installed, providers are app-owned so every
-       surface stays in sync. This page points to the app unless Operator
-       mode is on. -->
+  <!-- With the troth app installed, providers are app-owned so every surface
+       stays in sync. This page points to the app unless Operator mode is on. -->
   <div class="point-to-app settings-card full-width">
     <div class="card-title">Managed in the troth app</div>
     <div class="card-hint">This machine runs the troth app, and providers are set up there so the app, CLI and dashboard stay in sync. Open the <b>troth app &rarr; Settings</b> to add keys or switch engines. To edit them from this dashboard anyway, turn on <b>Operator mode</b> at the bottom of the sidebar.</div>
@@ -1079,10 +1038,10 @@ body.op-on #op-row { color: var(--text-dim); }
 
     <div class="settings-card full-width">
       <div class="card-title">Claude (Anthropic)</div>
-      <!-- Two ways in, kept visibly apart. A single key box read as "the only
-           way", burying the subscription path this card cannot host: a Claude
-           plan is linked by mounting troth INSIDE Claude Code, never by
-           routing its sign-in through a proxy. -->
+      <!-- Two ways in, kept visibly apart: a single key box reads as the only way
+           and buries the subscription path this card cannot host. A Claude plan is
+           linked by mounting troth inside Claude Code, never by routing its
+           sign-in through a proxy. -->
       <div class="card-hint" id="anthropic-sub-cta"><b>Have a Pro/Max subscription?</b> Do not paste a key.
         <button class="btn" style="padding:2px 10px;font-size:10.5px;vertical-align:1px" onclick="wireFromCard('claude_code',this,'anthropic-status')">Link it via Claude Code</button>
         Your plan answers there with troth mounted; no proxy touches its sign-in.</div>
@@ -1335,7 +1294,6 @@ body.op-on #op-row { color: var(--text-dim); }
     document.addEventListener('DOMContentLoaded', codexRefreshStatus);
     </script>
 
-    <!-- A4: zai + google_ai had full router support but no UI. -->
 
     <div class="settings-card full-width">
       <div class="card-title">Images</div>
@@ -1361,27 +1319,18 @@ body.op-on #op-row { color: var(--text-dim); }
     <div class="settings-card full-width" id="routing-card">
       <div class="card-title">Routing</div>
 
-      <!-- The old "Global Mode" offered auto / smart / anthropic / local.
-           Three of those predate the provider chain: 'anthropic' and 'local'
-           force one hard-coded backend and 'smart' is a legacy label, none of
-           them match the engines the operator actually configured, and the
-           app's own control writes routing.pin instead. Same concept, real
-           values: automatic, or exactly one engine. The old labels named
-           nothing real. This writes the SAME routing.pin the
-           app writes, so both surfaces finally agree. -->
+      <!-- Routing mode: automatic, or exactly one engine. Writes the same
+           routing.pin the app writes, so both surfaces agree. -->
       <div style="margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border);">
         <select id="global-routing-pin" class="routing-select" style="min-width:220px;font-size:12px;padding:8px 32px 8px 12px;" onchange="setRoutingPin(this.value)">
           <option value="">Automatic</option>
         </select>
         <div id="routing-mode-hint" class="lane-status" style="margin:10px 0 0;"></div>
       </div>
-      <!-- Per-task provider preferences removed: the router
-           never read config.routing, so "Save routing" was a lie. -->
 
-      <!-- Engine order. The operator asked to declare which engine is tried
-           first, second, third. This is a REORDER of the engines
-           that are actually usable: the router never promotes a disabled or
-           unhealthy lane, so a stale row here cannot break routing. -->
+      <!-- Engine order: which engine is tried first, second, third. A reorder of
+           the engines that are actually usable: the router never promotes a
+           disabled or unhealthy lane, so a stale row here cannot break routing. -->
       <div style="font-size:12px;color:var(--text-dim);margin-bottom:8px;">Engine order</div>
       <div class="card-hint" style="margin-bottom:10px;">Drag-free: use the arrows. Only engines you have enabled appear. Leave untouched to let troth pick by cost and task difficulty.</div>
       <div id="routing-order-list" style="display:flex;flex-direction:column;gap:6px;"></div>
@@ -1469,7 +1418,6 @@ body.op-on #op-row { color: var(--text-dim); }
     <div id="sb-orch-table" style="font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;line-height:1.7;color:var(--text-muted)">loading…</div>
   </div>
 
-  <!--  Skills layer (Phase 1-9) — bundled + user-installed slash skills -->
 
 <script>
 // The pulse loader: three numbers and a heartbeat say whether the memory
@@ -1497,7 +1445,7 @@ body.op-on #op-row { color: var(--text-dim); }
   <div id="sb-insights" style="padding:16px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;margin-top:16px;scroll-margin-top:80px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <div style="font-size:14px;font-weight:500;">Insights surfaced</div>
-      <div style="font-size:11px;color:var(--text-muted);">G7 — substrate's between-turn deliberation</div>
+      <div style="font-size:11px;color:var(--text-muted);">The substrate's between-turn deliberation</div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:12px;font-size:12px;">
       <select id="sb-insight-status" onchange="gcRefreshInsights()" style="padding:4px 8px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:4px;">
@@ -1511,7 +1459,7 @@ body.op-on #op-row { color: var(--text-dim); }
     <div id="sb-insights-list" style="font-size:13px;line-height:1.5;color:var(--text-muted)">No insights yet.</div>
   </div>
 
-  <!-- Tier 1 / Item A: Anchor suggestions from substrate self-observation -->
+  <!-- Anchor suggestions from substrate self-observation -->
   <div id="sb-anchors-card" style="padding:16px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;margin-top:16px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <div style="font-size:14px;font-weight:500;">Anchor suggestions</div>
@@ -1528,11 +1476,11 @@ body.op-on #op-row { color: var(--text-dim); }
     <div id="sb-anchor-list" style="font-size:13px;line-height:1.5;color:var(--text-muted)">No suggestions pending.</div>
   </div>
 
-  <!-- G6: Pending commitment revisions awaiting accept/reject -->
+  <!-- Pending commitment revisions awaiting accept/reject -->
   <div id="sb-rev-card" style="padding:16px;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;margin-top:16px;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
       <div style="font-size:14px;font-weight:500;">Commitment revisions</div>
-      <div style="font-size:11px;color:var(--text-muted);">G6 — substrate proposes; you decide</div>
+      <div style="font-size:11px;color:var(--text-muted);">The substrate proposes; you decide</div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:12px;font-size:12px;">
       <select id="sb-rev-status" onchange="gcRefreshRevisions()" style="padding:4px 8px;background:var(--bg-input);color:var(--text);border:1px solid var(--border);border-radius:4px;">
@@ -1682,8 +1630,7 @@ function gcRefreshMcpActivity() {
   }).catch(function(){});
 }
 
-// Tier 1 / Item A — anchor suggestion panel.
-// Hide the suggestions card while BOTH feeds are empty on their default
+// Anchor suggestion panel: hidden while both feeds are empty on their default
 // filters; anything surfaced brings it back.
 function sbSuggestVis() {
   var card = document.getElementById('sb-insights');
@@ -1743,7 +1690,7 @@ function gcAnchorAct(id, action) {
     .catch(function(){});
 }
 
-// G8/Property #3 — embedded session watcher control.
+// Embedded session watcher control.
 function gcRefreshWatcher() {
   // One live line inside Records: the watcher is why records keep flowing.
   fetch('/api/substrate/watcher/status').then(function(r){ return r.json(); }).then(function(w){
@@ -1780,7 +1727,7 @@ function gcWatcherCtrl(action) {
     .catch(function(){});
 }
 
-// G7 — insights panel renderer.
+// Insights panel renderer.
 function gcRefreshInsights() {
   var status = (document.getElementById('sb-insight-status') || {}).value || 'new';
   fetch('/api/substrate/insights?status=' + encodeURIComponent(status) + '&min_priority=0.5')
@@ -1827,7 +1774,7 @@ function gcInsightFb(id, value) {
   }).then(function(){ gcRefreshInsights(); }).catch(function(){});
 }
 
-// G6 — revisions panel renderer.
+// Revisions panel renderer.
 function gcRefreshRevisions() {
   var status = (document.getElementById('sb-rev-status') || {}).value || 'pending';
   fetch('/api/substrate/revisions?status=' + encodeURIComponent(status) + '&limit=50')
@@ -1899,16 +1846,12 @@ function escapeHtml(s) {
 // new models appear here without a repo update. Free text stays allowed
 // (datalist suggests, never restricts); every failure is silent fail-closed.
 document.addEventListener('DOMContentLoaded', function () {
-  // Every provider that has BOTH a prov-<name>-model TEXT input AND a
-  // server-side /api/providers/<name>/models route (proxy/server.js LIST) gets
-  // its datalist filled live, so the OSS dashboard shows the SAME catalog as the
-  // app. openai_sub has an input but no /models route; deepseek/nvidia/deepinfra
-  // have a route but no text input (fixed model) - so neither qualifies. alibaba
-  // is a <select> handled separately just below. custom_openai resolves its list
-  // against the operator's configured base_url. Free text stays allowed; every
-  // fetch fails closed to no suggestions.
-  // The /models route now answers for every lane (live list when the lane
-  // has one, shipped catalog otherwise) — so every model text input joins.
+  // Every provider with a prov-<name>-model text input gets its datalist filled
+  // from /api/providers/<name>/models (live list when the lane has one, shipped
+  // catalog otherwise), so this dashboard shows the same catalog as the app.
+  // alibaba is a <select> handled just below; custom_openai resolves its list
+  // against the configured base_url. Free text stays allowed; every fetch fails
+  // closed to no suggestions.
   var LIVE_MODEL_FIELDS = ['openrouter', 'moonshot', 'xai', 'custom_openai', 'kimi_sub', 'openai_sub', 'anthropic', 'google_ai'];
   LIVE_MODEL_FIELDS.forEach(function (name) {
     var input = document.getElementById('prov-' + name + '-model');
@@ -1981,16 +1924,12 @@ setInterval(function(){
     </select>
   </div>
 
-  <!-- Hero stats: $ saved is the primary signal — bumped to first slot in
-       green so the marketing-relevant number lands first. The detail line
-       under each metric stays muted. -->
+  <!-- Hero stats: $ saved leads. The detail line under each metric stays
+       muted. -->
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin:18px 0 16px;">
     <div style="position:relative;z-index:45;padding:18px 20px;background:var(--bg-card);border:1px solid var(--bond-muted);border-radius:12px;">
-      <!-- Label updated dynamically by renderAnalytics so it names the actual
-           baseline model troth is comparing against (Opus / Sonnet /
-           Haiku / GPT / Gemini — whatever the operator's most-used model is).
-           "vs Claude direct" was the old static framing back when baseline
-           was always assumed to be Anthropic's API. -->
+      <!-- Label set by renderAnalytics to name the baseline model troth is
+           compared against: whatever the most-used model is. -->
       <div id="ana-usd-label" style="font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.16em;color:var(--signal);font-weight:400;">$ saved</div>
       <div style="display:flex;align-items:baseline;gap:8px;margin-top:6px;">
         <div id="ana-usd-saved" style="font-size:24px;font-weight:600;color:var(--text);">—</div>
@@ -2883,12 +2822,6 @@ setInterval(function(){
     </div>
 
 
-    <!-- The 85-line "Substrate-as-Entity" panel that used to live here
-         (an earlier cleanup) duplicated the standalone Substrate page
-         AND mixed L3-era "agentic loop / LoRA distillation / Mode A /
-         Mode B" copy that contradicts the substrate-as-subject pivot.
-         The standalone Substrate page in the left nav is the canonical
-         operator-facing substrate surface. Replaced with a pointer. -->
     <div class="settings-card full-width op-gated" data-settings-tab="modules">
       <div class="card-title">Pipeline Modules</div>
       <div class="card-hint">Each module processes every request or response. Toggles take effect immediately without restart. <b style="color:var(--yellow)">Disable at your own risk</b> — Guardian blocks dangerous shell commands.</div>
@@ -2899,7 +2832,7 @@ setInterval(function(){
     <!-- Connect MCP — one-click install of the troth plugin into Claude Code,
          plus copy-paste commands for other clients (Cursor, etc.). The glass
          look comes from .settings-card + .mcp-subpanel (see <style>). -->
-    <!-- A2: MCP wiring is app-owned when the app is installed. -->
+    <!-- MCP wiring is app-owned when the app is installed. -->
     <div class="settings-card full-width point-to-app" data-settings-tab="mcp">
       <div class="card-title">Managed in the troth app</div>
       <div class="card-hint">MCP wiring for Claude Code, Cursor and other clients is handled in the <b>troth app &rarr; Settings &rarr; Integrations</b>, so installs stay consistent across surfaces. To use the dashboard installers anyway, turn on <b>Operator mode</b> at the bottom of the sidebar.</div>
@@ -3000,10 +2933,8 @@ setInterval(function(){
     <div id="cmd-cli" style="font-size:12px">loading…</div>
   </div>
 
-  <!-- The three hand-written terminal sections that lived here duplicated
-       the live-filtered card above with an older, drift-prone copy (11 of
-       74 subcommands, stale wording). One source of truth now: the curated
-       groups + the live index render from /api/commands. -->
+  <!-- One source of truth: the curated groups and the live index render from
+       /api/commands. -->
   <div class="cli-section" data-help-tab="chat">
     <div class="cli-heading">Copy-paste examples</div>
     <div class="cli-list">
@@ -3098,13 +3029,12 @@ setInterval(function(){
 <div class="toast" id="toast"></div>
 
 <script>
-// ONE provider vocabulary: human names identical to the app's
-// Settings tiles, used everywhere a provider is shown to a person. Raw
-// config keys (openai_sub, google_ai, ...) must never reach the UI.
-// Router quality order (proxy/modules/router.js QUALITY_RANK) + the set the
-// app offers. Operator decision: the dashboard offers EXACTLY the
-// app's providers; engines outside APP_PROVIDER_SET render in the chain
-// only while a legacy config still has them enabled.
+// One provider vocabulary: human names identical to the app's Settings tiles,
+// used everywhere a provider is shown to a person. Raw config keys
+// (openai_sub, google_ai, ...) never reach the UI. Router quality order
+// (proxy/modules/router.js QUALITY_RANK) plus the set the app offers: engines
+// outside APP_PROVIDER_SET render in the chain only while a config still has
+// them enabled.
 var PROVIDER_ORDER = ['kimi_sub', 'openai_sub', 'anthropic', 'openrouter', 'google_ai', 'xai', 'moonshot', 'deepseek', 'nvidia', 'deepinfra', 'zai', 'alibaba', 'custom_openai', 'local'];
 var APP_PROVIDER_SET = { kimi_sub: 1, anthropic: 1, openai_sub: 1, google_ai: 1, alibaba: 1, deepseek: 1, openrouter: 1, moonshot: 1, xai: 1, custom_openai: 1, local: 1 };
 var PROVIDER_LABELS = { anthropic: 'Claude', openai_sub: 'ChatGPT (plan)', alibaba: 'Qwen (Alibaba)', deepinfra: 'DeepInfra', nvidia: 'NVIDIA (free tier)', deepseek: 'DeepSeek', openrouter: 'OpenRouter', zai: 'Z.AI (GLM)', moonshot: 'Moonshot (Kimi, API key)', kimi_sub: 'Kimi Code (subscription)', xai: 'xAI (Grok)', custom_openai: 'Custom (OpenAI-compatible)', google_ai: 'Google Gemini', gemini: 'Google Gemini', local: 'Local' };
@@ -3115,8 +3045,7 @@ var PROVIDER_SHORT = { anthropic: 'Claude', claude: 'Claude', claude_cli: 'Claud
 var PROVIDER_BILL = { openai_sub: 'plan', kimi_sub: 'sub', anthropic: 'key', alibaba: 'key', deepinfra: 'key', nvidia: 'key', deepseek: 'key', openrouter: 'key', zai: 'key', moonshot: 'key', xai: 'key', custom_openai: 'key', google_ai: 'key', gemini: 'key', local: 'free' };
 function providerShort(k) { return PROVIDER_SHORT[k] || k; }
 
-// Four numbers a home page can defend. The removed five ("Claude" calls,
-// AI assists, fallbacks, cache entries) live where depth belongs — Analytics.
+// Four numbers a home page can defend; depth lives in Analytics.
 var STATS = [
   { k: 'requests', l: 'Requests' },
   { k: 'router.toolCalls', l: 'Tool calls' },
@@ -3139,14 +3068,11 @@ var MODS = [
   { n: 'Recall force', k: 'recallforce', d: 'Memory-shaped prompts get tool_choice forced to troth_recall (proxy-lane agents without hooks)' }
 ];
 function gd(o,p){var s=p.split('.');for(var i=0;i<s.length;i++)o=o&&o[s[i]];return o||0;}
-// A2 Operator mode. UI-level gate by design (AUTH v0.1):
-// the API stays loopback-trusted; this gate is about intent. An app user
-// should not rewrite the partner's memory with one stray click, while
-// open-repo installs (no app, body lacks ctx-app) are never gated.
-// The one POST helper, in the scope everything runs in. It used to exist only
-// inside the first-run overlay closure — installStackPart, the import card and
-// forgetMemory all called it from out here and threw ReferenceError on click:
-// three buttons that looked wired and did nothing.
+// Operator mode. UI-level gate by design: the API stays loopback-trusted; this
+// gate is about intent. An app user should not rewrite the partner's memory
+// with one stray click, while open-repo installs (no app, body lacks ctx-app)
+// are never gated. The one POST helper, in the scope everything runs in: the
+// cards outside the first-run overlay call it too.
 function post(url, obj) {
   return fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify(obj || {}) }).then(function (r) { return r.json().catch(function () { return {}; }); });
@@ -3220,7 +3146,7 @@ function toggleOperatorMode() {
 }
 
 function navigate(p, opts){
-  // Mind lives inside Substrate now; old links and bookmarks keep working.
+  // Mind lives inside Substrate; old links and bookmarks still resolve.
   if (p === 'mind') p = 'substrate';
   if (document.querySelector('#nav-advanced .nav-item[data-page="' + p + '"]')) toggleAdvancedNav(true);
   // The address mirrors the page. replace: initial load; push: a real move.
@@ -3300,16 +3226,9 @@ function navigate(p, opts){
   window.addEventListener('popstate', function(){ go(true); });
 })();
 
-// ────────────────────────────────────────────────────────────────────
-// Autonomous runs panel
-// ────────────────────────────────────────────────────────────────────
-//
-// Calls /api/runs (loopback bypass means no token needed when the
-// dashboard is served on localhost). Renders a list of runs with
-// state pill, task, branch. Click a run to drill into status + logs +
-// diff with kill/clean actions. All DOM construction uses createElement
-// + textContent — never innerHTML with interpolation — so untrusted
-// task strings, log output, and diff text cannot inject markup.
+// ── Shared UI helpers ── elem(), clearChildren(), styledConfirm(). All DOM
+// construction uses createElement + textContent, never innerHTML with
+// interpolation, so untrusted strings cannot inject markup.
 function elem(tag, opts) {
   var e = document.createElement(tag);
   if (opts) {
@@ -3322,11 +3241,8 @@ function elem(tag, opts) {
 }
 function clearChildren(node) { while (node.firstChild) node.removeChild(node.firstChild); }
 
-// Runs/Schedules render + dispatch JS removed: it served
-// the deleted operator pages and every DOM id it touched was gone.
-// elem()/clearChildren()/styledConfirm() stay - shared UI helpers.
 
-// Styled confirm modal (replaces browser's ugly confirm())
+// Styled confirm modal.
 function styledConfirm(title, msg, onYes) {
   var overlay = elem('div', { cls: 'modal-overlay' });
   var box = elem('div', { cls: 'modal-box' });
@@ -3355,9 +3271,8 @@ function wireFromCard(client, btn, statusId) {
   if (btn) btn.disabled = true;
   if (el) el.textContent = 'Wiring ' + client + '…';
   // For Claude Code, check there is something to link to before saying it is
-  // linked. `claude plugin install` succeeds on a machine nobody has signed in
-  // on, so this reported a connected plan while the panel beside it correctly
-  // reported none.
+  // linked: `claude plugin install` succeeds on a machine nobody has signed in
+  // on, while the panel beside it correctly reports no plan.
   var gate = (client !== 'claude_code')
     ? Promise.resolve(true)
     : fetch('/api/mcp/status').then(function (r) { return r.json(); }).then(function (s) {
@@ -3438,9 +3353,8 @@ function updateStats(data){
     enabledEl.innerHTML=chipHtml||'<span style="color:var(--text-muted);font-size:12px">No engine yet — <a href="#ai-setup" onclick="navigate(\'ai-setup\');return false;" style="color:var(--signal)">set one up</a></span>';
   }
   if(false){
-    // Canonical registry (PROVIDER_ORDER + providerLabel) — this line had a
-    // private map that predated kimi_sub / google_ai / xai, so an engine
-    // could be live yet absent from "what's on".
+    // Canonical registry (PROVIDER_ORDER + providerLabel): a private map here
+    // drifts, and an engine can be live yet absent from "what's on".
     var on=[];
     for(var ei=0;ei<PROVIDER_ORDER.length;ei++){
       var k=PROVIDER_ORDER[ei];
@@ -3459,10 +3373,9 @@ function updateStats(data){
   // Per-token rates (per million tokens). 0 = free tier or subscription-based
   var inputRates={alibaba:0,deepinfra:0.14,anthropic:5.00,openai_sub:0,nvidia:0,deepseek:0.25,openrouter:0.30,local:0,kimi_sub:0,moonshot:3.00,google_ai:0.30,xai:1.25,custom_openai:0};
   var outputRates={alibaba:0,deepinfra:0.28,anthropic:25.00,openai_sub:0,nvidia:0,deepseek:0.38,openrouter:1.00,local:0,kimi_sub:0,moonshot:15.00,google_ai:2.00,xai:2.50,custom_openai:0};
-  // Billing type defaults — operator can override per-provider via
-  // config.json: providers.<name>.billing = 'sub' | 'token' | 'free'.
-  // Alibaba has BOTH plans (Coding Plan flat + per-token API), so
-  // hardcoding 'sub' lies for API users — config override is the fix.
+  // Billing type defaults; per-provider override via config.json:
+  // providers.<name>.billing = 'sub' | 'token' | 'free'. Alibaba has both plans
+  // (flat Coding Plan and per-token API), so the override decides.
   var billingDefault={alibaba:'sub',deepinfra:'token',anthropic:'token',openai_sub:'sub',nvidia:'free',deepseek:'token',openrouter:'token',local:'free',kimi_sub:'sub',moonshot:'token',google_ai:'token',xai:'token',custom_openai:'token'};
   // Resolve per-provider billing using config.json override when set.
   function billingFor(pk) {
@@ -3574,9 +3487,8 @@ function updateStats(data){
 
       var statusCol=enabled?'var(--green)':'var(--text-muted)';
       var statusTxt=enabled?(calls>0?'active':'ready'):'off';
-      // Local is only "ready" when a backend actually answers. Enabled-in-config
-      // with no server behind it showed a green "ready" while the router was
-      // skipping the lane entirely.
+      // Local is only "ready" when a backend actually answers: enabled in config
+      // with no server behind it is a lane the router skips.
       if(pk==='local'&&enabled&&calls===0){
         var lb=data.router&&data.router.local_backend;
         if(!lb||!lb.configured){statusCol='var(--text-muted)';statusTxt='no backend';}
@@ -3695,11 +3607,9 @@ function updateStats(data){
   }
   var phEng=document.getElementById('ph-engine');
   if(phEng){
-    // Truth over configuration: this used to show the FIRST ENABLED provider
-    // in a fixed order, so it read "Answering with ChatGPT (plan)" all day
-    // while every request was served by Kimi.
-    // Now it names the MODEL of the last completed request from the
-    // persistent ledger, with honest aging when the proxy has been idle.
+    // Truth over configuration: the line names the model of the last completed
+    // request from the persistent ledger, with honest aging when the proxy has
+    // been idle, never the first enabled provider in a fixed order.
     var ls = data.last_served;
     window._lastServed = (ls && ls.model) ? ls : null;
     if (ls && ls.model) {
@@ -3707,11 +3617,9 @@ function updateStats(data){
     } else if (data.providers) {
       var first=null;
       for(var pe=0;pe<PROVIDER_ORDER.length;pe++){var pkk=PROVIDER_ORDER[pe];if(data.providers[pkk]&&data.providers[pkk].enabled){first=pkk;break;}}
-      // Configuration is not readiness — "Ready" here used to mean "a
-      // provider row exists", including one pointing at a dead host.
+      // Configuration is not readiness: a provider row can point at a dead host.
       phEng.textContent=first?(providerLabel(first)+' configured — the first reply confirms it works'):'No engine set up yet';
-      // The step after setup was nowhere on this page: a configured machine
-      // showed status and no door. One line, both doors.
+      // The step after setup, on the page: one line, both doors.
       var phNext=document.getElementById('ph-next');
       if(!phNext&&phEng&&phEng.parentElement){
         phNext=document.createElement('div');phNext.id='ph-next';
@@ -3728,10 +3636,8 @@ function updateStats(data){
   // ── Routing ──
   var dr=document.getElementById('dash-routing');
   if(dr){
-    // "AUTO" was printed whenever routing.mode was auto, even when a PIN was
-    // set: pinning Kimi still read "AUTO", which is the opposite of what the
-    // operator chose. A pin outranks the mode, and a
-    // single enabled engine is not really a choice either - say so.
+    // A pin outranks the mode, so a pinned engine never reads "AUTO"; a single
+    // enabled engine is not a choice either, and the line says so.
     var pinNow=(data.routing&&data.routing.pin)||'';
     var enabledNow=[]; for(var rk in (data.providers||{})) if(data.providers[rk]&&data.providers[rk].enabled) enabledNow.push(rk);
     if(pinNow) dr.textContent='Pinned · '+providerShort(pinNow);
@@ -3755,30 +3661,21 @@ function updateStats(data){
     }
   }
 
-  // ── Routing pipeline ──
-  // Fix: chips used to come from a
-  // hardcoded  provider array with its own label/role maps - new
-  // engines (Z.AI, Gemini) could never appear and openai_sub rendered a
-  // literal "undefined" role. Now: live config keys, router quality order
-  // (proxy/modules/router.js QUALITY_RANK), app vocabulary via
-  // providerLabel(), fail-open for unknown keys.
+  // ── Routing pipeline ── Chips come from live config keys, the router quality
+  // order (proxy/modules/router.js QUALITY_RANK) and the app vocabulary via
+  // providerLabel(); unknown keys fail open.
   var fcEl=document.getElementById('dash-fallback-chain');
   if(fcEl&&data.providers){
     var CHAIN_ROLES={anthropic:'your key or plan',openai_sub:'your ChatGPT plan',alibaba:'your key · coding plan',deepinfra:'your key · low cost',nvidia:'your key · free tier',deepseek:'your key · low cost',openrouter:'your key · many models',zai:'your key',moonshot:'your key · Kimi',kimi_sub:'your Kimi Code plan',xai:'your key · Grok',google_ai:'your key',gemini:'your key',local:'free · on this Mac'};
     var chainKeys=PROVIDER_ORDER.filter(function(k){return k==='local'||data.providers[k];});
     for(var ck2 in data.providers){ if(chainKeys.indexOf(ck2)===-1) chainKeys.push(ck2); }
-    // App-set alignment: engines the app does not offer appear only while
-    // a legacy config still has them ENABLED (truth without re-offering).
-    // ONLY engines that can actually answer. The old filter kept every
-    // catalogue entry, so the main dashboard listed a dozen greyed-out
-    // engines the operator had never enabled.
-    // An engine you have not set up is not part of your routing.
+    // App-set alignment: engines the app does not offer appear only while a config
+    // still has them enabled (truth without re-offering). Only engines that can
+    // actually answer: an engine you have not set up is not part of your routing.
     chainKeys=chainKeys.filter(function(k){return data.providers[k]&&data.providers[k].enabled;});
-    // Prefer the REAL chain the router just used over this display order:
-    // the static list said "ChatGPT, Claude, ... Kimi last, local" while the
-    // router's actual order is cost/tier-computed and drops unreachable
-    // lanes. Fall back to the display order
-    // only when the server has not reported a chain yet.
+    // Prefer the real chain the router just used over this display order: the
+    // router's order is cost/tier-computed and drops unreachable lanes. The
+    // display order stands only until the server reports a chain.
     if (Array.isArray(data.effective_chain) && data.effective_chain.length) {
       var real = data.effective_chain.slice();
       for (var rk = 0; rk < chainKeys.length; rk++) if (real.indexOf(chainKeys[rk]) === -1) real.push(chainKeys[rk]);
@@ -3862,7 +3759,7 @@ function updateStats(data){
     if(dgt)dgt.textContent='$'+(data.cost.grandTotalUSD||0);
   }
 
-  // ── Opus 4.7 telemetry (April 2026 modules) ──
+  // ── Diagnostic cells ──
   var fmtPct = function(v){ return (v==null) ? '—' : (v*100).toFixed(1)+'%'; };
   var fmtNum = function(n){ return (n==null) ? '0' : String(n); };
 
@@ -3942,8 +3839,7 @@ function updateStats(data){
     }
   }
 
-  // ── Memory ── (reflexion/trajectory counters retired with their modules —
-  // four months of zeros was the card teaching people the memory was broken)
+  // ── Memory ──
   var dm=document.getElementById('dash-memory');
   if(dm){
     var coch=data.cochange||{trackedFiles:0};
@@ -3954,9 +3850,9 @@ function updateStats(data){
       '</div>';
   }
 }
-// A1 context detection: TROTH_CTX carries {app_installed,
-// core_source} from /api/stats. A2 (Observatory/Operator modes) keys off it;
-// until then it only sets a body class so CSS/JS can branch per topology.
+// Context detection: TROTH_CTX carries {app_installed, core_source} from
+// /api/stats. The Observatory/Operator gating keys off it, and it sets a body
+// class so CSS and JS can branch per topology.
 window.TROTH_CTX = { app_installed: false, core_source: 'dev', known: false };
 function applyTrothCtx(s) {
   if (!s || typeof s.app_installed === 'undefined') return;
@@ -3991,8 +3887,7 @@ function loadConfig() {
       var h = c.host || 'localhost';
       var p = c.port || 8000;
       envEl.textContent = 'ANTHROPIC_BASE_URL=http://' + h + ':' + p + ' claude';
-      // copyCliCmd() copies data-cmd, so it must track the live port too -
-      // it used to hand out the hardcoded :8000 default forever.
+      // copyCliCmd() copies data-cmd, so it must track the live port too.
       var envItem = document.getElementById('env-cli-item');
       if (envItem) envItem.setAttribute('data-cmd', envEl.textContent);
     }
@@ -4033,15 +3928,13 @@ function loadConfig() {
   });
 }
 
-// One catalog, one renderer: convert every provider model INPUT into a
-// SELECT fed from /api/catalog. Free-text fields were where model ids
-// rotted per-surface — the Kimi Code card's placeholder pointed at the
-// BASE tier while the membership's whole value is the flagship, so an
-// operator who typed nothing was served kimi-for-coding and billed for
-// k3. Values already in config that the catalog does not know are kept as
+// One catalog, one renderer: convert every provider model input into a select
+// fed from /api/catalog. Free-text fields are where model ids rot per surface,
+// and a placeholder pointing at a base tier bills a membership for the wrong
+// model. Values already in config that the catalog does not know are kept as
 // an injected option, never silently replaced; an empty field adopts the
-// catalog default so "enabled with no model" stops meaning "quietly the
-// worst tier".
+// catalog default so "enabled with no model" never means "quietly the worst
+// tier".
 function enhanceModelSelects(cat) {
   if (!cat) return;
   for (var key in cat) {
@@ -4712,9 +4605,9 @@ var PROVIDERS = [
   { key: 'google_ai', name: 'Google Gemini', field: 'apiKey', placeholder: 'AIza...' },
   { key: 'moonshot', name: 'Moonshot (Kimi)', field: 'apiKey', placeholder: 'sk-...' },
   { key: 'xai', name: 'xAI (Grok)', field: 'apiKey', placeholder: 'xai-...' },
-  // 'apiKey', not 'oauth': the membership IS a pasted key (routed to
-  // ~/.troth/.env as TROTH_KIMI_SUB_KEY). Marked oauth, the card had no key
-  // field at all and the only way to configure it was the environment.
+  // 'apiKey', not 'oauth': the membership is a pasted key, routed by the server
+  // to the env file under ~/.troth as TROTH_KIMI_SUB_KEY. Marked oauth, the card
+  // would have no key field at all.
   { key: 'kimi_sub', name: 'Kimi Code (subscription)', field: 'apiKey', placeholder: 'paste your Kimi Code key' },
   { key: 'custom_openai', name: 'Custom (OpenAI-compatible)', field: 'apiKey', placeholder: 'optional' },
 ];
@@ -4773,11 +4666,9 @@ function initProviders(statsData) {
     if (toggle) toggle.checked = !!cfg.enabled;
   }
 
-  // Kimi Code (subscription): the card I added shipped with an empty status
-  // line and an unfilled model box, so an ENABLED membership read as "not set
-  // up". Fill both from the live API, and say
-  // WHERE the key comes from, because this lane is env/app-provisioned rather
-  // than typed into the dashboard.
+  // Kimi Code (subscription): fill the status line and the model box from the
+  // live API, and say where the key comes from, because this lane is
+  // env/app-provisioned rather than typed into the dashboard.
   var kimiStatus = document.getElementById('kimi-sub-status');
   if (kimiStatus) {
     var ks = provs.kimi_sub || {};
@@ -4792,12 +4683,11 @@ function initProviders(statsData) {
   var kimiModel = document.getElementById('prov-kimi_sub-model');
   if (kimiModel && provs.kimi_sub) kimiModel.value = provs.kimi_sub.model || '';
 
-  // Model fields. Every card with a model box must hydrate here: the save
-  // loop posts whatever the field holds, and a field left empty becomes the
-  // catalog default once enhanceModelSelects() turns it into a select — so a
-  // card that is not hydrated silently rewrites a configured pin on the next
-  // Save of ANY card. That is how the new Anthropic model box would have
-  // moved an operator from claude-opus-5 to the default without a word.
+  // Model fields. Every card with a model box must hydrate here: the save loop
+  // posts whatever the field holds, and a field left empty becomes the catalog
+  // default once enhanceModelSelects() turns it into a select, so a card that is
+  // not hydrated silently rewrites a configured pin on the next Save of any
+  // card.
   var anthModel = document.getElementById('prov-anthropic-model');
   if (anthModel && provs.anthropic) anthModel.value = provs.anthropic.model || '';
   var dsModel = document.getElementById('prov-deepseek-model');
@@ -5023,9 +4913,9 @@ function saveProviders(btn) {
     var p = PROVIDERS[i];
     var key = (document.getElementById('prov-' + p.key) || {}).value || '';
     var en = (document.getElementById('prov-en-' + p.key) || {}).checked || false;
-    // An empty key box means "keep what is stored", never "store empty":
-    // the fields no longer hydrate (masks were being re-saved as keys), so
-    // posting the blank would erase a configured credential on every Save.
+    // An empty key box means "keep what is stored", never "store empty": the
+    // fields do not hydrate (a mask must never be re-saved as a key), so posting
+    // the blank would erase a configured credential on every Save.
     provs[p.key] = key ? { enabled: en, apiKey: key } : { enabled: en };
   }
   // Model fields
@@ -5037,11 +4927,9 @@ function saveProviders(btn) {
   if (provs.moonshot) provs.moonshot.model = moonModel;
   var xaiModel = (document.getElementById('prov-xai-model') || {}).value || 'grok-4.3';
   if (provs.xai) provs.xai.model = xaiModel;
-  // Every card that has a model box, saved from the ONE catalog's ids. These
-  // four were the only ones wired; anthropic, deepseek, deepinfra, google_ai,
-  // nvidia, zai and the Kimi membership silently dropped whatever the
-  // operator picked — which is how an enabled lane kept answering from a
-  // provider default nobody chose.
+  // Every card that has a model box, saved from the one catalog's ids. A card
+  // left out here silently drops whatever was picked, and the lane answers from
+  // a provider default nobody chose.
   ['anthropic', 'deepseek', 'deepinfra', 'google_ai', 'nvidia', 'zai', 'kimi_sub', 'local'].forEach(function (k) {
     var el = document.getElementById('prov-' + k + '-model');
     if (el && el.value && provs[k]) provs[k].model = el.value;
@@ -5049,9 +4937,8 @@ function saveProviders(btn) {
 
   // openai_sub — OAuth-backed, no apiKey field. Persist enabled + model only.
   var oaiSubEn = (document.getElementById('prov-en-openai_sub') || {}).checked || false;
-  // Empty means 'use the default', not 'write this literal'. This field used
-  // to fall back to a model the endpoint refuses, so saving the form with an
-  // untouched model box quietly poisoned a working config.
+  // Empty means "use the default", not "write this literal": a literal fallback
+  // to a model the endpoint refuses poisons a working config.
   var oaiSubMd = (document.getElementById('prov-openai_sub-model') || {}).value || '';
   provs.openai_sub = { enabled: oaiSubEn, model: oaiSubMd };
 
@@ -5081,7 +4968,6 @@ function saveProviders(btn) {
   });
 }
 
-// Per-task routing JS removed - see the card note above.
 
 function initModules() {
   var list = document.getElementById('module-list');
@@ -5155,7 +5041,6 @@ function fetchLogs(){fetch('/api/logs?since='+lastTs).then(function(r){return r.
 });}
 // ── Neural Map — D3.js Force-Directed Graph ──
 var brainNodes=[], brainEdges=[];
-// Tokyo Night palette — matches dashboard theme
 /* Pure-chrome ramp — node types distinguished by BRIGHTNESS, not hue. */
 var TYPE_COLORS={function:'#FFFFFF',method:'#DCE4F0',class:'#C7D2E0',interface:'#A8B5C7',type:'#8FA0B4',enum:'#7C8A9F',constant:'#9CABBF',module:'#6B7686'};
 
@@ -5580,11 +5465,10 @@ function installStackPart(part){
 }
 // ── Chat import card ───────────────────────────────────────────────────────
 var _importTimer = null;
-// Memory readiness — the same core-authored wording every surface renders
-// (shared-core/memory-readiness.js), PLUS what a frozen number can never
-// say: real progress pairs as bars and the drain's proof-of-life. A count
-// that sits at 28 for two days looks like slow progress; "28 left · no
-// worker running" and "61,388 / 61,819 · 99%" are different sentences.
+// Memory readiness: the same core-authored wording every surface renders
+// (shared-core/memory-readiness.js), plus what a frozen number can never say:
+// real progress as bars and the drain's proof-of-life, so a count that stands
+// still is told apart from a worker that is not running.
 function _readyBar(done, total, label){
   if (!total) return '';
   var pct = Math.max(0, Math.min(100, Math.round(done * 100 / total)));
@@ -5655,31 +5539,18 @@ function loadMemoryReadiness(){
     var stream = document.getElementById('intake-stream');
     if (!working) { el.innerHTML = ''; if (stream) stream.innerHTML = ''; return; }
 
-    // Numbers belong in the page's own stat boxes, not floating as text beside
-    // a bar. An earlier version printed "69,837 / 71,549 · 98%" tucked against
-    // the right edge of a label with two loose sentences under it — legible
-    // only to someone who already knew what it meant.
-    //
-    // ONE job, one percentage.
-    //
-    // Two versions of this card showed "indexed 100%" beside hours of pending
-    // work, because "indexed" counted only the passages already pulled OUT of
-    // documents while the documents themselves sat unread. Two halves of one
-    // job, and the reassuring half took the headline. A progress number that
-    // reads 100% while work remains is not optimistic, it is wrong.
-    //
-    // Progress is now (documents read + passages indexed) over the whole of
-    // both, so it cannot reach 100% while anything is left.
+    // Numbers belong in the page's own stat boxes, not floating as text beside a
+    // bar. One job, one percentage: progress is (documents read + passages
+    // indexed) over the whole of both, so it cannot reach 100% while anything is
+    // left. Counting only the passages already pulled out of documents reads 100%
+    // beside hours of pending work.
     var idxDone = ix.recall_embedded || 0, idxAll = ix.recall_total || 0;
     var docDone = res.done || 0, docAll = docDone + (res.queued || 0);
     var pct = (idxAll + docAll) ? Math.floor((idxDone + docDone) * 100 / (idxAll + docAll)) : 100;
     if (pct === 100 && ((ix.recall_missing || 0) > 0 || (res.queued || 0) > 0)) pct = 99;
 
-    // Rates are MEASURED, never assumed. The first version hardcoded the
-    // worker's budget and cadence into this file by hand, so any change there
-    // would have left the screen confidently wrong. These come from what
-    // actually completed in the last hour; when nothing has, the card says so
-    // instead of inventing a duration.
+    // Rates are measured, never assumed: they come from what completed in the last
+    // hour; when nothing has, the card says so instead of inventing a duration.
     var docsPerHour = res.docs_per_hour || 0;
     var passPerHour = ix.passages_per_hour || 0;
     var readMin = (res.queued > 0 && docsPerHour > 0) ? Math.ceil((res.queued / docsPerHour) * 60) : 0;
@@ -5708,10 +5579,8 @@ function loadMemoryReadiness(){
     if (ix.pending_memories > 0)  boxes.push(stat('from conversations', ix.pending_memories.toLocaleString(), 'memories waiting for an index'));
     if (totalMin > 0 || unknown) {
       // Two lanes, two heartbeats. The reader and the indexer are scheduled
-      // separately and one can be dead while the other runs — which is
-      // exactly what happened here: the indexer was alive, the document
-      // reader was never scheduled in this topology at all, and the card
-      // reported a working drain for weeks while 183 documents sat unread.
+      // separately and one can be dead while the other runs, so the card asks each
+      // lane for its own pulse.
       var readerDead = (res.queued > 0) && !res.reader_alive;
       var indexDead  = (ix.recall_missing > 0) && !(m.drain && m.drain.alive);
       boxes.push(stat('time left', paused ? 'paused' : human,
@@ -5752,12 +5621,10 @@ function loadMemoryReadiness(){
       '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;">' + boxes.join('') + '</div>' +
       bar + controls;
 
-    // What actually went through. A percentage says something is moving; only
-    // this says what. Full width, two columns, name never colliding with result.
-    //
-    // And it disappears when the work stops. A list headed "just taken in"
-    // showing files from twenty minutes ago is a lie told by a stale cache:
-    // the operator reads it as activity and there is none. It returns when
+    // What actually went through. A percentage says something is moving; only this
+    // says what. Full width, two columns, name never colliding with result. It
+    // disappears when the work stops: a list headed "just taken in" showing files
+    // from twenty minutes ago is a stale cache read as activity. It returns when
     // the drain does.
     if (stream) {
       var rec = res.recent || [];
@@ -5793,10 +5660,9 @@ function setIntakePause(on){
 }
 
 // Read a batch now rather than at the next idle window. The scheduled drain is
-// deliberately gentle — 8 documents every 15 minutes — which is right as a
-// default and no answer at all to someone sitting there asking why it has not
-// finished. Bounded: one batch per press, so this can never become the bulk
-// run that cooked the machine.
+// deliberately gentle, which is right as a default and no answer at all to
+// someone asking why it has not finished. Bounded: one batch per press, so it
+// can never become a bulk run that heats the machine.
 function drainIntakeNow(btn){
   if (btn) { btn.disabled = true; btn.textContent = 'Reading…'; }
   post('/api/memory/drain-now', {})
@@ -5953,8 +5819,8 @@ function startImport(source){
     return r.json();
   }).then(function(v){
     if (!v || !v.stale) return;
-    // Fixed overlay: prepending into the flex body used to turn the banner
-    // into a giant column and shove the whole app sideways.
+    // Fixed overlay: prepended into the flex body, the banner becomes a giant
+    // column and shoves the whole app sideways.
     var bar = document.createElement('div');
     bar.id = 'stale-proxy-bar';
     bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:200;background:#1A1710;border-bottom:1px solid #6B4A1F;color:#E8C288;font-size:12px;padding:9px 16px;text-align:center;';
@@ -6092,9 +5958,6 @@ function loadCommands(){
 function copyText(t){
   try { navigator.clipboard.writeText(t); toast('Copied: ' + t); } catch (_) {}
 }
-// ("Copy as prompt for your AI" retired: a wired agent already learns the
-// surface from its tool descriptions, skills, and the injector — the mount
-// IS the knowledge. For unwired agents the door is Connections → Wire.)
 
 // ── Memory hero: the mind in numbers ───────────────────────────────────────
 function loadMemoryHero(){
@@ -6153,9 +6016,8 @@ function loadRules(){
   fetch('/api/substrate/records?ctype=refusal,anchor,fact&limit=100')
     .then(function(r){ return r.json(); })
     .then(function(d){
-      // Walls first: refusals and anchors are the point of this card; facts
-      // are context. Sixty facts newer than the newest refusal used to push
-      // every wall below the fold.
+      // Walls first: refusals and anchors are the point of this card; facts are
+      // context, and newer facts must not push every wall below the fold.
       if (d && d.items) {
         var walls = d.items.filter(function(x){ return x.kind === 'refusal' || x.kind === 'anchor'; });
         var facts = d.items.filter(function(x){ return x.kind === 'fact'; });
@@ -6253,13 +6115,12 @@ function loadRecords(offset){
         if (!(m[1] in map)) { map[m[1]] = v; order.push(m[1]); }
       }
       if (!order.length) return st;
-      // mind_snapshot BEFORE the generic picks. Its stored summary is built
-      // from current_focus + active_projects, both of which stay constant for
-      // weeks, so 5,464 snapshots rendered as the same line and the page read
-      // as broken. The field that actually changes each turn is the request
-      // itself (current_intent.what) — showing it turns a wall of duplicates
-      // into a timeline. Derived at render time so the whole history reads
-      // correctly, not just rows written from now on.
+      // mind_snapshot before the generic picks. Its stored summary is built from
+      // current_focus + active_projects, which stay constant for weeks, so snapshots
+      // render as the same line and the page reads as broken. The field that changes
+      // each turn is the request itself (current_intent.what); showing it turns a
+      // wall of duplicates into a timeline. Derived at render time so the whole
+      // history reads correctly.
       if (it.type === 'mind_snapshot') {
         var mWhat = map.what || '';
         if (mWhat) return mWhat;
@@ -6296,10 +6157,9 @@ function loadRecordTypes(){
     var by = (c && c.by_type) || {};
     var names = Object.keys(by).filter(function(k){ return by[k] > 0; })
                       .sort(function(a,b){ return by[b] - by[a]; });
-    // Documents the operator loaded in are a CLASS of thing they look for,
-    // so they belong in the same dropdown as every other class. They were a
-    // separate card and that was wrong: a person does not know that a
-    // document is stored differently from an action record, and should not
+    // Documents the operator loaded in are a class of thing they look for, so they
+    // belong in the same dropdown as every other class: a person does not know
+    // that a document is stored differently from an action record, and should not
     // have to.
     sel.innerHTML = '<option value="">every class (' + ((c && c.total) || 0).toLocaleString() + ')</option>' +
       '<option value="__knowledge__">knowledge intelligence' +
@@ -6360,10 +6220,9 @@ function recDetailHtml(d){
     if (kept != null || rem != null) rows.push(['window', (kept != null ? kept + ' kept' : '') + (rem != null ? ' · ' + rem + ' removed' : '')]);
     if (inp.trigger) rows.push(['trigger', esc(inp.trigger)]);
   }
-  // Tool calls: the record stores the name under `tool_name`, so reading
-  // `tool`/`name` matched nothing and every one of these rows fell through to
-  // the generic key dump below — which skips objects, so `args` (the part that
-  // says WHICH file, WHICH command) was never shown at all.
+  // Tool calls: the record stores the name under `tool_name`, and `args` (which
+  // file, which command) is an object, which the generic key dump below skips,
+  // so both are read explicitly.
   if (d.type === 'tool_call' && (inp.tool_name || inp.tool || inp.name)) {
     rows.push(['tool', esc(inp.tool_name || inp.tool || inp.name)]);
     var targs = inp.args || {};
@@ -6445,8 +6304,8 @@ function searchMemories(sfx){
              '<span style="flex:1">' + String(it.statement || '').replace(/</g, '&lt;') +
              ' <span style="color:var(--text-muted)">' + when + '</span></span>' + action + '</div>';
     }).join('');
-    // Carry the row id, not just its text: /forget used to re-find its own
-    // target from the statement and could land on a different memory.
+    // Carry the row id, not just its text: re-finding the target from the
+    // statement can land on a different memory.
     var rows = box.querySelectorAll('button[data-mid]');
     var withBtn = items.filter(function (it) { return it.forgettable !== false; });
     withBtn.forEach(function (it, i) { if (rows[i]) { rows[i].dataset.stmt = it.statement || ''; rows[i].dataset.mid = it.id || ''; } });
@@ -6466,15 +6325,12 @@ function forgetMemory(btn){ /* shared across both memory surfaces */
 }
 
 // Knowledge the operator gave the partner: documents, manuals, contracts,
-// research. Rendered INTO the records list, under its own class in the same
-// dropdown, using the same search box.
-//
-// It was a separate card first, and that was wrong. A person does not know
-// that a document is stored differently from an action record and should not
-// have to learn it to find their own files. The shape of a row differs — a
-// document is read in order, an event is not — but the surface is one.
-//
-// The word "corpus" never reaches the screen for the same reason.
+// research. Rendered into the records list, under its own class in the same
+// dropdown, using the same search box: a person does not know that a document
+// is stored differently from an action record and should not have to learn it
+// to find their own files. The shape of a row differs (a document is read in
+// order, an event is not) but the surface is one. The word "corpus" never
+// reaches the screen for the same reason.
 function cEsc(t){ return String(t == null ? '' : t).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
 var CORPUS_ROWS = [];
 var CORPUS_OPEN = null;
@@ -6629,11 +6485,10 @@ function loadAnthropicStatus(){
 function formatAgo(ts){if(!ts)return'-';var d=Date.now()-(typeof ts==='number'?ts:new Date(ts).getTime());if(d<60000)return 'now';if(d<3600000)return Math.floor(d/60000)+'m ago';if(d<86400000)return Math.floor(d/3600000)+'h ago';return Math.floor(d/86400000)+'d ago';}
 function escHtml(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 
-// ── Providers: add / remove semantics ──
-// UX: enabled cards always visible, with a "Remove" button. Click
-// "+ Add provider" to open a catalog of chips — one per disabled
-// provider. Click a chip to add (auto-enable) that provider; its
-// card appears. The old "Enable" toggle is hidden — "added" = enabled.
+// ── Providers: add / remove ── Enabled cards are always visible, with a
+// Remove button. "+ Add provider" opens a catalog of chips, one per disabled
+// provider; a chip adds that provider and its card appears. "Added" = enabled;
+// the per-card Enable toggle stays hidden.
 var _catalogOpen = false;
 
 var _routingOrder = [];
@@ -6675,11 +6530,10 @@ function renderRoutingOrder(data) {
   var el = document.getElementById('routing-order-list');
   if (!el || !data || !data.providers) return;
   var enabled = [];
-  // ready===false is the server saying "this lane cannot answer" (enabled
-  // but keyless / token-less). Listing it as a routing rung read as "engines
-  // you have" when it was "engines you once toggled" — an operator saw
-  // DeepInfra ranked #2 without ever setting it up. Old servers that do not
-  // send `ready` keep the enabled-only behavior (undefined !== false).
+  // ready===false is the server saying "this lane cannot answer" (enabled but
+  // keyless / token-less). Listed as a routing rung it reads as "engines you
+  // have" when it is "engines you once toggled". Servers that do not send
+  // `ready` keep the enabled-only behavior (undefined !== false).
   for (var k in data.providers) { var _p = data.providers[k]; if (_p && _p.enabled && _p.ready !== false) enabled.push(k); }
   // Seed from the saved order, then append anything newly enabled.
   var saved = (data.routing && Array.isArray(data.routing.order)) ? data.routing.order : [];
@@ -6727,11 +6581,10 @@ function toggleDisabledProviders() {
 }
 
 function revealProvider(key) {
-  // "+ Add" opens the card; it does not enable anything yet. It used to save
-  // enabled=true on the spot, so a provider with no key landed in the config
-  // as a live engine — the routing chain showed a lane that could never
-  // answer, and the operator was told it was configured. A provider joins
-  // when it can work: key pasted (or OAuth done), then Save.
+  // "+ Add" opens the card; it does not enable anything yet. Saving enabled=true
+  // on the spot would land a provider with no key in the config as a live
+  // engine, a lane that can never answer. A provider joins when it can work: key
+  // pasted (or OAuth done), then Save.
   var tog = document.getElementById('prov-en-' + key);
   var card = tog && tog.closest('.settings-card');
   var meta = null;
@@ -6755,13 +6608,13 @@ function revealProvider(key) {
 function removeProvider(key) {
   var tog = document.getElementById('prov-en-' + key);
   if (tog) tog.checked = false;
-  // Straight to the API, not through saveProviders — that path deliberately
-  // reads an empty box as "keep the stored key", so a remove routed through
-  // it disabled the lane and kept the credential alive on disk. '' is the
-  // server's revoke: env line gone for mapped lanes, config field for the rest.
+  // Straight to the API, not through saveProviders: that path reads an empty box
+  // as "keep the stored key", which would disable the lane and keep the
+  // credential alive on disk. '' is the server's revoke: env line gone for
+  // mapped lanes, config field for the rest.
   var p = {}; p[key] = { enabled: false, apiKey: '' };
   // fetch, not post(): post() lives inside the onboarding closure and does not
-  // exist up here — the call threw before anything reached the network.
+  // exist up here.
   fetch('/api/config', { method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ providers: p }) }).then(function (r) { return r.json(); }).then(function () {
     toast('Removed — key forgotten');
@@ -6773,9 +6626,9 @@ function removeProvider(key) {
   applyProvidersVisibility();
 }
 
-// Hide the legacy "Enable" toggle inside each provider card (it's now
-// redundant — "added" = enabled) and inject a "Remove" button next to
-// Save. Idempotent: safe to call on every visibility pass.
+// Hide the Enable toggle inside each provider card ("added" = enabled) and
+// inject a Remove button next to Save. Idempotent: safe to call on every
+// visibility pass.
 function hydrateProviderCards() {
   if (!window.PROVIDERS) return;
   for (var i = 0; i < PROVIDERS.length; i++) {
@@ -6837,11 +6690,10 @@ function applyProvidersVisibility() {
   }
 }
 
-// ── Settings tabs ──
-// Kept as the loader hook the callers already use; there are no tabs left to
-// switch. Cards render together, sectioned, in document order.
-// Settings is three rooms behind one door; the strapline is the navigation.
-// Legacy card names (backend/network/…) still deep-link into their room.
+// ── Settings tabs ── The loader hook the callers use. Cards render together,
+// sectioned, in document order: Settings is three rooms behind one door, and
+// the strapline is the navigation. Card names (backend/network/…) deep-link
+// into their room.
 var SETTINGS_TAB_GROUPS = { backend: 'machine', network: 'machine', telemetry: 'machine', mindset: 'behaviour', modules: 'behaviour', mcp: 'connections', security: 'security' };
 var _settingsTab = 'machine';
 function setSettingsTab(name) {
@@ -6904,12 +6756,6 @@ function setHelpTab(name) {
   });
 }
 
-// Settings-substrate JS cluster removed: event stream,
-// engram browser + feedback, dialogue browser, lora-distill, apply
-// command, counts/config/identity editors. All of it rendered into the
-// "Substrate-as-Entity" panel deleted  - zero DOM anchors
-// remained, so none of it could run. The canonical substrate surface is
-// the Substrate page; the server APIs the cluster called are unchanged.
 
 // ── Connection state strip (global) ──
 function fetchConnectionState() {
@@ -6960,9 +6806,8 @@ function loadMcpStatus(includeTccId) {
     .then(function(r){ return r.json(); })
     .then(function(d){
       var cc = (d && d.claude_code) || {};
-      // A3: plugin_installed reads the actual plugin registry; the older
-      // marketplace/enabled pair misses v2-registry installs and made this
-      // dot lie "not connected" while the plugin was live.
+      // plugin_installed reads the actual plugin registry; the marketplace/enabled
+      // pair misses v2-registry installs.
       if (cc.plugin_installed) {
         txt.textContent = 'wired via the troth plugin ✓';
         if (dot) dot.className = 'provider-dot on';
@@ -7055,8 +6900,8 @@ function vaultTypeOf(inj) {
   return 'api key';
 }
 function vaultScopeDisp(glob) {
-  // '*' can only be a relic from before scopes were required; the matcher
-  // no longer honours it, so say that instead of the old 'anywhere'.
+  // '*' is a relic from before scopes were required; the matcher does not honour
+  // it, so say that instead of "anywhere".
   if (!glob) return 'unscoped';
   if (glob === '*') return 'unscoped · no longer honoured';
   return glob.replace(/^capability:(http:do|browser:fill):/, '');
@@ -7184,8 +7029,8 @@ function vaultAdd() {
   var body = { key: g('vault-add-key').trim(), value: g('vault-add-value'), description: g('vault-add-desc').trim() || null };
   if (_vaultAddType === 'custom') {
     var kind = g('vault-add-kind') || 'bearer';
-    // A blank scope used to become '*', which auto-attached the secret to
-    // every request everywhere. Now blank means: not yet sealable.
+    // A blank scope means not yet sealable. It must never become '*', which would
+    // attach the secret to every request everywhere.
     var scopeC = g('vault-add-scope').trim();
     if (!scopeC) { if (msg) msg.textContent = 'the scope is missing, name where it may be used'; return; }
     body.capability_scope_glob = scopeC;
@@ -7494,9 +7339,9 @@ code.tob-c{background:var(--bg-code);border:1px solid var(--glass-border);border
     <div class="tob-nav"><button class="tob-b" onclick="tobGo(3)">Continue</button></div>
   </div>
 
-  <!-- 4 ── connect: every remaining step EXECUTES from here. The first
-       version of this screen printed terminal commands as homework; the
-       skipped step is always the second command. -->
+  <!-- 4 ── connect: every remaining step executes from here. Printed terminal
+       commands are homework, and the skipped step is always the second
+       command. -->
   <div class="tob-step" id="tob-s3">
     <p class="tob-h">Connect and finish</p>
     <p class="tob-sub">All optional. Each button does the work and reports what happened.</p>
@@ -7588,9 +7433,9 @@ code.tob-c{background:var(--bg-code);border:1px solid var(--glass-border);border
     if (hn) hn.style.display = (hubMode && i === 3) ? 'block' : 'none';
   }
 
-  // Only offer histories that EXIST here. A button for a tool the operator
-  // does not have is an instruction to fail, and one hit exactly that with
-  // Codex. Counts come from the importer's own walk.
+  // Only offer histories that exist here: a button for a tool the operator does
+  // not have is an instruction to fail. Counts come from the importer's own
+  // walk.
   var _importScanned = false;
   function tobImportSources() {
     if (_importScanned) return;
@@ -7661,11 +7506,10 @@ code.tob-c{background:var(--bg-code);border:1px solid var(--glass-border);border
   window.tobClaudeLink = function (btn) {
     if (btn) btn.disabled = true;
     $('tob-m8').className = 'tob-msg'; $('tob-m8').textContent = 'Checking Claude Code…';
-    // Ask before claiming. `claude plugin install` succeeds on a machine where
-    // nobody has ever signed in, so wiring the plugin and reporting ✓ Linked
-    // told operators their plan was connected while the providers panel, two
-    // clicks away, correctly said no subscription was detected. The app has
-    // always checked first and refused; this is the same check.
+    // Ask before claiming: `claude plugin install` succeeds on a machine where
+    // nobody has ever signed in, so a wired plugin says nothing about a plan, and
+    // the providers panel two clicks away would say so. The app checks first and
+    // refuses; this is the same check.
     fetch('/api/mcp/status').then(function (r) { return r.json(); }).then(function (s) {
       var cc = (s && s.claude_code) || {};
       if (!cc.cli_installed) {
@@ -7732,9 +7576,8 @@ code.tob-c{background:var(--bg-code);border:1px solid var(--glass-border);border
         $('tob-m7').textContent = 'Import did not start: ' + ((j && (j.error || j.detail)) || 'unknown');
         return;
       }
-      // Follow it. The old version said "progress is in a log file" and went
-      // quiet for the length of a months-deep walk — which is exactly when a
-      // person cannot tell a working import from a hung one.
+      // Follow it: a months-deep walk that goes quiet is exactly when a person
+      // cannot tell a working import from a hung one.
       if (importTimer) clearInterval(importTimer);
       importTimer = setInterval(function () {
         fetch('/api/memory/import-status').then(function (r) { return r.json(); }).then(function (s) {
@@ -7791,10 +7634,10 @@ code.tob-c{background:var(--bg-code);border:1px solid var(--glass-border);border
         return;
       }
       if (r && r.auth_url) {
-        // The tab opens from THIS page. The server used to open the browser
-        // on its own machine — a box without xdg-open clicked into silence.
-        // window.open after an async hop is popup-bait, so the link is ALWAYS
-        // rendered too; built with createElement, the URL never meets HTML.
+        // The tab opens from this page, never from the server: a box without xdg-open
+        // clicks into silence. window.open after an async hop is popup-bait, so the
+        // link is always rendered too; built with createElement, the URL never meets
+        // HTML.
         try { window.open(r.auth_url, '_blank'); } catch (_) {}
         var m = $('tob-m0'); m.className = 'tob-msg'; m.textContent = 'Waiting for the sign-in… If no tab opened, ';
         var a = document.createElement('a');
@@ -7903,11 +7746,9 @@ code.tob-c{background:var(--bg-code);border:1px solid var(--glass-border);border
     });
   };
 
-  // ── memory ──
-  // The local stack, one offer per component. The old version polled the
-  // embedder alone and called that "turn on memory", so the reranker and the
-  // local chat model were only ever found by someone who already knew they
-  // existed — the onboarding quietly delivered half a product.
+  // ── memory ── The local stack, one offer per component. Polling the embedder
+  // alone and calling that "turn on memory" leaves the reranker and the local
+  // chat model to someone who already knows they exist.
   var PART_ORDER = ['embedder', 'reranker', 'chat', 'binary'];
   function tobPoll() {
     if (pollTimer) return;
@@ -8014,12 +7855,10 @@ code.tob-c{background:var(--bg-code);border:1px solid var(--glass-border);border
       if (loc && loc.enabled) {
         post('/api/providers/verify', { name: 'local' }).then(function (v) {
           if (v && v.status !== 'valid') {
-            // The exact silence that cost real subscription quota: a local
-            // engine configured, unreachable, and every turn quietly billed
-            // to a paid lane instead. Say it where the choice is made.
-            // Built with createElement/textContent, never innerHTML —
-            // loc.host is operator-typed free text round-tripped through
-            // config.json.
+            // A local engine configured but unreachable bills every turn to a paid lane in
+            // silence. Say it where the choice is made. Built with
+            // createElement/textContent, never innerHTML: loc.host is operator-typed free
+            // text round-tripped through config.json.
             var w = document.createElement('div'); w.className = 'tob-note';
             var wb = document.createElement('b');
             wb.textContent = 'Your local engine is not answering.';
@@ -8071,11 +7910,10 @@ code.tob-c{background:var(--bg-code);border:1px solid var(--glass-border);border
   function boot() {
     var forced = /[?&]onboarding=1/.test(location.search);
     fetch('/api/config').then(function (r) {
-      // A 401 (remote dashboard without a bearer token) still resolves with
-      // valid JSON ({error:'unauthorized'}), which read as "no engine
-      // configured" and trapped that surface under a modal none of whose
-      // calls could succeed. Route auth failures to catch, which only shows
-      // the overlay when explicitly forced.
+      // A 401 (remote dashboard without a bearer token) still resolves with valid
+      // JSON ({error:'unauthorized'}), which would read as "no engine configured"
+      // and trap that surface under a modal none of whose calls can succeed. Route
+      // auth failures to catch, which only shows the overlay when explicitly forced.
       if (!r.ok) throw 0;
       return r.json();
     }).then(function (c) {
