@@ -203,7 +203,7 @@ function resolveSessionContext(sessionId) {
 }
 
 // The context a conversation is bound to, by the chain every surface uses:
-// an explicit statement in this message ("working on X", "πάμε στο X") wins;
+// an explicit statement in this message ("working on X") wins;
 // else the binding already recorded for the session; else the directory the
 // session runs in, when that names a registered context and is not a home
 // folder; else the session's own file activity; else a plain mention in the

@@ -180,7 +180,7 @@ if (lessons.length) {
 try {
   if (prompt.trim().length >= 12 && !prompt.startsWith('/')) {
     const recall = require(pluginRoot + '/../shared-core/recall.js');
-    // A memory question ("what did we say about X", "τι είχαμε πει για X") is an
+    // A memory question ("what did we say about X") is an
     // explicit ask: recall reads across every thread for it, and below its
     // hits are offered on naming the subject.
     let memShaped = null;

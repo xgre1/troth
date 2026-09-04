@@ -35,8 +35,8 @@ function transcript(dir, sessionId, cwd, userText, assistantText) {
   const projB = path.join(root, '-Users-someone-code-beta');
   const home  = path.join(root, HOME.replace(/\//g, '-'));
   const temp  = path.join(root, '-private-var-folders-zz-abc-T-lme-claude-home-XYZ');
-  transcript(projA, '11111111-1111-4111-8111-111111111111', '/Users/someone/code/alpha', 'alpha project: we chose sqlite for the cache', 'Noted, sqlite it is.');
-  transcript(projB, '22222222-2222-4222-8222-222222222222', '/Users/someone/code/beta', 'beta project: the deadline moved to friday', 'Understood, friday.');
+  transcript(projA, '11111111-1111-4111-8111-111111111111', '/Users/you/code/alpha', 'alpha project: we chose sqlite for the cache', 'Noted, sqlite it is.');
+  transcript(projB, '22222222-2222-4222-8222-222222222222', '/Users/you/code/beta', 'beta project: the deadline moved to friday', 'Understood, friday.');
   transcript(home,  '33333333-3333-4333-8333-333333333333', HOME, 'from home: remind me to call the dentist', 'Will do.');
   transcript(temp,  '44444444-4444-4444-8444-444444444444', '/private/var/folders/zz/abc/T/lme-claude-home-XYZ', 'bench haystack turn that must never enter memory', 'ok');
 
@@ -71,7 +71,7 @@ function transcript(dir, sessionId, cwd, userText, assistantText) {
     assert.ok(texts.some((x) => /from home/.test(x)), 'home recorded');
     assert.ok(!texts.some((x) => /bench haystack/.test(x)), 'the throwaway home never enters memory');
     const alpha = turns.find((x) => /alpha project/.test(String(x.user_text || '')));
-    assert.strictEqual(alpha && alpha.cwd, '/Users/someone/code/alpha', 'the turn carries the project it was said in');
+    assert.strictEqual(alpha && alpha.cwd, '/Users/you/code/alpha', 'the turn carries the project it was said in');
     const beta = turns.find((x) => /beta project/.test(String(x.user_text || '')));
     const convOf = (x) => x && (x.conversation_id || x.session_id) || null;
     assert.ok(convOf(alpha), 'the turn carries the conversation it was said in: ' + JSON.stringify(alpha));

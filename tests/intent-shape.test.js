@@ -32,7 +32,7 @@ t('a verb met mid-sentence in another language is not an order', () => {
 });
 
 t('a pasted transcript yields no intent', () => {
-  const chat = '[3/9/26, 9:48:02 am] someone: το ξεκινά από τη κατανόηση\n[3/9/26, 9:48:11 am] someone: κάνε το ίδιο μέγεθος γραμματοσειράς\n[3/9/26, 9:48:13 am] someone: με το πάνω';
+  const chat = '[3/9/26, 9:48:02 am] someone: it starts from the understanding\n[3/9/26, 9:48:11 am] someone: make the font the same size\n[3/9/26, 9:48:13 am] someone: as the one above';
   const r = E.extractIntent(chat);
   assert.ok(!r.ok && r.reason === 'pasted_text', JSON.stringify(r));
   assert.ok(E._isPasted('> quoted line one\n> quoted line two\n> quoted line three'));

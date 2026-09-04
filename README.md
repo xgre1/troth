@@ -170,6 +170,8 @@ Autonomous workers and the sealed body are named at [troth.one](https://troth.on
 - **Your subscriptions, as engines.** Claude, ChatGPT and Kimi are first-class backbones through the plan you already pay for. No API key, no second bill. Image generation runs on your ChatGPT plan.
 - **Your own keys, if you prefer them.** Gemini, DeepSeek, Grok, Qwen, GLM, OpenRouter, or any endpoint that speaks the OpenAI API.
 - **Or no account at all.** Point it at llama.cpp or Ollama and the whole partner runs offline, memory included.
+- **Your editors and agents.** Claude Code, Cursor, Windsurf, Cline, Claude Desktop and Hermes Agent mount the same mind through MCP: one button each on the dashboard, or `troth mcp install <host>`.
+- **What is already on this machine.** Claude Code and Codex history and Obsidian vaults import with one button, and the Code Map draws any project you point it at.
 - **No inference of ours, no middleman.** Every request goes from your machine to the provider you picked.
 - **It spends your quota carefully.** The local proxy routes each request to the engine that fits it, caches repeated responses, and fails over across providers instead of erroring out mid-conversation.
 
@@ -295,7 +297,7 @@ Every claim on this page has a check that catches it if it stops being true, and
 <details>
 <summary>The full count</summary>
 
-1,813 checks in one `npm test` run, and a further 394 reported as skipped: coverage of the closed overlay, plus a handful whose fixture cannot be built twice in one process and which run when their suite runs alone. 50 standalone checks that own their own setup (`npm run test:standalone`); one of them needs a running Docker daemon and reports as skipped without it, so a machine without Docker sees 49 pass and 1 skip. 11 integration smoke checks (`npm run smoke`), all of which run without any provider configured. 5 enforced standards (`npm run test:standards`). These are the numbers this repository produces: the machine that builds it also has the closed overlay on disk, which adds smoke files and a sixth standard, so `scripts/release-gate.sh repo` re-derives all of them from a tree of tracked files only and refuses to pass if any has drifted.
+1,816 checks in one `npm test` run, and a further 394 reported as skipped: coverage of the closed overlay, plus a handful whose fixture cannot be built twice in one process and which run when their suite runs alone. 99 standalone checks that own their own setup (`npm run test:standalone`); one of them needs a running Docker daemon and reports as skipped without it, so a machine without Docker sees 98 pass and 1 skip. 11 integration smoke checks (`npm run smoke`), all of which run without any provider configured. 5 enforced standards (`npm run test:standards`). These are the numbers this repository produces: the machine that builds it also has the closed overlay on disk, which adds smoke files and a sixth standard, so `scripts/release-gate.sh repo` re-derives all of them from a tree of tracked files only and refuses to pass if any has drifted.
 
 </details>
 

@@ -10,7 +10,7 @@ so users and contributors can decide whether the actual deliverables
 match what they need. Better to under-promise than to ship a "fake
 partner" experience.
 
-Audited against: 0.1.18 (2026-09-01). The release gate refuses to ship a
+Audited against: 0.1.19 (2026-09-04). The release gate refuses to ship a
 newer version until this line moves with it: an honesty page that stops
 being re-read stops being honest.
 

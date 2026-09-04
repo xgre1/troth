@@ -33,7 +33,7 @@ t('Ctrl-C interrupts instead of becoming a character', () => {
 
 t('end of input on an empty line reads as empty, and a utf-8 passphrase survives', () => {
   assert.strictEqual(tp.readLineSync(fdWith('\x04')), '');
-  assert.strictEqual(tp.readLineSync(fdWith('κωδικός πρόσβασης\n')), 'κωδικός πρόσβασης');
+  assert.strictEqual(tp.readLineSync(fdWith('pässwörd ünïcode\n')), 'pässwörd ünïcode');
 });
 
 t('the environment variable answers without touching a terminal', () => {

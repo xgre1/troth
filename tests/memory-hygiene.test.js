@@ -45,9 +45,9 @@ const ident = (canonical, kind, relation, aliases) => engram.recordEngram({
     scope: 'docs:seen:' + title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 20), source: 'seen:abc', source_authority: 'plr_evolved', auto_verify: false,
     extra_output: { provenance: { tier: 'operator', ref: null } }
   });
-  doc('/Users/x/.claude/projects/-Users-x/abc/tool-results', 'mcp-plugin-troth-recall-1788.txt');
-  doc('/Users/x/.claude/projects/-Users-x', 'hook-5b61-7-additionalContext.txt');
-  doc('/Users/x/Documents/research', 'llama-cpp-notes.md');
+  doc('/Users/you/.claude/projects/-Users-you/abc/tool-results', 'mcp-plugin-troth-recall-1788.txt');
+  doc('/Users/you/.claude/projects/-Users-you', 'hook-5b61-7-additionalContext.txt');
+  doc('/Users/you/Documents/research', 'llama-cpp-notes.md');
   const self = (statement, payload) => engram.recordEngram({
     agent_id: A, user_id: 'default', cwd: null, statement, scope: 'consolidated:self', source: 'background_worker.wm_consolidation', source_authority: 'plr_evolved', auto_verify: false,
     extra_output: { payload: Object.assign({ fact_kind: 'fact', reps: 1 }, payload) }
