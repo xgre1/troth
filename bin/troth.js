@@ -94,35 +94,46 @@ function checkHealth(host, port) {
 // the exact impostor it meant to reject; a response that drips bytes slower
 // than the idle timeout never ends at all, and execFileSync has no timeout to
 // stop it.
-function checkHealthSync(host, port, opts) {
-  var wantTroth = !!(opts && opts.troth);
+// One synchronous GET against the proxy: the body on 200, null otherwise.
+// Nothing below may outlive the call, whatever the peer does.
+function httpGetSync(host, port, pathname, timeoutMs) {
   try {
     const script =
       'const h=require("http");' +
       'let r;' +
-      'const done=(c)=>{try{if(r)r.destroy()}catch(_){}process.exit(c)};' +
-      // Nothing below may outlive this, whatever the peer does.
-      'const guard=setTimeout(()=>done(1),4000); guard.unref&&guard.unref();' +
-      'r=h.request({host:"' + host + '",port:' + port + ',path:"/health",timeout:2000},(res)=>{' +
+      'const done=(c,b)=>{try{if(r)r.destroy()}catch(_){}if(b)process.stdout.write(b);process.exit(c)};' +
+      'const guard=setTimeout(()=>done(1),' + (timeoutMs || 4000) + '); guard.unref&&guard.unref();' +
+      'r=h.request({host:' + JSON.stringify(host) + ',port:' + port + ',path:' + JSON.stringify(pathname) + ',timeout:2000},(res)=>{' +
         'if(res.statusCode!==200){res.resume();return done(1);}' +
-        'if(!' + (wantTroth ? 'true' : 'false') + '){res.resume();return done(0);}' +
         'let b="";' +
         'res.on("data",(c)=>{b+=c;if(b.length>65536)return done(1);});' +
-        'res.on("end",()=>{try{const j=JSON.parse(b);' +
-          // version + status are in every /health answer; pid/script/build are
-          // withheld from non-loopback callers on purpose, so requiring them
-          // would make a remote proxy invisible to its own CLI.
-          'done(j&&typeof j.version==="string"&&typeof j.status==="string"?0:1);' +
-        '}catch(_){done(1);}});' +
+        'res.on("end",()=>done(0,b));' +
         'res.on("error",()=>done(1));' +
         'res.on("aborted",()=>done(1));' +
       '});' +
       'r.on("error",()=>done(1));' +
       'r.on("timeout",()=>done(1));' +
       'r.end();';
-    execFileSync(process.execPath, ["-e", script], { stdio: "pipe", timeout: 6000 });
-    return true;
-  } catch (e) { return false; }
+    return execFileSync(process.execPath, ["-e", script], { stdio: "pipe", timeout: (timeoutMs || 4000) + 2000, encoding: "utf8" });
+  } catch (e) { return null; }
+}
+function checkHealthSync(host, port, opts) {
+  var wantTroth = !!(opts && opts.troth);
+  var body = httpGetSync(host, port, "/health", 4000);
+  if (body === null) return false;
+  if (!wantTroth) return true;
+  // version + status are in every /health answer; pid/script/build are
+  // withheld from non-loopback callers on purpose, so requiring them
+  // would make a remote proxy invisible to its own CLI.
+  try { var j = JSON.parse(body); return !!(j && typeof j.version === "string" && typeof j.status === "string"); }
+  catch (_) { return false; }
+}
+// The window the proxy's lane serves for a model, or 0 when it cannot say.
+function contextWindowSync(host, port, model) {
+  var body = httpGetSync(host, port, "/api/context-window?model=" + encodeURIComponent(String(model || "")), 4000);
+  if (body === null) return 0;
+  try { var j = JSON.parse(body); var w = parseInt(j && j.window, 10); return w > 0 ? w : 0; }
+  catch (_) { return 0; }
 }
 
 //  clean orphan troth-proxy-* siblings on every ensureProxy
@@ -3510,8 +3521,20 @@ if (useGemini) {
   delete env.CLAUDE_CODE_MAX_CONTEXT_TOKENS;
 } else {
   env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = "8192";
-  env.CLAUDE_CODE_DISABLE_1M_CONTEXT = "1";
-  env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = "58000";
+  // The harness compacts against the window the engine really serves. A
+  // Claude id keeps Claude Code's own table; every other id takes the lane's
+  // window from the proxy (the ChatGPT lane, Kimi, a local server's n_ctx).
+  // Without a number the harness keeps its default.
+  delete env.CLAUDE_CODE_DISABLE_1M_CONTEXT;
+  delete env.CLAUDE_CODE_MAX_CONTEXT_TOKENS;
+  delete env.CLAUDE_CODE_AUTO_COMPACT_WINDOW;
+  if (!/^claude/i.test(String(model || ""))) {
+    var laneWindow = contextWindowSync(cfg.host, cfg.port, model);
+    if (laneWindow >= 16000) {
+      env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = String(laneWindow);
+      if (laneWindow >= 100000) env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = String(Math.min(1000000, laneWindow));
+    }
+  }
 }
 
 var claudeArgs = ["--model", model];

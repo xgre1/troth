@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   terminal, `troth restart` puts an installed service back under its
   manager before cycling it, and a proxy whose home is unreadable stops with
   the reason instead of answering every request with "no engine configured".
+- In classic mode on an engine other than Claude, the harness compacts
+  against the window the lane really serves (the proxy's context-window
+  answer for the model), and a Claude id keeps Claude Code's own table.
 - An engine other than Claude receives the tools it can act on: the coding
   tools and every MCP tool, in the order they arrived. Claude Code's own
   product surfaces and its deferred set stay behind on the ChatGPT, Kimi,
