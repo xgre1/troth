@@ -483,6 +483,7 @@ async function embed(text, opts) {
     if (out && Array.isArray(out[0])) { if (_dim == null) _dim = out[0].length; return out[0]; }
   }
   // Fallback: in-process node-llama-cpp (CPU on this build — slow but works).
+  if (opts && opts.timeout_ms) return null;
   const wait = !!(opts && opts.wait);
   let ctx = _ctx;
   if (!ctx) {

@@ -6505,7 +6505,7 @@ server.listen(listenPort, BIND_HOST, () => {
     const t = setInterval(() => {
       const now = Date.now();
       const lag = now - expected;
-      if (lag > 500) log('LOOP STALL ' + lag + 'ms | route in hand: ' + (_lastRoute || '(none)'));
+      if (lag > 500) log('LOOP STALL ' + lag + 'ms | route in hand: ' + (_lastRoute || '(none)') + ' | task: ' + (global.__troth_bg_task || '-'));
       expected = now + 250;
     }, 250);
     t.unref();

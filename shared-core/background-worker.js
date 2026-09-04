@@ -1287,6 +1287,7 @@ function collectEmbedWork(rows) {
   return { work: work, dropped: dropped };
 }
 
+let _backfillRestUntil = 0;
 const taskEmbeddingBackfill = {
   name: 'embedding_backfill',
   // Short cadence so it keeps draining the backlog across idle windows; once
@@ -1297,6 +1298,10 @@ const taskEmbeddingBackfill = {
   run: async function (view) {
     const state    = require('./state.js');
     const embedder = require('./local-embedder.js');
+    const rw       = require('./read-worker.js');
+    if (Date.now() < _backfillRestUntil) {
+      return { events: [], notes: ['embedding_backfill: nothing pending — resting'] };
+    }
     // Time-budgeted drain: embed in chunks until the backlog is empty OR this
     // run has spent ~10s, then yield. ~90 texts/sec on CPU (faster on Metal)
     // → a ~128K first-run index drains over a series of idle windows. The
@@ -1304,7 +1309,7 @@ const taskEmbeddingBackfill = {
     // model download (background/idle — acceptable). Absent dependency →
     // embed returns null and we stop quietly (recall stays lexical).
     const RUN_BUDGET_MS = 10 * 1000;
-    const CHUNK = 128;
+    const CHUNK = 32;
     // The imported archive (docs:chats) drains AFTER the recall pool, at a
     // smaller cap: recall quality is the product promise, the archive is
     // depth. Bounded so the old cost fear (that justified excluding the
@@ -1312,7 +1317,7 @@ const taskEmbeddingBackfill = {
     // host was warm heals over idle cycles instead of staying
     // keyword-only forever (a ~1000-chunk import can otherwise sit at a
     // few dozen vectors).
-    const ARCHIVE_CHUNK = 64;
+    const ARCHIVE_CHUNK = 32;
     const t0 = Date.now();
     let embedded = 0, failed = 0, scanned = 0, more = false;
     let quarantined = 0;
@@ -1321,7 +1326,7 @@ const taskEmbeddingBackfill = {
       // not just commitment-engrams — recall's pool is dominated by episodic +
       // semantic, which must have vectors or semantic rerank stays blind.
       // Pass MODEL_ID → also re-embeds rows from a PREVIOUS model (swap migration).
-      let rows = state.listRecallableMissingEmbeddings(CHUNK, embedder.MODEL_ID)
+      let rows = (await rw.run('recallable_missing_embeddings', { limit: CHUNK, model: embedder.MODEL_ID }, { timeout_ms: 120000 }).catch(function () { return []; }))
         .filter(function (r) { return !_embedQuarantine.has(r.id); });
       let cap = CHUNK;
       let picked = collectEmbedWork(rows);
@@ -1330,7 +1335,7 @@ const taskEmbeddingBackfill = {
         // either way the archive lane gets its turn NOW. Without this
         // fall-through, residue at the head of the recall lane starves the
         // archive forever — the frozen "still embedding" dashboard.
-        rows = state.listArchiveMissingEmbeddings(ARCHIVE_CHUNK)
+        rows = (await rw.run('archive_missing_embeddings', { limit: ARCHIVE_CHUNK }, { timeout_ms: 120000 }).catch(function () { return []; }))
           .filter(function (r) { return !_embedQuarantine.has(r.id); });
         cap = ARCHIVE_CHUNK;
         picked = collectEmbedWork(rows);
@@ -1365,8 +1370,9 @@ const taskEmbeddingBackfill = {
         if (!(Array.isArray(vecs[i]) && vecs[i].length)) { quarantined++; _embedQuarantine.add(work[i].id); }
       }
     }
-    if (scanned === 0) {
-      return { events: [], notes: ['embedding_backfill: no missing embeddings'] };
+    if (scanned === 0 || (embedded === 0 && failed === 0)) {
+      _backfillRestUntil = Date.now() + 10 * 60 * 1000;
+      return { events: [], notes: ['embedding_backfill: nothing to embed — resting 10 min'] };
     }
     return {
       events: [],
@@ -1388,6 +1394,22 @@ const taskEmbeddingBackfill = {
 // import_auto=false turns the task off entirely. Spawns the SAME importer
 // CLI the button spawns (idempotent by provenance prefix) so "import"
 // keeps meaning ONE thing on every surface.
+// A child that runs while the loop keeps turning: stdout collected, a
+// deadline enforced, the exit code and output handed back like a sync run.
+function _runChild(cmd, args, opts) {
+  return new Promise((resolve) => {
+    const cp = require('child_process');
+    let out = '', err = '', done = false;
+    let child;
+    try { child = cp.spawn(cmd, args, { env: (opts && opts.env) || process.env, stdio: ['ignore', 'pipe', 'pipe'] }); }
+    catch (e) { return resolve({ status: -1, stdout: '', stderr: '', error: e }); }
+    const timer = setTimeout(() => { if (!done) { try { child.kill('SIGKILL'); } catch (_) {} } }, (opts && opts.timeout) || 600000);
+    child.stdout.on('data', (c) => { out += c; });
+    child.stderr.on('data', (c) => { err += c; });
+    child.on('error', (e) => { if (done) return; done = true; clearTimeout(timer); resolve({ status: -1, stdout: out, stderr: err, error: e }); });
+    child.on('close', (code) => { if (done) return; done = true; clearTimeout(timer); resolve({ status: code, stdout: out, stderr: err }); });
+  });
+}
 const taskImportSync = {
   name: 'import_sync',
   cadence_ms: 15 * 60 * 1000,
@@ -1427,8 +1449,8 @@ const taskImportSync = {
     const notes = [];
     for (const src of due) {
       try {
-        const r = cp.spawnSync(process.execPath, [path.join(__dirname, '..', 'bin', 'troth-import-chats.js'), '--source', src], {
-          encoding: 'utf8', timeout: 10 * 60 * 1000,
+        const r = await _runChild(process.execPath, [path.join(__dirname, '..', 'bin', 'troth-import-chats.js'), '--source', src], {
+          timeout: 10 * 60 * 1000,
           env: process.env
         });
         const lines = String(r.stdout || '').trim().split('\n');
@@ -2048,8 +2070,10 @@ function startWorker(opts) {
         }
         const taskStart = Date.now();
         let result;
+        global.__troth_bg_task = task.name;
         try { result = await Promise.resolve(task.run(view)); }
         catch (e) { result = { events: [], notes: ['task threw: ' + (e && e.message || e)] }; }
+        finally { if (global.__troth_bg_task === task.name) global.__troth_bg_task = null; }
         lastRun.set(task.name, Date.now());
         // The same ledger runDueTasks writes — a restart reads this back.
         try {
@@ -2260,6 +2284,7 @@ async function runDueTasks(opts) {
     }
 
     let result;
+    global.__troth_bg_task = task.name;
     try { result = await Promise.resolve(task.run(taskView)); }
     catch (e) {
       errors.push({ task: task.name, error: (e && e.message) || String(e) });

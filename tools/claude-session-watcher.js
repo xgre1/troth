@@ -137,6 +137,10 @@ async function processAppend(filePath, offset, agent_id, pendingState) {
 }
 
 async function tick(state) {
+  global.__troth_bg_task = 'session-watcher';
+  try { await _tick(state); } finally { if (global.__troth_bg_task === 'session-watcher') global.__troth_bg_task = null; }
+}
+async function _tick(state) {
   const files = listTranscriptFiles();
   if (!files.length) return;
   for (const { dir, file: f } of files) {

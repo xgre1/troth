@@ -9,6 +9,8 @@ const { parentPort } = require('worker_threads');
 const JOBS = {
   memory_readiness: () => require('./memory-readiness.js').readiness(),
   substrate_counts: () => require('./substrate-counts.js').counts(),
+  recallable_missing_embeddings: (a) => require('./state.js').listRecallableMissingEmbeddings(a.limit, a.model),
+  archive_missing_embeddings: (a) => require('./state.js').listArchiveMissingEmbeddings(a.limit),
   sql_rows: (a) => require('./state.js')._dbForQuery().prepare(String(a.sql)).all(...(Array.isArray(a.params) ? a.params : [])),
   sql_get: (a) => require('./state.js')._dbForQuery().prepare(String(a.sql)).get(...(Array.isArray(a.params) ? a.params : []))
 };

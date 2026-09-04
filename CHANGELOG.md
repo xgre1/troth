@@ -41,7 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exchange whole; a reply that alone outgrows the budget keeps its opening
   and its end; older exchanges fill what remains, newest first.
 - The proxy names its own freezes: a stall of the event loop longer than
-  half a second is logged with the route in hand.
+  half a second is logged with the route in hand and the background task
+  running at the time. The chat-history import runs beside the loop
+  instead of holding it for the length of the import.
 - Recall answers in well under a second on a large substrate: the dense arm
   searches an in-memory index of the stored embeddings (int8, built once
   per process, new rows joining through a cursor) instead of reading every
