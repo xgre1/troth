@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Model catalog verified against every vendor on 2026-09-04: Claude Fable 5.1,
+  GPT-6 Astra with GPT-5.6 Sol and Terra on the ChatGPT lane, Grok 4.6, GLM-5.3 and 5.3 Flash,
+  Gemini 3.8 Flash and 3.1 Pro, the Coding Plan's Qwen3.7/3.6 Plus and GLM-5,
+  DeepInfra's DeepSeek V4 Flash and Qwen3.6, NVIDIA NIM's DeepSeek V4 and
+  Kimi K3, OpenRouter's free MiniMax M3 and GLM-5.2. Prices follow the same
+  pages (Sonnet 5 at $2/$10, DeepSeek V4 off-peak rates).
+- The ChatGPT lane walks a short list of plain model ids when the endpoint
+  retires one, and remembers the id that answered, so a stale pick degrades
+  instead of blacking the lane.
+
+
 ## [0.1.19] — 2026-09-04
 
 ### Added

@@ -83,6 +83,9 @@ var MODEL_EFFECTIVE_LIMITS = {
   // -preview), so the real default request missed this table and fell to
   // 128K — the same class of bug as the Kimi ids.
   "gemini-3-flash": 1000000,
+  "gemini-3.8-flash": 1000000,
+  "gemini-3.7-flash": 1000000,
+  "gemini-3.5-flash-lite": 1000000,
   "gemini-3.1-pro": 1000000,
   "gemini-3-pro": 1000000,
   "gemini-2.5-pro": 1000000,
@@ -90,7 +93,16 @@ var MODEL_EFFECTIVE_LIMITS = {
   // qwen3-max 256K, glm-5.1 ~200K, deepseek-v4(-pro) 1M.
   "qwen3-max": 262144,
   "qwen3-coder-480b": 262144,
+  // Coding Plan rows: the plan serves ~170K of qwen3.x-plus (measured on qwen3.6-plus), 256K of the coder models, ~200K of GLM.
+  "qwen3.7-plus": 170000,
+  "qwen3.6-plus": 170000,
+  "qwen3-coder-next": 262144,
+  "qwen3-coder-plus": 262144,
+  "glm-5": 204800,
   "glm-5.1": 200000,
+  "glm-5.2": 200000,
+  "glm-5.3": 200000,
+  "glm-5.3-flash": 200000,
   "deepseek-v4-pro": 1000000,
   "deepseek-v4": 1000000,
   // ChatGPT-plan lane (openai_sub) goes through the CODEX endpoint, whose
@@ -100,9 +112,23 @@ var MODEL_EFFECTIVE_LIMITS = {
   // actually serves, not the marketing number.
   "gpt-5.5": 400000,
   "gpt-5.6-sol": 258000,
+  "gpt-5.6-terra": 258000,
+  "gpt-6-astra": 258000,          // the lane cap seen on gpt-5.6-sol; the model itself advertises 1M
   "deepseek-ai/deepseek-v3.2": 128000,
   "deepseek-ai/deepseek-v3-0324": 65536,
   "deepseek-ai/deepseek-v3.1": 131072,
+  // NIM serves these at its 128K cap regardless of the advertised window.
+  "deepseek-ai/deepseek-v4-flash-0731": 131072,
+  "deepseek-ai/deepseek-v4-pro-0813": 131072,
+  "nvidia/nemotron-3-super-120b-a12b": 131072,
+  // DeepInfra serves DeepSeek V4 Flash at the full 1M and the Qwen3.x rows at 256K.
+  "deepseek-ai/deepseek-v4-flash": 1048576,
+  "qwen/qwen3.6-35b-a3b": 262144,
+  "qwen/qwen3.5-27b": 262144,
+  // OpenRouter routes: the smallest window among the model's endpoints.
+  "minimax/minimax-m3:free": 262144,
+  "z-ai/glm-5.2:free": 202752,
+  "deepseek/deepseek-v4-flash": 1000000,
   "openai/gpt-oss-120b": 128000,
   "deepseek-chat": 128000,
   "llama-3.3-70b-versatile": 128000,
@@ -385,6 +411,13 @@ function _tailWindow(m) {
 function resolveContextWindow(model) {
   var m = String(model || "");
   if (!m) return { window: DEFAULT_EFFECTIVE_LIMIT, source: "default" };
+  if (OPERATOR_LIMITS[m]) return { window: OPERATOR_LIMITS[m], source: "operator" };
+  // The configured local model is measured by its server, whatever a hosted
+  // lane says about an id of the same name.
+  if (providers.local && String(providers.local.model || "") === m) {
+    var lw0 = localContextSize();
+    return { window: lw0, source: _endpointCtx.local ? "endpoint" : "fallback" };
+  }
   if (MODEL_EFFECTIVE_LIMITS[m]) {
     return {
       window: MODEL_EFFECTIVE_LIMITS[m],
@@ -951,7 +984,7 @@ function getBaselineModel() { return baselineModel; }
 // ────────────────────────────────────────────────────────────────────
 var providers = {
   alibaba: { enabled: false, apiKey: "", model: "qwen3-max" },
-  zai: { enabled: false, apiKey: "", model: "glm-5.1", endpoint: "https://api.z.ai/api/paas/v4/chat/completions" },
+  zai: { enabled: false, apiKey: "", model: "glm-5.3", endpoint: "https://api.z.ai/api/paas/v4/chat/completions" },
   // BYOK, OpenAI-compatible. kimi-k3 fixes sampling params server-side (see callMoonshot / stripSampling).
   moonshot: { enabled: false, apiKey: "", model: "kimi-k3", endpoint: "https://api.moonshot.ai/v1/chat/completions" },
   // Kimi Code MEMBERSHIP (subscription). The Kimi Code endpoint
@@ -970,7 +1003,7 @@ var providers = {
   // auth layer accept no key), so usability keys off base_url, not apiKey
   // (see activeByok). No default model: the operator sets one (free-text).
   custom_openai: { enabled: false, apiKey: "", model: "", base_url: "" },
-  deepinfra: { enabled: false, apiKey: "", model: "deepseek-ai/DeepSeek-V3-0324" },
+  deepinfra: { enabled: false, apiKey: "", model: "deepseek-ai/DeepSeek-V4-Flash" },
   anthropic: { enabled: false, apiKey: "" },
   // ChatGPT-subscription provider — bills against the operator's flat-rate
   // ChatGPT Plus / Pro quota instead of per-token API. No apiKey field;
@@ -979,14 +1012,14 @@ var providers = {
   // is operator-supplied, not bundled (see shared-core/codex-auth.js).
   // Endpoint + body translated
   // to OpenAI Responses API via proxy/modules/openai-translate.js.
-  openai_sub: { enabled: false, model: "gpt-5.6-sol" },
-  nvidia: { enabled: false, apiKey: "", model: "deepseek-ai/deepseek-v3.1" },
+  openai_sub: { enabled: false, model: "gpt-6-astra" },
+  nvidia: { enabled: false, apiKey: "", model: "deepseek-ai/deepseek-v4-flash-0731" },
   deepseek: { enabled: false, apiKey: "" },
   openrouter: { enabled: false, apiKey: "", model: "" },
   // Google AI Studio (Gemini API) — BYOK. troth supports one auth path for
   // Anthropic and Google: an API key the operator issues themselves. No
   // OAuth against a consumer subscription for either.
-  google_ai: { enabled: false, apiKey: "", model: "gemini-3-flash" },
+  google_ai: { enabled: false, apiKey: "", model: "gemini-3.8-flash" },
   local: { enabled: false, host: "127.0.0.1", port: 1234, model: "" }
 };
 
@@ -1867,7 +1900,7 @@ function callNvidia(bodyStr, opts) {
   opts = opts || {};
   if (!providers.nvidia.enabled || !providers.nvidia.apiKey) return Promise.resolve(null);
   stats.nvidiaCalls++;
-  var primaryModel = opts.model || providers.nvidia.model || "deepseek-ai/deepseek-v3.1";
+  var primaryModel = opts.model || providers.nvidia.model || "deepseek-ai/deepseek-v4-flash-0731";
   // Internal fallback model is configurable so NIM accounts that don't
   // have access to gpt-oss-120b (or have a different "always-on" model)
   // can pick their own. Empty / null disables the fallback entirely.
@@ -1904,7 +1937,7 @@ function callDeepInfra(bodyStr, opts) {
     hostname: providers.deepinfra.endpoint || "api.deepinfra.com",
     path: "/v1/openai/chat/completions",
     apiKey: providers.deepinfra.apiKey,
-    model: opts.model || providers.deepinfra.model || "deepseek-ai/DeepSeek-V3-0324"
+    model: opts.model || providers.deepinfra.model || "deepseek-ai/DeepSeek-V4-Flash"
   });
 }
 
@@ -1934,7 +1967,7 @@ function callGoogleAI(bodyStr) {
     hostname: providers.google_ai.endpoint || "generativelanguage.googleapis.com",
     path: "/v1beta/openai/chat/completions",
     apiKey: providers.google_ai.apiKey,
-    model: providers.google_ai.model || "gemini-3-flash"
+    model: providers.google_ai.model || "gemini-3.8-flash"
   });
 }
 
@@ -2249,7 +2282,7 @@ function callOpenAISubscription(bodyStr, headers) {
                 // The model this lane actually sent, so the reply, the ledger
                 // and the dashboard name the engine that answered, not the
                 // config default a model-addressed request stepped past.
-                modelHint: _codexModel || providers.openai_sub.model || 'gpt-5.5'
+                modelHint: _codexModel || providers.openai_sub.model || 'gpt-6-astra'
               });
             } catch (e) {
               // Same classification as the parse guard above: request-shaped
@@ -2268,7 +2301,7 @@ function callOpenAISubscription(bodyStr, headers) {
               var cachTsub = (u.input_tokens_details && u.input_tokens_details.cached_tokens) || 0;
               stats.tokens.openai_sub.input  += inTsub;
               stats.tokens.openai_sub.output += outTsub;
-              var modelSub = _asModelName(_codexModel || providers.openai_sub.model, 'gpt-5.5');
+              var modelSub = _asModelName(_codexModel || providers.openai_sub.model, 'gpt-6-astra');
               try { require('./cost').recordUsage(modelSub + ' (plan)', inTsub, outTsub, cachTsub); } catch (_) {}
               try { require('./cacheratio').record(modelSub, { input_tokens: Math.max(0, inTsub - cachTsub), cache_read_input_tokens: cachTsub, cache_creation_input_tokens: 0 }); } catch (_) {}
             } catch (_) {}

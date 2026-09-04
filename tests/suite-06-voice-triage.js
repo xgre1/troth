@@ -2010,7 +2010,7 @@ console.log('\nTools (Mode A):');
     assert.ok(ds.includes('deepseek-chat'), 'deepseek-chat present');
     // alibaba maps to the Qwen/plan family; openrouter to its minimax free row.
     assert.ok(ex.knownModelIdsFor('alibaba').includes('qwen3-max'), 'alibaba includes qwen3-max');
-    assert.ok(ex.knownModelIdsFor('openrouter').includes('minimax/minimax-m2.5:free'), 'openrouter includes its free minimax row');
+    assert.ok(ex.knownModelIdsFor('openrouter').includes('minimax/minimax-m3:free'), 'openrouter includes its free minimax row');
     // A word with no mapping (router itself) yields no submenu.
     assert.deepStrictEqual(ex.knownModelIdsFor('router'), [], 'router word offers no model submenu');
     assert.deepStrictEqual(ex.knownModelIdsFor('not-a-provider'), [], 'an unmapped word offers no submenu');

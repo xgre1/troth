@@ -15,10 +15,11 @@ const RATES = {
   'claude-sonnet-4.6':     { in: 3.00, out: 15.00, cached_in: 0.30 },
   // Claude 5 family + Haiku 4.5 list prices, verified 2026-08 against
   // platform.claude.com (cache-read ~0.1x input).
+  'claude-fable-5-1':      { in: 10.00, out: 50.00, cached_in: 0.25 },  // cache reads 0.025x on Fable 5.1
   'claude-fable-5':        { in: 10.00, out: 50.00, cached_in: 1.00 },
   'claude-opus-5':         { in: 5.00,  out: 25.00, cached_in: 0.50 },
   'claude-opus-4.8':       { in: 5.00,  out: 25.00, cached_in: 0.50 },
-  'claude-sonnet-5':       { in: 3.00,  out: 15.00, cached_in: 0.30 },
+  'claude-sonnet-5':       { in: 2.00,  out: 10.00, cached_in: 0.20 },  // $2/$10 is the standard price
   'claude-haiku-4.5':      { in: 1.00,  out: 5.00,  cached_in: 0.10 },
   // OpenAI
   'gpt-5.4':               { in: 2.50, out: 15.00, cached_in: 0.25 },
@@ -27,6 +28,9 @@ const RATES = {
   // Google
   // Base tier (<=200k prompt). gemini-3-pro is the catalog id for the same
   // Pro pricing (Google's list name is Gemini 3.1 Pro Preview).
+  'gemini-3.1-pro-preview': { in: 2.00, out: 12.00, cached_in: 0.20 },  // <=200k prompts; $4/$18 above
+  'gemini-3.8-flash':      { in: 0.75, out: 3.75, cached_in: 0.075 }, // launch price through 2026-12-31, then $1.50/$7.50
+  'gemini-3.5-flash-lite': { in: 0.30, out: 2.50, cached_in: 0.03 },
   'gemini-3.1-pro':        { in: 2.00, out: 12.00, cached_in: 0.20 },
   'gemini-3-pro':          { in: 2.00, out: 12.00, cached_in: 0.20 },
   'gemini-3-flash':        { in: 0.50, out: 3.00, cached_in: 0.05 },
@@ -35,6 +39,9 @@ const RATES = {
   'qwen3-max':             { in: 0,    out: 0,    cached_in: 0,   plan: 'flat' },
   'qwen3.6-plus':          { in: 0,    out: 0,    cached_in: 0,   plan: 'flat' },
   'minimax-m2.5':          { in: 0,    out: 0,    cached_in: 0,   plan: 'flat' },
+  'glm-5.3-flash':         { in: 0.075, out: 0.25, cached_in: 0.015 }, // 50% launch discount to 2026-09-09
+  'glm-5.3':               { in: 1.40, out: 4.40, cached_in: 0.26 },
+  'glm-5.2':               { in: 1.40, out: 4.40, cached_in: 0.26 },
   'glm-5.1':               { in: 1.40, out: 4.40, cached_in: 0.26 },
   // Moonshot (Kimi). Verified  against platform.kimi.ai/docs/pricing/chat-*.
   // `in` is the cache-miss rate; `cached_in` is the cache-hit rate.
@@ -45,6 +52,7 @@ const RATES = {
   // xAI (Grok). Verified 2026-08-07 against docs.x.ai/docs/models, below-200k
   // tier. xAI publishes cached-input rates now.
   'grok-4.3':                   { in: 1.25, out: 2.50,  cached_in: 0.20 },
+  'grok-4.6':                   { in: 2.00, out: 6.00,  cached_in: 0.50 },  // <200k; doubles above
   'grok-4.5':                   { in: 2.00, out: 6.00,  cached_in: 0.30 },
   'grok-build-0.1':             { in: 1.00, out: 2.00,  cached_in: 0.20 },
   // Kimi-for-Coding MEMBERSHIP lane (kimi_sub): flat plan, zero marginal $.
@@ -56,15 +64,17 @@ const RATES = {
   'kimi-for-coding':           { in: 0, out: 0, cached_in: 0, plan: 'flat' },
   'kimi-for-coding-highspeed': { in: 0, out: 0, cached_in: 0, plan: 'flat' },
   // ChatGPT-subscription lane (openai_sub): same flat-plan semantics.
+  'gpt-6-astra':               { in: 0, out: 0, cached_in: 0, plan: 'flat' },
+  'gpt-5.6-terra':             { in: 0, out: 0, cached_in: 0, plan: 'flat' },
   'gpt-5.5':                   { in: 0, out: 0, cached_in: 0, plan: 'flat' },
   'gpt-5.6-sol':               { in: 0, out: 0, cached_in: 0, plan: 'flat' },
   // DeepSeek. v4 rates verified  against api-docs.deepseek.com /
   // devtk.ai mirrors: $0.435/M cache-miss in, $0.003625/M cached, $0.87/M out.
-  'deepseek-v4-pro':       { in: 0.435, out: 0.87, cached_in: 0.003625 },
+  'deepseek-v4-pro':       { in: 0.66, out: 1.98, cached_in: 0.022 },  // off-peak; peak hours double
   'deepseek-v4':           { in: 0.435, out: 0.87, cached_in: 0.003625 },
   // The pricing page warns a significant increase is coming; recheck on the
   // next sweep.
-  'deepseek-v4-flash':     { in: 0.14, out: 0.28, cached_in: 0.0028 },
+  'deepseek-v4-flash':     { in: 0.22, out: 0.66, cached_in: 0.007 },  // off-peak; peak hours double
   'deepseek-chat':         { in: 0.27, out: 1.10, cached_in: 0.03 },
   // DeepInfra standard tier; the old 0.14/0.28 pair was DeepSeek's own
   // first-party v4-flash price, not DeepInfra's.
@@ -75,8 +85,13 @@ const RATES = {
   // (Qwen3-235B-A22B-Instruct-2507). The catalog id needs a refresh.
   'Qwen/Qwen3-235B-A22B':         { in: 0.09, out: 0.55, cached_in: 0.09 },
   // OpenRouter (free)
+  'minimax/minimax-m3:free':   { in: 0, out: 0, cached_in: 0, plan: 'free' },
+  'minimax/minimax-m2.7:free': { in: 0, out: 0, cached_in: 0, plan: 'free' },
+  'z-ai/glm-5.2:free':         { in: 0, out: 0, cached_in: 0, plan: 'free' },
   'minimax/minimax-m2.5:free': { in: 0, out: 0, cached_in: 0, plan: 'free' },
   // NIM
+  'deepseek-ai/deepseek-v4-flash-0731': { in: 0, out: 0, cached_in: 0, plan: 'free' },
+  'deepseek-ai/deepseek-v4-pro-0813':   { in: 0, out: 0, cached_in: 0, plan: 'free' },
   'deepseek-ai/deepseek-v3.1': { in: 0, out: 0, cached_in: 0, plan: 'free' },
   'deepseek-ai/deepseek-v3.2': { in: 0, out: 0, cached_in: 0, plan: 'free' },
   'openai/gpt-oss-120b':       { in: 0, out: 0, cached_in: 0, plan: 'free' },
@@ -123,9 +138,11 @@ function rateFor(modelName) {
 // cost bought per token, so a comparison has something real on the other side.
 // Verified against the vendor catalogue 2026-08-19.
 const API_LIST_RATES = {
-  'gpt-5.6-sol':               { in: 2.50, out: 15.00, cached_in: 0.25 },
+  'gpt-6-astra':               { in: 10.00, out: 50.00, cached_in: 1.00 },
+  'gpt-5.6-sol':               { in: 4.00, out: 20.00, cached_in: 0.40 },
+  'gpt-5.6-luna':              { in: 0.20, out: 1.20, cached_in: 0.02 },
   'gpt-5.6-sol-pro':           { in: 2.50, out: 15.00, cached_in: 0.25 },
-  'gpt-5.6-terra':             { in: 2.50, out: 15.00, cached_in: 0.25 },
+  'gpt-5.6-terra':             { in: 2.00, out: 12.00, cached_in: 0.20 },
   'gpt-5.6-luna':              { in: 2.50, out: 15.00, cached_in: 0.25 },
   'gpt-5.5':                   { in: 5.00, out: 30.00, cached_in: 0.50 },
   'gpt-5.5-pro':               { in: 30.00, out: 180.00, cached_in: 3.00 },

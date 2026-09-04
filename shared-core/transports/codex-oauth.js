@@ -35,20 +35,16 @@ const codexAuth  = require('../codex-auth.js');
 
 const DEFAULT_BASE     = 'https://chatgpt.com/backend-api';
 const DEFAULT_PATH     = '/codex/responses';
-// ChatGPT-account (subscription) Codex backend only accepts the plain chat
-// models (gpt-5.5), NOT the "*-codex" API-only models, and REJECTS any
-// max_output_tokens/max_completion_tokens param — verified live
-// (gpt-5.2-codex → 400 "not supported with a ChatGPT account"; gpt-5.5 + token
-// param → 400 "Unsupported parameter"; gpt-5.5 with neither → 200).
-// The Codex endpoint's accepted list ROTATES without notice (undocumented
-// interface). 'gpt-5.6-sol' died upstream on 2026-08-15 (400 "model is not
-// supported when using Codex with a ChatGPT account") after a fresh sign-in
-// — indistinguishable from auth/quota failures until the response body was
-// surfaced, because the transport reported a bare http_error; 'gpt-5.5'
-// bare http_error; 'gpt-5.5' verified streaming the same minute. Override
-// via TROTH_CODEX_MODEL; when this 400 reappears, probe the shortlist in
-// order before touching anything else.
-const DEFAULT_MODEL    = 'gpt-5.5';
+// The ChatGPT-account Codex backend accepts only plain chat model ids
+// (gpt-6-astra, gpt-5.6-sol, gpt-5.6-terra), never the "*-codex" API-only ids or the bare
+// 'gpt-5.6' alias, and refuses any max_output_tokens / max_completion_tokens
+// parameter. Its accepted list rotates without notice, so a retired id must
+// degrade instead of blacking the lane: stream() walks FALLBACK_MODELS when
+// the endpoint answers 400/404 naming the model, and remembers the id that
+// worked for the rest of the process. Override with TROTH_CODEX_MODEL.
+const DEFAULT_MODEL    = 'gpt-6-astra';
+const FALLBACK_MODELS  = ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra'];
+let _lastGoodModel = null;
 const DEFAULT_MAX_OUT  = 4096;
 // The `originator` header names the application to the vendor. It has a
 // default (see codex-auth.js) and stays overridable; an operator who
@@ -103,7 +99,7 @@ async function refreshCodexToken(tok) {
 // the SAME model as chat rather than hardcoding a second id.
 function resolveCodexModel(reqModel, modelDefault) {
   const m = String(reqModel || modelDefault || process.env.TROTH_CODEX_MODEL || '');
-  return (/^gpt-5(\.|-|$)/i.test(m) && !/codex/i.test(m)) ? m : DEFAULT_MODEL;
+  return (/^gpt-[5-9](\.|-|$)/i.test(m) && !/codex/i.test(m)) ? m : DEFAULT_MODEL;
 }
 
 // Build the exact authenticated header set the Codex Responses endpoint
@@ -321,14 +317,40 @@ function makeCodexOAuthTransport(opts) {
 
   async function stream(req) {
     const token = await ensureToken();
-    // Resolve the ChatGPT-account-safe model (see resolveCodexModel). The
-    // dispatch/router hands us its AMBIENT model id (often a local model or a
-    // "*-codex" API-only id) which this endpoint rejects with 400; the resolver
-    // forces the known-good default (gpt-5.5) unless a plain gpt-5* was asked for.
-    const model = resolveCodexModel((req.options && req.options.model), modelDefault);
-    const body  = buildBody(req, model);
+    const first = resolveCodexModel((req.options && req.options.model), modelDefault);
+    const ladder = ladderFor(first);
     const sessionId = newSessionId();
-    return startStream(token, body, model, sessionId);
+    for (let i = 0; i < ladder.length; i++) {
+      const model = ladder[i];
+      const handle = startStream(token, buildBody(req, model), model, sessionId);
+      const head = await handle.next();
+      if (i < ladder.length - 1 && retiredModel(head && head.value)) continue;
+      if (!(head && head.value && head.value._abort_reason)) _lastGoodModel = model;
+      return withHead(handle, head, model);
+    }
+  }
+  // The ids to try, in order: the one asked for, the last one that answered
+  // in this process, then the shortlist.
+  function ladderFor(first) {
+    const out = [];
+    for (const m of [first, _lastGoodModel].concat(FALLBACK_MODELS)) if (m && out.indexOf(m) < 0) out.push(m);
+    return out;
+  }
+  // A 400/404 that names the model is the endpoint retiring an id, which is
+  // the only failure worth another try; auth, quota and network stay as they are.
+  function retiredModel(ev) {
+    return !!(ev && ev._abort_reason === 'http_error' && (ev._status === 400 || ev._status === 404) && /model/i.test(String(ev._detail || '')));
+  }
+  // The first frame was already read to judge it; hand it back first.
+  function withHead(handle, head, model) {
+    let served = false;
+    const wrapped = {
+      [Symbol.asyncIterator]() { return wrapped; },
+      next: async () => { if (!served) { served = true; return head; } return handle.next(); },
+      _request: handle._request,
+      model
+    };
+    return wrapped;
   }
 
   function abort(streamHandle) {
@@ -469,5 +491,6 @@ module.exports = {
   OPENAI_BETA,
   DEFAULT_BASE,
   DEFAULT_PATH,
-  DEFAULT_MODEL
+  DEFAULT_MODEL,
+  FALLBACK_MODELS
 };

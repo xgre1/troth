@@ -435,7 +435,7 @@ function resolveTransport(mode) {
     if ((process.env.TROTH_GPT_VIA_PROXY || '').trim() === '1') {
       const { makeAnthropicTransport } = require('../shared-core/transports/anthropic.js');
       const { resolveCodexModel } = require('../shared-core/transports/codex-oauth.js');
-      let m = 'gpt-5.5'; // literal fallback mirrors codex-oauth DEFAULT_MODEL — keep in step
+      let m = 'gpt-6-astra'; // literal fallback mirrors codex-oauth DEFAULT_MODEL — keep in step
       try { m = resolveCodexModel(null, null) || m; } catch (_) {}
       return makeAnthropicTransport({
         api_key: 'troth-proxy',

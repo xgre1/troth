@@ -268,9 +268,9 @@ function buildModelOptions(engines) {
 //                 "Alibaba (flat rate per plan)" grouping and the config default
 //                 qwen3-max)
 //   deepinfra  -> the deepseek-ai/* rows DeepInfra serves (its config default is
-//                 deepseek-ai/DeepSeek-V3-0324, present in RATES)
+//                 deepseek-ai/DeepSeek-V4-Flash, present in RATES)
 //   nvidia     -> the deepseek-ai/* rows NIM serves (nvidia config default is a
-//                 deepseek-ai id; the priced NIM row is deepseek-ai/deepseek-v3.2)
+//                 deepseek-ai id; the NIM rows are the deepseek-ai/deepseek-v4-* free tier)
 //   openrouter -> the minimax/*:free row OpenRouter exposes
 // A provider with no recognized ids offers NO submenu (the reply then only names
 // its current/default model, per the operator-approved v1 shape). moonshot/xai

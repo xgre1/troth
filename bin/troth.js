@@ -2694,17 +2694,17 @@ if (command === "setup") {
         if (diKey && diKey.trim()) {
           // Name the model that is actually configured. The old line offered
           // "DeepSeek V3.2" and then wrote V3-0324.
-          cfg.providers.deepinfra = { enabled: true, apiKey: diKey.trim(), model: "deepseek-ai/DeepSeek-V3-0324" };
+          cfg.providers.deepinfra = { enabled: true, apiKey: diKey.trim(), model: "deepseek-ai/DeepSeek-V4-Flash" };
           configured = true;
-          console.log("\n  \x1b[32m+\x1b[0m DeepInfra configured (DeepSeek-V3-0324).\n");
+          console.log("\n  \x1b[32m+\x1b[0m DeepInfra configured (DeepSeek V4 Flash).\n");
         }
       } else if (choice === "7") {
         console.log("\n  OpenRouter API key from https://openrouter.ai/keys\n");
         var orKey = await askSecret("  OpenRouter API key (sk-or-...): ");
         if (orKey && orKey.trim()) {
-          cfg.providers.openrouter = { enabled: true, apiKey: orKey.trim(), model: "minimax/minimax-m2.5:free" };
+          cfg.providers.openrouter = { enabled: true, apiKey: orKey.trim(), model: "minimax/minimax-m3:free" };
           configured = true;
-          console.log("\n  \x1b[32m+\x1b[0m OpenRouter configured (minimax-m2.5:free).\n");
+          console.log("\n  \x1b[32m+\x1b[0m OpenRouter configured (minimax-m3:free).\n");
         }
       } else if (choice === "8") {
         console.log("\n  Kimi (Moonshot) API key from https://platform.moonshot.ai/\n");
@@ -3206,7 +3206,7 @@ function effectiveModelName() {
     // Not a config provider: the membership model lives in desktop-config.
     return String(d.kimi_sub_model || process.env.TROTH_KIMI_SUB_MODEL || "kimi-for-coding").trim();
   }
-  if (pin === "openai_sub") return String((provs.openai_sub || {}).model || "gpt-5.5").trim();
+  if (pin === "openai_sub") return String((provs.openai_sub || {}).model || "gpt-6-astra").trim();
   var m = String(((provs[pin] || {}).model) || "").trim();
   return m || pin;
 }

@@ -231,7 +231,7 @@ const PROFILES = Object.freeze({
       if (engineOverride && !/^claude$/i.test(engineOverride)) {
         let m = engineOverride;
         if (/^gpt$/i.test(engineOverride)) {
-          try { m = require('./codex-oauth.js').DEFAULT_MODEL; } catch (_) { m = 'gpt-5.5'; }
+          try { m = require('./codex-oauth.js').DEFAULT_MODEL; } catch (_) { m = 'gpt-6-astra'; }
         } else if (/^router$/i.test(engineOverride)) {
           m = String(vars.model || '');
         } else if (/^kimi$/i.test(engineOverride)) {

@@ -131,7 +131,7 @@ test('IMG2: happy path — valid base64 PNG in output_item.done lands a file, ok
   // Request body forwarded the image_generation tool + reused a codex model.
   const reqBody = JSON.parse(sink.body);
   assert.deepStrictEqual(reqBody.tools, [{ type: 'image_generation' }], 'image_generation tool forwarded');
-  assert.ok(/^gpt-5/.test(reqBody.model), 'reused a resolved gpt-5* codex model, not a hardcoded new id');
+  assert.ok(/^gpt-[5-9]/.test(reqBody.model), 'reused a resolved plain gpt codex model, never a hardcoded id');
   assert.strictEqual(sink.headers.authorization, 'Bearer at-test', 'reused transport Bearer auth');
   assert.strictEqual(sink.headers['chatgpt-account-id'], 'acct-test', 'reused chatgpt-account-id header');
 });

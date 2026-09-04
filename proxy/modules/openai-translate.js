@@ -144,7 +144,7 @@ function anthropicToResponses(anthropicBody, opts) {
     // a deprecated codex name) gets rejected with HTTP 400, so the configured
     // provider model (opts.defaultModel) is authoritative here. gpt-5.2/5.3-
     // codex are DEPRECATED for ChatGPT sign-in — never default to them.
-    model:             opts.defaultModel || (b.model && b.model !== 'any' ? b.model : 'gpt-5.5'),
+    model:             opts.defaultModel || (b.model && b.model !== 'any' ? b.model : 'gpt-6-astra'),
     instructions:      flattenSystem(b.system),
     input:             input,
     stream:            false,
@@ -221,7 +221,7 @@ function responsesToAnthropic(responsePayload, opts) {
     id:            (r.id ? 'msg_' + String(r.id).replace(/^resp_?/, '') : ('msg_' + Date.now())),
     type:          'message',
     role:          'assistant',
-    model:         r.model || opts.modelHint || 'gpt-5.5',
+    model:         r.model || opts.modelHint || 'gpt-6-astra',
     content:       content,
     // tool_use stop_reason tells the agentic loop to execute + continue.
     stop_reason:   toolUses.length ? 'tool_use' : (r.status === 'incomplete' ? 'max_tokens' : 'end_turn'),

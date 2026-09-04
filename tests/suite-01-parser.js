@@ -1380,7 +1380,7 @@ test('zai provider exists in registry with Z.ai default endpoint', () => {
   assert(providers.zai, 'zai provider must exist');
   assert(providers.zai.endpoint && providers.zai.endpoint.includes('z.ai'),
     'default endpoint should reference z.ai');
-  assert.strictEqual(providers.zai.model, 'glm-5.1');
+  assert.strictEqual(providers.zai.model, 'glm-5.3');
 });
 
 test('callZai returns null when zai disabled or no key', async () => {
