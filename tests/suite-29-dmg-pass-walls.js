@@ -192,10 +192,11 @@ test('COUNTS-1: the shipped commitment count excludes GC tombstones and test see
   // honest predicate lives in the counts handler — and this test executes
   // the EXACT WHERE string the handler ships, against seeded rows, so the
   // predicate cannot drift from what is asserted here.
-  const src = fs.readFileSync(path.join(ROOT, 'proxy', 'server.js'), 'utf8');
-  const m = src.match(/COMMITMENT_HONEST_WHERE =\s*((?:\s*"[^"]*"\s*\+?)+);/);
-  assert.ok(m, 'COMMITMENT_HONEST_WHERE present in the counts handler');
-  const where = m[1].match(/"([^"]*)"/g).map((s) => s.slice(1, -1)).join('');
+  const countsMod = require(path.join(ROOT, 'shared-core', 'substrate-counts.js'));
+  const where = countsMod.COMMITMENT_HONEST_WHERE;
+  assert.ok(typeof where === 'string' && /type='commitment'/.test(where), 'COMMITMENT_HONEST_WHERE ships with the counts module');
+  const srv = fs.readFileSync(path.join(ROOT, 'proxy', 'server.js'), 'utf8');
+  assert.ok(/'substrate_counts'/.test(srv), 'the counts route serves that module through the read worker');
   const db = state._dbForQuery();
   const actionRec = require(path.join(ROOT, 'shared-core', 'action-record.js'));
   const seed = (agent, outputExtra, inputExtra) => {

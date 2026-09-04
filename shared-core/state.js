@@ -3476,14 +3476,16 @@ function listRecentMemories(limit) {
 // of paraphrases that share NO query keywords — the behavior the lexical FTS
 // gate structurally excluded. better-sqlite3.iterate yields lazily over the
 // memory-mapped DB → bounded memory, no 200MB+ full load.
-function streamRecallableEmbeddings() {
+function streamRecallableEmbeddings(opts) {
   const d = db();
+  const since = (opts && Number(opts.since_created_at)) || 0;
   return d.prepare(`
-    SELECT ee.engram_id AS id, ee.dim AS dim, ee.vector AS vector,
+    SELECT ee.engram_id AS id, ee.dim AS dim, ee.vector AS vector, ee.created_at AS created_at,
            ar.memory_class AS memory_class, ar.audience AS audience
     FROM engram_embeddings ee
     JOIN action_records ar ON ar.id = ee.engram_id
-    WHERE ar.memory_class IN ('episodic','semantic','identity','procedural')
+    WHERE ee.created_at > ${since}
+      AND ar.memory_class IN ('episodic','semantic','identity','procedural')
       AND (ar.principal_id IS NULL OR ar.principal_id NOT IN ('bench','partner-loop-test'))
       -- The entity registry (scope entity:*) is the cast: matched by name through
       -- entity-identity.lookupFromText, mounted by the identity-cast arm. As

@@ -79,12 +79,13 @@ test('READY-3: the proxy serves it read-only on the authed GET chain (source pin
   const fs = require('fs');
   const src = fs.readFileSync(path.join(ROOT, 'proxy', 'server.js'), 'utf8');
   const gate = src.indexOf("url === '/api/memory/readiness'");
-  assert.ok(gate > 0, 'readiness is in the authed GET gate');
-  const branch = src.indexOf("url === '/api/memory/readiness'", gate + 1);
-  assert.ok(branch > 0, 'and has its handler branch');
-  const handler = src.slice(branch, branch + 600);
-  assert.ok(/memory-readiness\.js/.test(handler), 'the branch serves the shared module');
-  assert.ok(!/prepareModel|ensureServer|downloadFollow/.test(handler), 'a status read never starts a download');
+  assert.ok(gate > 0, 'readiness is on the authed GET chain');
+  const route = src.slice(gate, gate + 1400);
+  assert.ok(/checkRemoteAuth\(req\)/.test(route), 'the route checks the caller');
+  assert.ok(/'memory_readiness'/.test(route), 'the route serves the shared module through the read worker');
+  const thread = fs.readFileSync(path.join(ROOT, 'shared-core', 'read-worker-thread.js'), 'utf8');
+  assert.ok(/memory-readiness\.js/.test(thread), 'the worker answers from the shared module');
+  assert.ok(!/prepareModel|ensureServer|downloadFollow/.test(route + thread), 'a status read never starts a download');
 });
 
 test('READY-4: rows with no embeddable text are OUTSIDE the index promise (never counted, never listed)', () => {

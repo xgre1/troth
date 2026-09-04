@@ -159,6 +159,28 @@ try {
 }
 catch (e) { /* loop must not break on state failure */ }
 
+function _recallViaProxy(o, timeoutMs) {
+  return new Promise((resolve) => {
+    let u;
+    try { u = new URL('/api/memory/recall', require(pluginRoot + '/../shared-core/dashboard-url.js').proxyBaseUrl()); }
+    catch (_) { return resolve(null); }
+    u.searchParams.set('q', o.query);
+    u.searchParams.set('limit', String(o.limit || 5));
+    if (o.cwd) u.searchParams.set('cwd', o.cwd);
+    if (o.conversation_id) u.searchParams.set('conversation_id', o.conversation_id);
+    if (o.contexts && o.contexts.length) u.searchParams.set('contexts', JSON.stringify(o.contexts));
+    if (o.asked) u.searchParams.set('asked', '1');
+    if (o.rerank === false) u.searchParams.set('rerank', '0');
+    const mod = u.protocol === 'https:' ? require('https') : require('http');
+    const req = mod.get(u, { timeout: timeoutMs }, (res) => {
+      let b = '';
+      res.on('data', (c) => { b += c; if (b.length > 4 * 1024 * 1024) req.destroy(); });
+      res.on('end', () => { try { const j = JSON.parse(b); resolve(Array.isArray(j.items) ? j.items : null); } catch (_) { resolve(null); } });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { try { req.destroy(); } catch (_) {} resolve(null); });
+  });
+}
 const pieces = [];
 if (lessons.length) {
   const body = lessons.map(l => '  • (' + l.source + ') ' + l.lesson).join('\n');
@@ -192,10 +214,15 @@ try {
     // one that would surface a stranger as ground truth.
     const didRerank = true;
     const _t0 = Date.now();
-    const recallP = recall.recall({
+    const _recallOpts = {
       query: prompt, class: 'all', audience: 'model_visible', limit: 5, cwd, rerank: didRerank,
       conversation_id: session || undefined, contexts: boundContext ? [boundContext] : [], asked: memoryAsk
-    }).catch(() => []);
+    };
+    const recallP = (async () => {
+      const served = await _recallViaProxy(_recallOpts, 1500);
+      if (served) return served;
+      return recall.recall(Object.assign({}, _recallOpts, { dense: 'off' })).catch(() => []);
+    })();
     // Recall on a large memory takes seconds in a fresh process; the hook
     // waits this long for it before going on without a block.
     const RECALL_WAIT_MS = Math.max(1000, parseInt(process.env.TROTH_HOOK_RECALL_MS || '6000', 10) || 6000);

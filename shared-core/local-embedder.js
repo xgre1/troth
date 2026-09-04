@@ -283,7 +283,7 @@ function _readEmbErrTail() {
 }
 // Ensure a local Metal llama-server serving the embedding model. Idempotent +
 // concurrency-safe. Returns true when /health is ok.
-async function _ensureEmbServer() {
+async function _ensureEmbServer(opts) {
   if (_embServerDead) {
     // Recoverable: a dead server (bad GGUF / OOM / spawn fail) may be transient
     // (model re-downloaded, memory freed). Re-attempt after a backoff window
@@ -293,6 +293,7 @@ async function _ensureEmbServer() {
   }
   const first = await _embProbe();
   if (first === 'ok') { _embBusySince = 0; return true; }
+  if (first === 'busy' && opts && opts.quick) return true;
   if (first === 'busy') {
     // Alive and working: wait a little, and go without an embedding rather
     // than replace it. Only a port that stays busy for minutes without one
@@ -406,13 +407,24 @@ async function _ensureEmbServer() {
 // POST a batch to the embedding server's OpenAI-compatible endpoint. Inputs are
 // pre-wrapped per role by the caller. Returns vectors aligned to inputs, or null
 // on any failure (caller falls back to in-process).
-function _serverEmbedBatch(inputs) {
+let _lastInteractiveAt = 0;
+function _yieldToInteractive() {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const tick = () => {
+      if (Date.now() - _lastInteractiveAt >= 3000 || Date.now() - started >= 10000) return resolve();
+      setTimeout(tick, 250);
+    };
+    tick();
+  });
+}
+function _serverEmbedBatch(inputs, timeoutMs) {
   return new Promise((resolve) => {
     const body = JSON.stringify({ input: inputs });
     const req = _http.request({
       hostname: '127.0.0.1', port: EMB_PORT, path: '/v1/embeddings', method: 'POST',
       headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
-      timeout: 120000
+      timeout: timeoutMs || 120000
     }, (res) => {
       let b = ''; res.setEncoding('utf8'); res.on('data', (c) => { b += c; });
       res.on('end', () => {
@@ -465,8 +477,9 @@ async function embed(text, opts) {
   const wrapped = _wrapForRole(text, role);
   if (wrapped == null) return null;
   // Metal-fast server path first.
-  if (await _ensureEmbServer()) {
-    const out = await _serverEmbedBatch([wrapped]);
+  if (await _ensureEmbServer({ quick: !!(opts && opts.timeout_ms) })) {
+    if (role === 'query') _lastInteractiveAt = Date.now();
+    const out = await _serverEmbedBatch([wrapped], opts && opts.timeout_ms);
     if (out && Array.isArray(out[0])) { if (_dim == null) _dim = out[0].length; return out[0]; }
   }
   // Fallback: in-process node-llama-cpp (CPU on this build — slow but works).
@@ -498,6 +511,7 @@ async function embedBatch(texts, opts) {
     const idxMap = [], nonNull = [];
     wrapped.forEach((w, i) => { if (w != null) { idxMap.push(i); nonNull.push(w); } });
     if (!nonNull.length) return new Array(texts.length).fill(null);
+    await _yieldToInteractive();
     const vecs = await _serverEmbedBatch(nonNull);
     if (vecs) {
       const out = new Array(texts.length).fill(null);

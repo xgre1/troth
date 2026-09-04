@@ -135,12 +135,12 @@ function buildFtsQuery(query) {
 const _PROFILE = process.env.TROTH_RECALL_PROFILE === '1';
 let _phases = null;
 function _phase(name, fn) {
-  if (!_PROFILE) return fn();
+  if (!_phases) return fn();
   const t = Date.now();
   try { return fn(); } finally { if (_phases) _phases.push(name + ':' + (Date.now() - t)); }
 }
 async function _phaseAsync(name, fn) {
-  if (!_PROFILE) return await fn();
+  if (!_phases) return await fn();
   const t = Date.now();
   try { return await fn(); } finally { if (_phases) _phases.push(name + ':' + (Date.now() - t)); }
 }
@@ -766,7 +766,23 @@ function statementForRow(row) {
 // recall) can finally be retrieved, not just re-ranked. Bounded memory: a top-k
 // heap over a lazy iterator, no full-corpus load.
 let _denseDimWarned = false;
-function denseArm(qVec, qNorm, want, k) {
+function denseArm(qVec, qNorm, want, k, opts) {
+  const mode = (opts && opts.dense) || 'index';
+  if (mode === 'off') return [];
+  if (mode !== 'scan') {
+    let index = null;
+    try { index = require('./dense-index.js'); } catch (_) { index = null; }
+    if (index) {
+      if (index.isReady()) {
+        const hits = index.search(qVec, k, (aud) => audienceOk(aud, want));
+        if (_phases) { const st = index.stats(); _phases.push('index_rows:' + st.rows + ' dims:' + JSON.stringify(st.dims) + ' q_dim:' + (qVec ? qVec.length : 0) + ' hits:' + hits.length); }
+        index.refresh().catch(() => {});
+        return hits;
+      }
+      index.build().catch(() => {});
+      return [];
+    }
+  }
   const top = [];
   let minCos = Infinity, full = false;
   let iter;
@@ -826,7 +842,7 @@ async function recall(opts) {
     include_superseded: !!opts.include_superseded,
     include_flagged:    !!opts.include_flagged };
   const _t0 = Date.now();
-  if (_PROFILE) _phases = [];
+  if (_PROFILE || opts.profile === true) _phases = [];
 
   // Candidate POOL is wider than the final `limit` so the semantic rerank
   // below can RESCUE a genuinely-relevant engram that lexical/recency
@@ -938,18 +954,18 @@ async function recall(opts) {
   if (q && q.length >= 3 && opts.skip_embedding_rerank !== true) {
     try {
       const localEmbedder = require('./local-embedder.js');
-      const qVec = await _phaseAsync('embed', () => localEmbedder.embed(q, { role: 'query' }).catch(() => null));
+      const qVec = await _phaseAsync('embed', () => localEmbedder.embed(q, { role: 'query', timeout_ms: _envNum('TROTH_RECALL_EMBED_MS', 2500) }).catch(() => null));
       if (qVec && Array.isArray(qVec) && qVec.length) {
         const qNorm = Math.sqrt(qVec.reduce((a, v) => a + v * v, 0)) || 1;
         const lexIds = new Set(results.map(r => r.id));
         // DENSE ARM as candidate SOURCE — bring in semantically-similar engrams
         // the lexical FTS gate excluded (this is what enables pure-semantic recall).
         const denseWindow = Math.max(poolLimit, _envNum('TROTH_RECALL_DENSE_WINDOW', poolLimit));
-        const denseHits = denseArm(qVec, qNorm, audience, denseWindow);
+        const denseHits = _phase('dense', () => denseArm(qVec, qNorm, audience, denseWindow, opts));
         const cosById = new Map(denseHits.map(h => [h.id, h.cos]));
         const denseOnly = denseHits.filter(h => !lexIds.has(h.id));
         if (denseOnly.length) {
-          const rows = state.getActionsByIds(denseOnly.map(h => h.id)) || [];
+          const rows = _phase('dense_rows', () => state.getActionsByIds(denseOnly.map(h => h.id)) || []);
           const rowById = new Map(rows.map(r => [r.id, r]));
           // PARITY with the lexical scorers: the dense arm must honor the SAME
           // supersession + flagged exclusions, else a retired/contradicted
@@ -1078,10 +1094,11 @@ async function recall(opts) {
   if (opts.rerank && results.length >= 1 && q && q.length >= 3) {
     try {
       const reranker = require('./local-reranker.js');
-      const scores = await _phaseAsync('rerank', () => reranker.rerank(q, results.map(_rerankText)));
+      const pool = results.slice(0, Math.max(4, _envNum('TROTH_RECALL_RERANK_MAX', 24)));
+      const scores = await _phaseAsync('rerank', () => reranker.rerank(q, pool.map(_rerankText)));
       if (Array.isArray(scores)) {
-        for (let i = 0; i < results.length; i++) {
-          if (typeof scores[i] === 'number') results[i]._rerank = Number(scores[i].toFixed(4));
+        for (let i = 0; i < pool.length; i++) {
+          if (typeof scores[i] === 'number') pool[i]._rerank = Number(scores[i].toFixed(4));
         }
         // Sort by rerank score where present; rows the reranker didn't score
         // (none, normally) fall behind, keeping their blend order among themselves.
@@ -1202,16 +1219,21 @@ async function recall(opts) {
   // stats-table issue can't break recall. Skip when caller opts out
   // (audit/preview paths that don't want to influence future ranking).
   if (results.length && opts.skip_retrieval_feedback !== true) {
-    try {
-      const ids = results.map(r => r.id).filter(Boolean);
-      if (ids.length) state.bumpRetrievalBatch(ids);
-    } catch (_) { /* never block recall on stats write */ }
+    _phase('feedback', () => {
+      try {
+        const ids = results.map(r => r.id).filter(Boolean);
+        if (ids.length) state.bumpRetrievalBatch(ids);
+      } catch (_) { /* never block recall on stats write */ }
+    });
   }
-  if (_PROFILE && _phases) {
-    try {
-      process.stderr.write('[recall-profile] total:' + (Date.now() - _t0) +
-        ' ' + _phases.join(' ') + ' n:' + results.length + '\n');
-    } catch (_) { /* a profile line never breaks a recall */ }
+  if (_phases) {
+    const _total = Date.now() - _t0;
+    if (opts.profile === true) {
+      try { Object.defineProperty(results, 'profile', { value: { total_ms: _total, phases: _phases.slice() }, enumerable: false }); } catch (_) {}
+    }
+    if (_PROFILE) {
+      try { process.stderr.write('[recall-profile] total:' + _total + ' ' + _phases.join(' ') + ' n:' + results.length + '\n'); } catch (_) {}
+    }
     _phases = null;
   }
   return results;

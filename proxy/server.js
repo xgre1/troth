@@ -716,6 +716,7 @@ const server = http.createServer((req, res) => {
   } catch (_) {}
 
   let url = req.url.split('?')[0];
+  _lastRoute = req.method + ' ' + String(req.url || '').split('?')[0];
   const query = req.url.includes('?') ? new URLSearchParams(req.url.split('?')[1]) : new URLSearchParams();
 
   // ===== One door for the network =====
@@ -975,7 +976,11 @@ const server = http.createServer((req, res) => {
         port: PORT,
         db_bytes: dbBytes,
         last_backup_ts: lastBackup,
-        service: svc.status()
+        service: (function () {
+          var now = Date.now();
+          if (!_svcMemo.v || now - _svcMemo.at > 60000) _svcMemo = { v: svc.status(), at: now };
+          return _svcMemo.v;
+        })()
       });
     } catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
     return;
@@ -1710,6 +1715,26 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // The two answers the app polls hardest come from the read worker: the
+  // first call waits for it without holding the loop, later calls get the
+  // held answer while a fresh one is computed behind it.
+  if (req.method === 'GET' && (url === '/api/memory/readiness' || url === '/api/substrate/counts')) {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    const rw = require('../shared-core/read-worker.js');
+    const job = url === '/api/memory/readiness' ? 'memory_readiness' : 'substrate_counts';
+    rw.memo(job, 20000, job, {}, { timeout_ms: 180000 }).then((v) => {
+      let out = v;
+      if (job === 'memory_readiness' && out && typeof out === 'object') {
+        out = Object.assign({}, out);
+        try {
+          const w = global.__troth_maintenance;
+          if (w) out.worker = { skipped_tasks: Array.isArray(w.skipped_tasks) ? w.skipped_tasks : [], last_tick_error: typeof w.last_tick_error === 'function' ? w.last_tick_error() : null };
+        } catch (_) {}
+      }
+      jsonResponse(res, 200, out);
+    }).catch((e) => jsonResponse(res, 500, { error: String(e && e.message || e) }));
+    return;
+  }
   if (req.method === 'GET' && (url.startsWith('/api/substrate/') || url === '/api/embed/status' || url === '/api/localchat/status' || url === '/api/memory/readiness' || url === '/api/memory/recent' || url === '/api/memory/queue' || url === '/api/usage/plan-window' || url === '/api/config/coherence')) {
     // these reads serve the partner's MEMORY. The dead
     // duplicate handlers further down all carried checkRemoteAuth, but this
@@ -1770,7 +1795,10 @@ const server = http.createServer((req, res) => {
         // so no two surfaces can disagree about whether memory is done.
         // Read-only by contract — the embed/status poll owns the download
         // kick; this never starts anything.
-        try { out = require('../shared-core/memory-readiness.js').readiness(); }
+        try {
+          out = require('../shared-core/read-worker.js').peek('memory_readiness', 20000, 'memory_readiness', {}, { timeout_ms: 180000 })
+             || require('../shared-core/memory-readiness.js').readiness();
+        }
         catch (e) { out = { stage: 'unavailable', error: String(e && e.message || e) }; }
         // The worker that keeps these numbers moving: what it set aside at
         // boot and the last cycle-level error, so a frozen count has a
@@ -1838,81 +1866,8 @@ const server = http.createServer((req, res) => {
           out = require('../shared-core/local-chat.js').status();
         } catch (e) { out = { unavailable: true, error: String(e && e.message || e) }; }
       } else if (url === '/api/substrate/counts') {
-        var counts = { total: sharedState.countActions({}), by_type: {} };
-        for (var i = 0; i < sharedAR.ALL_TYPES.length; i++) {
-          var t = sharedAR.ALL_TYPES[i];
-          counts.by_type[t] = sharedState.countActions({ type: t });
-        }
-        // A commitment WHERE-count is not "things learned": engram-gc writes
-        // its eviction/duplicate markers as ordinary commitments
-        // (commitment_type='engram_tombstoned'), and bench/test seeds live in
-        // I've learned" and Activity's "memories") read by_type.commitment,
-        // so the honest predicate lives here, once. The raw ledger count
-        // stays available as by_type_raw_commitment for anyone auditing the
-        // table itself.
-        var COMMITMENT_HONEST_WHERE =
-          " type='commitment'" +
-          " AND COALESCE(json_extract(output,'$.commitment_type'),'') != 'engram_tombstoned'" +
-          " AND COALESCE(json_extract(output,'$.scope'),'') NOT LIKE 'test:%'" +
-          " AND COALESCE(json_extract(input,'$.source'),'') NOT LIKE 'test%'" +
-          " AND agent_id NOT LIKE 'pe6%' AND agent_id NOT LIKE 'pe7%' AND agent_id NOT LIKE 'pe8%'" +
-          " AND agent_id NOT LIKE 'bench%' AND agent_id NOT LIKE 'test%'";
-        try {
-          var db = sharedState._dbForQuery && sharedState._dbForQuery();
-          if (db) {
-            counts.by_type_raw_commitment = counts.by_type.commitment;
-            counts.by_type.commitment = db.prepare('SELECT COUNT(*) AS n FROM action_records WHERE' + COMMITMENT_HONEST_WHERE).get().n;
-            var h24 = Date.now() - 24 * 3600 * 1000;
-            counts.last_24h = db.prepare('SELECT COUNT(*) AS n FROM action_records WHERE timestamp >= ?').get(h24).n;
-            // Knowledge the operator handed over: passages under a docs:
-            // scope, minus the imported chat archive (that is conversation,
-            // not something they gave). Counted here so the class carries a
-            // number in the filter like every other class does — a filter
-            // that is the only one without a count reads as second-class.
-            counts.knowledge = db.prepare(
-              "SELECT COUNT(*) AS n FROM action_records WHERE json_extract(output,'$.scope') LIKE 'docs:%'" +
-              " AND json_extract(output,'$.scope') NOT LIKE 'docs:chats%'").get().n;
-            // Consumer "things learned about you" hint: committed engrams in
-            // the trailing week, same shape as last_24h — and the same honest
-            // predicate, or "13,674 this week" is mostly GC markers again.
-            var d7 = Date.now() - 7 * 24 * 3600 * 1000;
-            counts.commitments_7d = db.prepare('SELECT COUNT(*) AS n FROM action_records WHERE timestamp >= ? AND' + COMMITMENT_HONEST_WHERE).get(d7).n;
-            // The substrate is a file the operator owns — its size on disk is
-            // part of the story the Memory page tells.
-            try {
-              const dbp = path.join(require('../shared-core/troth-home.js').trothDir(), 'state.db');
-              counts.db_bytes = fs.statSync(dbp).size;
-            } catch (_) {}
-            counts.parent_id_coverage = db.prepare("SELECT SUM(CASE WHEN parent_id IS NOT NULL THEN 1 ELSE 0 END) * 1.0 / COUNT(*) AS r FROM action_records").get().r || 0;
-            counts.precedent_hits_24h = db.prepare("SELECT COUNT(*) AS n FROM action_records WHERE timestamp >= ? AND type='decision' AND json_extract(input,'$.kind')='context_injection' AND CAST(json_extract(input,'$.precedent_count') AS INTEGER) > 0").get(h24).n;
-            counts.verified_edits = db.prepare("SELECT COUNT(*) AS n FROM action_records WHERE type='edit' AND json_extract(verification,'$.ast.ok') = 1").get().n;
-            counts.compacts_lifetime = db.prepare("SELECT COUNT(*) AS n FROM action_records WHERE type='compact'").get().n;
-            // Embedding/recall index coverage — semantic recall only ranks
-            // memories that have a vector; below full coverage it degrades to
-            // lexical. Surfaced so the UI can show "memory still indexing"
-            // instead of silently degrading (the recall backfill runs in the
-            // background and drains this over idle time).
-            //
-            // The numerator is a JOIN, not a global embedding count: the old
-            // global count included vectors for rows outside the recallable
-            // predicate, so once totals crossed, Math.min clamped the ratio
-            // to a permanent 1.0 and a 2.5-day backfill hole read as "fully
-            // indexed". Embedded-recallable is a subset of recallable by
-            // construction, so the ratio needs no clamp — and must not have
-            // one, because a ratio above 1 would now mean a real bug worth
-            // seeing.
-            try {
-              var RECALLABLE_WHERE = " memory_class IN ('episodic','semantic','identity','procedural') AND (audience IS NULL OR audience='model_visible')";
-              var recallable = db.prepare('SELECT COUNT(*) AS n FROM action_records WHERE' + RECALLABLE_WHERE).get().n;
-              var embedded = db.prepare('SELECT COUNT(*) AS n FROM engram_embeddings e JOIN action_records a ON a.id = e.engram_id WHERE' + RECALLABLE_WHERE.replace(/memory_class/g, 'a.memory_class').replace(/audience/g, 'a.audience')).get().n;
-              counts.embedding_coverage = {
-                embedded: embedded,
-                recallable: recallable,
-                ratio: recallable ? embedded / recallable : 1
-              };
-            } catch (_) {}
-          }
-        } catch (_) {}
+        var counts = require('../shared-core/read-worker.js').peek('substrate_counts', 20000, 'substrate_counts', {}, { timeout_ms: 180000 });
+        if (!counts) counts = require('../shared-core/substrate-counts.js').counts();
         out = counts;
       } else if (url.startsWith('/api/substrate/actions')) {
         var u = new URL(req.url, 'http://localhost');
@@ -2302,30 +2257,28 @@ const server = http.createServer((req, res) => {
         }
         return rows;
       };
-      var recentRows = _withCost(dbH3.prepare(
-        ulQuery + "FROM usage_ledger WHERE ts >= ? " +
-        "GROUP BY model ORDER BY calls DESC"
-      ).all(since3));
+      var _rw = require('../shared-core/read-worker.js');
+      var _copyRows = function (rows) { return (rows || []).map(function (r) { return Object.assign({}, r); }); };
+      var recentRows = _withCost(_copyRows(_rw.peek('usage_24h', 15000, 'sql_rows', function () {
+        return { sql: ulQuery + "FROM usage_ledger WHERE ts >= ? GROUP BY model ORDER BY calls DESC", params: [Date.now() - 24 * 60 * 60 * 1000] };
+      }, { timeout_ms: 120000 })));
       // The 5-hour window mirrors how subscription lanes actually meter:
       // plans rate-limit on a rolling ~5h window, so "what have I burned in
       // the CURRENT window" is the number an operator can act on — 24h and
       // all-time tell history, this one tells headroom.
       var since5 = Date.now() - 5 * 60 * 60 * 1000;
-      var recent5Rows = _withCost(dbH3.prepare(
-        ulQuery + "FROM usage_ledger WHERE ts >= ? " +
-        "GROUP BY model ORDER BY calls DESC"
-      ).all(since5));
+      var recent5Rows = _withCost(_copyRows(_rw.peek('usage_5h', 15000, 'sql_rows', function () {
+        return { sql: ulQuery + "FROM usage_ledger WHERE ts >= ? GROUP BY model ORDER BY calls DESC", params: [Date.now() - 5 * 60 * 60 * 1000] };
+      }, { timeout_ms: 120000 })));
       // peak_5h — the heaviest 5h window each model has EVER run, computed
       // over 30-minute buckets with a rolling 10-bucket sum. Providers do
       // not expose plan quotas, so "percent of limit" cannot exist honestly;
       // "percent of your own heaviest window" can — it is self-calibrating
       // and the ratio means something to the operator who lived that peak.
       try {
-        var binRows = dbH3.prepare(
-          "SELECT model, CAST(ts / 1800000 AS INTEGER) AS bin, " +
-          "       SUM(tokens_in + tokens_out) AS tot " +
-          "FROM usage_ledger GROUP BY model, bin ORDER BY model, bin"
-        ).all();
+        var binRows = _rw.peek('usage_bins', 60000, 'sql_rows', {
+          sql: "SELECT model, CAST(ts / 1800000 AS INTEGER) AS bin, SUM(tokens_in + tokens_out) AS tot FROM usage_ledger GROUP BY model, bin ORDER BY model, bin"
+        }, { timeout_ms: 120000 }) || [];
         var peaks = {};
         var cur = null, buf = [];
         for (var bi = 0; bi <= binRows.length; bi++) {
@@ -2344,13 +2297,12 @@ const server = http.createServer((req, res) => {
           recent5Rows[ri5].peak_5h = peaks[recent5Rows[ri5].actual_model] || 0;
         }
       } catch (_) { /* the window still serves without its peak */ }
-      var allRows = _withCost(dbH3.prepare(
-        ulQuery + "FROM usage_ledger " +
-        "GROUP BY model ORDER BY calls DESC"
-      ).all());
-      var meta = dbH3.prepare(
-        "SELECT MAX(ts) AS latest_ts, COUNT(*) AS total_rows FROM usage_ledger"
-      ).get();
+      var allRows = _withCost(_copyRows(_rw.peek('usage_all', 60000, 'sql_rows', {
+        sql: ulQuery + "FROM usage_ledger GROUP BY model ORDER BY calls DESC"
+      }, { timeout_ms: 120000 })));
+      var meta = _rw.peek('usage_meta', 60000, 'sql_get', {
+        sql: "SELECT MAX(ts) AS latest_ts, COUNT(*) AS total_rows FROM usage_ledger"
+      }, { timeout_ms: 120000 }) || { latest_ts: null, total_rows: 0 };
       // The truthful "right now": the last request that actually completed.
       var lastServed = null;
       try {
@@ -3258,11 +3210,38 @@ const server = http.createServer((req, res) => {
   // for search, and the /forget skill for retirement, so the dashboard can
   // never do more than the operator's own slash command (signed facts stay
   // protected, retirement is the same supersession pointer).
+  // Recall for the hooks and the surfaces: the same hybrid recall the partner
+  // uses, served from the process that holds the warm dense index.
+  if (req.method === 'GET' && url === '/api/memory/recall') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    (async () => {
+      const _sp = (new URL(req.url, 'http://x')).searchParams;
+      const q = String(_sp.get('q') || '').trim();
+      if (!q) { jsonResponse(res, 200, { items: [] }); return; }
+      const limit = Math.min(50, Math.max(1, parseInt(_sp.get('limit') || '5', 10) || 5));
+      let contexts = [];
+      try { contexts = JSON.parse(_sp.get('contexts') || '[]'); if (!Array.isArray(contexts)) contexts = []; } catch (_) { contexts = []; }
+      const t0 = Date.now();
+      try {
+        const recall = require('../shared-core/recall.js');
+        const hits = await recall.recall({
+          query: q, class: String(_sp.get('class') || 'all'), audience: 'model_visible', limit,
+          cwd: _sp.get('cwd') || WATCH_DIR, rerank: _sp.get('rerank') !== '0',
+          conversation_id: _sp.get('conversation_id') || undefined, contexts, asked: _sp.get('asked') === '1'
+        });
+        jsonResponse(res, 200, { items: hits || [], took_ms: Date.now() - t0 });
+      } catch (e) { jsonResponse(res, 200, { items: [], error: String(e && e.message || e), took_ms: Date.now() - t0 }); }
+    })();
+    return;
+  }
   if (req.method === 'GET' && url.startsWith('/api/memory/search')) {
     if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
     (async () => {
       try {
-        const q = String((new URL(req.url, 'http://x')).searchParams.get('q') || '').trim();
+        const _sp = (new URL(req.url, 'http://x')).searchParams;
+        const q = String(_sp.get('q') || '').trim();
+        const _prof = _sp.get('profile') === '1';
+        const _t0 = Date.now();
         if (!q) { jsonResponse(res, 200, { items: [] }); return; }
         // The SAME recall the partner uses — hybrid lexical + dense over the
         // whole recallable corpus. This would call the legacy
@@ -3275,7 +3254,7 @@ const server = http.createServer((req, res) => {
         // memory is broken when it is not.
         const recall = require('../shared-core/recall.js');
         const st = require('../shared-core/state.js');
-        const hits = await recall.recall({ query: q, class: 'all', audience: 'model_visible', limit: 20, cwd: WATCH_DIR, rerank: true });
+        const hits = await recall.recall({ query: q, class: 'all', audience: 'model_visible', limit: 20, cwd: WATCH_DIR, rerank: true, profile: _prof });
         // Retirement applies to commitment engrams only, and never to a signed
         // operator fact. Deciding that HERE lets the UI offer Forget only where
         // it can actually work, instead of showing a button that fails.
@@ -3291,7 +3270,7 @@ const server = http.createServer((req, res) => {
           } catch (_) { forgettable = false; }
           return { id: r.id, statement: r.statement, ts: r.ts || r.timestamp || null, forgettable: forgettable };
         });
-        jsonResponse(res, 200, { items: items });
+        jsonResponse(res, 200, _prof ? { items: items, took_ms: Date.now() - _t0, profile: (hits && hits.profile) || null } : { items: items });
       } catch (e) { jsonResponse(res, 200, { items: [], error: String(e && e.message || e) }); }
     })();
     return;
@@ -6516,7 +6495,31 @@ function cleanSiblingsAtBoot() {
   } catch (e) { /* ps unavailable — skip silently */ }
 }
 
+let _lastRoute = '';
+let _svcMemo = { v: null, at: 0 };
 server.listen(listenPort, BIND_HOST, () => {
+  // The event loop's own watch: a freeze longer than half a second is logged
+  // with the route in hand, so a slow handler is named instead of guessed.
+  (function watchLoop() {
+    let expected = Date.now() + 250;
+    const t = setInterval(() => {
+      const now = Date.now();
+      const lag = now - expected;
+      if (lag > 500) log('LOOP STALL ' + lag + 'ms | route in hand: ' + (_lastRoute || '(none)'));
+      expected = now + 250;
+    }, 250);
+    t.unref();
+  })();
+  setTimeout(() => {
+    try {
+      require('../shared-core/dense-index.js').build()
+        .then((r) => log('Dense index: ' + r.rows + ' vectors in ' + r.ms + 'ms'))
+        .catch(() => {});
+      const rw = require('../shared-core/read-worker.js');
+      rw.warm('substrate_counts', 20000, 'substrate_counts', {}, { timeout_ms: 180000 });
+      rw.warm('memory_readiness', 20000, 'memory_readiness', {}, { timeout_ms: 180000 });
+    } catch (_) {}
+  }, 2000);
   process.title = 'troth-proxy-' + listenPort;
   //  write PID file so the CLI's cleanOrphanSiblings scan
   // (bin/troth.js) can reliably distinguish a live primary from a
