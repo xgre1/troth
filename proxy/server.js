@@ -2338,24 +2338,39 @@ const server = http.createServer((req, res) => {
     // reduction) — no output_archive/populate inflation (matches analytics.js).
     var flatStats = { tokens_in: 0, tokens_out: 0, tokens_saved_estimate: 0, cost_usd_today: 0, requests_total: 0, usd_saved_total: 0 };
     try {
-      var dbF = require('../shared-core/state').db();
       var dayAgoF = Date.now() - 24 * 60 * 60 * 1000;
       // usage_ledger, not baseline_cost_events: the
       // Activity panel froze on 25-day-old totals and cost_usd_today pinned
       // to 0. One ledger row per completed request in every lane.
-      var bF = dbF.prepare("SELECT COALESCE(SUM(tokens_in),0) AS tin, COALESCE(SUM(tokens_out),0) AS tout, COUNT(*) AS reqs FROM usage_ledger").get();
-      var svF = dbF.prepare("SELECT COALESCE(SUM(tokens),0) AS t FROM savings_ledger WHERE kind IN ('gemcache:hit','mcp_cache:hit','context_filter','bash_compression','hashline_edit_applied','compaction')").get();
+      // Both sums walk a whole ledger: read on the read worker and served
+      // from the held answer, refreshed behind the dashboard's polling.
+      var _rwF = require('../shared-core/read-worker.js');
+      var bF = _rwF.peek('usage_totals', 60000, 'sql_get', {
+        sql: "SELECT COALESCE(SUM(tokens_in),0) AS tin, COALESCE(SUM(tokens_out),0) AS tout, COUNT(*) AS reqs FROM usage_ledger"
+      }, { timeout_ms: 120000 }) || { tin: 0, tout: 0, reqs: 0 };
+      var svF = _rwF.peek('savings_total', 60000, 'sql_get', {
+        sql: "SELECT COALESCE(SUM(tokens),0) AS t FROM savings_ledger WHERE kind IN ('gemcache:hit','mcp_cache:hit','context_filter','bash_compression','hashline_edit_applied','compaction')"
+      }, { timeout_ms: 120000 }) || { t: 0 };
       flatStats.tokens_in = bF.tin || 0;
       flatStats.tokens_out = bF.tout || 0;
       flatStats.requests_total = bF.reqs || 0;
-      flatStats.cost_usd_today = +(ledgerSpendSince(dayAgoF).toFixed(4));
+      // The day's spend: the grouped 24 h sum on the read worker, priced here
+      // over a handful of rows.
+      var _spendRows = _rwF.peek('usage_day_by_model', 30000, 'sql_rows', function () {
+        return { sql: 'SELECT model, COALESCE(SUM(tokens_in),0) AS tin, COALESCE(SUM(tokens_out),0) AS tout, COALESCE(SUM(cached_in),0) AS cin FROM usage_ledger WHERE ts >= ? GROUP BY model', params: [Date.now() - 24 * 60 * 60 * 1000] };
+      }, { timeout_ms: 120000 }) || [];
+      var _spend = 0;
+      try { var _costF = require('./modules/cost'); for (var _si = 0; _si < _spendRows.length; _si++) _spend += _costF.calculateCost(_spendRows[_si].model, _spendRows[_si].tin, _spendRows[_si].tout, _spendRows[_si].cin).cost; } catch (_) {}
+      flatStats.cost_usd_today = +_spend.toFixed(4);
       flatStats.tokens_saved_estimate = svF.t || 0;
       // TOTAL accumulated $ saved (general, not just today) — the honest combined
       // figure: router arbitrage (baseline-vs-actual) + real cache/context token
       // savings valued at the baseline rate. Reuses analytics so the number
       // matches the dashboard and excludes the output_archive inflation.
+      // The all-time analytics walk every ledger: on the read worker, held
+      // for a minute, never on this loop.
       try {
-        var anaAll = require('../shared-core/analytics.js').getAnalytics({ window: 'all' }).overview || {};
+        var anaAll = _rwF.peek('analytics_all_overview', 60000, 'analytics_overview', { window: 'all' }, { timeout_ms: 180000 }) || {};
         flatStats.usd_saved_total = +(((anaAll.estimated_usd_saved || 0) + (anaAll.tokens_saved_usd_equiv || 0)).toFixed(4));
       } catch (_) {}
     } catch (e) { /* tables absent on fresh substrate — leave zeros */ }

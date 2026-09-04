@@ -15,6 +15,9 @@ const JOBS = {
   // One recall class arm (the FTS pull and the scoring over its pool) for
   // the proxy's recall, so a hook's question never holds the event loop.
   recall_class: (a) => require('./recall.js')._recallClass(String(a.cls), a.opts || {}),
+  // The analytics overview for a window (the all-time one walks every
+  // ledger), for the stats answer the dashboard polls.
+  analytics_overview: (a) => (require('./analytics.js').getAnalytics({ window: (a && a.window) || 'all' }) || {}).overview || {},
   sql_rows: (a) => require('./state.js')._dbForQuery().prepare(String(a.sql)).all(...(Array.isArray(a.params) ? a.params : [])),
   sql_get: (a) => require('./state.js')._dbForQuery().prepare(String(a.sql)).get(...(Array.isArray(a.params) ? a.params : []))
 };
