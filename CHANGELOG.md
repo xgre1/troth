@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.19] — 2026-09-04
+
 ### Added
 - The Code Map says why an index came back empty: the code parser has no
   build on this machine, or the folder holds no JavaScript, TypeScript or
