@@ -404,6 +404,22 @@ function banner() {
 }
 
 function stripAnsi(s) { return String(s).replace(/\x1b\[[0-9;]*m/g, ''); }
+// A string cut to w visible characters with an ellipsis, colour codes kept
+// and closed: what a one-row status line needs to stay one row.
+function clampVisible(s, w) {
+  s = String(s == null ? '' : s);
+  if (w <= 0) return '';
+  if (stripAnsi(s).length <= w) return s;
+  let out = '', vis = 0, i = 0;
+  while (i < s.length && vis < w - 1) {
+    if (s[i] === '\x1b') {
+      const m = /^\x1b\[[0-9;]*m/.exec(s.slice(i));
+      if (m) { out += m[0]; i += m[0].length; continue; }
+    }
+    out += s[i]; i++; vis++;
+  }
+  return out + '…' + RESET;
+}
 
 // The reply's type: the partner's steel tone for text, brighter for what is
 // stressed, silver for code, a faint tint behind a code block. Colour only,
@@ -578,9 +594,16 @@ function createSpinner() {
     const meta = color(DIM, ' (' + [elapsedStr, tok].filter(Boolean).join(' \u00b7 ') + ')');
     // Mark and word share one sheen. A tool verb is a fact, not a wait, so it
     // stays steady.
-    const text = label
-      ? silverDim(frame) + ' ' + label + meta
-      : sheen(frame + ' ' + word + '…') + meta;
+    // The line must fit the terminal: a status wider than the window wraps
+    // onto a second row, the next frame's carriage return lands on that
+    // second row, and the first row stays behind as a phantom line. A tool
+    // verb longer than the room is cut with an ellipsis; the width is
+    // counted on visible characters, colour codes carry none.
+    const room = termCols() - 3 - stripAnsi(frame).length - 1 - stripAnsi(meta).length;
+    const shown = label ? clampVisible(label, room) : null;
+    const text = shown
+      ? silverDim(frame) + ' ' + shown + meta
+      : sheen(frame + ' ' + clampVisible(word + '…', Math.max(room, 1))) + meta;
     // The working state lives in the composer's meter; a free-standing line
     // would mean tearing the panel down for the length of every turn.
     if (meterWriter) { meterWriter(text); return; }
