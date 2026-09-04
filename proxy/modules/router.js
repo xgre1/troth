@@ -2314,8 +2314,11 @@ function callOpenAISubscription(bodyStr, headers) {
             console.error('[router] openai_sub: 401 — token rejected; re-sign-in via dashboard');
             resolve({ success: false, requestError: true, status: 401 });
           } else if (res.statusCode === 429) {
-            try { require('./errortax').record(429, 'rate limited', 'openai_sub'); } catch (_) {}
-            console.error('[router] openai_sub: 429 rate limited');
+            // The body names the wait (resets_in_seconds); it rides on the
+            // record so the pin reason can say when the lane is back.
+            var rm = String(body || '').match(/resets_in_seconds"?\s*:\s*(\d+)/);
+            try { require('./errortax').record(429, 'rate limited' + (rm ? ' resets_in_seconds=' + rm[1] : ''), 'openai_sub'); } catch (_) {}
+            console.error('[router] openai_sub: 429 rate limited' + (rm ? ' (resets in ' + Math.round(parseInt(rm[1], 10) / 60) + ' min)' : ''));
             resolve(null);
           } else {
             var msg = body.slice(0, 200);
@@ -2536,6 +2539,13 @@ function detectPinReason(name) {
     var status = last.status;
     var cls2 = last._class;
     if (status === 429 || cls2 === "rate_limit") {
+      // The wait the endpoint named, counted down from when it was recorded.
+      var rm2 = String(last.msg || '').match(/resets_in_seconds=(\d+)/);
+      if (rm2) {
+        var left = Math.max(0, parseInt(rm2[1], 10) - Math.round((Date.now() - (last.at || Date.now())) / 1000));
+        var mins = Math.max(1, Math.round(left / 60));
+        return "the plan limit is reached (resets in " + (mins >= 120 ? Math.round(mins / 60) + " h" : mins + " min") + ")";
+      }
       return "rate limited by the plan (limit resets automatically)";
     }
     if (status === 403 && /usage limit|quota|billing cycle/i.test(String(last.msg || last.message || ''))) {
