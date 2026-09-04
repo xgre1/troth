@@ -251,6 +251,19 @@ function ensureProxy(cfg) {
     console.error("troth proxy not reachable at " + cfg.host + ":" + cfg.port);
     process.exit(1);
   }
+  // A shell inside a session wall cannot hand the proxy its ground: the child
+  // would inherit the wall, read no config and no token, and answer every
+  // request with "no engine configured". The proxy starts from the service
+  // or from the operator's own terminal.
+  try {
+    require("fs").readFileSync(require("../shared-core/config-file.js").configPath(), "utf8");
+  } catch (e) {
+    if (e && e.code === "EPERM") {
+      console.error("troth: this shell runs inside a session wall; the proxy cannot start from here (its home is not readable).");
+      console.error("Start it from the background service (troth service restart) or from your own terminal (troth restart).");
+      process.exit(2);
+    }
+  }
   var serverPath = path.join(__dirname, "..", "proxy", "server.js");
   var env = Object.assign({}, process.env, {
     GF_PORT: String(cfg.port),
@@ -1677,7 +1690,10 @@ if (command === "restart") {
   // would be left with a proxy nobody restarts.
   try {
     var svcMod = require("../proxy/modules/service.js");
-    if (svcMod.status().loaded) {
+    // An installed service is cycled through its manager, which puts an
+    // unloaded job back under it first; a loose child of this shell is
+    // never the answer while a service exists.
+    if (svcMod.status().installed) {
       var cycled = svcMod.restart();
       if (cycled.ok) {
         for (var w = 0; w < 40; w++) {

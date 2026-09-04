@@ -198,11 +198,17 @@ function restart() {
   const p = paths();
   if (!p.kind) return { ok: false, error: 'unsupported_platform' };
   const st = status();
-  if (!st.loaded) return { ok: false, error: 'service_not_loaded' };
+  if (!st.installed) return { ok: false, error: 'service_not_installed' };
   try {
     if (p.kind === 'launchd') {
-      execFileSync('launchctl', ['kickstart', '-k', 'gui/' + process.getuid() + '/' + LABEL], { stdio: 'pipe' });
+      // An installed job that is not loaded goes back under launchd first, so
+      // a restart never trades a supervised proxy for a loose child.
+      const domain = 'gui/' + process.getuid();
+      const steps = st.loaded ? [] : [['bootstrap', domain, p.unit]];
+      steps.push(['kickstart', '-k', domain + '/' + LABEL]);
+      for (const args of steps) execFileSync('launchctl', args, { stdio: 'pipe' });
     } else {
+      if (!st.loaded) return { ok: false, error: 'service_not_loaded' };
       execFileSync('systemctl', ['--user', 'restart', 'troth-proxy.service'], { stdio: 'pipe' });
     }
     return { ok: true, kind: p.kind, via: 'service' };

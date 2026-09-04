@@ -1141,7 +1141,15 @@ function loadProviders() {
     } else {
       baselineModel = 'claude-sonnet-4.6';
     }
-  } catch (e) {}
+  } catch (e) {
+    // A home the proxy cannot read is a proxy that cannot serve: it stops
+    // with the reason instead of answering every request with "no engine
+    // configured". A missing file is a fresh install and stays fine.
+    if (e && e.code === 'EPERM') {
+      console.error('[router] config unreadable (EPERM): the proxy runs inside a session wall; start it from the service (troth service restart) or from your own terminal');
+      process.exit(78);
+    }
+  }
   // Backfill API keys from environment when config.json doesn't carry
   // them. Canonical storage is now ~/.troth/.env (loaded above into
   // process.env) — config.json keeps only enable/model/endpoint flags.
