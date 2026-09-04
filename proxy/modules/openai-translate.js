@@ -125,9 +125,12 @@ function anthropicToResponses(anthropicBody, opts) {
   // a structured call and instead writes the call as plain text ("<Write …>")
   // that never executes — the exact "talks but never acts" bug on ChatGPT.
   var respTools = [];
-  if (Array.isArray(b.tools)) {
-    for (var ti = 0; ti < b.tools.length; ti++) {
-      var t = b.tools[ti];
+  // The ChatGPT lane pays every schema on every call: it receives the tools
+  // the engine can act on (engine-tools.js), in the order they arrived.
+  var srcTools = require('./engine-tools.js').trimForEngine(b.tools, 'openai_sub').tools;
+  if (Array.isArray(srcTools)) {
+    for (var ti = 0; ti < srcTools.length; ti++) {
+      var t = srcTools[ti];
       if (!t || !t.name) continue;
       respTools.push({
         type: 'function',

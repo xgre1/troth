@@ -155,10 +155,13 @@ function anthropicToOpenAI(bodyStr, opts) {
 
   // Convert tools
   var tools = null;
-  if (data.tools && data.tools.length) {
+  // A non-Claude lane receives the tools the engine can act on (engine-tools.js):
+  // the harness's product surfaces and its deferred set stay behind.
+  var srcTools = require('./engine-tools.js').trimForEngine(data.tools, opts.lane || 'engine').tools;
+  if (srcTools && srcTools.length) {
     tools = [];
-    for (var t = 0; t < data.tools.length; t++) {
-      var tool = data.tools[t];
+    for (var t = 0; t < srcTools.length; t++) {
+      var tool = srcTools[t];
       // Filter out troth MCP tools — they're handled locally
       // Filter ALL MCP tools — handled locally by Claude Code
       if (tool.name && tool.name.startsWith("mcp__")) continue;

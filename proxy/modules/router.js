@@ -1403,7 +1403,7 @@ function filterAndTrimTools(tools, phase) {
 // transport and provider-specific quirks.
 
 function callOpenAICompatible(bodyStr, providerOpts) {
-  var converted = anthropicToOpenAI(bodyStr, { model: providerOpts.model });
+  var converted = anthropicToOpenAI(bodyStr, { model: providerOpts.model, lane: providerOpts.name || 'engine' });
   if (!converted) return Promise.resolve(null);
 
   // kimi-k3 fixes temperature / top_p / penalties server-side and rejects
@@ -1717,6 +1717,10 @@ function callKimiSub(bodyStr, opts) {
   try {
     var pb = JSON.parse(bodyStr);
     var changed = false;
+    // Kimi pays every schema on every call: it receives the tools the engine
+    // can act on (engine-tools.js), in the order they arrived.
+    var _et = require('./engine-tools.js').trimForEngine(pb.tools, 'kimi_sub');
+    if (_et.changed) { pb.tools = _et.tools; changed = true; }
     if (pb.model === "any" || !pb.model || /claude/i.test(String(pb.model))) {
       pb.model = opts.model || providers.kimi_sub.model || "kimi-for-coding";
       changed = true;
@@ -3154,7 +3158,7 @@ function forwardToLocal(req, body, bHost, bPort, opts2) {
       // re-stringify before sending or http.request gets [object Object].
       // openAIToAnthropic in the response path already returns a string,
       // so this asymmetry is converter-side, fixed at the call site.
-      var openaiObj = converter.anthropicToOpenAI(body, { model: opts2.model });
+      var openaiObj = converter.anthropicToOpenAI(body, { model: opts2.model, lane: 'local' });
       if (openaiObj && typeof openaiObj === "object") {
         // KV PREFIX REUSE on the local backend. Without this, a local
         // llama-server re-prefills the entire ~9.6K-token system+tools prefix

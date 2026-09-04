@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- An engine other than Claude receives the tools it can act on: the coding
+  tools and every MCP tool, in the order they arrived. Claude Code's own
+  product surfaces and its deferred set stay behind on the ChatGPT, Kimi,
+  local and OpenAI-compatible lanes, where every schema is paid for on every
+  call. The proxy log names the count and the size before and after.
 - The partner reads the machine and troth's own state through the proxy,
   which runs outside the session walls: `GET /api/system/load` names the
   machine's leaders by CPU time and by memory (command name only) beside
