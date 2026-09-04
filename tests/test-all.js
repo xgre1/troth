@@ -23,6 +23,7 @@ require('./suite-15-forget-suppression.js')({ test, skip });
 require('./suite-16-faculty-fallthrough.js')({ test, skip });
 require('./suite-17-mcp-governed-actions.js')({ test, skip });
 require('./suite-18-mcp-hands.js')({ test, skip });
+require('./suite-19-video-gen.js')({ test, skip });
 require('./suite-19-router-pin-failfast.js')({ test, skip });
 require('./suite-20-kimi-native.js')({ test, skip });
 require('./suite-21-claude-backbone-browser-rule.js')({ test, skip });

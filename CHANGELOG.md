@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The ChatGPT lane walks a short list of plain model ids when the endpoint
   retires one, and remembers the id that answered, so a stale pick degrades
   instead of blacking the lane.
+- `troth_video_generate` renders a short clip from a prompt or a still image
+  and saves it as an MP4 under `~/.troth/videos/`: 3-30 seconds, 9:16 or
+  16:9, 480p to 1080p, with or without a soundtrack, on the operator's own
+  OpenRouter key (Seedance 2.5 by default; Seedance 2.0, Kling 3, Veo 3.1 and
+  Hailuo 3 by model id) or Google AI key (Veo 3.1). The result names the
+  price the provider reported, or an estimate from the model's rate when it
+  reported none; a clip the model cannot render as asked is shortened or
+  resized and the result says so; a job that fails carries the provider's
+  own reason and never restarts on another key.
 
 ### Fixed
 - In the chat, the tool of the moment shows on the status row and leaves with

@@ -27,6 +27,7 @@ const grepTool  = require('./grep.js');
 const globTool  = require('./glob.js');
 const webResearch = require('./web-research.js');
 const imageGen  = require('./image-gen.js');
+const videoGen  = require('./video-gen.js');
 const vaultCapture = require('../vault-capture.js');
 
 const REGISTRY = {
@@ -46,6 +47,10 @@ const REGISTRY = {
   // codex Responses endpoint as chat, with tools:[{image_generation}]). WRITE —
   // saves a PNG under ~/.troth/images (see permission.js). No vendor API/key.
   image_generate: imageGen,
+  // Video generation on the operator's own OpenRouter or Google AI key: an
+  // async job submitted, polled and downloaded. WRITE — saves an MP4 under
+  // ~/.troth/videos (see permission.js) and spends real money per clip.
+  video_generate: videoGen,
   // A credential the operator holds elsewhere moves into the vault by name.
   // WRITE — it stores a secret (see permission.js); the value never reaches
   // the model. In the proxy it captures in-process; elsewhere it reaches the

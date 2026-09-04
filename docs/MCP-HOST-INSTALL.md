@@ -16,7 +16,7 @@ Every install wires the same lean surface (~10 tools):
 
 | server | tools | what it is |
 |---|---|---|
-| `troth-router` | `mcp_list` / `mcp_describe` / `mcp_call` / `troth_image_generate` | the GATEWAY to the heavy servers |
+| `troth-router` | `mcp_list` / `mcp_describe` / `mcp_call` / `troth_image_generate` / `troth_video_generate` | the GATEWAY to the heavy servers |
 | `troth-bash` | `run` / `cd` / `pwd` | shell with persistent cwd, output compression, SQLite archive |
 | `troth-cache` | `cached_read` / `cached_grep` | content-hash read/grep cache |
 | `troth-hashline` | `hashline_read` / `hashline_edit` | drift-safe anchored editing |

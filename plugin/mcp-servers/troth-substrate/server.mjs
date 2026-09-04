@@ -1548,6 +1548,21 @@ if (process.env.TROTH_MCP_ACTIONS === '1' && substrateTools && substrateTools.RE
     };
   }
 
+  // Video generation over the backbone, wired exactly like the image tool
+  // above: the worldly entry's function.parameters is the MCP inputSchema and
+  // run is delegated, so the two surfaces cannot drift. The job submit, the
+  // poll loop and the MP4 write all happen inside video_generate.run, which
+  // never throws.
+  const _videoGen   = worldlyTools.REGISTRY && worldlyTools.REGISTRY.video_generate;
+  const _videoGenFn = _videoGen && _videoGen.schema && _videoGen.schema.function;
+  if (_videoGen && typeof _videoGen.run === 'function') {
+    TOOLS.troth_video_generate = {
+      description: (_videoGenFn && _videoGenFn.description) || 'Generate a short video from a text prompt (or an image) with the operator\'s OpenRouter or Google AI key and save it as an MP4 under ~/.troth/videos/. Returns the saved file path. Slow and costs money.',
+      inputSchema: (_videoGenFn && _videoGenFn.parameters) || { type: 'object', properties: {}, required: [] },
+      run: async (args) => worldlyTools.REGISTRY.video_generate.run(args || {}, ctxFromArgs(args))
+    };
+  }
+
   // Vault capture over the backbone, the same worldly entry native panes get
   // (shared-core/vault-capture.js via tools/index.js): schema reused verbatim,
   // run delegated. The entry reaches the proxy over HTTP from this process,

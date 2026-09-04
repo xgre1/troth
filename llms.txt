@@ -52,6 +52,7 @@ with owner-only permissions and the dashboard masks keys.
 ## Integration surfaces
 
 - MCP: `plugin/mcp-servers/` — substrate, bash, cache, hashline, router servers, any MCP host can mount them ([docs/MCP-HOST-INSTALL.md](docs/MCP-HOST-INSTALL.md))
+- Media: `troth_image_generate` makes an image (PNG under `~/.troth/images/`) on the operator's ChatGPT plan or Google AI key; `troth_video_generate` makes a short clip (MP4 under `~/.troth/videos/`, 3-30 s, 9:16 or 16:9, text or a still as the first frame) on their OpenRouter or Google AI key, and the result carries the price
 - HTTP: the proxy's `/api/*` (see `proxy/server.js`); Anthropic-compatible chat endpoint for tools that speak that shape
 - Wire: the entity's stdin/stdout JSON-lines protocol (`user_input` in; `response`, `dispatch`, `serving` frames out)
 

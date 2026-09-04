@@ -60,6 +60,9 @@ const WRITE_OR_EXEC = new Set([
   // chatgpt.com — not read-only. Classified WRITE so it gates behind auto-write
   // like any other side-effecting tool (rather than riding the unknown default).
   'image_generate',
+  // video_generate WRITES an MP4 to ~/.troth/videos, does network egress to
+  // the video provider and spends money per clip: gated the same way.
+  'video_generate',
   // vault_capture stores a credential: a write, gated like any other.
   'vault_capture'
 ]);

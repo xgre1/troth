@@ -203,10 +203,17 @@ async function getDownstream(name) {
 const RPC_TIMEOUT_MS = 30000;
 const SLOW_TOOL_TIMEOUT_MS = 300000;
 const SLOW_TOOLS = /(^|_)(image_generate|intent_emit|browser)/;
+// A clip is slower still: video_generate polls its provider for up to six
+// minutes on top of the submit and the download, so the five-minute bucket
+// above would report a timeout while the MP4 was still landing. Video gets
+// its own ceiling, above the tool's own, and it is checked first.
+const VIDEO_TOOL_TIMEOUT_MS = 600000;
+const VIDEO_TOOLS = /(^|_)video_generate/;
 
 function timeoutFor(method, params) {
   if (method !== 'tools/call') return RPC_TIMEOUT_MS;
   const name = (params && params.name) || '';
+  if (VIDEO_TOOLS.test(name)) return VIDEO_TOOL_TIMEOUT_MS;
   return SLOW_TOOLS.test(name) ? SLOW_TOOL_TIMEOUT_MS : RPC_TIMEOUT_MS;
 }
 
@@ -282,6 +289,27 @@ const OUR_TOOLS = [
       required: ['prompt']
     }
   },
+  // The video tool is promoted for the same reason as the image tool: a
+  // capability absent from tools/list does not exist to a pane. Delegated
+  // verbatim to troth-substrate; the schema mirrors shared-core/tools/video-gen.js.
+  {
+    name: 'troth_video_generate',
+    description: 'Generate a short video from a text prompt (or an image) using the operator\'s OpenRouter or Google AI key, and save it as an MP4 under ~/.troth/videos/. Returns the saved file path. Slow - 30 seconds to a few minutes - and it costs money: roughly $0.50-$2.00 for an 8-second 720p clip. Tell the user it is running.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        prompt:     { type: 'string',  description: 'What should happen in the clip: subject, motion, camera, style.' },
+        duration_s: { type: 'integer', description: 'Clip length in seconds, 3-30 (clamped to what the chosen model supports). Default 8.' },
+        aspect:     { type: 'string',  enum: ['9:16', '16:9'], description: 'Frame shape. Default 9:16.' },
+        resolution: { type: 'string',  enum: ['480p', '720p', '1080p'], description: 'Default 720p.' },
+        audio:      { type: 'boolean', description: 'Generate a soundtrack. Default true.' },
+        image_path: { type: 'string',  description: 'Optional local image to animate as the first frame.' },
+        provider:   { type: 'string',  enum: ['openrouter', 'google_ai'], description: 'Omit to pick whichever key is configured.' },
+        model:      { type: 'string',  description: 'Optional provider model id. Omit for the default.' }
+      },
+      required: ['prompt']
+    }
+  },
   // Same promotion as troth_image_generate above, for the same reported
   // failure: memory lived solely behind mcp_call(troth-substrate, …) whose
   // description never says the word memory, so panes answered "what did we
@@ -329,6 +357,12 @@ async function handleTool(name, args) {
     // SLOW_TOOLS timeout already covers image_generate by name.
     const state = await getDownstream('troth-substrate');
     return await rpc(state, 'tools/call', { name: 'troth_image_generate', arguments: args || {} });
+  }
+  if (name === 'troth_video_generate') {
+    // Delegate verbatim; VIDEO_TOOLS gives this call its own ten-minute
+    // ceiling so the gateway outlasts the tool's own six-minute poll.
+    const state = await getDownstream('troth-substrate');
+    return await rpc(state, 'tools/call', { name: 'troth_video_generate', arguments: args || {} });
   }
   if (name === 'troth_recall') {
     // Delegate verbatim, like the image tool: promotion is discoverability,

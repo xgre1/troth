@@ -103,7 +103,7 @@ Yes. Pro plans get the same relative effect. BYOK API users benefit even more be
 **Q: Where does state live, and what leaves the machine?**
 `~/.troth/state.db` (WAL-journaled SQLite). Override with the `CLAUDE_PLUGIN_DATA` env var. Your substrate is that file: it is never uploaded, synced or reported anywhere, and nothing about your usage is sent to us.
 
-What does leave is what you ask to leave. The plugin wires the `troth-router` MCP server, and two of its tools reach outside the machine when you call them: a request routed to a cloud provider goes to the provider you configured with your own key, and `troth_image_generate` posts your prompt to the ChatGPT plan you linked or to Google's image endpoint with your own Google AI key. Neither can run before you supply that credential, and neither runs on its own. Every other tool, hook and skill in this plugin is local.
+What does leave is what you ask to leave. The plugin wires the `troth-router` MCP server, and three of its tools reach outside the machine when you call them: a request routed to a cloud provider goes to the provider you configured with your own key, `troth_image_generate` posts your prompt to the ChatGPT plan you linked or to Google's image endpoint with your own Google AI key, and `troth_video_generate` posts your prompt (and the still image you name) to OpenRouter's video endpoint with your own OpenRouter key or to Google's video endpoint with your own Google AI key, where that provider bills you per clip. None can run before you supply that credential, and none runs on its own. Every other tool, hook and skill in this plugin is local.
 
 ## License
 
