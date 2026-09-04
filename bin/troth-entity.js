@@ -435,12 +435,17 @@ function resolveTransport(mode) {
     if ((process.env.TROTH_GPT_VIA_PROXY || '').trim() === '1') {
       const { makeAnthropicTransport } = require('../shared-core/transports/anthropic.js');
       const { resolveCodexModel } = require('../shared-core/transports/codex-oauth.js');
-      let m = 'gpt-6-astra'; // literal fallback mirrors codex-oauth DEFAULT_MODEL — keep in step
+      let m = 'gpt-5.6-sol'; // literal fallback mirrors codex-oauth DEFAULT_MODEL, keep in step
       try { m = resolveCodexModel(null, null) || m; } catch (_) {}
+      // x-troth-raw: the entity composed this request (its own prefix, rules,
+      // recall and tools). The proxy keeps routing, compression and context
+      // filtering but does not prepend its coding-session shaping on top —
+      // that doubled the prefix on every ChatGPT call (measured 2026-09-04).
       return makeAnthropicTransport({
         api_key: 'troth-proxy',
         model: m,
-        base_url: require('../shared-core/dashboard-url.js').proxyBaseUrl()
+        base_url: require('../shared-core/dashboard-url.js').proxyBaseUrl(),
+        headers: { 'x-troth-raw': '1' }
       });
     }
     const { makeCodexOAuthTransport } = require('../shared-core/transports/codex-oauth.js');

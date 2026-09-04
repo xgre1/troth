@@ -42,6 +42,11 @@ function makeAnthropicTransport(opts) {
   const apiKeyDefault = opts.api_key || null;
   const modelDefault  = opts.model   || null;
   const baseDefault   = opts.base_url || null;
+  // Extra request headers. The via-proxy lanes send x-troth-raw: the entity
+  // composed the request itself (prefix, rules, recall, tools), so the troth
+  // proxy routes, compresses and filters it but does not prepend its own
+  // coding-session shaping a second time.
+  const extraHeaders  = (opts.headers && typeof opts.headers === 'object') ? opts.headers : null;
   // Turn-sized, not probe-sized. Lane audit: no caller on the
   // entity path ever passed max_tokens, so every lane built on this
   // transport (anthropic, kimi_sub) inherited a 1024 ceiling and real
@@ -139,13 +144,13 @@ function makeAnthropicTransport(opts) {
       hostname: url.hostname,
       port:    url.port || (_isHttps ? 443 : 80),
       path:    url.pathname + url.search,
-      headers: {
+      headers: Object.assign({
         'content-type':         'application/json',
         'content-length':       Buffer.byteLength(body),
         'x-api-key':            apiKey,
         'anthropic-version':    ANTHROPIC_VERSION,
         'accept':               'text/event-stream'
-      }
+      }, extraHeaders || {})
     }, (res) => {
       if (res.statusCode < 200 || res.statusCode >= 300) {
         let chunks = '';

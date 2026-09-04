@@ -506,15 +506,36 @@ function makeOrchestrator(opts) {
       stream_ended_without_finish: 'the engine stopped mid-answer',
       empty_turn: 'the engine returned nothing'
     };
+    // A 429 body from a subscription endpoint names the wait (ChatGPT sends
+    // resets_in_seconds), so the cause says WHEN the lane is back, not only
+    // that it refused. Any other HTTP failure carries the endpoint's own
+    // message, trimmed to one line.
+    const limitResetsIn = (detail) => {
+      const m = String(detail || '').match(/resets_in_seconds"?\s*[:=]\s*(\d+)/);
+      if (!m) return '';
+      const min = Math.max(1, Math.round(parseInt(m[1], 10) / 60));
+      return min >= 120 ? Math.round(min / 60) + ' h' : min + ' min';
+    };
+    const endpointMessage = (detail) => {
+      const m = String(detail || '').match(/"message"\s*:\s*"((?:[^"\\]|\\.){1,160})/);
+      return m ? m[1].replace(/\\"/g, '"') : '';
+    };
     const transportCause = (r) => {
       const key = String(r || '').replace(/^transport_/, '');
       const om = key.match(/^http_400$/) ? overflowOf(abortDetail) : null;
       if (om) return 'the turn outgrew the engine context (' + om.n_prompt.toLocaleString() +
         ' tokens against a ' + om.n_ctx.toLocaleString() + '-token window) — raise the context in the engine settings';
+      if (key === 'http_429') {
+        const wait = limitResetsIn(abortDetail);
+        return wait ? 'the plan limit is reached — it resets in ' + wait : TRANSPORT_CAUSE.http_429;
+      }
+      if (key === 'stream_failed') return 'the engine failed mid-answer' + (abortDetail ? ' (' + String(abortDetail).slice(0, 160) + ')' : '');
       if (TRANSPORT_CAUSE[key]) return TRANSPORT_CAUSE[key];
+      const said = endpointMessage(abortDetail);
       const m = key.match(/^(cli_exit|cli_result|http_status|http_5)/);
-      if (m) return 'the engine failed (' + key + ')';
-      return 'the engine stopped (' + key + ')';
+      if (m) return 'the engine failed (' + key + (said ? ': ' + said : '') + ')';
+      if (/^http_4/.test(key)) return 'the engine refused (' + key + (said ? ': ' + said : '') + ')';
+      return 'the engine stopped (' + key + (said ? ': ' + said : '') + ')';
     };
     const RESUME_NOTE = 'Your previous message was cut off before it finished. Continue from exactly where it stopped. Do not repeat what you already said, and do not redo work that already succeeded.';
     // Staple unresolved action failures AND a truncation note to whatever text

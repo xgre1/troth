@@ -1012,7 +1012,7 @@ var providers = {
   // is operator-supplied, not bundled (see shared-core/codex-auth.js).
   // Endpoint + body translated
   // to OpenAI Responses API via proxy/modules/openai-translate.js.
-  openai_sub: { enabled: false, model: "gpt-6-astra" },
+  openai_sub: { enabled: false, model: "gpt-5.6-sol" },
   nvidia: { enabled: false, apiKey: "", model: "deepseek-ai/deepseek-v4-flash-0731" },
   deepseek: { enabled: false, apiKey: "" },
   openrouter: { enabled: false, apiKey: "", model: "" },
@@ -2282,7 +2282,7 @@ function callOpenAISubscription(bodyStr, headers) {
                 // The model this lane actually sent, so the reply, the ledger
                 // and the dashboard name the engine that answered, not the
                 // config default a model-addressed request stepped past.
-                modelHint: _codexModel || providers.openai_sub.model || 'gpt-6-astra'
+                modelHint: _codexModel || providers.openai_sub.model || 'gpt-5.6-sol'
               });
             } catch (e) {
               // Same classification as the parse guard above: request-shaped
@@ -2301,7 +2301,7 @@ function callOpenAISubscription(bodyStr, headers) {
               var cachTsub = (u.input_tokens_details && u.input_tokens_details.cached_tokens) || 0;
               stats.tokens.openai_sub.input  += inTsub;
               stats.tokens.openai_sub.output += outTsub;
-              var modelSub = _asModelName(_codexModel || providers.openai_sub.model, 'gpt-6-astra');
+              var modelSub = _asModelName(_codexModel || providers.openai_sub.model, 'gpt-5.6-sol');
               try { require('./cost').recordUsage(modelSub + ' (plan)', inTsub, outTsub, cachTsub); } catch (_) {}
               try { require('./cacheratio').record(modelSub, { input_tokens: Math.max(0, inTsub - cachTsub), cache_read_input_tokens: cachTsub, cache_creation_input_tokens: 0 }); } catch (_) {}
             } catch (_) {}

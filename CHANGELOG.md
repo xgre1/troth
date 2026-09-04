@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Model catalog verified against every vendor on 2026-09-04: Claude Fable 5.1,
-  GPT-6 Astra with GPT-5.6 Sol and Terra on the ChatGPT lane, Grok 4.6, GLM-5.3 and 5.3 Flash,
+  GPT-5.6 Sol and Terra on the ChatGPT lane, Grok 4.6, GLM-5.3 and 5.3 Flash,
   Gemini 3.8 Flash and 3.1 Pro, the Coding Plan's Qwen3.7/3.6 Plus and GLM-5,
   DeepInfra's DeepSeek V4 Flash and Qwen3.6, NVIDIA NIM's DeepSeek V4 and
   Kimi K3, OpenRouter's free MiniMax M3 and GLM-5.2. Prices follow the same
@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The ChatGPT lane walks a short list of plain model ids when the endpoint
   retires one, and remembers the id that answered, so a stale pick degrades
   instead of blacking the lane.
+- On the ChatGPT lane a multi-step turn carries its tool calls and their
+  results as the endpoint's own items, so the model sees what it ran and
+  answers from the result.
 - `troth_video_generate` renders a short clip from a prompt or a still image
   and saves it as an MP4 under `~/.troth/videos/`: 3-30 seconds, 9:16 or
   16:9, 480p to 1080p, with or without a soundtrack, on the operator's own
@@ -32,6 +35,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own reason and never restarts on another key.
 
 ### Fixed
+- The ChatGPT plan answers on its own: in the app a ChatGPT pin runs the
+  entity's own ChatGPT faculty instead of the Claude Code harness, so no
+  Claude sign-in is needed, and the picker lists the models the ChatGPT
+  endpoint accepts (GPT-5.6 Sol, GPT-5.6 Terra). The lane asks for GPT-5.6
+  Sol by default and walks to Terra when the endpoint retires it.
+- The entity's own requests to the proxy (the ChatGPT and Kimi lanes, and the
+  harness on a non-Claude engine) carry `x-troth-raw`: the proxy routes,
+  compresses and filters them and leaves the prefix the entity composed as
+  it is.
+- A turn refused for the plan limit says when the lane is back (the ChatGPT
+  endpoint names the wait), an engine that fails mid-answer says why, and any
+  other engine error carries the endpoint's own message.
 - In the chat, the tool of the moment shows on the status row and leaves with
   the next one; the transcript keeps one line per turn with the tool count and
   the seconds. Escape and Ctrl-C tell the partner to stop the turn it is

@@ -3,8 +3,9 @@
 'use strict';
 // The ChatGPT lane's model choice: plain gpt ids of any generation are
 // honoured, "*-codex" ids and foreign ids fall to the default, the default
-// is the id verified with a ChatGPT account, and the shortlist behind it is
-// non-empty and starts with the default.
+// is the id verified with a ChatGPT account, the shortlist behind it is
+// non-empty and starts with the default, and an API-only flagship the
+// account refuses is not on it.
 const assert = require('assert');
 const path = require('path');
 const cx = require(path.join(__dirname, '..', 'shared-core', 'transports', 'codex-oauth.js'));
@@ -20,10 +21,11 @@ t('a codex-only id or a foreign id falls to the default', () => {
   assert.strictEqual(cx.resolveCodexModel('qwen3.6-35b-a3b-mtp', null), cx.DEFAULT_MODEL);
   assert.strictEqual(cx.resolveCodexModel(null, null), cx.DEFAULT_MODEL);
 });
-t('the default is the id verified on a ChatGPT account and heads the shortlist', () => {
-  assert.strictEqual(cx.DEFAULT_MODEL, 'gpt-6-astra');
+t('the default is the id a ChatGPT account accepts and heads the shortlist', () => {
+  assert.strictEqual(cx.DEFAULT_MODEL, 'gpt-5.6-sol');
   assert.ok(Array.isArray(cx.FALLBACK_MODELS) && cx.FALLBACK_MODELS.length >= 2);
   assert.strictEqual(cx.FALLBACK_MODELS[0], cx.DEFAULT_MODEL);
+  assert.ok(cx.FALLBACK_MODELS.indexOf('gpt-6-astra') < 0, 'the API-only flagship is not on the ChatGPT shortlist');
 });
 console.log('\ncodex-model-ladder: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

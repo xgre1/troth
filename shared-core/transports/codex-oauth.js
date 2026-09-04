@@ -36,14 +36,16 @@ const codexAuth  = require('../codex-auth.js');
 const DEFAULT_BASE     = 'https://chatgpt.com/backend-api';
 const DEFAULT_PATH     = '/codex/responses';
 // The ChatGPT-account Codex backend accepts only plain chat model ids
-// (gpt-6-astra, gpt-5.6-sol, gpt-5.6-terra), never the "*-codex" API-only ids or the bare
-// 'gpt-5.6' alias, and refuses any max_output_tokens / max_completion_tokens
-// parameter. Its accepted list rotates without notice, so a retired id must
-// degrade instead of blacking the lane: stream() walks FALLBACK_MODELS when
-// the endpoint answers 400/404 naming the model, and remembers the id that
-// worked for the rest of the process. Override with TROTH_CODEX_MODEL.
-const DEFAULT_MODEL    = 'gpt-6-astra';
-const FALLBACK_MODELS  = ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra'];
+// (gpt-5.6-sol, gpt-5.6-terra), never the "*-codex" API-only ids, the bare
+// 'gpt-5.6' alias or an API-only flagship such as gpt-6-astra (400 "not
+// supported when using Codex with a ChatGPT account"), and refuses any
+// max_output_tokens / max_completion_tokens parameter. Its accepted list
+// rotates without notice, so a retired id must degrade instead of blacking
+// the lane: stream() walks FALLBACK_MODELS when the endpoint answers 400/404
+// naming the model, and remembers the id that worked for the rest of the
+// process. Override with TROTH_CODEX_MODEL.
+const DEFAULT_MODEL    = 'gpt-5.6-sol';
+const FALLBACK_MODELS  = ['gpt-5.6-sol', 'gpt-5.6-terra'];
 let _lastGoodModel = null;
 const DEFAULT_MAX_OUT  = 4096;
 // The `originator` header names the application to the vendor. It has a
@@ -145,47 +147,56 @@ function makeCodexOAuthTransport(opts) {
   // factory keep their original `ensureToken()` call shape.
   const ensureToken = ensureCodexToken;
 
+  // One message's content as text: a string, or an array of text blocks.
+  const toText = (c) => Array.isArray(c)
+    ? c.map((b) => (b && (b.text || b.content)) || (typeof b === 'string' ? b : '')).join('')
+    : String(c == null ? '' : c);
+
   function buildBody(req, model) {
     let system = String(req.system || '');
-    let user   = String(req.user   || '');
-    // composeAgentic drives transports with a `messages` array, not {system,user}.
-    // Without this the codex Responses request got EMPTY input → HTTP error
-    // (same class of bug as the claude_cli transport). Flatten messages here.
-    if (!user && Array.isArray(req.messages) && req.messages.length) {
-      const toText = (c) => Array.isArray(c)
-        ? c.map((b) => (b && (b.text || b.content)) || (typeof b === 'string' ? b : '')).join('')
-        : String(c == null ? '' : c);
+    const input = [];
+    if (Array.isArray(req.messages) && req.messages.length) {
       const sys = [];
-      const convo = [];
       for (const m of req.messages) {
         if (!m) continue;
-        const txt = toText(m.content).trim();
-        if (m.role === 'system') { if (txt) sys.push(txt); }
-        else if (txt) {
-          const tag = m.role === 'assistant' ? 'Assistant: ' : m.role === 'tool' ? 'Tool result: ' : 'User: ';
-          convo.push(tag + txt);
+        if (m.role === 'system') { const t = toText(m.content).trim(); if (t) sys.push(t); continue; }
+        if (m.role === 'tool') {
+          input.push({ type: 'function_call_output', call_id: String(m.tool_call_id || ''), output: toText(m.content) });
+          continue;
         }
+        if (m.role === 'assistant') {
+          const t = toText(m.content).trim();
+          if (t) input.push({ role: 'assistant', content: [{ type: 'output_text', text: t }] });
+          for (const tc of (Array.isArray(m.tool_calls) ? m.tool_calls : [])) {
+            if (!tc || !tc.function) continue;
+            const args = tc.function.arguments;
+            input.push({
+              type: 'function_call',
+              call_id: String(tc.id || ''),
+              name: String(tc.function.name || ''),
+              arguments: typeof args === 'string' ? args : JSON.stringify(args || {})
+            });
+          }
+          continue;
+        }
+        const t = toText(m.content);
+        if (t.trim()) input.push({ role: 'user', content: [{ type: 'input_text', text: t }] });
       }
       if (!system && sys.length) system = sys.join('\n\n');
-      user = convo.join('\n\n');
     }
+    if (!input.length) input.push({ role: 'user', content: [{ type: 'input_text', text: String(req.user || '') }] });
     const bodyObj = {
       model,
       instructions: system,
-      input: [
-        { role: 'user', content: [{ type: 'input_text', text: user }] }
-      ],
+      input,
       stream: true,
       store: false
-      // NO max_output_tokens — the ChatGPT-account Codex endpoint rejects it
+      // NO max_output_tokens: the ChatGPT-account Codex endpoint rejects it
       // (400 "Unsupported parameter"). Output length is server-governed.
     };
-    // R9 (act, don't narrate): forward the substrate tool surface in the Responses
-    // API FLAT function shape ({type:'function',name,description,parameters}) so
-    // Codex actually calls Read/Write/Edit/Bash instead of only describing them.
-    // tool_choice is deliberately NOT forwarded — the ChatGPT-subscription endpoint
-    // rejects non-essential params with 400 (same reason max_output_tokens is omitted),
-    // and GPT-5.5 doesn't LARP so it doesn't need a forced first-turn tool.
+    // Tools ride in the Responses API flat function shape. tool_choice is not
+    // forwarded: the ChatGPT-subscription endpoint rejects non-essential
+    // params with 400, the same reason max_output_tokens is omitted.
     if (req.options && Array.isArray(req.options.tools) && req.options.tools.length) {
       bodyObj.tools = req.options.tools.map((t) => {
         if (t && t.type === 'function' && t.function) return { type: 'function', name: t.function.name, description: t.function.description || '', parameters: t.function.parameters || { type: 'object', properties: {} } };
@@ -361,7 +372,7 @@ function makeCodexOAuthTransport(opts) {
     } catch (_) { /* best-effort */ }
   }
 
-  return { stream, abort };
+  return { stream, abort, _buildBody: buildBody };
 }
 
 // ── SSE frame parser ───────────────────────────────────────────────────
@@ -458,7 +469,9 @@ function parseFrame(frame, emit, acc) {
   // Responses API — error event.
   if (event === 'response.failed' || event === 'error' || (data && data.type === 'response.failed')) {
     const msg = (data && data.error && data.error.message) || 'codex_oauth: response.failed';
-    emit({ done: true, error: msg });
+    // Tagged so the orchestrator names the cause (and can walk to another
+    // faculty) instead of reporting a bare done_error.
+    emit({ done: true, _abort_reason: 'stream_failed', _detail: msg, error: msg });
     return;
   }
 

@@ -36,10 +36,9 @@ var CATALOG = {
   // retired upstream, so a stale pick degrades instead of blacking the lane.
   openai_sub: {
     label: 'ChatGPT (subscription)',
-    dflt: 'gpt-6-astra',
+    dflt: 'gpt-5.6-sol',
     models: [
-      { id: 'gpt-6-astra',   label: 'GPT-6 Astra',   note: 'Default · newest flagship' },
-      { id: 'gpt-5.6-sol',   label: 'GPT-5.6 Sol',   note: 'The model behind paid ChatGPT plans · faster' },
+      { id: 'gpt-5.6-sol',   label: 'GPT-5.6 Sol',   note: 'Default · the model behind paid ChatGPT plans' },
       { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', note: 'Lighter tier' }
     ]
   },

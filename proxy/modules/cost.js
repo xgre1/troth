@@ -64,10 +64,9 @@ const RATES = {
   'kimi-for-coding':           { in: 0, out: 0, cached_in: 0, plan: 'flat' },
   'kimi-for-coding-highspeed': { in: 0, out: 0, cached_in: 0, plan: 'flat' },
   // ChatGPT-subscription lane (openai_sub): same flat-plan semantics.
-  'gpt-6-astra':               { in: 0, out: 0, cached_in: 0, plan: 'flat' },
+  'gpt-5.6-sol':               { in: 0, out: 0, cached_in: 0, plan: 'flat' },
   'gpt-5.6-terra':             { in: 0, out: 0, cached_in: 0, plan: 'flat' },
   'gpt-5.5':                   { in: 0, out: 0, cached_in: 0, plan: 'flat' },
-  'gpt-5.6-sol':               { in: 0, out: 0, cached_in: 0, plan: 'flat' },
   // DeepSeek. v4 rates verified  against api-docs.deepseek.com /
   // devtk.ai mirrors: $0.435/M cache-miss in, $0.003625/M cached, $0.87/M out.
   'deepseek-v4-pro':       { in: 0.66, out: 1.98, cached_in: 0.022 },  // off-peak; peak hours double

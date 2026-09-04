@@ -3206,7 +3206,7 @@ function effectiveModelName() {
     // Not a config provider: the membership model lives in desktop-config.
     return String(d.kimi_sub_model || process.env.TROTH_KIMI_SUB_MODEL || "kimi-for-coding").trim();
   }
-  if (pin === "openai_sub") return String((provs.openai_sub || {}).model || "gpt-6-astra").trim();
+  if (pin === "openai_sub") return String((provs.openai_sub || {}).model || "gpt-5.6-sol").trim();
   var m = String(((provs[pin] || {}).model) || "").trim();
   return m || pin;
 }

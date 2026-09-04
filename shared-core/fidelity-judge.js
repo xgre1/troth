@@ -39,7 +39,7 @@ const CANDIDATES = [
   { provider: 'openrouter', model: function (p) { return p.openrouter && p.openrouter.model; } },
   { provider: 'zai',        model: function (p) { return (p.zai && p.zai.model) || 'glm-5.3'; } },
   { provider: 'kimi_sub',   model: function (p) { return (p.kimi_sub && p.kimi_sub.model) || 'kimi-for-coding'; } },
-  { provider: 'openai_sub', model: function (p) { return (p.openai_sub && p.openai_sub.model) || 'gpt-6-astra'; } }
+  { provider: 'openai_sub', model: function (p) { return (p.openai_sub && p.openai_sub.model) || 'gpt-5.6-sol'; } }
 ];
 
 function isAvailable(providers, name) {

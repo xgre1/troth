@@ -231,7 +231,7 @@ const PROFILES = Object.freeze({
       if (engineOverride && !/^claude$/i.test(engineOverride)) {
         let m = engineOverride;
         if (/^gpt$/i.test(engineOverride)) {
-          try { m = require('./codex-oauth.js').DEFAULT_MODEL; } catch (_) { m = 'gpt-6-astra'; }
+          try { m = require('./codex-oauth.js').DEFAULT_MODEL; } catch (_) { m = 'gpt-5.6-sol'; }
         } else if (/^router$/i.test(engineOverride)) {
           m = String(vars.model || '');
         } else if (/^kimi$/i.test(engineOverride)) {
@@ -585,6 +585,7 @@ function makeSubprocessCliTransport(opts) {
         if ((process.env.TROTH_KIMI_VIA_PROXY || '').trim() === '1') {
           out.ANTHROPIC_BASE_URL = require('../dashboard-url.js').proxyBaseUrl();
           out.ANTHROPIC_API_KEY = 'troth-proxy';
+          out.ANTHROPIC_CUSTOM_HEADERS = 'x-troth-raw: 1';
         } else {
           out.ANTHROPIC_BASE_URL = 'https://api.kimi.com/coding/';
           const kk = (process.env.TROTH_KIMI_SUB_KEY || '').trim();
@@ -593,6 +594,10 @@ function makeSubprocessCliTransport(opts) {
       } else if (engineOverride && !/^claude$/i.test(engineOverride)) {
         out.ANTHROPIC_BASE_URL = require('../dashboard-url.js').proxyBaseUrl();
         if (!out.ANTHROPIC_API_KEY) out.ANTHROPIC_API_KEY = 'troth-proxy';
+        // The harness already carries troth's prefix (--append-system-prompt
+        // and its MCP tools); the header keeps the proxy from prepending its
+        // coding-session shaping on top of it a second time per call.
+        out.ANTHROPIC_CUSTOM_HEADERS = 'x-troth-raw: 1';
       }
     }
     return out;

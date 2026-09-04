@@ -55,10 +55,10 @@ function makeKimiSubTransport(opts) {
     // proxy down) the direct lane stays — a dead loopback would strand the
     // faculty entirely.
     let base = opts.base_url || process.env.TROTH_KIMI_SUB_BASE || null;
+    let viaProxy = false;
     if (!base) {
-      base = (process.env.TROTH_KIMI_VIA_PROXY || '').trim() === '1'
-        ? require('../dashboard-url.js').proxyBaseUrl()
-        : DEFAULT_BASE;
+      viaProxy = (process.env.TROTH_KIMI_VIA_PROXY || '').trim() === '1';
+      base = viaProxy ? require('../dashboard-url.js').proxyBaseUrl() : DEFAULT_BASE;
     }
     if (!apiKey) {
       // Match the anthropic transport's hard-fail contract: a missing key must
@@ -69,7 +69,12 @@ function makeKimiSubTransport(opts) {
       err.code = 'no_api_key';
       throw err;
     }
-    return makeAnthropicTransport({ api_key: apiKey, model, base_url: base, max_tokens: opts.max_tokens });
+    // Via the proxy the request already carries the entity's own prefix:
+    // x-troth-raw keeps the proxy from shaping it a second time per call.
+    return makeAnthropicTransport({
+      api_key: apiKey, model, base_url: base, max_tokens: opts.max_tokens,
+      headers: viaProxy ? { 'x-troth-raw': '1' } : undefined
+    });
   }
 
   return {
