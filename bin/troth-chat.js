@@ -405,21 +405,28 @@ function banner() {
 
 function stripAnsi(s) { return String(s).replace(/\x1b\[[0-9;]*m/g, ''); }
 
-// Light markdown for assistant output. Bold, inline code, fenced code blocks
-// with a tinted background. Keep it simple — no full parser, no deps.
-function renderMarkdown(text) {
-  if (!isTTY) return text;
-  let out = text.replace(/```([\s\S]*?)```/g, (_, body) => {
-    const lines = body.replace(/^\n|\n$/g, '').split('\n');
-    const w = Math.min(80, lines.reduce((m, l) => Math.max(m, l.length), 0));
-    const rule = color(DIM, '┄'.repeat(Math.min(w + 2, 80)));
-    return '\n' + rule + '\n' +
-           lines.map((l) => silver('  ' + l)).join('\n') +
-           '\n' + rule + '\n';
-  });
-  out = out.replace(/`([^`\n]+?)`/g, (_, m) => silver(m));
-  out = out.replace(/\*\*([^*\n]+?)\*\*/g, (_, m) => color(BOLD, m));
-  return out;
+// The reply's type: the partner's steel tone for text, brighter for what is
+// stressed, silver for code, a faint tint behind a code block. Colour only,
+// no mark and no rail: the two-colour grammar of who is speaking stays.
+const CODE_BG = TRUECOLOR ? '\x1b[48;2;31;34;42m' : '\x1b[48;5;235m';
+const REPLY_PALETTE = {
+  text:     (s) => isTTY ? steelCode(0.42) + s + RESET : s,
+  strong:   (s) => isTTY ? BOLD + steelCode(0.2) + s + RESET : s,
+  em:       (s) => isTTY ? '\x1b[3m' + steelCode(0.5) + s + RESET : s,
+  code:     (s) => silver(s),
+  head:     (s, level) => isTTY ? BOLD + steelCode(level <= 2 ? 0.1 : 0.3) + s + RESET : s,
+  dim:      (s) => color(DIM, s),
+  link:     (s) => isTTY ? '\x1b[4m' + steelCode(0.3) + s + RESET : s,
+  bullet:   (s) => isTTY ? steelCode(0.7) + s + RESET : s,
+  strike:   (s) => isTTY ? '\x1b[9m' + steelCode(0.6) + s + RESET : s,
+  codeLine: (s, w) => isTTY ? CODE_BG + steelCode(0.15) + s + ' '.repeat(Math.max(0, w - s.length)) + RESET : s
+};
+function replyWidth() {
+  const cols = process.stdout.columns || 80;
+  return Math.min(100, Math.max(20, cols - 4));
+}
+function renderReply(text) {
+  return require('../shared-core/tty-markdown.js').render(text || '', { tty: isTTY, width: replyWidth(), palette: REPLY_PALETTE });
 }
 
 // Map raw entity events → human action verbs. Keeps the spinner copy
@@ -455,15 +462,23 @@ function facultyLabel(faculty) {
 function toolVerb(name, args) {
   const a = args || {};
   const n = String(name || '');
-  const key = n.toLowerCase();
   const base = (p) => String(p || '').replace(/[\/\\]+$/, '').split(/[\/\\]/).pop();
   const head = (t, w) => { const one = String(t || '').replace(/\s+/g, ' ').trim(); return one.length > w ? one.slice(0, w - 1) + '…' : one; };
   const host = (u) => { try { return new URL(String(u)).host; } catch (_) { return head(u, 40); } };
+  // A command reads as itself when it is one short line; a script or a
+  // pipeline reads as "a command".
+  const cmd = (c) => {
+    const one = String(c || '').trim();
+    if (!one || /\n/.test(one) || one.length > 48 || /[|;&<>`$]/.test(one)) return 'running a command';
+    return 'running ' + one;
+  };
+  // A plugin's MCP tool carries the plugin in its name; the verb comes from
+  // the tool, never from the plumbing.
   const mcp = n.match(/^mcp__(?:plugin_troth_)?([a-z0-9-]+)__([a-z0-9_]+)$/i);
-  if (mcp) return 'calling ' + mcp[1] + '.' + mcp[2] + (a.command ? ': ' + head(a.command, 48) : a.file_path ? ' ' + base(a.file_path) : '');
+  const key = (mcp ? mcp[2] : n).toLowerCase();
   switch (key) {
     case 'bash': case 'run': case 'shell':
-      return a.command ? 'running: ' + head(a.command, 56) : 'running shell';
+      return cmd(a.command);
     case 'read': case 'cached_read': case 'hashline_read':
       return a.file_path ? 'reading ' + base(a.file_path) : 'reading';
     case 'write':
@@ -479,17 +494,42 @@ function toolVerb(name, args) {
     case 'websearch': case 'web_search':
       return a.query ? 'searching the web: ' + head(a.query, 40) : 'searching the web';
     case 'browse': case 'browser_session':
-      return a.url ? 'browsing ' + host(a.url) : (a.action ? 'browser: ' + head(a.action, 32) : 'browsing');
+      return a.url ? 'browsing ' + host(a.url) : (a.action ? 'browsing: ' + head(a.action, 32) : 'browsing');
     case 'task': case 'agent':
       return a.description ? 'delegating: ' + head(a.description, 44) : 'delegating';
-    case 'engram_record':  return 'remembering';
-    case 'engram_search': case 'troth_recall': return 'recalling';
+    case 'engram_record': case 'troth_engram_record': return 'remembering';
+    case 'engram_search': case 'troth_recall': case 'recall': return 'recalling';
     case 'dialogue_recent': case 'dialogue_search': return 'reading the dialogue';
-    case 'mcp_call':       return a.server ? 'calling ' + a.server + (a.tool ? '.' + a.tool : '') : 'calling MCP';
-    case 'mcp_list': case 'mcp_describe': return 'inspecting MCP';
+    case 'mcp_call': {
+      const srv = String(a.server || '');
+      if (/^troth-(substrate|memory)$/.test(srv)) return /record|remember/.test(String(a.tool || '')) ? 'remembering' : 'consulting memory';
+      return srv ? 'calling ' + srv : 'calling a connector';
+    }
+    case 'mcp_list': case 'mcp_describe': return 'checking connectors';
+    case 'cd': return a.path ? 'entering ' + base(a.path) : 'changing folder';
+    case 'pwd': return 'checking the folder';
+    case 'open_ground': return 'opening a folder';
+    case 'net_allow': return 'allowing a host';
+    case 'run_gate': return 'running the gate';
+    case 'env_keys': case 'env_set': return 'reading the env file';
+    case 'troth_image_generate': case 'image_generate': return 'drawing an image';
+    case 'troth_video_generate': case 'video_generate': return 'rendering a video';
+    case 'skill': return a.skill ? 'running /' + a.skill : 'running a skill';
+    case 'todowrite': return 'noting the plan';
+    case 'askuserquestion': return 'asking you';
   }
+  if (mcp) return 'using ' + key.replace(/_/g, ' ');
   const first = [a.command, a.file_path, a.url, a.query, a.pattern].find((v) => typeof v === 'string' && v.trim());
-  return 'using ' + (n || 'tool') + (first ? ': ' + head(first, 40) : '');
+  return 'using ' + (n || 'a tool') + (first ? ': ' + head(first, 40) : '');
+}
+// The kind of act a tool is, for the turn's one-line summary.
+function toolKind(name, args) {
+  const v = toolVerb(name, args);
+  if (v === 'reading the dialogue' || v === 'consulting memory') return 'recall';
+  if (v.startsWith('running /') || v === 'running a skill') return 'skill';
+  const map = { reading: 'read', editing: 'edit', writing: 'write', searching: 'search', matching: 'search', running: 'run',
+    fetching: 'web', browsing: 'web', delegating: 'delegate', recalling: 'recall', remembering: 'remember', drawing: 'draw', rendering: 'render' };
+  return map[v.split(/[\s:]/)[0]] || 'other';
 }
 
 const fmtTok = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : String(n || 0);
@@ -999,6 +1039,16 @@ function start() {
       renderInput();
       // Choices are drawn by renderInput, inside the composer block.
     }
+    // A resize reflows the rows the last frame occupied, so the count the
+    // erase relies on is wrong from then on and every repaint leaves a copy
+    // behind. The screen is cleared once and the composer painted fresh at
+    // the top; the transcript stays in the scrollback.
+    process.stdout.on('resize', () => {
+      if (!process.stdout.isTTY || fixedUI) return;
+      process.stdout.write('\x1b[2J\x1b[H');
+      lastCursorRow = 0; lastInputRows = 0; lastMenuRows = 0;
+      redraw();
+    });
 
     function commitSelection() {
       if (!menuActive || !menuItems.length) return;
@@ -1264,6 +1314,7 @@ function start() {
   // Track per-turn faculty + cumulative tool count for the response trailer.
   let turnFaculty = null;
   let turnTools = 0;
+  let turnActions = [];
     const toolStarts = new Map();
   let turnStart = 0;
 
@@ -1355,6 +1406,7 @@ function start() {
           // 'response'), the way the operator reads a turn: what was done,
           // never a ladder of every step.
           turnTools++;
+          turnActions.push(toolKind(msg.name, msg.args || msg.input));
           spinner.update(toolVerb(msg.name, msg.args || msg.input));
           break;
         }
@@ -1414,7 +1466,7 @@ function start() {
               : why.replace(/^transport_/, '').replace(/_/g, ' ');
             out(color(RED, '  ✗ ' + human) + '\n');
             awaitingResponse = false;
-            lastSlash = null; turnFaculty = null; turnTools = 0; turnStart = 0;
+            lastSlash = null; turnFaculty = null; turnTools = 0; turnActions = []; turnStart = 0;
             rl.prompt();
             break;
           }
@@ -1424,45 +1476,9 @@ function start() {
           // newline-delimited line is also word-wrapped to the terminal
           // width with the same indent continuation — otherwise long
           // sentences wrap flush-left and visually detach from the ◇.
-          const body = renderMarkdown(msg.text || '');
-          const lines = body.split('\n');
-          const cols  = process.stdout.columns || 80;
-          const wrapW = Math.max(20, cols - 4);
-          const wrapVisible = (text) => {
-            // Naive wrap on whitespace; preserves ANSI escapes since they
-            // don't add to visible length (we still split on simple length
-            // which over-counts but is acceptable for this UX pass).
-            if (!text) return [''];
-            const out = [];
-            let rest = text;
-            while (rest.length > wrapW) {
-              let cut = rest.lastIndexOf(' ', wrapW);
-              if (cut < wrapW * 0.5) cut = wrapW; // long token — hard break
-              out.push(rest.slice(0, cut));
-              rest = rest.slice(cut).replace(/^ +/, '');
-            }
-            out.push(rest);
-            return out;
-          };
-          const wrapped0 = wrapVisible(lines[0] || '');
-          // The cockpit-pane thread grammar (styles.css 'terminal output,
-          // not chat bubbles'), which the CLI mirrors exactly.
-          // The partner's turn is set in its own tone — no mark, no rail. Two
-          // colours are the whole grammar of who is speaking.
-          //
-          // Held below the top of the ramp: the operator's line stays the
-          // lighter of the two without reaching near-white.
-          const say = (s) => (isTTY ? steelCode(0.42) + s + RESET : s);
-          out('  ' + say(wrapped0[0]) + '\n');
-          for (let j = 1; j < wrapped0.length; j++) {
-            out('  ' + say(wrapped0[j]) + '\n');
-          }
-          for (let i = 1; i < lines.length; i++) {
-            const w = wrapVisible(lines[i]);
-            for (const segment of w) {
-              out('  ' + say(segment) + '\n');
-            }
-          }
+          // The reply, set for the terminal: headings, lists, code, tables and
+          // inline marks in the partner's tone, wrapped to a reading width.
+          for (const segment of renderReply(msg.text).split('\n')) out('  ' + segment + '\n');
           // NOTHING under the reply (operator: stats belong to the live
           // working line only, like Claude Code). tools/tokens/time all
           // showed while the turn ran; the reply stays clean.
@@ -1476,7 +1492,7 @@ function start() {
             out(_pendingBriefings.shift());
           }
           awaitingResponse = false;
-          lastSlash = null; turnFaculty = null; turnTools = 0; turnStart = 0;
+          lastSlash = null; turnFaculty = null; turnTools = 0; turnActions = []; turnStart = 0;
           rl.prompt();
           break;
         }
@@ -1578,7 +1594,7 @@ function start() {
     // The aborted reply that follows is discarded when it arrives.
     dropNextResponse = true;
     out('\n' + color(DIM, '  ◦ ' + (turnTools > 0 ? turnSummary() + ' · ' : '') + 'stopped') + '\n\n');
-    lastSlash = null; turnFaculty = null; turnTools = 0; turnStart = 0;
+    lastSlash = null; turnFaculty = null; turnTools = 0; turnActions = []; turnStart = 0;
     // The words go back into the composer so a cancel does not cost the typing.
     if (inFlightText && rl.setBuffer) rl.setBuffer(inFlightText);
     else rl.prompt();
@@ -1588,7 +1604,26 @@ function start() {
   /** One line for the whole turn: how many tools ran and for how long. */
   function turnSummary() {
     const secs = turnStart ? Math.round((Date.now() - turnStart) / 1000) : 0;
-    return turnTools + (turnTools === 1 ? ' tool' : ' tools') + (secs ? ' · ' + secs + 's' : '');
+    const n = {};
+    for (const k of (turnActions || [])) n[k] = (n[k] || 0) + 1;
+    const count = (c, one, many) => c === 1 ? one : c + ' ' + many;
+    const times = (c) => c === 1 ? '' : c === 2 ? ' twice' : ' ' + c + ' times';
+    const parts = [];
+    if (n.read) parts.push('read ' + count(n.read, '1 file', 'files'));
+    if (n.search) parts.push('searched' + times(n.search));
+    if (n.web) parts.push('fetched ' + count(n.web, '1 page', 'pages'));
+    if (n.edit) parts.push('edited ' + count(n.edit, '1 file', 'files'));
+    if (n.write) parts.push('wrote ' + count(n.write, '1 file', 'files'));
+    if (n.run) parts.push('ran ' + count(n.run, '1 command', 'commands'));
+    if (n.delegate) parts.push('delegated ' + count(n.delegate, '1 task', 'tasks'));
+    if (n.skill) parts.push('ran ' + count(n.skill, '1 skill', 'skills'));
+    if (n.draw) parts.push('drew ' + count(n.draw, '1 image', 'images'));
+    if (n.render) parts.push('rendered ' + count(n.render, '1 clip', 'clips'));
+    if (n.recall) parts.push('recalled');
+    if (n.remember) parts.push('remembered');
+    if (n.other) parts.push(count(n.other, '1 more action', 'more actions'));
+    const what = parts.length ? parts.join(', ') : turnTools + (turnTools === 1 ? ' tool' : ' tools');
+    return what + (secs ? ' · ' + secs + 's' : '');
   }
   rl.on('escape', () => { cancelInFlight(); });
   rl.on('interrupt', () => {

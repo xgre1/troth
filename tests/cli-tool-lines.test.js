@@ -18,22 +18,26 @@ const m = /function toolVerb\(name, args\) \{[\s\S]*?\n\}\n/.exec(src);
 assert.ok(m, 'toolVerb found');
 const toolVerb = new Function(m[0] + '; return toolVerb;')();
 
-t('every tool is named with its target, whatever the case of its name', () => {
-  assert.strictEqual(toolVerb('Bash', { command: 'git status --short' }), 'running: git status --short');
-  assert.strictEqual(toolVerb('bash', { command: 'x'.repeat(80) }).length, 'running: '.length + 56);
+t('every tool is named in plain words, whatever the case of its name', () => {
+  assert.strictEqual(toolVerb('Bash', { command: 'git status --short' }), 'running git status --short');
+  assert.strictEqual(toolVerb('bash', { command: 'x'.repeat(80) }), 'running a command');
+  assert.strictEqual(toolVerb('bash', { command: 'node - <<EOF\nconsole.log(1)\nEOF' }), 'running a command');
   assert.strictEqual(toolVerb('Read', { file_path: '/a/b/recall.js' }), 'reading recall.js');
   assert.strictEqual(toolVerb('hashline_edit', { file_path: '/a/b/state.js' }), 'editing state.js');
   assert.strictEqual(toolVerb('Write', { file_path: '/a/b/new.md' }), 'writing new.md');
   assert.strictEqual(toolVerb('Grep', { pattern: 'rerank' }), 'searching "rerank"');
   assert.strictEqual(toolVerb('WebFetch', { url: 'https://example.com/docs/x' }), 'fetching example.com');
-  assert.strictEqual(toolVerb('WebSearch', { query: 'hermes agent memory provider' }), 'searching the web: hermes agent memory provider');
+  assert.strictEqual(toolVerb('WebSearch', { query: 'hermes agent memory' }), 'searching the web: hermes agent memory');
   assert.strictEqual(toolVerb('browse', { url: 'https://news.example.org/a' }), 'browsing news.example.org');
-  assert.strictEqual(toolVerb('mcp__plugin_troth_troth-bash__run', { command: 'npm test' }), 'calling troth-bash.run: npm test');
-  assert.strictEqual(toolVerb('mcp__troth-substrate__troth_recall', {}), 'calling troth-substrate.troth_recall');
-  assert.strictEqual(toolVerb('mcp_call', { server: 'troth-memory', tool: 'troth_fetch_action' }), 'calling troth-memory.troth_fetch_action');
+  assert.strictEqual(toolVerb('mcp__plugin_troth_troth-bash__run', { command: 'npm test' }), 'running npm test');
+  assert.strictEqual(toolVerb('mcp__plugin_troth_troth-hashline__hashline_read', { file_path: '/x/y/server.js' }), 'reading server.js');
+  assert.strictEqual(toolVerb('mcp__troth-substrate__troth_recall', {}), 'recalling');
+  assert.strictEqual(toolVerb('mcp_call', { server: 'troth-memory', tool: 'troth_fetch_action' }), 'consulting memory');
+  assert.strictEqual(toolVerb('mcp_call', { server: 'troth-substrate', tool: 'troth_engram_record' }), 'remembering');
+  assert.strictEqual(toolVerb('mcp_call', { server: 'stripe', tool: 'list_customers' }), 'calling stripe');
   assert.strictEqual(toolVerb('Task', { description: 'review the router' }), 'delegating: review the router');
   assert.strictEqual(toolVerb('SomethingNew', { url: 'https://x.test/p' }), 'using SomethingNew: https://x.test/p');
-  assert.strictEqual(toolVerb('', {}), 'using tool');
+  assert.strictEqual(toolVerb('', {}), 'using a tool');
 });
 
 t('a tool rides the status row and never becomes a transcript line (source pin)', () => {
@@ -50,9 +54,12 @@ t('the turn leaves one summary line: tools and seconds (source pin)', () => {
   assert.ok(/if \(turnTools > 0\) out\(color\(DIM, '  ◦ ' \+ turnSummary\(\)\)/.test(src), 'the reply is preceded by the summary line');
   const m2 = /function turnSummary\(\) \{\n([\s\S]*?)\n  \}\n/.exec(src);
   assert.ok(m2, 'turnSummary found');
-  const mk = (tools, start) => new Function('turnTools', 'turnStart', m2[1])(tools, start);
-  assert.strictEqual(mk(1, 0), '1 tool');
-  assert.ok(/^4 tools · \d+s$/.test(mk(4, Date.now() - 12000)), mk(4, Date.now() - 12000));
+  const mk = (tools, start, acts) => new Function('turnTools', 'turnStart', 'turnActions', m2[1])(tools, start, acts);
+  assert.strictEqual(mk(1, 0, ['read']), 'read 1 file');
+  assert.strictEqual(mk(4, 0, ['read', 'read', 'search', 'run']), 'read 2 files, searched, ran 1 command');
+  assert.strictEqual(mk(3, 0, ['search', 'search', 'recall']), 'searched twice, recalled');
+  assert.strictEqual(mk(1, 0, []), '1 tool');
+  assert.ok(/^edited 1 file · \d+s$/.test(mk(1, Date.now() - 12000, ['edit'])), mk(1, Date.now() - 12000, ['edit']));
 });
 
 t('a stop tells the daemon to cancel the turn it is running (source pin)', () => {
