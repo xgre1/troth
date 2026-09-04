@@ -28,6 +28,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   terminal, `troth restart` puts an installed service back under its
   manager before cycling it, and a proxy whose home is unreadable stops with
   the reason instead of answering every request with "no engine configured".
+- `troth doctor` checks from the operator's own seat: which plugin the Claude
+  Code sessions load (the cache copy with its version and whether shared-core
+  is reachable from it, or the checkout), whether the prompt hook answers
+  inside its budget with a real run, whether the proxy stays responsive
+  across six pings, how long recall takes and which phase took it, whether
+  the dense index is built, whether a short "ok" inside a thread keeps the
+  thread, and whether the ChatGPT lane answers a probe.
+- A short acknowledgement inside a live thread ("ok", "ναι", "do it",
+  "ψάξε") continues that thread: the engine receives the thread's window
+  with it. A greeting still mounts nothing. The window keeps the latest
+  exchange whole; a reply that alone outgrows the budget keeps its opening
+  and its end; older exchanges fill what remains, newest first.
+- The proxy names its own freezes: a stall of the event loop longer than
+  half a second is logged with the route in hand.
+- Recall answers in well under a second on a large substrate: the dense arm
+  searches an in-memory index of the stored embeddings (int8, built once
+  per process, new rows joining through a cursor) instead of reading every
+  vector out of the database per question; the query embedding waits at
+  most 2.5 s (`TROTH_RECALL_EMBED_MS`) and background embedding yields to
+  it; the cross-encoder reranks the top 24 candidates
+  (`TROTH_RECALL_RERANK_MAX`). `GET /api/memory/recall` serves that recall to
+  the hooks from the proxy's warm index, and a hook that cannot reach the
+  proxy answers from the lexical arm alone. `GET /api/memory/search?profile=1`
+  reports the time each phase took.
 - In classic mode on an engine other than Claude, the harness compacts
   against the window the lane really serves (the proxy's context-window
   answer for the model), and a Claude id keeps Claude Code's own table.

@@ -2357,6 +2357,15 @@ if (command === "doctor") {
     });
   }
 
+  try {
+    var _seat = require("./cmd-doctor-seat.js").seatChecks({
+      HOME: HOME, repoRoot: path.join(__dirname, ".."), cfg: cfg,
+      host: cfg.host, port: livePort || cfg.port, httpGetSync: httpGetSync
+    });
+    for (var si = 0; si < _seat.length; si++) checks.push(_seat[si]);
+  } catch (_se) {
+    checks.push({ name: "Seat checks", ok: false, detail: "could not run: " + (_se && _se.message || _se) });
+  }
   for (var c = 0; c < checks.length; c++) {
     var icon = checks[c].ok ? "\x1b[32m+\x1b[0m" : "\x1b[31m-\x1b[0m";
     console.log("  " + icon + " " + checks[c].name + ": " + checks[c].detail);
