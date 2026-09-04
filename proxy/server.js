@@ -1728,7 +1728,7 @@ const server = http.createServer((req, res) => {
         out = Object.assign({}, out);
         try {
           const w = global.__troth_maintenance;
-          if (w) out.worker = { skipped_tasks: Array.isArray(w.skipped_tasks) ? w.skipped_tasks : [], last_tick_error: typeof w.last_tick_error === 'function' ? w.last_tick_error() : null };
+          if (w) out.worker = { skipped_tasks: Array.isArray(w.skipped_tasks) ? w.skipped_tasks : [], last_tick_error: typeof w.last_tick_error === 'function' ? w.last_tick_error() : null, host: typeof w.status === 'function' ? w.status() : { process: w.process || 'inprocess', alive: true, pid: process.pid } };
         } catch (_) {}
       }
       jsonResponse(res, 200, out);
@@ -1808,7 +1808,10 @@ const server = http.createServer((req, res) => {
           if (w && out && typeof out === 'object') {
             out.worker = {
               skipped_tasks: Array.isArray(w.skipped_tasks) ? w.skipped_tasks : [],
-              last_tick_error: typeof w.last_tick_error === 'function' ? w.last_tick_error() : null
+              last_tick_error: typeof w.last_tick_error === 'function' ? w.last_tick_error() : null,
+              // Which process hosts it: the child beside the loop (pid, restarts,
+              // the task in hand) or this one.
+              host: typeof w.status === 'function' ? w.status() : { process: w.process || 'inprocess', alive: true, pid: process.pid }
             };
           }
         } catch (_) { /* the readiness answer stands without it */ }
@@ -2198,12 +2201,13 @@ const server = http.createServer((req, res) => {
     // hit-rate signal regardless of which process served the call.
     var diskCacheData = null;
     try {
-      var dbMod = require('../shared-core/state');
-      var dbH = dbMod.db();
-      var rows = dbH.prepare(
-        "SELECT tool_name, COUNT(*) AS rows, COALESCE(SUM(hit_count),0) AS hits, " +
-        "COALESCE(SUM(bytes),0) AS bytes FROM tool_response_cache GROUP BY tool_name"
-      ).all();
+      // Read on the read worker and served from the held answer: the group
+      // over the whole cache table took seconds on the loop while the
+      // dashboard polled this route every five seconds.
+      var rows = require('../shared-core/read-worker.js').peek('disk_cache', 60000, 'sql_rows', {
+        sql: "SELECT tool_name, COUNT(*) AS rows, COALESCE(SUM(hit_count),0) AS hits, " +
+          "COALESCE(SUM(bytes),0) AS bytes FROM tool_response_cache GROUP BY tool_name"
+      }, { timeout_ms: 120000 }) || [];
       var total = { rows: 0, hits: 0, bytes: 0 };
       var byTool = {};
       for (var ii = 0; ii < rows.length; ii++) {
@@ -6421,6 +6425,8 @@ process.on('unhandledRejection', (err) => { console.error('[FATAL] unhandled rej
 function gracefulShutdown(signal) {
   log('Shutting down (' + signal + ')');
   try { keepaliveMgr.stopAll(); } catch (e) {}
+  // The maintenance worker leaves with the proxy that keeps it.
+  try { if (global.__troth_maintenance && typeof global.__troth_maintenance.stop === 'function') global.__troth_maintenance.stop(); } catch (e) {}
   const forceExit = setTimeout(() => process.exit(1), 5000).unref();
   server.close(() => { clearTimeout(forceExit); process.exit(0); });
 }
@@ -6512,6 +6518,9 @@ server.listen(listenPort, BIND_HOST, () => {
   })();
   setTimeout(() => {
     try {
+      // The proxy owns the embedding server: it starts here at boot, and the
+      // maintenance worker (its own process) only uses it.
+      try { kickEmbedVerify(); } catch (_) {}
       require('../shared-core/dense-index.js').build()
         .then((r) => log('Dense index: ' + r.rows + ' vectors in ' + r.ms + 'ms'))
         .catch(() => {});
@@ -6797,64 +6806,32 @@ server.listen(listenPort, BIND_HOST, () => {
     }
   }
   // ── Maintenance worker ────────────────────────────────────────
-  // The memory pipeline's upkeep (embedding drain, import delta-sync) has
-  // to live where EVERY topology keeps a process alive — and that is this
-  // proxy: a dashboard-only Linux install (`troth start` + browser) has no
-  // entity daemon — without this block nothing there drains the index and
-  // the readiness numbers freeze forever.
-  // The entity daemon still runs the full task set when it is
-  // up; the background_task_run ledger acts as a cross-process lease so
-  // the two never double-work one queue. TROTH_MAINTENANCE=0 disables.
+  // The memory pipeline's upkeep (the embedding drain, the document drain,
+  // the chat import, the backup, the WAL replica, the ledger's hygiene and
+  // the memory's understanding) has to live where EVERY topology keeps a
+  // process alive — and that is this proxy: a dashboard-only Linux install
+  // (`troth start` + browser) has no entity daemon. It runs in its OWN
+  // process (bin/troth-maintenance.js), kept alive from here, so nothing it
+  // does can hold this loop while a request waits. The list and the start
+  // road live in shared-core/maintenance.js. TROTH_MAINTENANCE=0 disables;
+  // TROTH_MAINTENANCE_INPROCESS=1 keeps it inside this process (tests, a
+  // host that forbids a child). The entity daemon still runs the full task
+  // set when it is up; the background_task_run ledger acts as a
+  // cross-process lease so the two never double-work one queue.
   if (process.env.TROTH_MAINTENANCE !== '0') {
     try {
-      const bw = require('../shared-core/background-worker.js');
-      const stM = require('../shared-core/state.js');
-      const arM = require('../shared-core/action-record.js');
-      global.__troth_maintenance = bw.startWorker({
-        // Upkeep only, never cognition: the drain, the import flow, the
-        // weekly backup, the (opt-in) WAL replica and the ledger's own
-        // hygiene — the things a substrate silently loses when no entity
-        // daemon exists. The thinking tasks stay the entity's alone.
-        // knowledgeDrain and outcomeFold belong here for the reason the whole
-        // block does: this is the ONLY process alive in a Claude Code + proxy
-        // install. Both were registered in DEFAULT_TASKS — the entity daemon's
-        // list — so on this machine the document queue had no reader at all
-        // and the operator watched "183 still to read" never move.
-        tasks: [bw.tasks.embeddingBackfill, bw.tasks.knowledgeDrain, bw.tasks.outcomeFold, bw.tasks.importSync, bw.tasks.backup, bw.tasks.walReplicate, bw.tasks.ledgerPrune, bw.tasks.carriedFreeze]
-          // The memory's understanding — what the operator states about
-          // themselves, and the typed occurrences a count or an order is
-          // read from — runs here too, because this is the one process every
-          // install keeps alive. Local engine when it answers, else the
-          // operator's engine under the daily budget; TROTH_UNDERSTANDING=0
-          // keeps it out.
-          .concat(process.env.TROTH_UNDERSTANDING === '0' ? [] : [bw.tasks.workingMemoryConsolidation, bw.tasks.instanceConsolidation, bw.tasks.memoryHygiene, bw.tasks.knowledgeUnderstanding]),
-        cross_process_lease: true,
-        idle_threshold_ms: Math.max(parseInt(process.env.TROTH_MAINT_IDLE_MS || '60000', 10) || 60000, 0),
-        tick_ms: Math.max(parseInt(process.env.TROTH_MAINT_TICK_MS || '30000', 10) || 30000, 250),
-        submit: (ev) => {
-          // Thin persistence shim: the proxy has no cognitive runtime; the
-          // ledger row (and only that) must still land so readiness gets a
-          // heartbeat and the lease binds across processes. operational/
-          // substrate_internal keeps these OUT of every recall pool.
-          try {
-            if (!ev || ev.type !== 'decision') return;
-            const rec = {
-              id: arM.uuidv7(), timestamp: Date.now(), type: 'decision',
-              agent_id: 'maintenance', user_id: 'default', cwd: null,
-              memory_class: 'operational', audience: 'substrate_internal',
-              input: ev.input || {}, output: ev.output || {}
-            };
-            const v = arM.validate(rec);
-            if (v && v.ok) stM.recordAction(rec, arM.toSearchText(rec));
-          } catch (_) { /* best-effort */ }
-        },
-        // The understanding tasks write under the operator's own agent id, the
-        // same id the session watcher records dialogue turns under, so what
-        // the memory understands lands where recall reads.
-        getView: () => ({ substrate_ctx: { agent_id: resolveAgentId(), user_id: 'default', cwd: null } }),
-        notify: (n) => { try { log('[maintenance] ' + n.task + ': ' + (n.notes || []).join(' | ')); } catch (_) {} }
-      });
-      log('Maintenance: embedding drain + import sync (idle-gated, cross-process lease)');
+      if (process.env.TROTH_MAINTENANCE_INPROCESS === '1') {
+        const maintenance = require('../shared-core/maintenance.js');
+        global.__troth_maintenance = maintenance.start({
+          agent_id: resolveAgentId(),
+          notify: (n) => { try { log('[maintenance] ' + n.task + ': ' + (n.notes || []).join(' | ')); } catch (_) {} }
+        });
+        global.__troth_maintenance.process = 'inprocess';
+        log('Maintenance: drains, import, backup and understanding run in this process (idle-gated, cross-process lease)');
+      } else {
+        global.__troth_maintenance = require('./modules/maintenance-child.js').start({ log });
+        log('Maintenance: drains, import, backup and understanding run beside the loop in their own process');
+      }
     } catch (e) {
       log('Maintenance worker failed to start: ' + (e && e.message || e));
     }

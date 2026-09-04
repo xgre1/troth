@@ -53,6 +53,10 @@ const PURPOSES = {
   // boundary with argv authored there and a predicate held to a small
   // character class. Read-only by the tool's nature.
   'system-inspect': { kind: 'trusted-plumbing' },
+  // The maintenance worker (bin/troth-maintenance.js): the proxy's own
+  // upkeep in a process beside its loop; argv is ours, it lives as long as
+  // the proxy does, and it speaks to the proxy over its own stdin/stdout.
+  'maintenance': { kind: 'trusted-plumbing' },
   // ground-walled purposes; adopters pick one consciously and the profile
   // tightens per purpose without touching call sites again.
   'inference':   { kind: 'ground', ground: 'confine' },

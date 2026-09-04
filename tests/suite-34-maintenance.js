@@ -99,16 +99,25 @@ test('MAINT-4: the proxy hosts EVERY upkeep task — including the two that had 
   // throughout, because it asserted membership in DEFAULT_TASKS and never
   // asked which list the RUNNING process uses. This asks.
   const fs = require('fs');
-  const src = fs.readFileSync(path.join(ROOT, 'proxy', 'server.js'), 'utf8');
+  // The list the RUNNING maintenance process uses lives in
+  // shared-core/maintenance.js; the proxy hosts that list in a child
+  // beside its loop (proxy/modules/maintenance-child.js), or in-process
+  // when told to. The pin follows the list, and then the proxy's start road.
+  const src = fs.readFileSync(path.join(ROOT, 'shared-core', 'maintenance.js'), 'utf8');
   const at = src.indexOf('bw.tasks.embeddingBackfill,');
-  assert.ok(at > 0, 'the proxy maintenance worker hosts the embedding drain');
-  const block = src.slice(Math.max(0, at - 1200), at + 1600);
+  assert.ok(at > 0, 'the maintenance worker hosts the embedding drain');
+  const block = src.slice(Math.max(0, at - 1200), at + 2400);
   for (const t of ['knowledgeDrain', 'outcomeFold', 'importSync', 'backup', 'walReplicate', 'ledgerPrune']) {
-    assert.ok(block.indexOf('bw.tasks.' + t) !== -1, 'the proxy hosts ' + t + ' — a task nothing here runs is a task that never runs');
+    assert.ok(block.indexOf('bw.tasks.' + t) !== -1, 'the worker hosts ' + t + ' — a task nothing here runs is a task that never runs');
   }
   assert.ok(/cross_process_lease:\s*true/.test(block), 'with the cross-process lease on');
-  assert.ok(/TROTH_MAINTENANCE/.test(block), 'and a kill-switch');
   assert.ok(/substrate_internal/.test(block), 'ledger rows stay out of every recall pool (substrate_internal)');
+  const proxySrc = fs.readFileSync(path.join(ROOT, 'proxy', 'server.js'), 'utf8');
+  const startAt = proxySrc.indexOf("process.env.TROTH_MAINTENANCE !== '0'");
+  assert.ok(startAt > 0, 'and a kill-switch');
+  const startBlock = proxySrc.slice(startAt, startAt + 1600);
+  assert.ok(/maintenance-child\.js/.test(startBlock), 'the proxy hosts the worker in its own process beside the loop');
+  assert.ok(/shared-core\/maintenance\.js/.test(startBlock), 'and the in-process road starts the same list');
   // And the map the proxy reads them from actually carries them.
   assert.ok(bw.tasks.knowledgeDrain && bw.tasks.knowledgeDrain.name === 'knowledge_drain', 'exported by name');
   assert.ok(bw.tasks.outcomeFold && bw.tasks.outcomeFold.name === 'outcome_fold', 'exported by name');

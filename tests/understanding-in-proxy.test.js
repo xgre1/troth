@@ -16,9 +16,12 @@ async function runAll() { for (const [name, fn] of queue) { try { await fn(); co
 
 console.log('\n=== understanding runs in the proxy ===\n');
 
-const src = fs.readFileSync(path.join(__dirname, '..', 'proxy', 'server.js'), 'utf8');
-const listStart = src.indexOf('global.__troth_maintenance = bw.startWorker({');
-const listEnd = src.indexOf('cross_process_lease: true', listStart);
+// The list the RUNNING maintenance process uses lives in
+// shared-core/maintenance.js (the proxy hosts it in a child beside its
+// loop, or in-process when told to); the pin follows the list.
+const src = fs.readFileSync(path.join(__dirname, '..', 'shared-core', 'maintenance.js'), 'utf8');
+const listStart = src.indexOf('function taskList');
+const listEnd = src.indexOf('return upkeep.concat', listStart);
 const list = src.slice(listStart, listEnd);
 
 t('the proxy maintenance worker carries both understanding tasks', () => {

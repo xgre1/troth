@@ -306,6 +306,10 @@ async function _ensureEmbServer(opts) {
     }
   }
   _embBusySince = 0;
+  // A process that only USES the embedder (the maintenance worker) never
+  // starts one: the proxy owns that, so two processes cannot race to spawn
+  // one server on one port. Down here means no embedding this time.
+  if (process.env.TROTH_EMBED_SPAWN === '0') return false;
   if (_embServerPromise) return _embServerPromise;
   _embServerPromise = (async () => {
     let BIN = null;

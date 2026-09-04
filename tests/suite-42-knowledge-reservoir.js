@@ -176,8 +176,13 @@ test('KR-6: the proxy queues it and the idle worker drains it (source pin)', () 
   // Membership in DEFAULT_TASKS is NOT the same as having a runner. That list
   // belongs to the entity daemon; every install keeps a proxy alive. Asserting
   // membership alone lets a queue with no reader pass its own test.
+  // The proxy's maintenance list lives in shared-core/maintenance.js and the
+  // proxy hosts it in a process beside its loop (or in-process when told to).
+  const maintSrc = fs.readFileSync(path.join(ROOT, 'shared-core', 'maintenance.js'), 'utf8');
+  assert.ok(maintSrc.indexOf('bw.tasks.knowledgeDrain') !== -1,
+    'and the proxy\'s maintenance worker — the one process every install keeps alive — hosts it too');
   const proxySrc = fs.readFileSync(path.join(ROOT, 'proxy', 'server.js'), 'utf8');
-  assert.ok(proxySrc.indexOf('bw.tasks.knowledgeDrain') !== -1,
-    'and the proxy — the one process every install keeps alive — hosts it too');
+  assert.ok(/maintenance-child\.js/.test(proxySrc) && /shared-core\/maintenance\.js/.test(proxySrc),
+    'the proxy starts that worker');
 });
 };
