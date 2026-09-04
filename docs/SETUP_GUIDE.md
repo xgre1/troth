@@ -98,6 +98,7 @@ To mount troth inside Claude Code or another MCP host (hooks, skills, and 4 MCP 
 | Symptom | Fix |
 |---|---|
 | `better-sqlite3` fails to build | Install a C++ toolchain (see Requirements), then `npm install` again. |
+| `git pull` stops on a changed `package-lock.json` | The lockfile is tracked so `npm ci` installs exactly what it pins; a plain `npm install` may rewrite it. Run `git checkout -- package-lock.json`, then `git pull`, then `npm ci`. |
 | "Claude Code CLI not found" | `npm install -g @anthropic-ai/claude-code`, or use a BYOK/local provider. |
 | Dashboard does not open | Visit `http://localhost:8000/ui` manually; another process may own port 8000. |
 | Remote machine cannot reach the proxy | That is the default. Set `GF_BIND_HOST=0.0.0.0` and send the bearer token from `~/.troth/config.json` (`remoteToken`) as `Authorization: Bearer <token>`. |
