@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
-// The chat surface names every tool with its target, writes each tool as a
-// line of the transcript with its time when it took a while, and keeps the
-// composer one height for the whole turn under the fixed layout.
+// The chat surface names every tool with its target on the status row while
+// it runs, leaves one summary line per turn in the transcript, keeps the
+// composer one height under the fixed layout, and a stop reaches the daemon.
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
@@ -12,7 +12,7 @@ const src = fs.readFileSync(path.join(__dirname, '..', 'bin', 'troth-chat.js'), 
 let pass = 0, fail = 0;
 function t(name, fn) { try { fn(); console.log('  ✓ ' + name); pass++; } catch (e) { console.log('  ✗ ' + name + ': ' + e.message); fail++; } }
 
-console.log('\n=== chat surface: tools in the transcript ===\n');
+console.log('\n=== chat surface: tools on the status row, one line per turn ===\n');
 
 const m = /function toolVerb\(name, args\) \{[\s\S]*?\n\}\n/.exec(src);
 assert.ok(m, 'toolVerb found');
@@ -36,9 +36,32 @@ t('every tool is named with its target, whatever the case of its name', () => {
   assert.strictEqual(toolVerb('', {}), 'using tool');
 });
 
-t('a tool starts as a transcript line and ends with its time when it took a while (source pin)', () => {
-  assert.ok(/case 'tool_request': \{[\s\S]*?out\(color\(DIM, '  ◦ ' \+ verb\)/.test(src), 'the start line is written to the transcript');
-  assert.ok(/case 'tool_result': \{[\s\S]*?if \(ms >= 2000\) out\(/.test(src), 'the time is written when the tool took two seconds or more');
+t('a tool rides the status row and never becomes a transcript line (source pin)', () => {
+  const req = /case 'tool_request': \{([\s\S]*?)break;/.exec(src);
+  assert.ok(req, 'tool_request case found');
+  assert.ok(/spinner\.update\(toolVerb\(/.test(req[1]), 'the verb goes to the status row');
+  assert.ok(!/\bout\(/.test(req[1]), 'nothing is written to the transcript when a tool starts');
+  const res = /case 'tool_result': \{([\s\S]*?)break;/.exec(src);
+  assert.ok(res, 'tool_result case found');
+  assert.ok(!/\bout\(/.test(res[1]), 'nothing is written to the transcript when a tool ends');
+});
+
+t('the turn leaves one summary line: tools and seconds (source pin)', () => {
+  assert.ok(/if \(turnTools > 0\) out\(color\(DIM, '  ◦ ' \+ turnSummary\(\)\)/.test(src), 'the reply is preceded by the summary line');
+  const m2 = /function turnSummary\(\) \{\n([\s\S]*?)\n  \}\n/.exec(src);
+  assert.ok(m2, 'turnSummary found');
+  const mk = (tools, start) => new Function('turnTools', 'turnStart', m2[1])(tools, start);
+  assert.strictEqual(mk(1, 0), '1 tool');
+  assert.ok(/^4 tools · \d+s$/.test(mk(4, Date.now() - 12000)), mk(4, Date.now() - 12000));
+});
+
+t('a stop tells the daemon to cancel the turn it is running (source pin)', () => {
+  const c = /function cancelInFlight\(\) \{([\s\S]*?)\n  \}\n/.exec(src);
+  assert.ok(c, 'cancelInFlight found');
+  assert.ok(/child\.stdin\.write\(JSON\.stringify\(\{ type: 'control', op: 'cancel_turn', conversation_id: CONV_ID \}\)/.test(c[1]), 'the cancel_turn control frame carries the session conversation id');
+  assert.ok(/dropNextResponse = true/.test(c[1]), 'the aborted reply that follows is discarded');
+  assert.ok(/stopped/.test(c[1]), 'the transcript says stopped');
+  assert.ok(/rl\.on\('escape', \(\) => \{ cancelInFlight\(\); \}\)/.test(src) && /rl\.on\('interrupt', \(\) => \{\s*if \(cancelInFlight\(\)\) return;/.test(src), 'Escape and Ctrl-C both reach it');
 });
 
 t('under the fixed layout the working state rides the status row and never grows the composer (source pin)', () => {

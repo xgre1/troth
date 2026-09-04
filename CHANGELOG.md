@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   retires one, and remembers the id that answered, so a stale pick degrades
   instead of blacking the lane.
 
+### Fixed
+- In the chat, the tool of the moment shows on the status row and leaves with
+  the next one; the transcript keeps one line per turn with the tool count and
+  the seconds. Escape and Ctrl-C tell the partner to stop the turn it is
+  running: the stream is cut and no new tool starts.
+
 
 ## [0.1.19] — 2026-09-04
 

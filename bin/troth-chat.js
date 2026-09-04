@@ -1350,21 +1350,15 @@ function start() {
           spinner.stream(String(msg.content || '').length);
           break;
         case 'tool_request': {
+          // The tool of the moment rides the status row and leaves with the
+          // next one; the transcript keeps one summary line per turn (see
+          // 'response'), the way the operator reads a turn: what was done,
+          // never a ladder of every step.
           turnTools++;
-          const verb = toolVerb(msg.name, msg.args || msg.input);
-          toolStarts.set(String(msg.id || turnTools), { verb, at: Date.now() });
-          out(color(DIM, '  ◦ ' + verb) + '\n');
-          spinner.update(verb);
+          spinner.update(toolVerb(msg.name, msg.args || msg.input));
           break;
         }
         case 'tool_result': {
-          const key = String(msg.id || '');
-          const started = toolStarts.get(key);
-          if (started) {
-            toolStarts.delete(key);
-            const ms = Date.now() - started.at;
-            if (ms >= 2000) out(color(DIM, '    · ' + (ms / 1000).toFixed(ms < 10000 ? 1 : 0) + 's') + '\n');
-          }
           spinner.update(null);
           break;
         }
@@ -1404,6 +1398,7 @@ function start() {
           drawStatus();
           refresh5h();
           spinner.stop();
+          if (turnTools > 0) out(color(DIM, '  ◦ ' + turnSummary()) + '\n');
           // Honest empty-reply handling: a turn that aborted (providers
           // exhausted, transport offline) would render as a BLANK reply —
           // the reason survived to this event and was dropped here (journey
@@ -1574,15 +1569,26 @@ function start() {
     if (!awaitingResponse) return false;
     spinner.stop();
     awaitingResponse = false;
-    // Soft cancel: discard whatever response eventually comes back.
+    // The daemon runs the turn, so the daemon is told to stop it: the same
+    // control frame the app's Stop sends. Its stream is cut and the loop
+    // ends at its next check; a tool already running finishes its own
+    // command and nothing new starts. Without this frame the surface only
+    // looked stopped while the work went on underneath.
+    try { child.stdin.write(JSON.stringify({ type: 'control', op: 'cancel_turn', conversation_id: CONV_ID }) + '\n'); } catch (_) {}
+    // The aborted reply that follows is discarded when it arrives.
     dropNextResponse = true;
+    out('\n' + color(DIM, '  ◦ ' + (turnTools > 0 ? turnSummary() + ' · ' : '') + 'stopped') + '\n\n');
     lastSlash = null; turnFaculty = null; turnTools = 0; turnStart = 0;
-    out('\n' + color(DIM, '  cancelled') + '\n\n');
     // The words go back into the composer so a cancel does not cost the typing.
     if (inFlightText && rl.setBuffer) rl.setBuffer(inFlightText);
     else rl.prompt();
     inFlightText = '';
     return true;
+  }
+  /** One line for the whole turn: how many tools ran and for how long. */
+  function turnSummary() {
+    const secs = turnStart ? Math.round((Date.now() - turnStart) / 1000) : 0;
+    return turnTools + (turnTools === 1 ? ' tool' : ' tools') + (secs ? ' · ' + secs + 's' : '');
   }
   rl.on('escape', () => { cancelInFlight(); });
   rl.on('interrupt', () => {
