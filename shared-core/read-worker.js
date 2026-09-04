@@ -81,6 +81,11 @@ function peek(key, ttlMs, job, args, opts) {
 
 function warm(key, ttlMs, job, args, opts) { return memo(key, ttlMs, job, args, opts).catch(() => null); }
 
+// Whether this process already runs a worker: recall asks before handing
+// its class arms over, so a hook or the entity never starts one to serve
+// a single call.
+function hasWorker() { return !!_worker; }
+
 function _resetForTests() { _memo.clear(); }
 
-module.exports = { run, memo, peek, warm, _resetForTests };
+module.exports = { run, memo, peek, warm, hasWorker, _resetForTests };

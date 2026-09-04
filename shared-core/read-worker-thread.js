@@ -12,6 +12,9 @@ const JOBS = {
   recallable_missing_embeddings: (a) => require('./state.js').listRecallableMissingEmbeddings(a.limit, a.model),
   archive_missing_embeddings: (a) => require('./state.js').listArchiveMissingEmbeddings(a.limit),
   concern_tokens: () => Array.from(require('./recall.js')._gatherConcernTokens()),
+  // One recall class arm (the FTS pull and the scoring over its pool) for
+  // the proxy's recall, so a hook's question never holds the event loop.
+  recall_class: (a) => require('./recall.js')._recallClass(String(a.cls), a.opts || {}),
   sql_rows: (a) => require('./state.js')._dbForQuery().prepare(String(a.sql)).all(...(Array.isArray(a.params) ? a.params : [])),
   sql_get: (a) => require('./state.js')._dbForQuery().prepare(String(a.sql)).get(...(Array.isArray(a.params) ? a.params : []))
 };

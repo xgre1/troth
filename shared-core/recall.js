@@ -924,9 +924,21 @@ async function recall(opts) {
     // outranked genuinely-relevant semantic/procedural hits with higher cosine.
     // Drop it from query-driven 'all'; the entity still surfaces identity via the
     // envelope, and explicit class:'identity' callers are unaffected.
-    pull(_phase('procedural', () => recallProcedural({ ...subOpts, limit: poolLimit })));
-    pull(_phase('semantic', () => recallSemantic({ ...subOpts, limit: poolLimit })));
-    pull(_phase('episodic', () => recallEpisodic({ ...subOpts, limit: poolLimit })));
+    // With the read worker up (the proxy), each class arm — the FTS pull and
+    // the scoring over its pool — runs on the worker's thread, so a hook's
+    // recall does not hold this loop; without one (a hook, the entity) the
+    // arms run here. Same arms, same order, same rows either way.
+    const arms = ['procedural', 'semantic', 'episodic'];
+    const rw = opts.off_loop === false ? null : _readWorker();
+    let armRows = null;
+    if (rw) {
+      armRows = await _phaseAsync('arms_off_loop', () => Promise.all(arms.map((cls) =>
+        rw.run('recall_class', { cls, opts: { ...subOpts, limit: poolLimit } }, { timeout_ms: 20000 }).catch(() => null))));
+    }
+    arms.forEach((cls, i) => {
+      const got = armRows && Array.isArray(armRows[i]) ? armRows[i] : null;
+      pull(got || _phase(cls, () => _recallClass(cls, { ...subOpts, limit: poolLimit })));
+    });
     fused.sort((a, b) => b.score - a.score);
     results = fused.slice(0, poolLimit);
   }
@@ -1259,11 +1271,31 @@ async function recall(opts) {
   return results;
 }
 
+// One class arm by name: what the read worker runs on its own thread for
+// the proxy, and what the loop runs itself everywhere else.
+function _recallClass(cls, opts) {
+  if (cls === 'semantic')   return recallSemantic(opts);
+  if (cls === 'episodic')   return recallEpisodic(opts);
+  if (cls === 'procedural') return recallProcedural(opts);
+  if (cls === 'identity')   return recallIdentity(opts);
+  return [];
+}
+
+// The read worker when this process already runs one (the proxy warms it
+// at boot); null in a hook, in the entity, and inside the worker itself.
+function _readWorker() {
+  try {
+    const rw = require('./read-worker.js');
+    return (typeof rw.hasWorker === 'function' && rw.hasWorker()) ? rw : null;
+  } catch (_) { return null; }
+}
+
 module.exports = {
   recall,
   VALID_CLASSES,
   // Exposed for diagnostics/tests of the individual arms (harmless — pure reads).
   recallSemantic, recallEpisodic, recallProcedural, buildFtsQuery,
+  _recallClass,
   VALID_AUDIENCES,
   // exposed for tests + dedicated callers that want per-class behavior
   _recallIdentity:   recallIdentity,
