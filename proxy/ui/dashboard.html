@@ -1312,6 +1312,39 @@ body.op-on #op-row { color: var(--text-dim); }
             <span id="img-src-google-dot" style="font-size:11px;color:var(--text-muted)">…</span>
           </div>
           <div id="img-src-google" style="margin-top:8px;font-size:11px;color:var(--text-muted);line-height:1.55">checking…</div>
+          <div id="img-key-google-row" style="display:none;margin-top:10px;gap:8px;align-items:center">
+            <input type="password" id="img-key-google" class="provider-input api-key" autocomplete="off" spellcheck="false" placeholder="AIza…" style="flex:1;min-width:0">
+            <button class="btn-mini" onclick="saveSourceKey('google_ai','img-key-google',this)">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-card full-width">
+      <div class="card-title">Video</div>
+      <div class="card-hint">Ask for a short clip in chat and your partner renders it. Saved to <code>~/.troth/videos</code>. Each clip costs a little, charged to the key that made it. Either source is enough.</div>
+      <div id="vid-sources" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:4px">
+        <div style="background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:10px;padding:16px 18px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
+            <span style="font-size:13px;color:var(--text)">OpenRouter key</span>
+            <span id="vid-src-openrouter-dot" style="font-size:11px;color:var(--text-muted)">…</span>
+          </div>
+          <div id="vid-src-openrouter" style="margin-top:8px;font-size:11px;color:var(--text-muted);line-height:1.55">checking…</div>
+          <div id="vid-key-openrouter-row" style="display:none;margin-top:10px;gap:8px;align-items:center">
+            <input type="password" id="vid-key-openrouter" class="provider-input api-key" autocomplete="off" spellcheck="false" placeholder="sk-or-…" style="flex:1;min-width:0">
+            <button class="btn-mini" onclick="saveSourceKey('openrouter','vid-key-openrouter',this)">Save</button>
+          </div>
+        </div>
+        <div style="background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:10px;padding:16px 18px;">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
+            <span style="font-size:13px;color:var(--text)">Google AI key</span>
+            <span id="vid-src-google-dot" style="font-size:11px;color:var(--text-muted)">…</span>
+          </div>
+          <div id="vid-src-google" style="margin-top:8px;font-size:11px;color:var(--text-muted);line-height:1.55">checking…</div>
+          <div id="vid-key-google-row" style="display:none;margin-top:10px;gap:8px;align-items:center">
+            <input type="password" id="vid-key-google" class="provider-input api-key" autocomplete="off" spellcheck="false" placeholder="AIza…" style="flex:1;min-width:0">
+            <button class="btn-mini" onclick="saveSourceKey('google_ai','vid-key-google',this)">Save</button>
+          </div>
         </div>
       </div>
     </div>
@@ -3171,6 +3204,7 @@ function navigate(p, opts){
   if(p==='ai-setup') loadEnginesHero();
   if(p==='ai-setup') loadAnthropicStatus();
   if(p==='ai-setup') loadImageSources();
+  if(p==='ai-setup') loadVideoSources();
   if(p==='health') loadHealth();
   if(p==='ai-setup'){ loadConfig(); }
   if(p==='memory'){ loadMemoryHero(); loadStackCard(); if (typeof loadImportCard === 'function') loadImportCard(); if (typeof loadMemoryReadiness === 'function') loadMemoryReadiness(); if (typeof loadSystemLoad === 'function') loadSystemLoad(); loadRules(); }
@@ -4962,7 +4996,7 @@ function saveProviders(btn) {
     body: JSON.stringify({ providers: provs }),
   }).then(function (r) {
     if (!r.ok) throw new Error('http ' + r.status);
-    toast('Providers saved'); loadConfig(); loadImageSources();
+    toast('Providers saved'); loadConfig(); loadImageSources(); loadVideoSources();
   }).catch(function (e) {
     toast('Save failed: ' + (e && e.message || e));
   });
@@ -5863,9 +5897,56 @@ function loadImageSources(){
     var g = (c && c.providers && c.providers.google_ai) || {};
     var on = !!(g.apiKey || g.has_key);
     state(gd, on);
+    var row = document.getElementById('img-key-google-row');
+    if (row) row.style.display = on ? 'none' : 'flex';
     gg.textContent = on ? 'One key does both text and images. Remove the Google Gemini engine and the key is forgotten with it.'
-      : 'Backup source. Add a Google Gemini key in the engines above.';
+      : 'Backup source. Paste a Google AI key here; it also serves the Google Gemini engine.';
   }).catch(function(){ state(gd, false); gg.textContent = 'Could not check — is the proxy up?'; });
+}
+
+// ── Video sources (Providers) ─────────────────────────────────────────
+// Reads /api/stats, the same source as the engine cards: the router mounts a
+// key kept in the env file onto its provider there, so an OpenRouter key that
+// never touches config.json still shows as ready.
+function loadVideoSources(){
+  var og = document.getElementById('vid-src-openrouter'), od = document.getElementById('vid-src-openrouter-dot');
+  var gg = document.getElementById('vid-src-google'), gd = document.getElementById('vid-src-google-dot');
+  if (!og || !gg) return;
+  function state(dotEl, on){ if (dotEl) dotEl.innerHTML = on ? '<span style="color:#9BC49B">● ready</span>' : '<span style="color:var(--text-muted)">○ off</span>'; }
+  fetch('/api/stats').then(function(r){ return r.json(); }).then(function(s){
+    var p = (s && s.providers) || {};
+    var orOn = !!(p.openrouter && p.openrouter.apiKey);
+    var gOn  = !!(p.google_ai && p.google_ai.apiKey);
+    var orRow = document.getElementById('vid-key-openrouter-row'), gRow = document.getElementById('vid-key-google-row');
+    if (orRow) orRow.style.display = orOn ? 'none' : 'flex';
+    if (gRow)  gRow.style.display  = gOn  ? 'none' : 'flex';
+    state(od, orOn);
+    og.textContent = orOn ? 'First choice. Seedance, Kling and Veo all run on this one key.'
+      : 'Paste an OpenRouter key here; Seedance, Kling and Veo all run on it.';
+    state(gd, gOn);
+    gg.textContent = gOn ? 'Backup source. The same key that draws images also renders Veo clips.'
+      : 'Backup source. Paste a Google AI key here; the same key draws images.';
+  }).catch(function(){ state(od, false); state(gd, false); og.textContent = gg.textContent = 'Could not check — is the proxy up?'; });
+}
+
+// A key typed inside the Images or Video card: one provider, the key only.
+// The engine card keeps its own enable state; this never touches it. The
+// proxy routes the key the same way as a key typed on the engine card.
+function saveSourceKey(provider, inputId, btn){
+  if (!requireOperator()) return;
+  var input = document.getElementById(inputId);
+  var key = ((input && input.value) || '').trim();
+  if (!key) { toast('Paste the key first'); return; }
+  if (btn) btn.disabled = true;
+  var body = {}; body[provider] = { apiKey: key };
+  fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ providers: body }) })
+    .then(function (r) {
+      if (!r.ok) throw new Error('http ' + r.status);
+      toast('Key saved'); if (input) input.value = '';
+      loadConfig(); loadImageSources(); loadVideoSources();
+    })
+    .catch(function (e) { toast('Save failed: ' + (e && e.message || e)); })
+    .then(function () { if (btn) btn.disabled = false; });
 }
 
 // ── Command reference (CLI page) ───────────────────────────────────────────
@@ -6622,6 +6703,7 @@ function removeProvider(key) {
     if (input) { input.value = ''; input.placeholder = ''; }
     if (window._storedProviders && window._storedProviders[key]) window._storedProviders[key] = { has_key: false, enabled: false };
     loadImageSources();
+    loadVideoSources();
   }).catch(function () { toast('Remove failed — is the proxy up?'); });
   applyProvidersVisibility();
 }
