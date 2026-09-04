@@ -259,6 +259,27 @@ const MOUNT_POLICIES = Object.freeze({
   semantic:  'full_recall'
 });
 
+const CONTINUATION = [
+  /^\s*(?:ok(?:ay)?|alright|sure|yes|yeah|yep|go|do it|go ahead|continue|proceed|next|again|more|fine|right|correct)\b/i,
+  /^\s*(?:ναι|οκ|εντάξει|ντάξει|συνέχισε|συνεχισε|κάνε|κάν'|καν'|καντο|κάντο|πάμε|παμε|ψάξε|ψαξε|nai|entaxei|sinexise|kanto|kan to|pame|psaxe)/i
+];
+const GREETING = /^\s*(?:hi|hello|hey|yo|sup|good\s+(?:morning|afternoon|evening)|gm|gn|thanks?(?:\s+you)?|thx|ty|cheers|γεια|γειά|καλημέρα|καλησπέρα|χαίρετε|ευχαριστώ|ευχαριστω)\b/i;
+function isContinuation(text) {
+  const s = String(text || '').trim();
+  if (!s) return false;
+  if (s.split(/\s+/).filter(Boolean).length > 6) return false;
+  if (GREETING.test(s)) return false;
+  return CONTINUATION.some((re) => re.test(s));
+}
+// route(text) for a turn that may sit inside a live thread: a short
+// acknowledgement there continues the thread and mounts its window.
+function routeInThread(text, ctx) {
+  const r = route(text);
+  if (r.intent === 'chitchat' && ctx && ctx.thread_live && isContinuation(text)) {
+    return { intent: 'continuation', weights: weightsForIntent('default'), mount_policy: 'dmn_slot' };
+  }
+  return r;
+}
 function mountPolicyForIntent(intent) {
   if (!intent || !(intent in MOUNT_POLICIES)) return 'dmn_slot';
   return MOUNT_POLICIES[intent];
@@ -299,5 +320,4 @@ module.exports = {
   WEIGHT_PRESETS,
   MOUNT_POLICIES,
   // Exposed so tests can assert pattern coverage without re-deriving:
-  _patterns: patterns
-};
+  _patterns: patterns, isContinuation, routeInThread };

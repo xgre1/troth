@@ -266,21 +266,40 @@ function renderTranscript(turns, opts) {
   opts = opts || {};
   if (!Array.isArray(turns) || !turns.length) return '';
   const maxChars = opts.max_chars || 1600;
-  const lines = ['Recent dialogue (substrate continuity):'];
-  for (const t of turns) {
-    const u = (t.user_text      || '').replace(/\s+/g, ' ').trim();
-    const a = (t.assistant_text || '').replace(/\s+/g, ' ').trim();
-    if (u) lines.push('  user: '      + u);
-    if (a) lines.push('  faculty: '   + a);
+  const header = 'Recent dialogue (substrate continuity):';
+  const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+  const block = (t) => {
+    const u = clean(t && t.user_text), a = clean(t && t.assistant_text);
+    const ls = [];
+    if (u) ls.push('  user: ' + u);
+    if (a) ls.push('  faculty: ' + a);
+    return ls.join('\n');
+  };
+  const budget = Math.max(200, maxChars - header.length - 1);
+  const last = turns[turns.length - 1];
+  let lastBlock = block(last);
+  if (lastBlock.length > budget) {
+    const u = clean(last && last.user_text), a = clean(last && last.assistant_text);
+    const uLine = u ? '  user: ' + u : '';
+    const mark = ' …(middle of the reply elided)… ';
+    const room = Math.max(120, budget - uLine.length - 1 - '  faculty: '.length - mark.length);
+    const head = Math.ceil(room * 0.55), tail = Math.floor(room * 0.45);
+    const aCut = a.length > room ? a.slice(0, head) + mark + a.slice(a.length - tail) : a;
+    lastBlock = [uLine, a ? '  faculty: ' + aCut : ''].filter(Boolean).join('\n');
   }
-  let block = lines.join('\n');
-  if (block.length > maxChars) {
-    // Trim from the front (oldest turns) so the latest exchange
-    // always survives the budget cap.
-    const overflow = block.length - maxChars;
-    block = lines[0] + '\n  …(earlier turns elided)…\n' + block.slice(overflow + 32);
+  const blocks = [lastBlock];
+  let used = lastBlock.length;
+  let elided = 0;
+  for (let i = turns.length - 2; i >= 0; i--) {
+    const b = block(turns[i]);
+    if (!b) continue;
+    if (used + b.length + 1 > budget) { elided = i + 1; break; }
+    blocks.unshift(b);
+    used += b.length + 1;
   }
-  return block;
+  const lines = [header];
+  if (elided) lines.push('  …(earlier turns elided)…');
+  return lines.concat(blocks).join('\n');
 }
 
 module.exports = {

@@ -813,8 +813,18 @@ function main() {
       // null_mount means what it says here too. The operating frame stays: the
       // partner still knows where it is and what it can do, it simply is not
       // handed memory nobody asked for.
+      const _threadLive = (act) => {
+        const cid = act && act.options && act.options.conversation_id;
+        if (!cid) return false;
+        try {
+          const t = dialogueMemory.recentTurns({ cwd: CWD, same_cwd: true, limit: 1, conversation_id: cid }) || [];
+          if (!t.length) return false;
+          const ts = Number(t[t.length - 1].ts || t[t.length - 1].timestamp || 0);
+          return !ts || (Date.now() - ts) < 6 * 3600 * 1000;
+        } catch (_) { return false; }
+      };
       try {
-        if (query && intentRouter.route(query).mount_policy === 'null_mount') {
+        if (query && intentRouter.routeInThread(query, { thread_live: _threadLive(action) }).mount_policy === 'null_mount') {
           return '';
         }
       } catch (_) { /* classifier unavailable — assemble as usual */ }
