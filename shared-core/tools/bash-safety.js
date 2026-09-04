@@ -596,8 +596,11 @@ function _checkEgress(command, isAllowedFn) {
 }
 
 // A here-document body is data on its way into a file, never an order: the
-// order patterns read the command with those bodies removed. Credential
+// order patterns, the reached paths and the egress check read the command with
+// those bodies removed. A body handed to an interpreter (bash <<EOF, node -
+// <<EOF, python3 - <<EOF, a pipe into sh) IS the order and stays in. Credential
 // literals are still read everywhere, a body included.
+const INTERPRETER_ON_LINE = /(^|[\s|;&(])(?:ba|z|da|k|fi)?sh\b|(^|[\s|;&(])(?:node|deno|bun|python[0-9.]*|perl|ruby|php|osascript|eval|source|exec)\b|(^|[\s|;&(])\.\s/;
 function _withoutHeredocBodies(command) {
   const lines = String(command).split('\n');
   const out = [];
@@ -609,10 +612,12 @@ function _withoutHeredocBodies(command) {
     i++;
     if (!m) continue;
     const term = m[3], dash = m[1] === '-';
+    const keep = INTERPRETER_ON_LINE.test(line);
     while (i < lines.length) {
       const t = dash ? lines[i].replace(/^\t+/, '') : lines[i];
       i++;
-      if (t === term) { out.push(lines[i - 1]); break; }
+      if (keep) out.push(lines[i - 1]);
+      if (t === term) { if (!keep) out.push(lines[i - 1]); break; }
     }
   }
   return out.join('\n');
@@ -660,13 +665,13 @@ function isCommandSafe(command, ctx) {
   // Layer 3 — resolved destinations. Runs after the text patterns so their
   // named verdicts keep precedence on the shapes they already own, and
   // catches the same acts written in a spelling no pattern anticipated.
-  const reached = _checkReachedPaths(command);
+  const reached = _checkReachedPaths(orders);
   if (reached) return reached;
 
   // Layer 4 — egress. Last, so the named verdicts above keep precedence: a
   // command that uploads a credential is exfiltration, which is a sharper
   // thing to be told than that a host is unlisted.
-  const outbound = _checkEgress(command);
+  const outbound = _checkEgress(orders);
   if (outbound) return outbound;
 
   return { allowed: true };

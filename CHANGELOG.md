@@ -380,6 +380,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   telling the reader to count them separately only on explicit evidence.
 
 ### Fixed
+- The shell wall reads a here-document body as data on its way into a file:
+  a protected path or an outside host named inside one is not a read and not
+  egress. A body handed to an interpreter (bash, sh, node, python) is still
+  read as orders.
 - The operator passphrase is read from the terminal itself, hidden, and the
   read blocks until Enter whatever state stdin is in; without a terminal it
   is read from stdin and waits instead of failing.

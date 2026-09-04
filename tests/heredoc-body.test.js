@@ -45,6 +45,28 @@ t('a credential inside the document is still refused', () => {
   assert.strictEqual(bs.isCommandSafe(doc, {}).allowed, false);
 });
 
+t('a protected path named inside a file body is not a read', () => {
+  const envPath = ['~/.troth/', '.env'].join('');
+  const doc = "cat > notes.md <<'EOF'\nthe key lives in " + envPath + " as TROTH_KIMI_SUB_KEY\nEOF\n";
+  const v = bs.isCommandSafe(doc, {});
+  assert.strictEqual(v.allowed, true, JSON.stringify(v));
+});
+
+t('the same path as an order, before or after the document, is still refused', () => {
+  const envPath = ['~/.troth/', '.env'].join('');
+  const doc = "cat > notes.md <<'EOF'\nplain\nEOF\ncat " + envPath + "\n";
+  assert.strictEqual(bs.isCommandSafe(doc, {}).allowed, false);
+  assert.strictEqual(bs.isCommandSafe('cat ' + envPath, {}).allowed, false);
+});
+
+t('a body handed to an interpreter is an order and stays refused', () => {
+  const envPath = ['~/.troth/', '.env'].join('');
+  assert.strictEqual(bs.isCommandSafe("bash <<'EOF'\ncat " + envPath + "\nEOF\n", {}).allowed, false, 'bash heredoc');
+  assert.strictEqual(bs.isCommandSafe("cat <<'EOF' | sh\ncat " + envPath + "\nEOF\n", {}).allowed, false, 'piped into sh');
+  const wipe = ['rm', ' -rf ', '/'].join('');
+  assert.strictEqual(bs.isCommandSafe("bash <<'EOF'\n" + wipe + "\nEOF\n", {}).allowed, false, 'a destructive order inside a bash heredoc');
+});
+
 t('the body stripper keeps the command lines and the terminator', () => {
   const s = bs._withoutHeredocBodies("a <<X\nsecret\nX\nb");
   assert.strictEqual(s, "a <<X\nX\nb");
