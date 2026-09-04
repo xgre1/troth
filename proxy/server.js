@@ -2159,6 +2159,11 @@ const server = http.createServer((req, res) => {
 
   // ===== Health / Stats =====
   if (req.method === 'GET' && (url === '/health' || url === '/stats' || url === '/api/stats')) {
+    // How long this answer holds the loop: the dashboard asks every few
+    // seconds, so a slow part here is a stall every few seconds. A hold
+    // past 300 ms is logged; the LOOP STALL line alone cannot tell this
+    // route's own cost from work that merely ran while it was in hand.
+    const _statsT0 = Date.now();
     var critic = null, workflow = null, cochange = null, checkpoint = null;
     var morph = null, buildgraph = null, abtest = null;
     try { critic = require('./modules/critic').getStats(); } catch (e) {}
@@ -2354,6 +2359,7 @@ const server = http.createServer((req, res) => {
         flatStats.usd_saved_total = +(((anaAll.estimated_usd_saved || 0) + (anaAll.tokens_saved_usd_equiv || 0)).toFixed(4));
       } catch (_) {}
     } catch (e) { /* tables absent on fresh substrate — leave zeros */ }
+    { const _held = Date.now() - _statsT0; if (_held >= 300) log('STATS HOLD ' + _held + 'ms'); }
     jsonResponse(res, 200, {
       version: VERSION, status: 'ok',
       // Build provenance for the app's staleness handshake:
