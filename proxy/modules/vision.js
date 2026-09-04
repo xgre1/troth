@@ -1,14 +1,12 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Vision-aware tool_result augmentation.
-//
-// Opus 4.7 coordinate-system note (P3.4):
-// Earlier Claude models returned bounding-box coordinates normalized to [0,1]
-// relative to the input image. Opus 4.7 switched to 1:1 pixel coordinates of
-// the input image as-is, removing the need for any rescaling by clients.
-// troth does not intercept or transform coordinate values in responses —
-// tool_use and tool_result blocks pass through unchanged, so 4.7's pixel
-// coordinates reach the client exactly as the model emits them. No action
-// required; this comment exists so future edits don't introduce a transform.
+// SPDX-License-Identifier: AGPL-3.0-only Vision-aware tool_result
+// augmentation. Opus 4.7 coordinate-system note: Earlier Claude models
+// returned bounding-box coordinates normalized to [0,1] relative to the input
+// image. Opus 4.7 switched to 1:1 pixel coordinates of the input image as-is,
+// removing the need for any rescaling by clients. troth does not intercept or
+// transform coordinate values in responses — tool_use and tool_result blocks
+// pass through unchanged, so 4.7's pixel coordinates reach the client exactly
+// as the model emits them. No action required; this comment exists so future
+// edits don't introduce a transform.
 
 //
 // The problem this fixes:

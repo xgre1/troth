@@ -2,7 +2,7 @@
 'use strict';
 // S4 — the prompt-injection wall must REFUSE, not merely exist.
 //
-// This standard used to pass if PREDICATE_KINDS held a key whose NAME matched
+// This standard would pass if PREDICATE_KINDS held a key whose NAME matched
 // /external_suspicious/i. A renamed key would have satisfied it, and so would
 // an empty function: the check never made the wall do anything. README cites
 // this file as the evidence for pre-LLM governance walls, so it has to be

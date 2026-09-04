@@ -118,7 +118,7 @@ test('PATHPOL-2: ordinary project files stay writable', () => {
   assert.strictEqual(isWritablePath(process.cwd() + '/scratch.txt').allowed, true);
 });
 
-// A link planted inside an authorised root used to carry a write straight out
+// A link planted inside an authorised root would carry a write straight out
 // of it: the policy judged the path it was handed, never the file it pointed
 // at, while README promised realpath containment.
 test('PATHPOL-3: a symlink cannot smuggle a write out of the root', () => {
@@ -144,7 +144,7 @@ test('PATHPOL-3: a symlink cannot smuggle a write out of the root', () => {
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-// Every gate below used to fall through to "allow" when it could not run.
+// Every gate below would fall through to "allow" when it could not run.
 test('FAILCLOSED-1: an unreadable invariants table refuses the transition', () => {
   const fs = require('fs'); const os = require('os'); const pathM = require('path');
   const sm = require('../shared-core/state-machine.js');

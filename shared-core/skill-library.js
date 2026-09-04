@@ -1,52 +1,34 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Skill library — core design aligned.
-//
-// Skills are NOT tools the LLM calls. They are RECIPE MEMORIES the
-// substrate considers part of its own knowing — procedural memory in
-// the same sense Anderson 1983 (ACT-R) describes: declarative knowledge
-// compiled into "how I do things" through practice.
-//
-// Design invariant (anti-drift checklist item 1+2):
-//   - No new "tool catalog" envelope. Skills surface as procedural
-//     memories retrieved alongside identity/semantic/episodic recall.
-//   - When a goal lands, recall surfaces relevant skills INTO the
-//     planning prompt as "you have learned to do this kind of thing
-//     this way" — biasing the mind toward known patterns. Not as a
-//     separate "available_skills" list bolted on top.
-//   - When a goal succeeds, the mind absorbs newly-discovered patterns
-//     as part of its capability (skill extraction is self-observation,
-//     not external annotation).
-//
-// Storage:
-//   engram type='commitment', commitment_type='engram',
-//   memory_class='procedural', scope='skill:<class_hint>'
-//   output: { name, trigger_pattern, triggers, preconditions,
-//             recipe, evidence_of_success, version, superseded_by? }
-//
-// Recall integration: existing recall.recallProcedural() already pulls
-// memory_class='procedural' with topic + overlap scoring. Skills surface
-// through that path WITHOUT a parallel retrieval system — single recall
-// surface.
-//
-// Versioning + rollback:
-//   - New version of same name → recordSkill bumps version, sets
-//     parent_id to previous version. Previous version stays in substrate
-//     (R23 append-only) but listSkills filters out superseded by default.
-//   - rollbackSkill(id, reason) writes a 'system:skill-rolled-back'
-//     marker; future recall ignores rolled-back skills.
-//
-// design grounding:
-//   - Voyager (Wang et al. arXiv 2305.16291): autonomous skill library
-//     for embodied agents drives compositional growth; novel-skill
-//     extraction post-success is the key learning mechanism.
-//   - Anderson 1983 ACT-R: procedural compilation from declarative
-//     knowledge through practice.
-//   - Andrews-Hanna 2014 (Nat Rev Neurosci): procedural memory is part
-//     of the unified self-network, NOT a separate subsystem.
-//   - design R23: versions append-only; rollback via marker engram
-//     not UPDATE.
-//   - design substrate-as-mind: skills are part of the mind, not
-//     external tool catalog.
+// SPDX-License-Identifier: AGPL-3.0-only Skill library — core design aligned.
+// Skills are NOT tools the LLM calls. They are RECIPE MEMORIES the substrate
+// considers part of its own knowing — procedural memory in the same sense
+// Anderson 1983 (ACT-R) describes: declarative knowledge compiled into "how I
+// do things" through practice. Design invariant (anti-drift checklist item
+// 1+2): - No new "tool catalog" envelope. Skills surface as procedural
+// memories retrieved alongside identity/semantic/episodic recall. - When a
+// goal lands, recall surfaces relevant skills INTO the planning prompt as "you
+// have learned to do this kind of thing this way" — biasing the mind toward
+// known patterns. Not as a separate "available_skills" list bolted on top. -
+// When a goal succeeds, the mind absorbs newly-discovered patterns as part of
+// its capability (skill extraction is self-observation, not external
+// annotation). Storage: engram type='commitment', commitment_type='engram',
+// memory_class='procedural', scope='skill:<class_hint>' output: { name,
+// trigger_pattern, triggers, preconditions, recipe, evidence_of_success,
+// version, superseded_by? } Recall integration: existing
+// recall.recallProcedural() already pulls memory_class='procedural' with topic
+// + overlap scoring. Skills surface through that path WITHOUT a parallel
+// retrieval system — single recall surface. Versioning + rollback: - New
+// version of same name → recordSkill bumps version, sets parent_id to previous
+// version. Previous version stays in substrate (append-only) but listSkills
+// filters out superseded by default. - rollbackSkill(id, reason) writes a
+// 'system:skill-rolled-back' marker; future recall ignores rolled-back skills.
+// - Voyager (Wang et al. arXiv 2305.16291): autonomous skill library for
+// embodied agents drives compositional growth; novel-skill extraction
+// post-success is the key learning mechanism. - Anderson 1983 ACT-R:
+// procedural compilation from declarative knowledge through practice. -
+// Andrews-Hanna 2014 (Nat Rev Neurosci): procedural memory is part of the
+// unified self-network, NOT a separate subsystem. - versions append-only;
+// rollback via marker engram not UPDATE. - design substrate-as-mind: skills
+// are part of the mind, not external tool catalog.
 
 'use strict';
 

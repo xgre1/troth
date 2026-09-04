@@ -119,7 +119,7 @@ function make({ root, target }) {
       const child = spawn(NODE, [path.join(root, 'proxy', 'server.js')], {
         cwd: root,
         // TROTH_EXIT_WITH_PID: the proxy watches this pid and exits when it
-        // dies. Teardown used to depend on the runner living long enough to
+        // dies. Teardown would depend on the runner living long enough to
         // call cleanup(); a SIGKILLed runner left the proxy orphaned under
         // launchd — and one such orphan span a core for hours.
         env: Object.assign(baseEnv(), { GF_PORT: String(port), GF_WATCH_DIR: os.tmpdir(),

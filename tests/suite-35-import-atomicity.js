@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Import atomicity (field question): "what if someone closes
 // the laptop mid-import?" A session's ingest marker IS its chunk rows, so
-// a half-written session used to read as "already imported" and its
+// a half-written session would read as "already imported" and its
 // missing tail could never be completed — silent, permanent, invisible.
 // The cure is one synchronous transaction per document (chameleon.js):
 // an interrupted import leaves NOTHING behind and the next run ingests

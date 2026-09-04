@@ -181,9 +181,6 @@ function rejectRevision(opts) {
   if (listResolutions(opts.proposal_id).length) {
     return { ok: false, reason: 'already_resolved' };
   }
-  // Counter-evidence as a lesson record so future drift / disagreement
-  // scans can surface it ("the user previously rejected this revision
-  // when proposed with evidence X — don't re-propose without new info").
   const lessonId = ar.uuidv7();
   const counterText = String(opts.counter_evidence || 'no specific counter-evidence; operator rejected');
   const lessonRec = {

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Archive provenance + reachability (field report): imported
-// chunks used to be titled by session uuid with cwd null in ONE flat scope,
+// chunks titled by session uuid with cwd null in ONE flat scope,
 // so "remember what we did in <project>" had nothing to hold on to, and the
 // auto-recall exclusion (correct: raw fragments out-match curated facts)
 // made the archive unreachable in practice. These drive the REAL import
@@ -131,9 +131,9 @@ test('ARCH-4: the recall archive arm serves the project on request; the flood-pr
 });
 
 test('ARCH-5: every surface imports with the SAME contract (source pin)', () => {
-  // The app's Rust import sends --full; the dashboard endpoint used to
-  // spawn bare (raw-only), so "import" MEANT different things on the two
-  // surfaces — the two-truths disease again. Pin the proxy spawn.
+  // The app's Rust import sends --full; the dashboard endpoint would spawn bare
+  // (raw-only), so "import" MEANT different things on the two surfaces — the
+  // two-truths disease again. Pin the proxy spawn.
   const src = fs.readFileSync(path.join(ROOT, 'proxy', 'server.js'), 'utf8');
   // Anchor on the IMPORT spawn (the one that passes --source), not the
   // first mention of the script — the --detect endpoint spawns it too and

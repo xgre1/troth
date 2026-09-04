@@ -56,17 +56,12 @@ test('KR-2: a document read is queued once, however many times it is read', () =
 });
 
 test('KR-3: a corpus is named for where the document lives — the "what for"', () => {
-  // The home is passed explicitly: the first version read process.env.HOME and
-  // passed only on the machine it was written on, which is a test that proves
-  // nothing about anyone else's.
   // The user name here is one of the placeholders the release gate allows
   // (operator / user / you). It has to stay home-SHAPED, because scopeFor
-  // encodes "Users" and "home" as machine prefixes to skip — rewriting the
-  // root to something invented tested nothing and quietly passed.
+  // encodes "Users" and "home" as machine prefixes to skip — rewriting the root
+  // to something invented tested nothing and quietly passed.
   const H = '/Users/operator';
-  // Invented client names. The first version of this test used two real ones
-  // from the author's own folders — harmless on the machine that wrote it, a
-  // published client list in the open repo.
+  // Invented client names.
   assert.strictEqual(drain.scopeFor('/Users/operator/Documents/northwind/researches/x.md', H), 'docs:seen:northwind');
   assert.strictEqual(drain.scopeFor('/Users/operator/Desktop/tarrant/report.pdf', H), 'docs:seen:tarrant');
   // A path under a DIFFERENT home must not become a corpus called "users".
@@ -107,11 +102,8 @@ test('KR-4: the drain turns a pointer into recallable passages, exactly once', a
 });
 
 test('KR-8: a passage is filed WHERE it belongs, so it surfaces in its own project', async () => {
-  // recall boosts a passage whose cwd matches the current project (1.0) over
-  // one that does not (0.5). Filing everything with cwd:null — the first
-  // version of this drain — gives every corpus the neutral score forever, so a
-  // body of work about one project never surfaces preferentially while working
-  // in it. That is the whole point of keeping it.
+  // recall boosts a passage whose cwd matches the current project (1.0) over one
+  // that does not (0.5). That is the whole point of keeping it.
   const doc = path.join(DIR, 'placed-study.md');
   fs.writeFileSync(doc, '# Placed\n\nThe pilot boards at the outer buoy in all weathers. '.repeat(10));
   state.spoolKnowledge({ kind: 'file', ref: doc, sha: 'kr-placed-' + Date.now(), bytes: 600 });

@@ -1,25 +1,17 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Goal-to-action translator (substrate-side).
-//
-// Faculty emits a high-level intent:browser:goal {goal_text,
-// success_criteria}. Substrate's translator turns it into a concrete
-// step sequence (skill-lookup or conservative fallback). Faculty
-// NEVER drives the browser at the selector level — it expresses
-// intent at the goal layer.
-//
-// Why substrate-side: if faculty emits step sequences directly,
-// drift sneaks in (faculty is "driving the browser"). Substrate-thesis
-// correct: faculty wants something, substrate handles mechanics.
-//
-// v0: no compiled skill library (Phase 4 dream cycle populates it).
-// Pipeline:
-//   1. Try skill lookup (matches goal_text against compiled skill
-//      patterns). If hit: emit compiled step sequence.
-//   2. Conservative fallback: extract a starting URL from goal_text
-//      if obvious (look for explicit URLs/domains), navigate there,
-//      capture AX-tree as engram, suspend the goal pending faculty
-//      refinement. Iteration converges: next faculty wake reads the
-//      AX-tree engram and emits more specific goal OR refined steps.
+// SPDX-License-Identifier: AGPL-3.0-only Goal-to-action translator
+// (substrate-side). Faculty emits a high-level intent:browser:goal {goal_text,
+// success_criteria}. Substrate's translator turns it into a concrete step
+// sequence (skill-lookup or conservative fallback). Faculty NEVER drives the
+// browser at the selector level — it expresses intent at the goal layer. Why
+// substrate-side: if faculty emits step sequences directly, drift sneaks in
+// (faculty is "driving the browser"). Substrate-thesis correct: faculty wants
+// something, substrate handles mechanics. v0: no compiled skill library.
+// Pipeline: 1. Try skill lookup (matches goal_text against compiled skill
+// patterns). If hit: emit compiled step sequence. 2. Conservative fallback:
+// extract a starting URL from goal_text if obvious (look for explicit
+// URLs/domains), navigate there, capture AX-tree as engram, suspend the goal
+// pending faculty refinement. Iteration converges: next faculty wake reads the
+// AX-tree engram and emits more specific goal OR refined steps.
 
 'use strict';
 
@@ -27,7 +19,7 @@ const URL_REGEX = /https?:\/\/[^\s'"<>]+/i;
 const DOMAIN_REGEX = /\b([a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/[^\s'"<>]*)?)\b/i;
 
 // Tiny skill registry. Operator can seed via operator-signed
-// engrams (scope='skill:browser:*'); Phase 4 dream cycle compiles
+// engrams (scope='skill:browser:*'); the dream cycle compiles
 // new ones from successful action sequences.
 const _skillRegistry = [];
 

@@ -275,7 +275,7 @@ console.log('\nPlugin hooks (behavior):');
     assert.deepStrictEqual(popOut, {}, 'cache-populate allows silently');
 
     // PreToolUse cache-probe for the same call should now inject additionalContext.
-    // P0.4: hint injection is opt-in (env TROTH_CACHE_PROBE_HINTS=1) to
+    // hint injection is opt-in (env TROTH_CACHE_PROBE_HINTS=1) to
     // avoid pure waste in yolo mode where the model can't be redirected.
     // Enabled here to exercise the feature path the rest of this test asserts.
     process.env.TROTH_CACHE_PROBE_HINTS = '1';
@@ -903,18 +903,14 @@ console.log('\nCritic ↔ Reflexion loop (behavior):');
       'Phase H lineage must render the rationale; got: ' + ctx.slice(0, 600));
     assert.ok(ctx.includes('AC-PLUGIN-3-FOCUS'),
       'current focus must surface; got: ' + ctx.slice(0, 600));
-    // The handoff must NOT be in the continuity block. It was removed from the
-    // per-turn injector on  (see the note in plugin/hooks/injector.mjs
-    // where compact_handoff used to be): a handoff is a resume artifact, true
-    // only right after a compaction or an explicit resume, and serving it every
-    // turn meant a fresh chat opened with the previous session's unfinished
-    // work. session-start.mjs surfaces it at the moment it is true.
-    //
-    // This test kept asserting the old behaviour and passed by accident,
-    // whenever the seeded handoff engram happened to score into the separate
-    // recall block. That made it fail about two runs in three on a clean tree.
-    // Assert against the continuity block specifically, which is what this
-    // test is about.
+    // The handoff must NOT be in the continuity block. A handoff is a resume
+    // artifact, true only right after a compaction or an explicit resume, and
+    // serving it every turn meant a fresh chat opened with the previous session's
+    // unfinished work. session-start.mjs surfaces it at the moment it is true.
+    // This test kept asserting the old behaviour and passed by accident, whenever
+    // the seeded handoff engram happened to score into the separate recall block.
+    // That made it fail about two runs in three on a clean tree. Assert against
+    // the continuity block specifically, which is what this test is about.
     const continuityBlock = (ctx.split('[troth/continuity]')[1] || '').split('\n[troth/')[0];
     assert.ok(!continuityBlock.includes('AC-PLUGIN-3-HANDOFF'),
       'a handoff must not ride the per-turn continuity block; got: ' + continuityBlock.slice(0, 400));
@@ -1995,7 +1991,7 @@ console.log('\nActionRecord substrate:');
   const AR = require('../shared-core/action-record');
   const V  = require('../shared-core/verification');
 
-  // A1 — schema + validators + type registry
+  // schema + validators + type registry
   test('A1: create() fills id + timestamp when omitted', () => {
     const r = AR.create({ type: 'edit', agent_id: 'x', input: { file_path: 'f', format: 'h' }, output: { hash_after: 'a' } });
     assert.strictEqual(typeof r.id, 'string');
@@ -2062,7 +2058,7 @@ console.log('\nActionRecord substrate:');
     assert.ok(t.includes('auth.ts'));
   });
 
-  // A2 — SQLite layer (uses isolated data dir)
+  // SQLite layer (uses isolated data dir)
   const pathMod = require('path');
   const fsMod = require('fs');
   const TMP_A = pathMod.join(require('os').tmpdir(), 'gc-substrate-a-' + Date.now());
@@ -2125,7 +2121,7 @@ console.log('\nActionRecord substrate:');
     assert.strictEqual(children[0].id, child.id);
   });
 
-  // A3 — verification primitives
+  // verification primitives
   test('A3: verifyAST passes on valid JS', () => {
     const r = V.verifyAST('/tmp/v.js', 'function f() { return 1; }');
     assert.strictEqual(r.ok, true);
@@ -2170,7 +2166,7 @@ console.log('\nActionRecord substrate:');
     assert.strictEqual(V.verdict(partialV), 'partial');
   });
 
-  // A4 — outcome events
+  // outcome events
   test('A4: markAccepted creates an outcome event queryable via getOutcome', () => {
     const rec = AR.create({ type: 'edit', agent_id: 'cc', session_id: 'sD', cwd: '/tmp/projD', input: { file_path: 'o.ts', format: 'h' }, output: { hash_after: 'oh' } });
     state.recordAction(rec, AR.toSearchText(rec));
@@ -2751,7 +2747,6 @@ console.log('\nMind state:');
 
     const gc = out.mind_state.active_projects.find(p => p.id === 'gc');
     const ar = out.mind_state.active_projects.find(p => p.id === 'ar');
-    // gc previously had no decisions; one was folded in.
     assert.strictEqual(gc.key_decisions.length, 1);
     assert.strictEqual(gc.key_decisions[0].summary, 'mind = working context, not persona');
     assert.strictEqual(gc.key_decisions[0].rationale, 'persona is wrong frame');

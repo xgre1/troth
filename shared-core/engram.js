@@ -249,13 +249,10 @@ function recordEngram(opts) {
     // memory to serve back (a drift signal, a watermark, a run marker).
     const _isInternal = typeof _scope === 'string' && (_scope.indexOf('internal:') === 0 || _scope.indexOf('system:') === 0);
     const _isIdentity = _scope === 'identity';
-    // Entity registry rows (entity-identity.js, scope entity:<slug>) are the
-    // cast, not episodes: read by loadRegistry (scope prefix) and mounted by
-    // the identity-cast arm. As episodic-class rows they competed in the
-    // general pool and took up to 5 of 10 mount slots on identity-shaped
-    // questions (measured 2026-09-02, 23-question probe). Identity class
-    // keeps them out of class:'all' ranking without touching how the cast
-    // is read.
+    // Entity registry rows (entity-identity.js, scope entity:<slug>) are the cast,
+    // not episodes: read by loadRegistry (scope prefix) and mounted by the
+    // identity-cast arm. Identity class keeps them out of class:'all' ranking
+    // without touching how the cast is read.
     const _isEntity   = typeof _scope === 'string' && _scope.indexOf('entity:') === 0;
     const _isDocs     = typeof _scope === 'string' && _scope.indexOf('docs:') === 0;
     const _isResearch = typeof _scope === 'string' && _scope.indexOf('research:') === 0;
@@ -723,11 +720,8 @@ function listEngrams(opts) {
       agent_id: agent_id || undefined,
       principal_id: principal_id || undefined,
       cwd,
-      // RECALL-FIX  (Step 1): when a SPECIFIC scope is requested, push it
-      // into the SQL WHERE so the 1000-row recency cap operates on scope-matched
-      // rows. Previously scope was filtered in JS AFTER a scope-BLIND recency clip,
-      // so any corpus older than the most-recent ~1000 commitments (e.g. research
-      // ingested 60k writes ago) never entered the candidate pool -> 0 hits. The
+      // RECALL-FIX (Step 1): when a SPECIFIC scope is requested, push it into the
+      // SQL WHERE so the 1000-row recency cap operates on scope-matched rows. The
       // '__any__' (no-scope) path passes undefined -> SQL unchanged -> the per-turn
       // recall path is byte-identical (no regression).
       scope: (scopeFilter === '__any__') ? undefined : scopeFilter,
@@ -850,7 +844,7 @@ function listEngrams(opts) {
         revoked:                !!rec.output.revoked,
         scope_glob:             rec.output.scope_glob             || null,
         parent_capability_id:   rec.output.parent_capability_id   || null,
-        // Observation-specific (Phase 1.7):
+        // Observation-specific:
         observes_intent:        rec.output.observes_intent        || null
       });
       if (out.length >= limit) break;
@@ -1344,7 +1338,7 @@ const _parseTimeWindow = (query, referenceTs) => require('./time-window.js').par
           });
         }
         // Provenance completion — a ledger line whose receipts are absent from
-        // the mounted statements used to carry a flag admitting it ("attested
+        // the mounted statements would carry a flag admitting it ("attested
         // outside the shown statements"). The receipts are turn ids the pool
         // already holds, so those turns mount too: both strata present for
         // every member of the counted class — measured missing on the

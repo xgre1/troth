@@ -228,7 +228,7 @@ function previewExtract(opts) {
 
 // autonomous step — RETIRED.
 //
-// The auto-write path used to scan dialogue with high-precision regex
+// The auto-write path would scan dialogue with high-precision regex
 // patterns and write survivors as operator_confirmed identity engrams.
 // integration point (cryptographic operator-write binding) made the over-claim
 // architecturally visible: regex pattern matching on operator's words

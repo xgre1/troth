@@ -1065,7 +1065,7 @@ test('scaleTokens works correctly', () => {
   assert(scaleTokens(128000, 'some-unknown-model') === 200000);
 });
 
-// --- COMPRESSOR (Phase 1) ---
+// --- COMPRESSOR ---
 console.log('\nCompressor:');
 const { compressRequest } = require('../proxy/modules/compressor');
 
@@ -1088,7 +1088,7 @@ test('compressRequest drops empty Bash output', () => {
   assert(r.stats.droppedEmptyBash > 0, 'should drop empty Bash output');
 });
 
-// --- SKIMMER (Phase 2) ---
+// --- SKIMMER ---
 console.log('\nSkimmer:');
 const { skimRequest, speculativeEditHint } = require('../proxy/modules/skimmer');
 
@@ -1109,7 +1109,7 @@ test('skimRequest suspends in error-recovery mode', () => {
   assert(r.stats.skimmed === 0, 'should NOT skim when errors present');
 });
 
-// --- WORKFLOW (Phase 2) ---
+// --- WORKFLOW ---
 console.log('\nWorkflow:');
 const { startTask, getState, clear: clearWorkflow, buildStateBlock } = require('../proxy/modules/workflow');
 
@@ -1128,7 +1128,7 @@ test('buildStateBlock returns null when no active task', () => {
   assert(buildStateBlock() === null);
 });
 
-// --- COCHANGE (Phase 6) ---
+// --- COCHANGE ---
 console.log('\nCo-change:');
 const { getRelated, buildCoChangeHint, getStats: coStats } = require('../proxy/modules/cochange');
 
@@ -1142,7 +1142,7 @@ test('buildCoChangeHint returns null for empty input', () => {
   assert(buildCoChangeHint(null) === null);
 });
 
-// --- INJECTOR FILE-TYPE RULES (Phase 3, expanded Phase 15-16) ---
+// --- INJECTOR FILE-TYPE RULES ---
 console.log('\nInjector file-type detection:');
 const { inject } = require('../proxy/modules/injector');
 
@@ -1309,7 +1309,7 @@ test('inject never marks the dynamic block as cacheable', () => {
   }
 });
 
-// --- ROUTER continueIfTruncated (Phase 10) ---
+// --- ROUTER continueIfTruncated ---
 console.log('\nRouter continuation:');
 const { continueIfTruncated } = require('../proxy/modules/router');
 
@@ -1615,7 +1615,7 @@ test('filterContext drops 100-char text but keeps 200-char text', () => {
   assert(hasMedium, 'medium-length reasoning block should survive filter');
 });
 
-// --- LOOPGUARD Layer 2 (Phase 2) ---
+// --- LOOPGUARD Layer 2 ---
 console.log('\nLoopguard layer 2:');
 
 test('detects no-codebase-delta loop on same file (Edit only; Read is exploration)', () => {
@@ -1638,7 +1638,7 @@ test('detects no-codebase-delta loop on same file (Edit only; Read is exploratio
   assert(editResult.loopDetected === true, 'repeat Edit on unchanged file must still trigger no-delta loop');
 });
 
-// --- BUILDGRAPH (Phase 32) ---
+// --- BUILDGRAPH ---
 console.log('\nBuildgraph:');
 const { parseBuildSystems } = require('../proxy/modules/buildgraph');
 
@@ -1652,7 +1652,7 @@ test('parseBuildSystems detects npm in troth repo', () => {
   assert(r && r.systems.includes('node'));
 });
 
-// --- LINGUA (Phase 33) ---
+// --- LINGUA ---
 console.log('\nLingua (LLMLingua-2 Lite):');
 const { compressText: linguaCompress } = require('../proxy/modules/lingua');
 
@@ -1674,7 +1674,7 @@ test('compressText preserves code blocks', () => {
   assert(r.text.includes('in order to keep'), 'code block content must be preserved');
 });
 
-// --- ROUTELM (Phase 34) ---
+// --- ROUTELM ---
 console.log('\nRouteLM:');
 const { scoreTaskComplexity, suggestTier } = require('../proxy/modules/routelm');
 
@@ -1694,7 +1694,7 @@ test('suggestTier maps scores to tiers', () => {
   assert(suggestTier(9) === 'strong');
 });
 
-// --- MORPH (Phase 25) ---
+// --- MORPH ---
 console.log('\nMorph Fast Apply:');
 const { morphApply } = require('../proxy/modules/morph');
 
@@ -1714,7 +1714,7 @@ test('morphApply replaces line range', () => {
   assert(r.newFileContent === 'a\nX\nY\ne');
 });
 
-// --- GUARDRAILS (Phase 30) ---
+// --- GUARDRAILS ---
 console.log('\nGuardrails:');
 const { detectSecrets, validateResponse } = require('../proxy/modules/guardrails');
 
@@ -1735,7 +1735,7 @@ test('validateResponse catches secret leaks', () => {
   assert(!r.valid);
 });
 
-// --- ALPHACODE (Phase 39) ---
+// --- ALPHACODE ---
 console.log('\nAlphaCode:');
 const { kSampleVote, clusterKey } = require('../proxy/modules/alphacode');
 
@@ -1753,7 +1753,7 @@ test('kSampleVote picks majority', async () => {
   assert(result === 'common answer');
 });
 
-// --- LMQL (Phase 40) ---
+// --- LMQL ---
 console.log('\nLMQL templates:');
 const { fillTemplate } = require('../proxy/modules/lmql');
 
@@ -1770,7 +1770,7 @@ test('fillTemplate auto-fallback on constraint failure', () => {
   assert(r.prompt.includes('Short:'));
 });
 
-// --- ACP (Phase 41) ---
+// --- ACP ---
 console.log('\nACP message bus:');
 const { publish, subscribe, getRecentEvents } = require('../proxy/modules/acp');
 
@@ -1790,7 +1790,7 @@ test('getRecentEvents returns published items', () => {
   assert(events[events.length - 1].payload.n === 1);
 });
 
-// --- ABTEST (Phase 42) ---
+// --- ABTEST ---
 console.log('\nA/B test:');
 const { defineVariant, pickVariant, recordResult, declareWinners } = require('../proxy/modules/abtest');
 
@@ -1801,7 +1801,7 @@ test('pickVariant is deterministic per session', () => {
   assert(r1.variant === r2.variant);
 });
 
-// --- DIFF (Phase 54) ---
+// --- DIFF ---
 console.log('\nDiff utilities:');
 const { lineDiff, unifiedDiff, changeMagnitude } = require('../proxy/modules/diff');
 
@@ -1818,7 +1818,7 @@ test('changeMagnitude reports net change', () => {
   assert(r.addedLines === 2);
 });
 
-// --- BUDGET (Phase 56) ---
+// --- BUDGET ---
 console.log('\nBudget:');
 const { checkBudget } = require('../proxy/modules/budget');
 
@@ -1828,7 +1828,7 @@ test('checkBudget warns at threshold', () => {
   assert(r.ok);
 });
 
-// --- DEDUP (Phase 57) ---
+// --- DEDUP ---
 console.log('\nDedup:');
 const dedup = require('../proxy/modules/dedup');
 
@@ -1858,7 +1858,7 @@ test('dedup segments cache by thinking config', () => {
   assert(dedup.hashRequest(a) !== dedup.hashRequest(b));
 });
 
-// --- RATELIMIT (Phase 58) ---
+// --- RATELIMIT ---
 console.log('\nRatelimit:');
 const { parseHeaders, parseRetryAfter } = require('../proxy/modules/ratelimit');
 
@@ -1876,7 +1876,7 @@ test('parseRetryAfter handles seconds', () => {
   assert(parseRetryAfter({ 'retry-after': '30' }) === 30);
 });
 
-// --- PROFANITY (Phase 59) ---
+// --- PROFANITY ---
 console.log('\nProfanity/frustration:');
 const { checkText } = require('../proxy/modules/profanity');
 
@@ -1891,7 +1891,7 @@ test('checkText passes normal text', () => {
   assert(r.ok);
 });
 
-// --- COST (Phase 46) ---
+// --- COST ---
 console.log('\nCost:');
 const { calculateCost, recordUsage, getTotals, reset: resetCost } = require('../proxy/modules/cost');
 
@@ -1914,7 +1914,7 @@ test('recordUsage accumulates', () => {
   assert(t.perModel['claude-sonnet-4.6'].requests === 2);
 });
 
-// --- JSONREPAIR (Phase 64) ---
+// --- JSONREPAIR ---
 console.log('\nJSON repair:');
 const { tryRepair, safeParse } = require('../proxy/modules/jsonrepair');
 
@@ -1935,7 +1935,7 @@ test('safeParse returns fallback on unrepairable', () => {
   assert(r.fallback === true);
 });
 
-// --- PERFLOG (Phase 51) ---
+// --- PERFLOG ---
 console.log('\nPerflog:');
 const { record, getRecent } = require('../proxy/modules/perflog');
 
@@ -1950,7 +1950,7 @@ test('perflog record + getRecent works', () => {
   assert(found, 'should find recorded entry');
 });
 
-// --- HEALTH (Phase 63) ---
+// --- HEALTH ---
 console.log('\nHealth probes:');
 const { probe } = require('../proxy/modules/health');
 
@@ -1961,7 +1961,7 @@ test('probe returns object with ok field', async () => {
   assert(typeof r.latencyMs === 'number');
 });
 
-// --- AUDIT (Phase 70) ---
+// --- AUDIT ---
 console.log('\nAudit log:');
 const audit = require('../proxy/modules/audit');
 
@@ -1976,7 +1976,7 @@ test('audit verify returns ok object', () => {
   assert(typeof v.ok === 'boolean');
 });
 
-// --- DEPGRAPH (Phase 71) ---
+// --- DEPGRAPH ---
 console.log('\nDepgraph:');
 const depgraph = require('../proxy/modules/depgraph');
 
@@ -1989,7 +1989,7 @@ test('extractImports finds requires', () => {
   assert(imps.includes('./bar'));
 });
 
-// --- SECRETS (Phase 72) ---
+// --- SECRETS ---
 console.log('\nSecret redaction:');
 const secrets = require('../proxy/modules/secrets');
 
@@ -2006,7 +2006,7 @@ test('redactObject scrubs nested values', () => {
   assert(r.nested.token === '[REDACTED]');
 });
 
-// --- ARCHETYPE (Phase 66) ---
+// --- ARCHETYPE ---
 console.log('\nArchetype detection:');
 const archetype = require('../proxy/modules/archetype');
 
@@ -2015,7 +2015,7 @@ test('detectArchetype detects troth as node-cli', () => {
   assert(r.archetype === 'node-cli', 'expected node-cli, got ' + r.archetype);
 });
 
-// --- TIMELINE (Phase 79) ---
+// --- TIMELINE ---
 console.log('\nTimeline:');
 const timeline = require('../proxy/modules/timeline');
 
@@ -2028,7 +2028,7 @@ test('timeline records events', () => {
   assert(r[1].summary === 'second');
 });
 
-// --- PREVIEW (Phase 80) ---
+// --- PREVIEW ---
 console.log('\nPreview:');
 const { previewFile } = require('../proxy/modules/preview');
 
@@ -2041,7 +2041,7 @@ test('previewFile extracts top symbols', () => {
   assert(p.topSymbols.includes('Beta'));
 });
 
-// --- COMMITMSG (Phase 81) ---
+// --- COMMITMSG ---
 console.log('\nCommitmsg:');
 const commitmsg = require('../proxy/modules/commitmsg');
 
@@ -2050,7 +2050,7 @@ test('detectType returns valid conventional commit type', () => {
   assert(r === 'docs');
 });
 
-// --- CONFIGVALID (Phase 83) ---
+// --- CONFIGVALID ---
 console.log('\nConfig validation:');
 const configvalid = require('../proxy/modules/configvalid');
 
@@ -2071,7 +2071,7 @@ test('VALID_PROVIDERS includes moonshot, xai, and the live-but-drifted set', () 
   });
 });
 
-// --- CONVENTIONS (Phase 77) ---
+// --- CONVENTIONS ---
 console.log('\nConventions:');
 const conventions = require('../proxy/modules/conventions');
 

@@ -5,9 +5,8 @@
 module.exports = function run(ctx) {
 const { path, HOME, args, command, _readPassphraseSync } = ctx;
 // `troth init` belongs to the interactive onboarding wizard (cmd-init-2.js);
-// the operator crypto-bootstrap ceremony lives behind --seal. This guard used
-// to swallow bare `troth init` and exit before the wizard was ever reached
-//.
+// the operator crypto-bootstrap ceremony lives behind --seal. This guard would
+// swallow bare `troth init` and exit before the wizard was ever reached .
 if (command === "init" && args.indexOf("--seal") !== -1) {
   var bootstrap = require("../shared-core/bootstrap.js");
   var st = bootstrap.status();

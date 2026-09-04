@@ -78,8 +78,8 @@ const CAPABILITIES = {
   custom_types:        false,  // mandatory types only for v0.1 conformance
   virtual_runtime:     true,   // Phase D: working-set, fetch_action, compact/reset hooks
   agent_market:        true,   // Phase E: competitive dispatch + winner analysis
-  decision_graph:      true,   // P16 Tier 1: typed-edge causality + recursive path queries
-  compact_wire:        true    // P17 Tier 1: TOON wire format for ActionRecord batches
+  decision_graph:      true,   // typed-edge causality + recursive path queries
+  compact_wire:        true    // TOON wire format for ActionRecord batches
 };
 
 // ── GMP method handlers ──────────────────────────────────────────────
@@ -109,14 +109,12 @@ const HANDLERS = {
     return { action: actionRec.fromRow(row) };
   },
 
-  // P13.3 + P16-T2 — Pichay-style page-fault entry point. The model sees
-  // `<troth:page:UUID>` markers (any evicted action) or
-  // `<troth:intent:UUID>` markers (evicted intent records, P16 Tier 2)
-  // in its context and calls this tool with the marker as the `handle`
-  // argument. We parse the UUID out and route to fetch_action, returning
-  // byte-equal record content. Both prefixes resolve identically — the
-  // distinct prefix is purely a hint to the model about what kind of
-  // record it's faulting on.
+  // Page-fault entry point. The model sees `<troth:page:UUID>` markers (any
+  // evicted action) or `<troth:intent:UUID>` markers (evicted intent records) in
+  // its context and calls this tool with the marker as the `handle` argument. We
+  // parse the UUID out and route to fetch_action, returning byte-equal record
+  // content. Both prefixes resolve identically — the distinct prefix is purely a
+  // hint to the model about what kind of record it's faulting on.
   'troth/fault_in': (params) => {
     if (!params || !params.handle) return rpcError(-32602, 'missing handle');
     // Mind added 'mind' prefix: <troth:mind:UUID> resolves identically
@@ -147,10 +145,9 @@ const HANDLERS = {
       limit:      params.limit,
       order:      params.order
     }) || [];
-    // P17 Tier 1 — opt-in compact wire format. When the client requests
-    // format='toon' AND we advertise compact_wire, encode the batch as
-    // TOON; otherwise return the legacy parsed JSON action array.
-    // P17 Tier 3 — when an active wire_format_profile exists for the
+    // Opt-in compact wire format. When the client requests format='toon' AND we
+    // advertise compact_wire, encode the batch as TOON; otherwise return the
+    // parsed JSON action array. When an active wire_format_profile exists for the
     // computed domain signature, use its LLM-evolved aliases instead of
     // recomputing per-batch. Falls back to fresh dict on miss/error.
     if (params.format === 'toon' && CAPABILITIES.compact_wire) {
@@ -193,7 +190,7 @@ const HANDLERS = {
     const chain = causality.traceCausalChain(state, params.action_id, {
       maxDepth: params.max_depth || 64
     });
-    // P17 Tier 2 — TRON encoding for chain when client opts in.
+    // TRON encoding for chain when client opts in.
     // Chain is a flat array of records; treated as a TOON batch (uniform
     // ActionRecord shape), not as path-rows.
     if (params.format === 'toon' && CAPABILITIES.compact_wire) {
@@ -206,7 +203,7 @@ const HANDLERS = {
     return { chain };
   },
 
-  // P16 Tier 1 — typed-edge DecisionGraph CRUD. Three new optional
+  // typed-edge DecisionGraph CRUD. Three new optional
   // methods gated on features.decision_graph (advertised in
   // list_capabilities). Storage delegated to shared-core/state.js
   // helpers; semantics match the GMP v0.2 spec sections in
@@ -252,7 +249,7 @@ const HANDLERS = {
     return { edges };
   },
 
-  // P17 Tier 2 — typed-edge causal path query (recursive CTE over
+  // typed-edge causal path query (recursive CTE over
   // action_record_edges). Returns array of { node_id, depth, path }.
   // When client opts into format='tron' AND we advertise compact_wire,
   // the result is encoded as TRON-path (53% reduction at 50 rows
@@ -860,7 +857,7 @@ const TOOLS = [
       required: ['query']
     }
   },
-  // P14-style hidden internal tools — handlers stay live for hooks /
+  // style hidden internal tools — handlers stay live for hooks /
   // CLI / programmatic callers, but the MCP TOOLS list omits them so
   // the model doesn't see ~1.5K tokens of descriptions per turn:
   //   - troth_query_persona_context  (obsolete Layer B leftover)
@@ -959,7 +956,7 @@ const TOOLS = [
       }
     }
   },
-  // P16 Tier 1 / GMP v0.2 — DecisionGraph typed-edge CRUD.
+  // DecisionGraph typed-edge CRUD.
   // Optional under features.decision_graph.
   {
     name: 'troth_record_edge',
@@ -1047,7 +1044,7 @@ const TOOLS = [
       required: ['action_id']
     }
   },
-  // P14 — internal-only tools (swap_session, before_compact, export/
+  // internal-only tools (swap_session, before_compact, export/
   // import_snapshot, archive_*) removed from the MCP TOOLS list. They
   // remain available as GMP native methods (troth/swap_session
   // etc.) for hooks, the runtime, and the CLI to use programmatically;

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: Apache-2.0
-// P13.2 — OMEGA-style reactive memory surfacing.
+// OMEGA-style reactive memory surfacing.
 //
 // After the agent completes a Read / Grep / Glob / Edit / Write / Bash,
 // look for prior verified ActionRecords that touched the same file or

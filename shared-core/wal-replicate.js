@@ -1,32 +1,21 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// WAL replication.
-//
-// Continuous backup of the substrate state.db to an operator-configured
-// remote target. Without this, partner mortality is bounded by SSD
-// reliability — which is wrong for a years-of-living entity.
-//
-// V1 scope: SQLite online backup API (better-sqlite3 `db.backup`) to
-// an operator-configured LOCAL PATH destination. The local path can be:
-//   - A NAS mount (rsync'd / time-machined elsewhere)
-//   - An rclone-mounted cloud bucket (S3 / Backblaze / Drive)
-//   - A syncthing-watched folder
-//   - A USB drive
-// Direct cloud-SDK push (S3 / Backblaze HTTP) deferred to v2 — the
-// local-path target covers 99% of operator setups via existing tools
-// without bringing native SDK dependencies into the substrate.
-//
-// Backup semantics:
-//   - SQLite's backup API respects WAL — captures a consistent snapshot
-//     even while writes are in-flight. No need to pause the substrate.
-//   - We write to dest + '.tmp' then rename to dest atomically, so a
-//     crashed-mid-backup never leaves a torn file as the replica.
-//   - Status is tracked in-memory by this module + optionally written
-//     to a status engram for operator inspection.
-//
-// Cadence:
-//   - Operator runs `troth replicate-wal --interval 60` for a 60s
-//     loop, OR calls runOnce from a cron job, OR background-worker
-//     picks up the task (Phase 3 reflection-tick wiring).
+// SPDX-License-Identifier: AGPL-3.0-only WAL replication. Continuous backup of
+// the substrate state.db to an operator-configured remote target. Without
+// this, partner mortality is bounded by SSD reliability — which is wrong for a
+// years-of-living entity. V1 scope: SQLite online backup API (better-sqlite3
+// `db.backup`) to an operator-configured LOCAL PATH destination. The local
+// path can be: - A NAS mount (rsync'd / time-machined elsewhere) - An
+// rclone-mounted cloud bucket (S3 / Backblaze / Drive) - A syncthing-watched
+// folder - A USB drive Direct cloud-SDK push (S3 / Backblaze HTTP) deferred to
+// v2 — the local-path target covers 99% of operator setups via existing tools
+// without bringing native SDK dependencies into the substrate. Backup
+// semantics: - SQLite's backup API respects WAL — captures a consistent
+// snapshot even while writes are in-flight. No need to pause the substrate. -
+// We write to dest + '.tmp' then rename to dest atomically, so a
+// crashed-mid-backup never leaves a torn file as the replica. - Status is
+// tracked in-memory by this module + optionally written to a status engram for
+// operator inspection. Cadence: - Operator runs `troth replicate-wal
+// --interval 60` for a 60s loop, OR calls runOnce from a cron job, OR
+// background-worker picks up the task.
 
 'use strict';
 

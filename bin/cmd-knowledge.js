@@ -233,7 +233,7 @@ if (command === "knowledge") {
 
   // The reservoir road.
   //
-  // This command used to chunk documents ITSELF and write every piece as a
+  // This command would chunk documents ITSELF and write every piece as a
   // type='lesson' ActionRecord — semantic, model-visible. 3,785 of those
   // "lessons" were whole research documents on the substrate this was
   // measured on, and recall served them back as if they were memories the

@@ -116,7 +116,7 @@ const taskStateSummary = {
   }
 };
 
-// G3 — idle drift scan. Pulls recent assistant replies from
+// idle drift scan. Pulls recent assistant replies from
 // dialogue-memory, scores each against active identity directions, and
 // records a `degradation_alert` (type='decision', input.kind='degradation_alert')
 // per drifting reply. The scan is async (embedding calls), so it runs
@@ -198,7 +198,7 @@ const taskDriftScan = {
 };
 taskDriftScan._seen = new Set();
 
-// G8 — engram garbage collection. Runs once per day per agent: applies
+// engram garbage collection. Runs once per day per agent: applies
 // salience decay, tombstones below-threshold engrams, consolidates
 // near-duplicates, caps total count. Without this, the engram corpus
 // grows unbounded and stale entries flood the [troth/identity]
@@ -243,7 +243,7 @@ const taskEngramGc = {
   }
 };
 
-// Tier 1 / Item A — pattern detector. Scans recent drift alerts +
+// pattern detector. Scans recent drift alerts +
 // rejected revisions, suggests new anchor commitments when patterns
 // emerge. Substrate observes its own struggles and asks operator
 // "should we tighten this position into an explicit anchor?".
@@ -324,21 +324,18 @@ const taskIdentityExtract = {
 // trivial two-step shapes; the schema-delta pass never emitted a single
 // row. Learning that nothing reads is load, not memory.
 
-// PLR graduation phase 2 — periodic reviewer that converts
-// reconsolidation_candidate observations (emitted by the Stop hook
-// reconsolidation-watch.mjs) into actual reconsolidate() supersede
-// writes when consensus passes a high-confidence gate.
-//
-// Why background, not inline in the hook: the original Brain-as-
-// the substrate design work calls for "autonomous overwrite within 10
-// minutes" — a periodic task at this cadence meets the time window
-// while keeping the safety property the hook chose: enough evidence
-// must accumulate before any superseding write lands. Single-turn
-// Jaccard signal is too noisy; consensus across multiple turns is the
-// gate. Without a corrected new_statement (the hook only detects
-// contradiction, not the truth), we write the superseder at
-// tier='flagged' so the injector skips both prior and superseder —
-// the substrate forgets the wrong fact without claiming a new one.
+// Periodic reviewer that converts reconsolidation_candidate observations
+// (emitted by the Stop hook reconsolidation-watch.mjs) into actual
+// reconsolidate() supersede writes when consensus passes a high-confidence
+// gate. Why background, not inline in the hook: the design calls for
+// "autonomous overwrite within 10 minutes" — a periodic task at this cadence
+// meets the time window while keeping the safety property the hook chose:
+// enough evidence must accumulate before any superseding write lands.
+// Single-turn Jaccard signal is too noisy; consensus across multiple turns is
+// the gate. Without a corrected new_statement (the hook only detects
+// contradiction, not the truth), we write the superseder at tier='flagged' so
+// the injector skips both prior and superseder — the substrate forgets the
+// wrong fact without claiming a new one.
 const taskReconsolidationReview = {
   name: 'reconsolidation_review',
   cadence_ms: 6 * 60 * 60 * 1000,   // 6 hours — within the paper's 10-min window in spirit, but cheaper
@@ -365,7 +362,7 @@ const taskReconsolidationReview = {
     // contradiction kinds per group. excerpts holds prior-statement
     // slices (what the substrate believed); contradicting_excerpts holds
     // assistant-turn slices (what disagreed with the prior). Both feed
-    // the Phase 3 corrected-fact extractor below.
+    // the corrected-fact extractor below.
     const groups = new Map();
     for (const row of candidates) {
       let inp; try { inp = (typeof row.input === 'string') ? JSON.parse(row.input) : row.input; } catch (_) { continue; }
@@ -418,13 +415,11 @@ const taskReconsolidationReview = {
       if (priorOut.tier === 'flagged') { skipped.push({ eid: g.eid, reason: 'already_flagged' }); continue; }
       if (priorOut.lifetime && priorOut.lifetime.supersedes) { skipped.push({ eid: g.eid, reason: 'already_in_chain' }); continue; }
 
-      // Phase 3 corrected-fact path (opt-in via TROTH_PLR_PHASE3=1
-      // until production-validated). When enabled AND a driver is
-      // configured AND the evidence is rich enough, ask an LLM to
-      // extract the corrected fact from the contradicting excerpts.
-      // On any failure → fall through to the safe phase-1 flagged
-      // template below, preserving "retire-the-prior, don't claim a
-      // new fact" semantics.
+      // The corrected-fact path (opt-in via TROTH_PLR_PHASE3=1). When enabled AND a
+      // driver is configured AND the evidence is rich enough, ask an LLM to extract
+      // the corrected fact from the contradicting excerpts. On any failure → fall
+      // through to the safe phase-1 flagged template below, preserving
+      // "retire-the-prior, don't claim a new fact" semantics.
       const phase3Enabled = process.env.TROTH_PLR_PHASE3 === '1';
       const driver = phase3Enabled
         ? (typeof lr.makeReconsolidationDriverFromEnv === 'function'
@@ -524,7 +519,7 @@ const taskReconsolidationReview = {
 };
 
 
-// G11 — substrate backup automation. Weekly export of L1 state via
+// substrate backup automation. Weekly export of L1 state via
 // substrate-backup.exportArchive. Keeps last 4 bundles in
 // ~/.troth/backups/, prunes older. Zero-cost ACID snapshot — SQLite
 // online backup is safe while substrate keeps writing.
@@ -754,7 +749,7 @@ const taskPurposeRefresh = {
       const match = prev.find(e => e && e.scope === 'system:current_focus:' + projectId);
       if (match) prevId = match.id;
     } catch (_) {}
-    // Unchanged orientation = no write. Every refresh used to record a fresh
+    // Unchanged orientation = no write. Every refresh would record a fresh
     // snapshot regardless, so a quiet project accumulated an identical row per
     // cycle and the Mind page read as a page of clones — five timestamps, one
     // sentence. The supersession chain only carries information when the text
@@ -1016,20 +1011,16 @@ const taskWorkingMemoryConsolidation = {
     }
     const newTurnCount = turns.length - rereadIds.size;
     turns = turns.concat(catchUp);
-    // Dedup guard. This loop previously had a comment
-    // promising "skip if substantially-duplicate fragment was already
-    // promoted" but NO code implementing it, and it writes with
-    // auto_verify:false (engram.js:156) which disables engram-verify's
-    // Jaccard dedup — so every tick re-promoted the SAME emphasized
-    // fragment. Live DB showed one fragment promoted 12× (scope
-    // consolidated:dialogue). Grounded in our ingested research
+    // Dedup guard. This loop writes with auto_verify:false (engram.js:156) which
+    // disables engram-verify's Jaccard dedup, so without a guard every tick
+    // re-promotes the same emphasized fragment. Grounded in our ingested research
     // (AI-Memory-Consolidation-Implementation-Details.md §3.4: an identical
-    // assertion is a storage NO-OP, not a new row). We dedup on the exact
-    // promoted statement, seeded from BOTH the existing consolidated:dialogue
-    // pool (catches prior-run copies — the watermark resets per run) AND
-    // this batch. Exact-match (not embedding) is the right tool here: the
-    // promoted statement is deterministically 'operator emphasized: '+fragment,
-    // so identical user emphasis yields a byte-identical statement.
+    // assertion is a storage NO-OP, not a new row). We dedup on the exact promoted
+    // statement, seeded from BOTH the existing consolidated:dialogue pool (catches
+    // prior-run copies — the watermark resets per run) AND this batch. Exact-match
+    // (not embedding) is the right tool here: the promoted statement is
+    // deterministically 'operator emphasized: '+fragment, so identical user
+    // emphasis yields a byte-identical statement.
     const _seenPromoted = new Set();
     // The current fact per subject and attribute (an employer's pay, a
     // machine's location): a newer statement on the same pair supersedes
@@ -1781,7 +1772,7 @@ const taskWalReplicate = {
   }
 };
 
-// Cadence ledger reader shared by BOTH runners. The scheduler used to keep
+// Cadence ledger reader shared by BOTH runners. The scheduler would keep
 // lastRun only in memory, so every restart re-ran everything — four "weekly"
 // backups in a day, each a synchronous copy of a multi-GB state.db.
 function hydrateLastRunFromRecords(cwd, stateOverride) {
@@ -2074,7 +2065,7 @@ function startWorker(opts) {
             try { submit(ev); } catch (_) { /* runtime stopped or rejected; skip */ }
           }
         }
-        // G7 — auto-surface high-priority events as insights. Each event
+        // auto-surface high-priority events as insights. Each event
         // goes through insight-surfacer.priorityFor → recordInsight; the
         // surfacer handles threshold + per-hour throttle + L1 write.
         // Best-effort — surfacer failures never break the worker loop.

@@ -564,10 +564,10 @@ function preprocessAnthropicBody(bodyStr) {
       }
     }
 
-    // ── Opus 4.7 strict mode: strip params that return 400 on 4.7 ──
-    // Research: Opus 4.7 rejects deprecated thinking.budget_tokens and
-    // non-default sampling params. Failing fast on our side prevents
-    // downstream 400s that Claude Code would surface as session errors.
+    // ── Opus 4.7 strict mode: strip params that return 400 on 4.7 ── Opus 4.7
+    // rejects deprecated thinking.budget_tokens and non-default sampling params.
+    // Failing fast on our side prevents downstream 400s that Claude Code would
+    // surface as session errors.
     if (requestedModel.indexOf("claude-opus-4-7") === 0) {
       if (data.thinking && data.thinking.budget_tokens !== undefined) {
         delete data.thinking.budget_tokens;
@@ -622,7 +622,7 @@ function preprocessAnthropicBody(bodyStr) {
       if (data.thinking.type === "adaptive") {
         var effort = (data.output_config && data.output_config.effort) || "high";
         // Preserve caller's effort verbatim (including 'xhigh' and 'max' introduced
-        // with Opus 4.7). Previously we mapped 'max' → 'high' which lost precision.
+        // with Opus 4.7).
         var validEfforts = { "low": 1, "medium": 1, "high": 1, "xhigh": 1, "max": 1 };
         thinkingConfig = {
           thinkingLevel: validEfforts[effort] ? effort : "high",
@@ -1012,12 +1012,11 @@ var routingPrefs = {
   // never resurrect a disabled or unhealthy engine.
   order: [],
   // Lead-engine preference when several are usable (the app's "This Mac first"
-  // vs "Best quality first" pills, top-level config.dispatch_prefer):
-  //   'local'  → local leads simple+medium, cloud only for hard reasoning
-  //   'hosted' → cloud frontier leads all tiers, local is backup
-  // Read from config.dispatch_prefer in loadProviders() and consulted by the
-  // chain order below — was previously IGNORED (pill did nothing). Default
-  // 'local' keeps the sane "trivial chat stays on-device" behavior.
+  // vs "Best quality first" pills, top-level config.dispatch_prefer): 'local' →
+  // local leads simple+medium, cloud only for hard reasoning 'hosted' → cloud
+  // frontier leads all tiers, local is backup Read from config.dispatch_prefer
+  // in loadProviders() and consulted by the chain order below. Default 'local'
+  // keeps the sane "trivial chat stays on-device" behavior.
   dispatch_prefer: "local",
   // true when config.dispatch_prefer was written by the operator; a derived
   // preference never sends the lead to a local host on another machine.
@@ -1027,11 +1026,11 @@ var routingPrefs = {
 // Pristine defaults — captured ONCE at module load so loadProviders() can
 // reset to a known-good baseline before re-merging on every call. Without
 // this, calling loadProviders() after the user removes a provider from
-// config.json (or sets enabled:false then deletes the key entirely)
-// leaves the previous in-memory state intact — so a "removed" provider
-// stays enabled in the running process until restart. Same goes for
-// routingPrefs: editing routing.{coding,planning,...} in the dashboard
-// never UN-sets a previously-set value because the merge is additive.
+// config.json (or sets enabled:false then deletes the key entirely) leaves the
+// previous in-memory state intact — so a "removed" provider stays enabled in
+// the running process until restart. Same goes for routingPrefs: editing
+// routing.{coding,planning,...} in the dashboard never un-sets a stored value
+// because the merge is additive.
 var _providersDefaults = JSON.parse(JSON.stringify(providers));
 var _routingPrefsDefaults = JSON.parse(JSON.stringify(routingPrefs));
 
@@ -1095,11 +1094,9 @@ function loadProviders() {
       routingPrefs.dispatch_prefer_explicit = true;
     } else {
       routingPrefs.dispatch_prefer_explicit = false;
-      // Nothing chosen yet, which is every fresh install. The default used to
-      // be the constant 'local', so a machine with no local model advertised
-      // "this Mac first" and sent the first message somewhere that does not
-      // exist. Derive it instead: prefer this Mac only when this Mac can
-      // actually answer. An explicit choice above always wins over this.
+      // Nothing chosen yet, which is every fresh install. Derive it instead: prefer
+      // this Mac only when this Mac can actually answer. An explicit choice above
+      // always wins over this.
       routingPrefs.dispatch_prefer =
         (providers.local && providers.local.enabled) ? 'local' : 'hosted';
     }
@@ -1188,7 +1185,7 @@ function getProviders() {
     }
     // `ready` — the server-computed "this lane can actually answer" truth,
     // matching what the chain builder itself requires. The Engine order UI
-    // used to list every enabled lane; an enabled provider with no key
+    // would list every enabled lane; an enabled provider with no key
     // rendered as a routing rung that would never fire, which read as
     // "engines you have" when it was "engines you once toggled".
     var p = providers[k];
@@ -1419,7 +1416,7 @@ function callOpenAICompatible(bodyStr, providerOpts) {
           if (typeof providerOpts.onError === 'function') {
             try { providerOpts.onError(res.statusCode, errMsg, body); } catch(_) {}
           }
-          // P4.2: classify + record so /api/stats shows error patterns
+          // classify + record so /api/stats shows error patterns
           try { require('./errortax').record(res.statusCode, errMsg, providerOpts.model || providerOpts.name); } catch (_) {}
           console.error("[router]", providerOpts.name, "error:", res.statusCode, errMsg);
           resolve(null);
@@ -1450,7 +1447,7 @@ function callOpenAICompatible(bodyStr, providerOpts) {
           var outT = usage.completion_tokens || 0;
           var cachT = (usage.prompt_tokens_details && usage.prompt_tokens_details.cached_tokens) || 0;
           costMod.recordUsage(_asModelName(providerOpts.model, providerOpts.model), inT, outT, cachT);
-          // P4.1 — feed the per-model cache HIT-RATIO tracker for OpenAI-shape
+          // feed the per-model cache HIT-RATIO tracker for OpenAI-shape
           // providers too (was Anthropic-only, so the dashboard showed 0% cache
           // for DeepSeek/Gemini/Qwen even when their implicit prefix-cache hit).
           // OpenAI usage: prompt_tokens is TOTAL, cached_tokens is the cached
@@ -1476,7 +1473,7 @@ function callOpenAICompatible(bodyStr, providerOpts) {
               baseline_cost: baselineC.cost || 0,
               tokens_in: inT, tokens_out: outT, tokens_cached: cachT
             });
-            // P16.5 I2 — emit cost_event into the substrate, attributed to
+            // emit cost_event into the substrate, attributed to
             // the most-recent linkable action in the active plugin session.
             // Silently skipped if no plugin active or no recent action,
             // so we never write orphan cost rows.
@@ -1515,12 +1512,10 @@ function callOpenAICompatible(bodyStr, providerOpts) {
 }
 
 // Alibaba Model Studio supports both generic aliases AND versioned model IDs.
-// Free quota is tracked per EXACT model ID — so qwen-max and qwen-max-latest have
-// SEPARATE 1M-token free pools, and each versioned release (qwen3-max-,
-// qwen3-max-2025-09-23, qwen3-max-preview) also has its own 1M pool.
-// The unversioned alias "qwen3-max" is NOT SUPPORTED for free quota — Not Supported
-// status in the dashboard. Use versioned IDs to actually consume free credits.
-// [Alibaba docs: alibabacloud.com/help/en/model-studio/new-free-quota]
+// The unversioned alias "qwen3-max" is NOT SUPPORTED for free quota — Not
+// Supported status in the dashboard. Use versioned IDs to actually consume
+// free credits. [Alibaba docs:
+// alibabacloud.com/help/en/model-studio/new-free-quota]
 var ALIBABA_VALID_MODELS = [
   // Versioned (have per-version free quota)
   'qwen3-max-2026-01-23',  // newest, 1M free
@@ -1540,10 +1535,6 @@ var ALIBABA_HARD_CAP_TOKENS = alibabaCaps.DEFAULT_CAP;
 function callAlibaba(bodyStr, opts) {
   opts = opts || {};
   if (!providers.alibaba.enabled || !providers.alibaba.apiKey) return Promise.resolve(null);
-  // Optional caller-supplied model override — used by the architect path so
-  // forcing qwen3-max for a hard task doesn't mutate providers.alibaba.model
-  // globally (which previously created a race when concurrent requests read
-  // the field between the override and the.then restore).
   var model = opts.model || providers.alibaba.model || "qwen3-max";
   // glm-5.1 is served by Z.ai's Coding Plan, NOT Alibaba DashScope. The model
   // ID appears in the Alibaba whitelist for legacy config reasons, but the
@@ -1566,7 +1557,7 @@ function callAlibaba(bodyStr, opts) {
   var modelCap = alibabaCaps.getCap(model);
   // Alibaba models are not 4.7; estimator uses legacy constant + CJK detection.
   var estTokens = tokenestimate.estimateBodyTokens(bodyStr, model);
-  // P3.2: compression buffer — warn (and surface in stats) when body is
+  // compression buffer — warn (and surface in stats) when body is
   // within 80% of the cap, so upstream can choose to compress BEFORE we
   // hit the hard rejection below. Hermes Agent pattern.
   try {
@@ -2043,7 +2034,7 @@ function callAnthropic(bodyStr, headers) {
                 baseline_cost: baselineC2.cost || 0,
                 tokens_in: inT2, tokens_out: outT2, tokens_cached: cachT2
               });
-              // P16.5 I2 — substrate cost_event mirror (Anthropic direct path).
+              // substrate cost_event mirror (Anthropic direct path).
               try {
                 var sharedCost2 = require('../../shared-core/cost.js');
                 sharedCost2.recordCostForActiveSession(sharedState2, 'proxy', {
@@ -2053,7 +2044,7 @@ function callAnthropic(bodyStr, headers) {
                 });
               } catch (_) {}
             } catch (_) {}
-            // P4.1: per-model cache hit/write/uncached ratio
+            // per-model cache hit/write/uncached ratio
             try { require('./cacheratio').record(modelName2, usage); } catch (_) {}
           } catch (e) {}
           console.log("[router] Anthropic API OK");
@@ -2363,14 +2354,14 @@ function markProviderHealthy(name) {
   }
 }
 
-// Local-backend reachability probe with a short cache. The proxy used to
-// fall back to local (Ollama / LM Studio @ 127.0.0.1:11434) unconditionally
+// Local-backend reachability probe with a short cache. The proxy would fall
+// back to local (Ollama / LM Studio @ 127.0.0.1:11434) unconditionally
 // whenever cloud providers failed. When the user has the local box offline
-// (Tailscale closed, Ollama stopped, etc.) every fall-through cost a full
-// CC API_TIMEOUT_MS hang — the user sees "Retrying in 0s" for 20 minutes.
-// Probe is a 200ms TCP connect; result cached for 30s. Conservative: on
-// any error we treat local as unavailable so the chain can return a clean
-// error to CC instead of hanging.
+// (Tailscale closed, Ollama stopped, etc.) every fall-through cost a full CC
+// API_TIMEOUT_MS hang — the user sees "Retrying in 0s" for 20 minutes. Probe
+// is a 200ms TCP connect; result cached for 30s. Conservative: on any error we
+// treat local as unavailable so the chain can return a clean error to CC
+// instead of hanging.
 var _localProbe = { ts: 0, ok: false, host: null, port: null };
 function localTarget() {
   // Use whatever the user configured. NEVER substitute a default IP/port —
@@ -2593,8 +2584,8 @@ function buildPinFailure(name) {
   };
 }
 
-// The chain the most recent request actually resolved to. The dashboard used
-// to print a hard-coded display order (ChatGPT first, Kimi last, local always
+// The chain the most recent request actually resolved to. The dashboard would
+// print a hard-coded display order (ChatGPT first, Kimi last, local always
 // shown) which matched nothing the router does: order is cost/tier computed
 // and unreachable lanes are dropped.
 var _lastEffectiveChain = null;
@@ -3144,9 +3135,7 @@ function forwardToLocal(req, body, bHost, bPort, opts2) {
     if (opts2.apiKey) headers["authorization"] = "Bearer " + opts2.apiKey;
 
     // Always go through /v1/chat/completions — universal across every
-    // OpenAI-compatible backend. (We previously sniffed body shape and
-    // routed Anthropic-shape to Ollama's /v1/messages?beta=true, but that
-    // route only exists on Ollama 0.4+ and broke every other backend.)
+    // OpenAI-compatible backend.
     var reqPath = "/v1/chat/completions";
     var reqMethod = (req && req.method) ? req.method : "POST";
     var opts = { hostname: bHost, port: bPort, path: reqPath, method: reqMethod, headers: headers, timeout: 600000 };
@@ -3315,7 +3304,7 @@ function detectTier() {
 }
 
 function getStats() {
-  // local_backend: the dashboard used to show the Local row as "ready"
+  // local_backend: the dashboard would show the Local row as "ready"
   // purely because the provider was enabled in config, while the router
   // was logging "Local backend not configured" — two surfaces, two truths.
   // Expose what the router actually knows so the UI can say it plainly.

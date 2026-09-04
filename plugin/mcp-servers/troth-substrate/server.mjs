@@ -923,7 +923,7 @@ const TOOLS = {
     }
   },
 
-  // Multi-agent (G5) — substrate-to-substrate negotiation. Two
+  // Multi-agent — substrate-to-substrate negotiation. Two
   // agent_ids each pull their highest-salience commitment in `scope`, the
   // deterministic classifier returns agree/conflict/orthogonal, and BOTH
   // sides record the verdict (consensus / disagreement / merged) as a

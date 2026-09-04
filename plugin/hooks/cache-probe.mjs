@@ -38,7 +38,7 @@ const cwd     = payload.cwd || process.cwd();
 
 if (!tool || !gc.isCacheable(tool, input)) { allow(); }
 
-// P0.4 — opt-in hint injection. The cache hint is only useful when CC
+// opt-in hint injection. The cache hint is only useful when CC
 // permissions are enforcing (deny on Read/Grep/Glob → model has to use
 // cached_*). In yolo mode (`--dangerously-skip-permissions`) the deny
 // rule is bypassed, the model ignores the hint, and the hint becomes

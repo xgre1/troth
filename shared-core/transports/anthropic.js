@@ -260,14 +260,14 @@ function parseFrame(frame, emit, acc) {
   }
   if (event === 'content_block_delta' && data && data.delta) {
     if (typeof data.delta.text === 'string') { emit({ delta: data.delta.text }); return; }
-    // R9: streamed tool-call arguments (partial JSON, one block at a time).
+    // streamed tool-call arguments (partial JSON, one block at a time).
     if (data.delta.type === 'input_json_delta' && acc && acc[data.index]) {
       acc[data.index].args += (data.delta.partial_json || '');
       return;
     }
   }
   if (event === 'message_stop') {
-    // R9: flush accumulated tool_use blocks as ONE tool_calls chunk — composeAgentic
+    // flush accumulated tool_use blocks as ONE tool_calls chunk — composeAgentic
     // OVERWRITES pendingToolCalls per chunk, so every call must arrive together.
     if (acc) {
       const keys = Object.keys(acc).sort((a, b) => Number(a) - Number(b));

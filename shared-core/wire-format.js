@@ -1,26 +1,18 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// P17 Tier 1 — Tokenizer-aware wire format (TOON-style).
-//
-// Translates raw ActionRecord rows into a compact, schema-declared
-// representation for LLM consumption. Storage layer stays verbose
-// JSON in SQLite — this layer is invoked when records fault into the
-// model's context (manifest, fault_in, query_actions response).
-//
-// Design (research G17.A/B):
-//   - Schema-first: declare keys + types ONCE in a payload header.
-//   - Positional rows: each record is a pipe-delimited line of values.
-//   - Alias dict: high-frequency string values get short aliases (&0,
-//     &1, ...) declared in the header; row body references the alias.
-//   - Stripped fields: we omit nulls, empty objects, empty arrays.
-//   - Reserved metadata: an `_id` column always present so records are
-//     referrable by UUIDv7 just like in JSON.
-//
-// We deliberately do NOT implement the full TOON spec
-// (toon-format/toon) — only the columnar slice that maps cleanly onto
-// our flat ActionRecord shape. TRON for nested DAGs lands in Tier 2.
-//
-// Constraint: round-trip integrity 100%. encode(decode(x)) === x for
-// every supported ActionRecord type.
+// SPDX-License-Identifier: AGPL-3.0-only Tokenizer-aware wire
+// format (TOON-style). Translates raw ActionRecord rows into a compact,
+// schema-declared representation for LLM consumption. Storage layer stays
+// verbose JSON in SQLite — this layer is invoked when records fault into the
+// model's context (manifest, fault_in, query_actions response). Design: -
+// Schema-first: declare keys + types ONCE in a payload header. - Positional
+// rows: each record is a pipe-delimited line of values. - Alias dict:
+// high-frequency string values get short aliases (&0, &1, ...) declared in the
+// header; row body references the alias. - Stripped fields: we omit nulls,
+// empty objects, empty arrays. - Reserved metadata: an `_id` column always
+// present so records are referrable by UUIDv7 just like in JSON. We
+// deliberately do NOT implement the full TOON spec (toon-format/toon) — only
+// the columnar slice that maps cleanly onto our flat ActionRecord shape. TRON
+// for nested DAGs lands in Tier 2. Constraint: round-trip integrity 100%.
+// encode(decode(x)) === x for every supported ActionRecord type.
 
 const ACTION_RECORD_KEYS = Object.freeze([
   'id', 'timestamp', 'type', 'agent_id', 'session_id', 'user_id',
@@ -304,7 +296,7 @@ function estimateTokens(payload) {
   return Math.ceil(payload.length / 4);
 }
 
-// ── P17 Tier 2 — TRON for nested DAGs ────────────────────────────────────
+// ── TRON for nested DAGs ────────────────────────────────────
 // TOON's columnar form excels on uniform flat arrays. For nested
 // structures (trace_causal_path responses with depth/path edges,
 // counterfactual branch trees with parent_branch_id chains) the

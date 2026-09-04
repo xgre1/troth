@@ -1,18 +1,13 @@
 #!/usr/bin/env node
-// SPDX-License-Identifier: Apache-2.0
-// troth-router — lightweight deferral MCP.
-//
+// SPDX-License-Identifier: Apache-2.0 troth-router — lightweight deferral MCP.
 // A single MCP server that exposes THREE compact tools (`mcp_list`,
-// `mcp_describe`, `mcp_call`) and proxies to an arbitrary set of real
-// stdio MCPs on demand. The point: replace N heavy MCP schemas in the
-// agent's locked prefix with one ~500-token schema for the router.
-//
-// Downstream servers are defined in ~/.troth/router.json (same shape
-// as .claude/settings.json mcpServers). They're spawned lazily the
-// first time the agent calls `mcp_list(server)` or `mcp_call(...)` and
-// kept warm until the router process exits.
-//
-// Protocol: stdio JSON-RPC 2.0 per MCP spec 2024-11-05.
+// `mcp_describe`, `mcp_call`) and proxies to an arbitrary set of real stdio
+// MCPs on demand. The point: replace N heavy MCP schemas in the agent's locked
+// prefix with one ~500-token schema for the router. Downstream servers are
+// defined in ~/.troth/router.json (same shape as .claude/settings.json
+// mcpServers). They're spawned lazily the first time the agent calls
+// `mcp_list(server)` or `mcp_call(...)` and kept warm until the router process
+// exits.
 
 import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';

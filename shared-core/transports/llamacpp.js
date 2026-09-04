@@ -450,7 +450,7 @@ function makeLlamaCppTransport(opts) {
         // receives the assembled call once `finish_reason: 'tool_calls'`
         // fires.
         const toolCallAcc = [];
-        let sentServed = false; // R2: emit served_by once
+        let sentServed = false; // emit served_by once
         function mergeToolCallDelta(d) {
           const idx = typeof d.index === 'number' ? d.index : 0;
           if (!toolCallAcc[idx]) toolCallAcc[idx] = { id: null, function: { name: '', arguments: '' } };

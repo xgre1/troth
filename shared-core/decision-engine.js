@@ -88,7 +88,7 @@ const ruleEchoForShortInput = {
   }
 };
 
-// P7.3 — memory dispatch. A memory-shaped question whose recall is
+// memory dispatch. A memory-shaped question whose recall is
 // CONFIDENT is answered by the substrate itself: the mind speaks, no
 // language faculty summoned. The runtime attaches pre-fetched recall to
 // the event (this engine stays pure — no I/O in a rule); confidence is
@@ -123,7 +123,7 @@ const ruleMemoryDispatch = {
   }
 };
 
-// G2 — structural disagreement. When the user's text contradicts an
+// structural disagreement. When the user's text contradicts an
 // active commitment, the substrate prepends a stance preface forcing
 // the LLM into push-back-or-formally-revise mode rather than silent
 // agreement. Placed BEFORE ruleNeedsLanguage so the augmented prompt

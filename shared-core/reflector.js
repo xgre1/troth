@@ -1,63 +1,41 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Memory Reflector v1 — PARTIALLY RETIRED  (sweep mode drifted).
-//
-// DRIFT NOTE: per design §4 the
-// commitment-sweep mode (typed-commitment.sweepCommitments which this
-// reflector hosts indirectly) is drifted — LLM-as-judge per commitment
-// where Cohen+Levesque rule-table would suffice. The CORE Park 2023 +
-// A-MEM clustering for memory consolidation is operator-invoked via
-// bin/reflect.js CLI — that IS a legitimate §3 LLM-faculty use
-// (synthesis from diverse facts) and stays.
-//
-// Production data (state DB 7d): operator-invoked manual reflection
-// is rare; automated sweep never fires.
-//
-// design grounding (full spec at /tmp/.../a7b365577aa4d8c25.output):
-//   A-MEM (Xu 2502.12110): online clustering top-K=10 over existing
-//     embeddings, no re-embedding; LLM-mediated linking after pre-filter.
-//   Park 2023 (UIST §A): reflection trigger when importance_sum > 150
-//     (~2-3 daily); 5 insights per run; cite source IDs verbatim.
-//   MemoryBank (Zhong AAAI 2024): R = e^{-t/S} decay, S+=1 on retrieval.
-//     Reflector marks source.consolidated=true (does NOT delete in v1).
-//   Nader 2000 (Nature): 6h reconsolidation window — heartbeat
-//     time_since_last >= 6h is biologically grounded.
-//   W3C PROV-O: wasGeneratedBy (activity), wasDerivedFrom (sources),
-//     generatedAtTime, wasAttributedTo. Reflected engrams carry provenance.
-//   design R23: state transitions immutable. Reflector writes NEW
-//     engrams (semantic:reflected); never UPDATEs sources except for
-//     the consolidated=true flag (additive metadata, not transition).
-//
-// Algorithm (cluster → reflect → validate → write):
-//   1. Window: last N=200 not-yet-consolidated engrams (newest first)
-//   2. Online clustering: cosine similarity, top-K=10, floor=0.55 to attach
-//      (engineering knob per spec — flag for retuning)
-//   3. Filter: clusters with >=2 members (Park: needs >=2 sources to cite)
-//   4. Cap: top 5 clusters by importance_sum (Park: 5 insights per run)
-//   5. Idempotency: skip if sha256(sorted_source_ids) already exists
-//   6. Reflect: Park-derived prompt → expects {assertion, sources[], contradictions[], confidence}
-//   7. Validate:
-//        HARD: sources >= 2, source_ids subset of cluster, assertion length OK
-//        SOFT: mean_sim >= 0.5 (warn only), confidence >= 0.4 (warn only)
-//   8. Write reflected engram + flip source.consolidated = true
-//
-// v1 SCOPE:
-//   Manual CLI invocation (bin/reflect.js); NO background heartbeat
-//   Source consolidation flagging only; NO hard-delete
-//   Flat reflections only; NO reflection-of-reflections
-//   Single reflector LLM (config-pinned); cross-family enforcement v2
-//
-// v1 OUT OF SCOPE (deferred):
-//   Heartbeat scheduler
-//   Source eviction after 30d retention
-//   PLR contradiction → supersede flow
-//   Cross-family reflector validation
-//   MemoryBank decay on reflected engrams
-//
-// State coupling:
-//   reflection_activities table (NEW) — one row per reflector run
-//   engrams gain output.reflected_meta = { sources, mean_sim, confidence,
-//     source_hash, activity_id, cluster_size } and scope='semantic:reflected'
-//   source engrams gain output.consolidated=true + output.consolidated_at
+// SPDX-License-Identifier: AGPL-3.0-only Memory Reflector v1 — PARTIALLY
+// RETIRED (sweep mode drifted). The CORE Park 2023 + A-MEM clustering for
+// memory consolidation is operator-invoked via bin/reflect.js CLI — that IS a
+// legitimate §3 LLM-faculty use (synthesis from diverse facts) and stays.
+// Production data (state DB 7d): operator-invoked manual reflection is rare;
+// automated sweep never fires. design grounding (full spec at
+// /tmp/.../a7b365577aa4d8c25.output): A-MEM (Xu 2502.12110): online clustering
+// top-K=10 over existing embeddings, no re-embedding; LLM-mediated linking
+// after pre-filter. Park 2023 (UIST §A): reflection trigger when
+// importance_sum > 150 (~2-3 daily); 5 insights per run; cite source IDs
+// verbatim. MemoryBank (Zhong AAAI 2024): R = e^{-t/S} decay, S+=1 on
+// retrieval. Reflector marks source.consolidated=true (does NOT delete in v1).
+// Nader 2000 (Nature): 6h reconsolidation window — heartbeat time_since_last
+// >= 6h is biologically grounded. W3C PROV-O: wasGeneratedBy (activity),
+// wasDerivedFrom (sources), generatedAtTime, wasAttributedTo. Reflected
+// engrams carry provenance. design R23: state transitions immutable. Reflector
+// writes NEW engrams (semantic:reflected); never UPDATEs sources except for
+// the consolidated=true flag (additive metadata, not transition). Algorithm
+// (cluster → reflect → validate → write): 1. Window: last N=200
+// not-yet-consolidated engrams (newest first) 2. Online clustering: cosine
+// similarity, top-K=10, floor=0.55 to attach (engineering knob per spec — flag
+// for retuning) 3. Filter: clusters with >=2 members (Park: needs >=2 sources
+// to cite) 4. Cap: top 5 clusters by importance_sum (Park: 5 insights per run)
+// 5. Idempotency: skip if sha256(sorted_source_ids) already exists 6. Reflect:
+// Park-derived prompt → expects {assertion, sources[], contradictions[],
+// confidence} 7. Validate: HARD: sources >= 2, source_ids subset of cluster,
+// assertion length OK SOFT: mean_sim >= 0.5 (warn only), confidence >= 0.4
+// (warn only) 8. Write reflected engram + flip source.consolidated = true v1
+// SCOPE: Manual CLI invocation (bin/reflect.js); NO background heartbeat
+// Source consolidation flagging only; NO hard-delete Flat reflections only; NO
+// reflection-of-reflections Single reflector LLM (config-pinned); cross-family
+// enforcement v2 v1 OUT OF SCOPE (deferred): Heartbeat scheduler Source
+// eviction after 30d retention PLR contradiction → supersede flow Cross-family
+// reflector validation MemoryBank decay on reflected engrams State coupling:
+// reflection_activities table (NEW) — one row per reflector run engrams gain
+// output.reflected_meta = { sources, mean_sim, confidence, source_hash,
+// activity_id, cluster_size } and scope='semantic:reflected' source engrams
+// gain output.consolidated=true + output.consolidated_at
 
 'use strict';
 

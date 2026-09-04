@@ -214,15 +214,12 @@ async function ensureBinary() {
     }
   } catch (_) { /* no sidecar = never tried */ }
   // Which official asset fits THIS machine — resolved per platform, never
-  // hard-coded to macOS-arm64: a single-platform download tells every Linux
-  // box and Intel Mac the local stack is unavailable — no reranking, no bundled chat
-  // server, and (before the doctor fix) a claim of semantic recall that
-  // nothing could serve. The gate existed for a real reason: an earlier
-  // version checked arch but not platform, so a Linux arm64 machine unpacked a
-  // Mach-O binary and died at spawn with a bare ENOEXEC. The fix is to pick
-  // the right asset per platform, not to refuse every platform but one.
-  // Names verified against the b9957 release listing; ubuntu-arm64,
-  // ubuntu-x64 and macos-x64 all ship llama-server.
+  // hard-coded to macOS-arm64: a single-platform download tells every Linux box
+  // and Intel Mac the local stack is unavailable — no reranking, no bundled chat
+  // server, and (before the doctor fix) a claim of semantic recall that nothing
+  // could serve. The fix is to pick the right asset per platform, not to refuse
+  // every platform but one. Names verified against the b9957 release listing;
+  // ubuntu-arm64, ubuntu-x64 and macos-x64 all ship llama-server.
   const _plat =
     process.platform === 'darwin' ? (process.arch === 'arm64' ? 'macos-arm64' : 'macos-x64')
     : process.platform === 'linux' ? (process.arch === 'arm64' ? 'ubuntu-arm64'

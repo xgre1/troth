@@ -21,7 +21,7 @@
 //      via operator_confirmed → operator_confirmed works).
 //   5. Successor records a fresh presence_proof → substrate exits dormant.
 //
-// Distinct from recovery (Phase 1.4b): recovery is for live-operator
+// Distinct from recovery: recovery is for live-operator
 // key-loss. Inheritance is for operator-death + successor handoff.
 // Code is structurally similar; the trigger condition and the directive
 // engram differ.

@@ -1,40 +1,30 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// system-prompt — build the system message for Mode A agentic turns.
-//
-// Goal: terminal-claude quality, not sdk-cli quality. The voice app
-// previously called `claude --print --input-format stream-json...`
-// which Claude Code internally tags as `entrypoint:'sdk-cli'` — a
-// stripped-down system prompt with low tool propensity. This module
-// is the reason troth-entity is a real alternative to that path:
-// we ship our own system prompt, tuned for tool-eager autonomous use.
-//
-// Design constraints (from research + troth's own engrams):
-//   Concise. Anthropic's "Effective Context Engineering" says the
-//     system prompt is the model's BEHAVIORAL BACKBONE — every token
-//     here trades against task tokens. Cap 1500 chars unless the caller
-//     overrides; verbose system prompts measurably degrade tool use.
-//   Tool inventory inline. Models that see the tool schemas in
-//     `tools[]` AND a short prose advertisement in the system prompt
-//     fire tools more often than tools[] alone (Anthropic blog).
-//   Anti-sycophancy. troth's drift-detector flags "sycophancy"
-//     and "fawning agreement" as production failure modes. Encode
-//     "no agreement-padding, no preamble" explicitly.
-//   Voice-mode flag. When opts.audio = true, additional brevity
-//     directive (≤25 words for chitchat, ≤2 sentences otherwise) and
-//     no markdown formatting (TTS reads asterisks).
-//   Identity hook DEPRECATED. The identity_anchors[] and
-//     identity_refusals[] params used to surface anchors/refusals as
-//     prompt-text bullets, but per the design work (R17 — hard walls > soft
-//     instructions) refusals must be structurally enforced at
-//     procedure-matcher / permission.js pre-LLM, NOT in the system
-//     prompt where prompt-injected pages can override them. Anchors
-//     are surfaced via entity-prefix.js makePrefixProvider's
-//     <memory_identity> block (scope='identity' engrams) — the proper
-//     identity-envelope channel. Params still accepted for backward
-//     compat but unused; remove from new callers.
-//
-// Pure function — no I/O, no LLM call. Caller assembles deps and
-// renders.
+// SPDX-License-Identifier: AGPL-3.0-only system-prompt — build the system
+// message for Mode A agentic turns. Goal: terminal-claude quality, not sdk-cli
+// quality. `claude --print --input-format stream-json...` is tagged by Claude
+// Code as `entrypoint:'sdk-cli'`, a stripped-down system prompt with low tool
+// propensity, so the voice app must not call it that way. This module is the
+// reason troth-entity is a real alternative to that path: we ship our own
+// system prompt, tuned for tool-eager autonomous use. Design constraints (from
+// research + troth's own engrams): Concise. Anthropic's "Effective Context
+// Engineering" says the system prompt is the model's BEHAVIORAL BACKBONE —
+// every token here trades against task tokens. Cap 1500 chars unless the
+// caller overrides; verbose system prompts measurably degrade tool use. Tool
+// inventory inline. Models that see the tool schemas in `tools[]` AND a short
+// prose advertisement in the system prompt fire tools more often than tools[]
+// alone (Anthropic blog). Anti-sycophancy. troth's drift-detector flags
+// "sycophancy" and "fawning agreement" as production failure modes. Encode "no
+// agreement-padding, no preamble" explicitly. Voice-mode flag. When opts.audio
+// = true, additional brevity directive (≤25 words for chitchat, ≤2 sentences
+// otherwise) and no markdown formatting (TTS reads asterisks). Identity hook
+// DEPRECATED. The identity_anchors[] and identity_refusals[] params would
+// surface anchors/refusals as prompt-text bullets, but per the design work
+// (R17 — hard walls > soft instructions) refusals must be structurally
+// enforced at procedure-matcher / permission.js pre-LLM, NOT in the system
+// prompt where prompt-injected pages can override them. Anchors are surfaced
+// via entity-prefix.js makePrefixProvider's <memory_identity> block
+// (scope='identity' engrams) — the proper identity-envelope channel. Params
+// still accepted for backward compat but unused; remove from new callers. Pure
+// function — no I/O, no LLM call. Caller assembles deps and renders.
 
 // raised 2400 -> 3400. The full prompt (operating context,
 // tool advertisement, hands, honesty/no-fabrication, audio brevity, style
@@ -87,7 +77,7 @@ function buildSystemPrompt(opts) {
   // identity_anchors / identity_refusals params deprecated  —
   // anchors flow via the substrate identity envelope (entity-prefix.js
   // <memory_identity> block); refusals enforced structurally at
-  // procedure-matcher / permission.js (R17). Kept here to swallow
+  // procedure-matcher / permission.js. Kept here to swallow
   // legacy call sites without breaking; sections never emit even when
   // populated. See file header for rationale.
   const audio    = !!opts.audio;

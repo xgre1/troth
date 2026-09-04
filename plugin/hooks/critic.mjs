@@ -198,7 +198,7 @@ try {
   );
 } catch (e) { /* telemetry must never break the hook */ }
 
-// P16.5 I1 — emit a first-class avoided_path record so the negative-
+// emit a first-class avoided_path record so the negative-
 // precedent surfacer can find it on the next prompt. Gated on
 // TROTH_NEGATIVE_KNOWLEDGE=1 so off-by-default users pay nothing.
 if (featureEnabled('negative_knowledge')) {

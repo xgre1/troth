@@ -33,7 +33,7 @@ function discover() {
     //
     // If there is no .git at all (an npm install, a `git archive` export),
     // every .test.js on disk came from the published tree, so walking it is
-    // exactly equivalent to the query. That case used to walk tests/ only and
+    // exactly equivalent to the query. That case would walk tests/ only and
     // therefore found three fewer files than a clone of the same commit, so
     // the published count depended on how you obtained the source; the walk
     // now covers tools/ as well.

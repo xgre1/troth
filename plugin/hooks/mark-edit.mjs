@@ -129,7 +129,7 @@ const editId = recordAction({
   verification: { ast: astResult }
 });
 
-// ── P16 Tier 2: link this edit back to its driving intent ─────────────────
+// ── link this edit back to its driving intent ─────────────────
 // Co-locating the edge creation here (instead of in post-action-recall.mjs)
 // eliminates the cross-hook race: that hook fires in parallel with this one,
 // so it would query for the just-written edit row before recordAction had

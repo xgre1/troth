@@ -53,16 +53,9 @@ const KILL_GRACE_MS       = 2000;
 const AVAILABILITY_TTL_MS = 60 * 1000;
 const SANDBOX_EXEC        = '/usr/bin/sandbox-exec';
 // The policy file lives OUTSIDE every jail, under ~/.troth (which no profile
-// ever allows). It used to sit inside WORK, where the jailed process could
-// rewrite it: harmless for the run in progress, but a long-lived jailed
-// process (dev server, watcher, an MCP bridge) could swap it in the window
-// between our write and sandbox-exec's read and hand the NEXT command a
-// wide-open policy. Unreachable ground removes the race entirely.
+// ever allows). Unreachable ground removes the race entirely.
 const PROFILE_DIR = path.join((process.env.HOME || os.homedir()), '.troth', 'sandbox-profiles');
-// The jail's scratch home and tmp. These used to live in the project as
-// .troth-sandbox/, which put npm's cache in the operator's repo: one install
-// staged 632 files and 3 MB into their next commit, and even a read-only
-// command created the directory. Scratch belongs to the jail, not the work.
+// The jail's scratch home and tmp. Scratch belongs to the jail, not the work.
 const JAIL_SCRATCH_ROOT = path.join((process.env.HOME || os.homedir()), '.troth', 'jails');
 function _scratchDirFor(work) {
   // Name for a human reading ~/.troth/jails, hash for uniqueness: two

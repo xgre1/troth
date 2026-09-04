@@ -21,7 +21,7 @@ var DENOM_LEGACY = 5.33;     // Anthropic 4.6 and older, GPT, Qwen, DeepSeek
 var DENOM_OPUS_4_7 = 3.2;    // Empirical ~1.35× inflation target for code-heavy traffic
 var DENOM_CJK = 2.5;         // Heuristic when content appears CJK-dominant
 
-// Ratio used to detect CJK-dominance: if >25% of chars are outside Basic Latin,
+// Ratio would detect CJK-dominance: if >25% of chars are outside Basic Latin,
 // we treat the content as CJK-heavy and use a tighter denominator.
 var CJK_THRESHOLD = 0.25;
 

@@ -693,7 +693,7 @@ module.exports = ({ test, skip }) => {
 
   test('LARP-8: an iteration-capped turn says so — never a synthesized bare "Done."', async () => {
     // The model works every round and never returns a closing text-only turn;
-    // the cap cuts it. finalize()’s "Done." fallback used to ship as the whole
+    // the cap cuts it. finalize()’s "Done." fallback would ship as the whole
     // answer — the tail must now say it was cut and how
     // to resume.
     let iter = 0;

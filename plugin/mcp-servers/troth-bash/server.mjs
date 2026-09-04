@@ -68,7 +68,7 @@ try {
   seatbelt = require(serverDir + '../../../shared-core/tools/sandbox-seatbelt.js');
   envdoor = require(serverDir + '../../../shared-core/tools/env-door.js');
   // The same harvest+redact store the outbound reply path uses. Raw stdout
-  // used to flow to the model AND into tool_output_archive untouched, which
+  // would flow to the model AND into tool_output_archive untouched, which
   // is how 550 credential literals ended up full-text searchable on disk:
   // one `cat .env` was archived verbatim, forever. Harvest secret-shaped
   // literals from every result and mask them BEFORE anything downstream
@@ -90,7 +90,7 @@ try {
 
 // Normalize + validate a directory: expand a leading ~, resolve, and require
 // an EXISTING directory. Returns null otherwise. A stale cwd (deleted
-// worktree, ~-prefixed input) used to surface as "spawn /bin/bash ENOENT" —
+// worktree, ~-prefixed input) would surface as "spawn /bin/bash ENOENT" —
 // blaming the shell instead of the cwd (portability audit  #3;
 // hit live twice in one session).
 function resolveDir(p) {
@@ -238,9 +238,6 @@ const TOOLS = [
 ];
 
 // Bounded ring buffer: keep first HEAD_BYTES + last TAIL_BYTES, drop middle.
-// Prevents unbounded string concatenation that previously OOM'd / stalled the
-// event loop on huge outputs (cat huge.bin, find /, accidental log tails),
-// which then dropped the MCP heartbeat → silent disconnect.
 function makeBoundedBuffer(headBytes, tailBytes) {
   let head = '';
   let tail = '';

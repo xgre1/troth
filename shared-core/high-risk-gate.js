@@ -1,37 +1,23 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// High-risk action confirmation gate.
-//
-// Some actions aren't destructive enough to hard-refuse (Wall 1
-// refusal taxonomy) but are consequential enough that the operator
-// should approve before the substrate does them autonomously:
-//   - git push                  (publishes code)
-//   - package install           (pulls + runs untrusted code)
-//   - write to ~/.ssh           (auth surface change)
-//   - write to dotfiles         (environment change)
-//   - delete > N files          (bulk loss risk)
-//   - money tx                  (financial)
-//   - send email / SMS          (external communication)
-//   - signup new domain         (account creation)
-//
-// Regime-aware:
-//   - sandbox regime → auto-approve (low blast radius)
-//   - host regime    → require-confirm (real blast radius)
-//
-// Pattern: tool returns refused with reason='awaiting_operator_approval'
-// + request_id. Operator resolves via existing operator_request
-// inbox. Partner polls / sees on next turn. NOT literal thread-block
-// (Node single-threaded; would deadlock everything).
-//
-// Distinct from refusal-taxonomy.js HARD_CATEGORIES which REJECT
-// (no operator path). This module is the SOFT-confirm tier.
-//
-// design grounding:
-//   - design R17: confirmation is STRUCTURAL — substrate refuses to
-//     proceed without recorded operator approval; not a prompt rule
-//   - design R18: out-of-process operator gate (Knight Capital pattern
-//     humans-in-the-loop for high-blast-radius actions)
-//   - Common practice: deploy-tool confirmations (Vercel CLI, Kubernetes
-//     kubectl --confirm, Terraform apply gate)
+// SPDX-License-Identifier: AGPL-3.0-only High-risk action confirmation gate.
+// Some actions aren't destructive enough to hard-refuse (Wall 1 refusal
+// taxonomy) but are consequential enough that the operator should approve
+// before the substrate does them autonomously: - git push (publishes code) -
+// package install (pulls + runs untrusted code) - write to ~/.ssh (auth
+// surface change) - write to dotfiles (environment change) - delete > N files
+// (bulk loss risk) - money tx (financial) - send email / SMS (external
+// communication) - signup new domain (account creation) Regime-aware: -
+// sandbox regime → auto-approve (low blast radius) - host regime →
+// require-confirm (real blast radius) Pattern: tool returns refused with
+// reason='awaiting_operator_approval' + request_id. Operator resolves via
+// existing operator_request inbox. Partner polls / sees on next turn. NOT
+// literal thread-block (Node single-threaded; would deadlock everything).
+// Distinct from refusal-taxonomy.js HARD_CATEGORIES which REJECT (no operator
+// path). This module is the SOFT-confirm tier. - confirmation is STRUCTURAL —
+// substrate refuses to proceed without recorded operator approval; not a
+// prompt rule - out-of-process operator gate (Knight Capital pattern
+// humans-in-the-loop for high-blast-radius actions) - Common practice:
+// deploy-tool confirmations (Vercel CLI, Kubernetes kubectl --confirm,
+// Terraform apply gate)
 
 'use strict';
 

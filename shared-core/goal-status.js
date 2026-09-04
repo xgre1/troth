@@ -15,7 +15,7 @@
 //     record — partner stops re-pursuing.
 //
 // Why not mutate the original engram? The substrate is append-only by
-// design (R23). Mutations are new rows that supersede prior ones via
+// design. Mutations are new rows that supersede prior ones via
 // parent_id / supersedes edges. Same pattern as PLR reconsolidation.
 //
 // API:

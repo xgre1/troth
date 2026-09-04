@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// P16.5 I1 — Negative-knowledge substrate.
+// Negative-knowledge substrate.
 //
 // The agent's failures (critic blocks, loopbreaker fires, verification
 // failures, user reverts) are first-class records here. At inference

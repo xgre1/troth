@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Auto-split from tests/test-all.js (verbatim section bodies; order preserved).
-// Sections: VOICE TRIAGE (Phase 1) | CODEX OAUTH (Step 8a — ChatGPT subscription transport) | OPENAI TRANSLATE (proxy/modules/openai-translate.js — Step 8a.4) | AGENT REGISTRY (Phase 3) | PERSONAL-NAME LEAK GUARD | TOOLS (shared-core/tools — Mode A plug surface) | INT (intent-ro
+// Sections: VOICE TRIAGE | CODEX OAUTH (Step 8a — ChatGPT subscription transport) | OPENAI TRANSLATE (proxy/modules/openai-translate.js — Step 8a.4) | AGENT REGISTRY | PERSONAL-NAME LEAK GUARD | TOOLS (shared-core/tools — Mode A plug surface) | INT (intent-ro
 module.exports = function run({ test }) {
 const assert = require('assert');
 const dedup = require('../proxy/modules/dedup');
@@ -8,7 +8,7 @@ const { record, getRecent } = require('../proxy/modules/perflog');
 const { probe } = require('../proxy/modules/health');
 const audit = require('../proxy/modules/audit');
 const templates = require('../proxy/modules/templates');
-// --- VOICE TRIAGE (Phase 1) ---
+// --- VOICE TRIAGE ---
 console.log('\nVoice triage:');
 (function runVoiceTriageTests() {
   const voiceTriageMod = require('../proxy/modules/voice-triage.js');
@@ -507,7 +507,7 @@ console.log('\nOpenAI translate (Anthropic <-> Responses API):');
   });
 })();
 
-// --- AGENT REGISTRY (Phase 3) ---
+// --- AGENT REGISTRY ---
 // First-class sub-brain metadata layer over agent_id. CRUD + lazy
 // bootstrap + name lookup. Backs /create and /agent slash skills.
 console.log('\nAgent registry:');
@@ -1310,7 +1310,7 @@ console.log('\nTools (Mode A):');
       identity_anchors: ['cite specific file paths', 'push back on weak reasoning'],
       identity_refusals: ['no fawning agreement']
     });
-    // A5: anchors and refusals are NOT injected as prompt text.
+    // anchors and refusals are NOT injected as prompt text.
     // Anchors flow via entity-prefix.js <memory_identity> block (substrate
     // identity envelope). Refusals enforced structurally at procedure-matcher
     // / permission.js (hard walls > soft instructions).
@@ -1378,7 +1378,7 @@ console.log('\nTools (Mode A):');
     assert.strictEqual(out.kind, 'unknown');
   });
 
-  // ── Slash framework (Phase 1 of Mode A skills + chat layer) ─────────
+  // ── Slash framework ─────────
   test('SLA-1: parser splits "/cmd a b" into name + args', () => {
     const p = require('../shared-core/slash/parser.js');
     const r = p.parse('/goal ship troth');

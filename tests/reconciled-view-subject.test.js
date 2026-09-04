@@ -2,10 +2,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
 // reconciled-view: subject by kind, and the mind doing the calendar.
-// Fixtures are the ledgers the probes measured on 2026-09-02: a tank count
-// that let plants and children in on statement cosine, a wedding count that
-// a charity gala and a bachelor party sat close enough to pass, and a
-// three-event order whose reader counted days by hand.
 const assert = require('assert');
 const { buildReconciledView } = require('../shared-core/reconciled-view.js');
 
@@ -14,7 +10,7 @@ function t(name, fn) { try { fn(); console.log('  ✓ ' + name); pass++; } catch
 
 console.log('\n=== reconciled view: subject by kind, calendar ===\n');
 
-const ASKED = Date.UTC(2023, 4, 30); // 2023-05-30
+const ASKED = Date.UTC(2023, 4, 30);
 const inst = (id, kind, entity, text, extra) => Object.assign({
   source: 'instance-pool', id, refs: ['dialogue.turn:r' + id], _kind: kind, _status: 'owned', _qualifier: 'has', _entity: entity,
   statement: '[instance] ' + kind + ': has ' + entity + ' — ' + text + ' [owned] (attested ×1)', _cos: 0.45
@@ -58,7 +54,7 @@ t('an occasion in the words decides: weddings stay, a gala and a bachelor party 
 });
 
 t('when the question asks for a time or an order, the view does the calendar', () => {
-  const asked = Date.UTC(2023, 5, 1); // 2023-06-01
+  const asked = Date.UTC(2023, 5, 1);
   const trips = [
     ev('a', 'Muir Woods', 'day hike to Muir Woods with family', '2023-03-10', { _kind: 'visit', _entity_cos: 0.5 }),
     ev('b', 'Big Sur and Monterey', 'road trip with friends to Big Sur and Monterey', '2023-04-20', { _kind: 'visit', _entity_cos: 0.5 }),

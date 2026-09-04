@@ -1,46 +1,28 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Generic API call substrate primitive.
-//
-// Substrate-side HTTP client that resolves a vault credential, injects
-// it as the service's expected auth header (Bearer / x-api-key / basic),
-// dispatches the request, and returns parsed JSON + status. The partner
-// never sees the credential value.
-//
-// design grounding:
-//   - design R17: credential never crosses the LLM boundary. Resolution
-//     + injection are STRUCTURAL — substrate refuses arbitrary token
-//     parameter passing.
-//   - design R23: response is audience='external' (untrusted), same
-//     class as web_fetch output. Synthesis into engrams requires
-//     scope='synthesis_of_external'.
-//   - CaMeL (Debenedetti arXiv 2503.18813): typed-value pattern for
-//     untrusted inputs. v1 returns parsed JSON or text; v2 will tag
-//     fields with capability types per CaMeL spec.
-//   - Common practice (Stripe / GitHub / etc. SDK convention): per-
-//     service auth shape is a fixed contract, not operator-configurable
-//     at call time (avoids token-leak surface).
-//
-// Service registry (v1, expandable):
-//   github / vercel / openai / anthropic / stripe / supabase / gmail
-//   / twilio / cloudflare / notion
-//
-// Each entry:
-//   { base_url, auth_shape, default_headers?, name }
-//   auth_shape ∈ {
-//     'bearer'                — Authorization: Bearer <token>
-//     'x-api-key'             — x-api-key: <token>
-//     'anthropic'             — x-api-key + anthropic-version header
-//     'basic-account-token'   — basic (account_sid:auth_token); credential
-//                               value MUST be 'account_sid:auth_token'
-//     'apikey-header'         — apikey: <token>  (Supabase pattern)
-//   }
-//
-// Out of scope for v1:
-//   - Pagination (caller passes cursor in query)
-//   - Retry-with-backoff (implementation step failure classifier picks up 5xx)
-//   - Streaming responses (cap at 32KB; non-streaming JSON only)
-//   - mTLS / certificate pinning
-//   - OAuth refresh (extended tools module owns refresh flow)
+// SPDX-License-Identifier: AGPL-3.0-only Generic API call substrate primitive.
+// Substrate-side HTTP client that resolves a vault credential, injects it as
+// the service's expected auth header (Bearer / x-api-key / basic), dispatches
+// the request, and returns parsed JSON + status. The partner never sees the
+// credential value. - credential never crosses the LLM boundary. Resolution +
+// injection are STRUCTURAL — substrate refuses arbitrary token parameter
+// passing. - response is audience='external' (untrusted), same class as
+// web_fetch output. Synthesis into engrams requires
+// scope='synthesis_of_external'. - CaMeL (Debenedetti arXiv 2503.18813):
+// typed-value pattern for untrusted inputs. v1 returns parsed JSON or text; v2
+// will tag fields with capability types per CaMeL spec. - Common practice
+// (Stripe / GitHub / etc. SDK convention): per- service auth shape is a fixed
+// contract, not operator-configurable at call time (avoids token-leak
+// surface). Service registry (v1, expandable): github / vercel / openai /
+// anthropic / stripe / supabase / gmail / twilio / cloudflare / notion Each
+// entry: { base_url, auth_shape, default_headers?, name } auth_shape ∈ {
+// 'bearer' — Authorization: Bearer <token> 'x-api-key' — x-api-key: <token>
+// 'anthropic' — x-api-key + anthropic-version header 'basic-account-token' —
+// basic (account_sid:auth_token); credential value MUST be
+// 'account_sid:auth_token' 'apikey-header' — apikey: <token> (Supabase
+// pattern) } Out of scope for v1: - Pagination (caller passes cursor in query)
+// - Retry-with-backoff (implementation step failure classifier picks up 5xx) -
+// Streaming responses (cap at 32KB; non-streaming JSON only) - mTLS /
+// certificate pinning - OAuth refresh (extended tools module owns refresh
+// flow)
 
 'use strict';
 
@@ -217,7 +199,7 @@ async function apiCall(args, ctx) {
     return { ok: false, refused: true, reason: 'path_required' };
   }
 
-  // Credential resolution (R17) — substrate-side ONLY.
+  // Credential resolution — substrate-side ONLY.
   if (!args.credential_name || typeof args.credential_name !== 'string') {
     return { ok: false, refused: true, reason: 'credential_name_required',
              detail: 'pass credential_name (vault entry); substrate injects the value. Inline tokens are refused.' };

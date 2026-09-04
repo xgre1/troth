@@ -120,7 +120,7 @@ test('E2E-1: daemon cold-boots on a virgin home, serves two conversations with n
     { type: 'user_input', input: { text: textA2 }, options: { conversation_id: A } },
     // Tail turn on a throwaway conversation: the serial queue finishes A2's
     // mirror write while C streams, so shutdown can only ever clip C (not
-    // asserted). The control lines used to provide this cover pre-split;
+    // asserted). The control lines would provide this cover pre-split;
     // the underlying fast-shutdown recordTurn race is noted in the plan.
     { type: 'user_input', input: { text: 'And a final goodbye line please.' }, options: { conversation_id: 'e2e-conv-C' } },
   ], 90000);

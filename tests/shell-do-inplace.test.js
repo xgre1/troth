@@ -1,16 +1,12 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
-// The intent shell road (what local/API engines execute through) used to be
-// docker-or-refuse: on a host without docker it refused everything. The
-// in-place default classifies the ground, wraps the spawn in the ground's
-// kernel profile and photographs first. These tests pin: the road WORKS,
-// the wall rides the argv, the photo fires, and the refusals that should
-// survive still do.
-//
-// Environment note: inside an already-walled session the kernel refuses a
-// nested profile (sandbox_apply, exit 71). That outcome still PROVES the
-// wall was applied to the spawn; on an unwalled terminal the command runs.
+// The in-place default classifies the ground, wraps the spawn in the ground's
+// kernel profile and photographs first. These tests pin: the road WORKS, the
+// wall rides the argv, the photo fires, and the refusals that should survive
+// still do. Environment note: inside an already-walled session the kernel
+// refuses a nested profile (sandbox_apply, exit 71). That outcome still PROVES
+// the wall was applied to the spawn; on an unwalled terminal the command runs.
 
 const assert = require('assert');
 const fs = require('fs');

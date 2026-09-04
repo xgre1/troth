@@ -18,7 +18,7 @@ if (command === "codex") {
       process.stdout.write("\nsigned in. token saved to " + tokenStore.tokenPath() + "\n");
       if (tok.account_id) process.stdout.write("account_id: " + tok.account_id + "\n");
       // The token alone is not enough: the router skips any provider without
-      // enabled:true, so this command used to sign someone in and leave them
+      // enabled:true, so this command would sign someone in and leave them
       // with no engine — while `troth doctor` counted the bare token as a
       // configured provider, so the two layers disagreed about the same
       // install. proxy/server.js fixed this for the dashboard sign-in only.

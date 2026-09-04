@@ -1100,11 +1100,6 @@ const DETERMINISTIC_HANDLERS = {
   },
 
   usage: async (_parsed, _ctx) => {
-    // Ask the proxy where the OPERATOR configured it, not where it used to
-    // live: the address was hardcoded to localhost:8000 while the proxy
-    // follows its port when 8000 is busy (0.1.8) and the app can be pointed
-    // anywhere, so this reported "not reachable" — and told the operator to
-    // start something already running — on every machine that had moved.
     let _host = 'localhost', _port = 8000;
     try {
       const c = readTrothConfigSafe() || {};

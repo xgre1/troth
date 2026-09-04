@@ -150,7 +150,7 @@ function _clearCache() { _cache.clear(); _rootCommitCache.clear(); }
 
 // ── Store keys ─────────────────────────────────────────────────────────────
 //
-// Six files used to carry their own copy of "sha256 of the directory, first 12
+// Six files would carry their own copy of "sha256 of the directory, first 12
 // chars" — the indexer that writes the code store, the tools that read it, the
 // edit hook that updates it. Keying a project's
 // store by its PATH means the project stops existing the moment it moves:
@@ -401,7 +401,7 @@ function isIndexableRoot(dir) {
 // Which directory IS the project, given one somewhere inside it.
 //
 // A proxy indexes the directory it was started in. Started from a
-// subdirectory, it used to build a second store for the same project — waste,
+// subdirectory, it would build a second store for the same project — waste,
 // but harmless. Once the store is named after the project's identity there is
 // only one, and the indexer prunes whatever is not under its root: a proxy
 // started in a subdirectory quietly cut a project's index down to that

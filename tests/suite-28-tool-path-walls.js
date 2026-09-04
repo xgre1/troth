@@ -89,12 +89,10 @@ test('TPW-4: a networked command that reaches a credential file is exfiltration'
     assert.strictEqual(r.allowed, false, 'not refused: ' + cmd);
     assert.strictEqual(r.reason, 'credential_exfiltration', 'wrong reason for: ' + cmd);
   }
-  // Reading it with no way off the machine used to be permitted here, on the
-  // reasoning that the operator reads their own vault. The operator does, in
-  // their own terminal; this gate is on the partner's shell, and the read is
-  // where the leak starts. A credential printed to a terminal is a credential
-  // in the transcript, in the archive, and in the model's context, and no
-  // later rule unwrites any of the three.
+  // The operator does, in their own terminal; this gate is on the partner's
+  // shell, and the read is where the leak starts. A credential printed to a
+  // terminal is a credential in the transcript, in the archive, and in the
+  // model's context, and no later rule unwrites any of the three.
   const bareRead = safety.isCommandSafe('cat ' + vault, {});
   assert.strictEqual(bareRead.allowed, false, 'a bare read of the vault was permitted');
   assert.strictEqual(bareRead.reason, 'blocked_secret_read');
@@ -108,10 +106,7 @@ test('TPW-5: ordinary work is untouched', () => {
     'echo "const a=1" > src/index.js',
     'echo hi > /tmp/scratch.txt',
     'curl -s https://registry.npmjs.org/express',
-    // A GET is content coming IN and is not gated here at all. The upload that
-    // used to sit in this list moved to TPW-20: sending a local file to a host
-    // the operator never named is the act an egress rule exists for, and
-    // calling it ordinary work was the reason nothing checked it.
+    // A GET is content coming IN and is not gated here at all.
     'curl -sSL -H "Accept: application/json" https://uploads.example/status',
     'grep -rn TODO ' + proj,
     'echo x | tee ' + path.join(proj, 'out.txt')

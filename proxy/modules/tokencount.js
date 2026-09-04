@@ -135,7 +135,7 @@ function getStats() {
     meanDrift = sum / stats.driftSamples.length;
   }
 
-  // P4.3: per-model drift breakdown so a silent tokenizer shift on one model
+  // per-model drift breakdown so a silent tokenizer shift on one model
   // (like 4.6 → 4.7's 1.0-1.35× inflation) is visible without mixing into
   // the global mean.
   var perModel = {};

@@ -49,7 +49,7 @@ function install(opts) {
   const node = process.execPath;
   const server = path.join(__dirname, '..', 'server.js');
   const port = String(opts.port || process.env.GF_PORT || 8000);
-  // The service used to run out of the operator's home directory, and the
+  // The service would run out of the operator's home directory, and the
   // boot-time project scan therefore walked their whole home tree. From a
   // terminal that is merely wasteful; from a launchd background agent it
   // hangs, because a background job has none of the folder permissions a
@@ -188,7 +188,7 @@ function status() {
 
 // Restart the proxy THROUGH its manager, when it has one.
 //
-// `troth restart` used to shut the running proxy down and spawn a loose
+// `troth restart` would shut the running proxy down and spawn a loose
 // child of the caller's shell. On a machine with the background service
 // installed that quietly evicted the managed instance and replaced it with
 // one nobody supervises, so the next time it died the service that the

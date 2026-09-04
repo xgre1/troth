@@ -59,7 +59,6 @@ const DAY_MS = 86400000;
 // Role words: a person named by relation alone ("cousin's wedding").
 const _ROLE_WORD = /\b(cousin|sister|brother|mother|father|mom|dad|aunt|uncle|niece|nephew|grandm\w*|grandp\w*|roommate|friend|partner|neighbou?r|colleague|boss|wife|husband|spouse|sibling|parent|son|daughter|buddy|classmate|coworker)\b/gi;
 const _isoOf = (ts) => { try { return new Date(ts).toISOString().slice(0, 10); } catch (_) { return null; } };
-// The date a statement pins: "[completed, 2023-02-05]" / "[completed, inferred, 2023-02-05]".
 const _statedDate = (s) => { const m = /\[[a-z]+(?:, inferred)?, (\d{4}-\d{2}-\d{2})\]/.exec(String(s)); return m ? m[1] : null; };
 
 // Verb families: what the question asks about, matched against the kind and
@@ -261,29 +260,25 @@ function buildReconciledView(items, opts) {
   const planAsk = question ? /\b(plan(?:s|ning|ned)?|going to|upcoming|will i|intend|thinking (?:of|about))\b/i.test(qLower) : false;
   if ((pastAsk || (countAsk && !planAsk)) && !pendingAsk) apply('planned or cancelled, not done', (it) => it._status === 'planned' || it._status === 'cancelled');
   if (question) {
-    // Cosine to the question has limited resolution (measured 2026-09-02:
-    // true members 0.30-0.50, strangers 0.25-0.40). The strict floors are
-    // used when they leave the reader at least three lines; otherwise the
-    // object floor applies to every kind, and the reader judges the rest.
-    // Subject by kind. A line is ABOUT its entity: "java moss" is not a tank
-    // however often its description says "in the tank" (measured: the
-    // plants and the children rode into a tank count on statement cosine).
-    // When the mount carries the entity's own cosine to the asked head, that
-    // decides; the entity naming the head keeps a line whatever the number;
-    // the statement cosine is the road when no entity cosine came along.
-    // Three rungs, in order. (1) A line whose words name an occasion (wedding,
-    // festival, gala) is about THAT occasion: it stays when the occasion is
-    // the asked head and leaves otherwise, whatever the numbers say (measured:
-    // a charity gala and a bachelor party sat close enough to "wedding" to
-    // pass any floor). (2) An entity that names the head stays. (3) Otherwise
-    // the line's cosine to the head decides (the larger of its entity's and
-    // its occasion noun's, computed at mount time): 0.30, and 0.40 for an
-    // event, whose neighbours (a gala, a party) score nearer than a plant
-    // scores to a tank.
-    // Measured floors (embeddinggemma-300m, 2026-09-02): doctors 0.35-0.43 vs a
-    // gym 0.25; tanks 0.35-0.56 vs plants 0.21-0.26; a jewelry-store errand
-    // 0.33 against "wedding"; a hike 0.39 and a camping trip 0.47 against
-    // "trip"; boots 0.32 against "clothing item".
+    // The strict floors are used when they leave the reader at least three lines;
+    // otherwise the object floor applies to every kind, and the reader judges the
+    // rest. Subject by kind. A line is ABOUT its entity: "java moss" is not a tank
+    // however often its description says "in the tank" (measured: the plants and
+    // the children rode into a tank count on statement cosine). When the mount
+    // carries the entity's own cosine to the asked head, that decides; the entity
+    // naming the head keeps a line whatever the number; the statement cosine is
+    // the road when no entity cosine came along. Three rungs, in order. (1) A line
+    // whose words name an occasion (wedding, festival, gala) is about THAT
+    // occasion: it stays when the occasion is the asked head and leaves otherwise,
+    // whatever the numbers say (measured: a charity gala and a bachelor party sat
+    // close enough to "wedding" to pass any floor). (2) An entity that names the
+    // head stays. (3) Otherwise the line's cosine to the head decides (the larger
+    // of its entity's and its occasion noun's, computed at mount time): 0.30, and
+    // 0.40 for an event, whose neighbours (a gala, a party) score nearer than a
+    // plant scores to a tank. Measured floors (embeddinggemma-300m, 2026-09-02):
+    // doctors 0.35-0.43 vs a gym 0.25; tanks 0.35-0.56 vs plants 0.21-0.26; a
+    // jewelry-store errand 0.33 against "wedding"; a hike 0.39 and a camping trip
+    // 0.47 against "trip"; boots 0.32 against "clothing item".
     const ENTITY_FLOOR = 0.30, VISIT_ENTITY_FLOOR = 0.35, EVENT_ENTITY_FLOOR = 0.40;
     const headStem = head ? head.replace(/s$/, '') : null;
     // The occasion words a line carries: the ladder's heads anywhere in the

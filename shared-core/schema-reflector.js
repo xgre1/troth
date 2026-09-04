@@ -1,21 +1,15 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// P17 Tier 3 — LLM-evolved wire-format schema reflector.
-//
-// MemEvolve-style background pipeline (arXiv 2512.18746). Periodically
-// samples recent ActionRecords for a given domain signature, prompts
-// the frontier LLM with "design the most token-efficient TOON header
+// SPDX-License-Identifier: AGPL-3.0-only LLM-evolved wire-format
+// schema reflector. MemEvolve-style background pipeline (arXiv 2512.18746).
+// Periodically samples recent ActionRecords for a given domain signature,
+// prompts the frontier LLM with "design the most token-efficient TOON header
 // for this domain", validates the proposed header against the canonical
-// ActionRecord shape, and saves it as a candidate profile.
-//
-// Default OFF. Opt in via env TROTH_SCHEMA_REFLECTOR=1.
-//
-// The LLM driver is INJECTED — substrate code never calls APIs directly.
-// Tests pass a deterministic mock; production passes a real driver
-// (proxy callFlash, Anthropic SDK, etc.). This keeps shared-core
-// black-box-API-friendly per constitution.
-//
-// Returned profiles must beat deterministic Tier 1 by ≥15% on stored
-// `perf_score` to be promoted to active (LMDT measurement, Tier 4).
+// ActionRecord shape, and saves it as a candidate profile. Default OFF. Opt in
+// via env TROTH_SCHEMA_REFLECTOR=1. The LLM driver is INJECTED — substrate
+// code never calls APIs directly. Tests pass a deterministic mock; production
+// passes a real driver (proxy callFlash, Anthropic SDK, etc.). This keeps
+// shared-core black-box-API-friendly per constitution. Returned profiles must
+// beat deterministic Tier 1 by ≥15% on stored `perf_score` to be promoted to
+// active.
 
 const wireFormat = require('./wire-format');
 const actionRecord = require('./action-record');
@@ -47,14 +41,12 @@ function computeDomainSignature(rows) {
     .slice(0, 16);
 }
 
-// ── Build the prompt ─────────────────────────────────────────────────────
-// We give the LLM a small batch + the canonical TOON header from Tier 1
-// (the deterministic baseline) and ask it to propose a domain-tuned
-// alias dictionary. We DO NOT let the LLM redesign the column order or
-// drop columns — those are protocol-level. Only aliases are LLM-evolved.
-//
-// This deliberately limits the LLM's degrees of freedom to prevent the
-// concept-drift risk (the LLM dropping audit metadata).
+// ── Build the prompt ───────────────────────────────────────────────────── We
+// give the LLM a small batch + the canonical TOON header from Tier 1 (the
+// deterministic baseline) and ask it to propose a domain-tuned alias
+// dictionary. Only aliases are LLM-evolved. This deliberately limits the LLM's
+// degrees of freedom to prevent the concept-drift risk (the LLM dropping audit
+// metadata).
 function buildPrompt(rows, baseline_header) {
   const sample = rows.slice(0, 20).map(r => ({
     type: r.type, agent_id: r.agent_id, cwd: r.cwd,

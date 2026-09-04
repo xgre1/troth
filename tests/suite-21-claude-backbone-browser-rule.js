@@ -82,7 +82,7 @@ module.exports = function run({ test }) {
 
   // ── Model pick (audit item 15: "Fable 5 selected, does not
   // play"). Settings → Claude → model writes providers.anthropic.model in
-  // ~/.troth/config.json, and the claude_cli spawn used to consult only the
+  // ~/.troth/config.json, and the claude_cli spawn would consult only the
   // dispatcher's ambient vars.model — the pick was durably stored in a key
   // no spawn ever read. These pin the source order the profile now walks:
   // TROTH_CLAUDE_MODEL env > config pick > ambient vars.model, every source

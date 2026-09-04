@@ -274,7 +274,7 @@ function buildInjection(bodyStr, repoMap) {
   const _userOnlyType = detectProject(latestUserText || '');
   const _trim = latestUserText.trim();
   const isTrivialQuery = _trim.length < 80 && _userOnlyType === 'generic';
-  // The gate below applies to DYNAMIC parts only. It used to zero the STATIC
+  // The gate below applies to DYNAMIC parts only. It would zero the STATIC
   // block too, and that toggle was the most expensive line in the pipeline:
   // any <80-char message ("hi", but also "fix the second one") removed
   // system[0], the next longer message put it back, and each flip re-billed
@@ -285,7 +285,7 @@ function buildInjection(bodyStr, repoMap) {
   // whole prefix. The dynamic tail sits LAST in system[], so gating it busts
   // only itself.
 
-  // P2.5: split content into STATIC (session-level, safe to cache) and DYNAMIC
+  // split content into STATIC (session-level, safe to cache) and DYNAMIC
   // (per-request, changes often) buckets. The inject() caller places them as
   // separate blocks — only the static block carries cache_control, so the
   // cache prefix remains stable across requests within the same session.
@@ -472,14 +472,11 @@ function buildInjection(bodyStr, repoMap) {
       const stale = !buildInjection._identityCache ||
         (now - (buildInjection._identityCachedAt || 0) > 5 * 60 * 1000);
       if (stale) {
-        // single-mind — single-mind identity surface. Delegates to the
-        // canonical composeEnvelope() so the proxy injector is byte-identical
-        // to the entity surface: unions anchors + scope:identity, excludes
-        // tier='flagged', fuzzy-dedups, ranks by salience × authority via the
-        // ONE shared fail-neutral model. This surface previously ranked by
-        // SALIENCE ALONE (no authority at all — a third divergent ranking
-        // beyond the two _AUTH_W copies, an internal audit), scope:identity only (no
-        // anchor union), exact-norm dedup. 800-char budget + 5-min cache kept.
+        // single-mind — single-mind identity surface. Delegates to the canonical
+        // composeEnvelope() so the proxy injector is byte-identical to the entity
+        // surface: unions anchors + scope:identity, excludes tier='flagged',
+        // fuzzy-dedups, ranks by salience × authority via the ONE shared fail-neutral
+        // model.
         const engram = require('../../shared-core/engram');
         let block = '';
         try {

@@ -123,14 +123,11 @@ async function ensureServer() {
     if (!BIN || !require('fs').existsSync(BIN)) { _markDead(); return false; }
     const modelPath = _resolveModelPath();
     if (!modelPath) {
-      // Reranker GGUF not present: kick the ONE-TIME background download
-      // ( — shipped users previously never got this model by any
-      // path, so recall silently lacked its final quality stage forever).
-      // Source verified live on HF (gpustack/bge-reranker-v2-m3-GGUF, same
-      // filename the operator's hand-placed working copy uses). Non-blocking:
-      // THIS call stays disabled (lexical+dense order) and a later call finds
-      // the file. TROTH_NO_MODEL_FETCH=1 (hermetic tests / metered networks)
-      // suppresses the fetch entirely. .part + rename = never a half GGUF.
+      // Source verified live on HF (gpustack/bge-reranker-v2-m3-GGUF, same filename
+      // the operator's hand-placed working copy uses). Non-blocking: THIS call stays
+      // disabled (lexical+dense order) and a later call finds the file.
+      // TROTH_NO_MODEL_FETCH=1 (hermetic tests / metered networks) suppresses the
+      // fetch entirely. .part + rename = never a half GGUF.
       if (process.env.TROTH_NO_MODEL_FETCH !== '1' && !_modelDownloading) {
         _modelDownloading = true;
         (async () => {

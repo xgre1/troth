@@ -220,7 +220,7 @@ function fallbackCount(state, type, bind) {
   return state.countActions({ type, session_id: bind.session_id, since: bind.since }) > 0;
 }
 
-// ── P16 Tier 1 — DecisionGraph path queries ────────────────────────────────
+// ── DecisionGraph path queries ────────────────────────────────
 
 // Walk typed edges from a starting record up to depth_limit hops. Returns
 // rows: { node_id, depth, path }. Implemented as a single recursive CTE
@@ -243,9 +243,8 @@ function traceCausalPath(state, opts) {
   if (opts.label) bind.label = opts.label;
   // CTE uses UNION (not UNION ALL) so each (node_id, depth, path) tuple is
   // deduplicated — without this, a graph with fan-in produces every distinct
-  // path through it, which explodes combinatorially in dense graphs (and was
-  // observed to hang on a 50k-edge fixture during P16-T1 perf smoke). The
-  // outer GROUP BY then collapses to the shortest depth per node.
+  // path through it, which explodes combinatorially in dense graphs. The outer
+  // GROUP BY then collapses to the shortest depth per node.
   const sql = direction === 'out'
     ? `
       WITH RECURSIVE walk(node_id, depth, path) AS (
@@ -295,7 +294,7 @@ module.exports = {
   getActionsByType,
   // Lessons
   getLessons,
-  // P16 Tier 1 — DecisionGraph
+  // DecisionGraph
   traceCausalPath,
   queryEdges,
   // Helpers (exported for tests and downstream reuse)

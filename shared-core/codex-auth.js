@@ -265,25 +265,22 @@ const FAILURE_HTML =
 // ── login() — full interactive flow ───────────────────────────────────
 
 // Returns a Promise that resolves to the saved token object on success,
-// rejects on timeout / browser cancel / token exchange failure. Caller
-// (CLI) is responsible for printing UX messages — this function is
-// silent except for browser-open fallback stderr.
-// One login at a time: a retried sign-in supersedes the attempt still
-// holding :1455 (otherwise every retry inside the 5-min window dies with
-// EADDRINUSE — hit in onboarding QA).
-//
-// BURST DEDUPE — the symptom was the same sign-in page opening three or
-// four times. Several surfaces can hit this endpoint in one gesture: the
-// app command, the webview's own fetch, the dashboard button — and some
-// HTTP layers silently RE-SEND a POST whose connection dropped before any
-// response byte arrived (this endpoint holds the response open for up to 5
-// minutes, so that race is routine, not exotic). Every extra call used to
-// supersede the last attempt and open ANOTHER browser tab on a fresh PKCE
-// state, so only the newest tab could ever succeed. Calls arriving while
-// an attempt is younger than LOGIN_JOIN_MS now JOIN that attempt — one
-// tab, every caller resolved by the one callback. An OLDER pending attempt
-// still gets superseded: that is a human deliberately retrying a stuck
-// sign-in, and they expect a fresh tab.
+// rejects on timeout / browser cancel / token exchange failure. Caller (CLI)
+// is responsible for printing UX messages — this function is silent except for
+// browser-open fallback stderr. One login at a time: a retried sign-in
+// supersedes the attempt still holding :1455 (otherwise every retry inside the
+// 5-min window dies with EADDRINUSE — hit in onboarding QA). BURST DEDUPE —
+// the symptom was the same sign-in page opening three or four times. Several
+// surfaces can hit this endpoint in one gesture: the app command, the
+// webview's own fetch, the dashboard button — and some HTTP layers silently
+// RE-SEND a POST whose connection dropped before any response byte arrived
+// (this endpoint holds the response open for up to 5 minutes, so that race is
+// routine, not exotic). Every extra call would supersede the last attempt and
+// open ANOTHER browser tab on a fresh PKCE state, so only the newest tab could
+// ever succeed. Calls arriving while an attempt is younger than LOGIN_JOIN_MS
+// now JOIN that attempt — one tab, every caller resolved by the one callback.
+// An OLDER pending attempt still gets superseded: that is a human deliberately
+// retrying a stuck sign-in, and they expect a fresh tab.
 const LOGIN_JOIN_MS = 15000;
 let _activeLoginCancel = null;
 let _activeLogin = null;   // { promise, startedAt } while an attempt is pending

@@ -18,8 +18,6 @@ const RATES = {
   'claude-fable-5':        { in: 10.00, out: 50.00, cached_in: 1.00 },
   'claude-opus-5':         { in: 5.00,  out: 25.00, cached_in: 0.50 },
   'claude-opus-4.8':       { in: 5.00,  out: 25.00, cached_in: 0.50 },
-  // Sonnet 5 bills an intro price ($2/$10) through 2026-08-31; the list
-  // price below is the steady state from September on.
   'claude-sonnet-5':       { in: 3.00,  out: 15.00, cached_in: 0.30 },
   'claude-haiku-4.5':      { in: 1.00,  out: 5.00,  cached_in: 0.10 },
   // OpenAI

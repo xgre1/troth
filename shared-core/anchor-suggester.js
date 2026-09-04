@@ -270,13 +270,12 @@ function resolveSuggestion(opts) {
   if (opts.decision === 'accepted') {
     newAnchorId = ar.uuidv7();
     const finalStatement = opts.confirmed_statement || sugOut.proposed_anchor;
-    // audience + memory_class set explicitly
-    // §design note (commitment_type='anchor' → memory_class='identity',
-    // audience='model_visible'). Previously state.recordAction's fail-closed
-    // defaults landed anchors as substrate_internal + operational — wrong
-    // for an anchor (must surface in identity envelope reads). The backfill
-    // script patched existing rows; this fix prevents new writes from
-    // re-creating the same drift.
+    // audience + memory_class set explicitly §design note
+    // (commitment_type='anchor' → memory_class='identity',
+    // audience='model_visible'). state.recordAction's fail-closed defaults would
+    // land an anchor as substrate_internal + operational — wrong for an anchor
+    // (must surface in identity envelope reads). The backfill script patched
+    // existing rows; this fix prevents new writes from re-creating the same drift.
     const anchorRec = {
       id: newAnchorId, timestamp: Date.now(),
       type: 'commitment',

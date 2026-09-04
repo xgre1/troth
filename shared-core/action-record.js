@@ -107,7 +107,7 @@ const TYPES = {
     optional: { input: ['failing_action_id'], output: ['applicable_scope'] },
     verifies: []
   },
-  // P16 — Verified Intent Layer (GMP v0.2). Captures the user's goal +
+  // Verified Intent Layer (GMP v0.2). Captures the user's goal +
   // chosen path so the substrate can answer "why" alongside "what". Verified
   // post-hoc via typed edges in action_record_edges (satisfies, supersedes,
   // contradicts_prior, etc.). See the GMP spec (published separately).
@@ -120,7 +120,7 @@ const TYPES = {
     },
     verifies: ['user_approved', 'led_to_commit']
   },
-  // P16.5 I1 — Negative-knowledge substrate. A path the agent considered,
+  // Negative-knowledge substrate. A path the agent considered,
   // attempted, or was about to attempt — and rejected, blocked, or
   // reverted. Surfaced at inference time to prevent repeated failure.
   // reason_kind enum: critic_block | loopbreaker | verification_fail |

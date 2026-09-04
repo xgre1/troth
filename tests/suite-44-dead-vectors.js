@@ -28,7 +28,7 @@
 // Superseded engrams are deliberately spared. They are real memories kept for
 // audit, recall already skips them by following the supersession chain, and
 // they are half a percent. Taking their vectors would trade nothing for the
-// loss of "what did I used to believe".
+// loss of "what did I would believe".
 module.exports = function run({ test }) {
 const assert = require('assert');
 const path   = require('path');

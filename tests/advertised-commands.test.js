@@ -21,7 +21,7 @@ const ROOT = path.join(__dirname, '..');
 
 // The subcommand table, required from the same DATA module the dispatch Set
 // and the dashboard reference are built from (shared-core/cli-commands.js).
-// This test used to regex bin/troth.js SOURCE for the literal — the exact
+// This test would regex bin/troth.js SOURCE for the literal — the exact
 // fragile read that served every shipped bundle a zero-command reference
 // page, because shipped source is minified. One module, three consumers,
 // no source-shape dependency anywhere.

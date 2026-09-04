@@ -77,10 +77,10 @@ console.log('\nIdentity extract:');
   });
 
   test('PF7: seedFromDialogue is DEPRECATED — never writes, returns deprecation marker (L4 integration point)', () => {
-    // The regex auto-write path was retired on
-    // because pattern matching on operator first-person statements is NOT
-    // operator cryptographic confirmation. Capture now flows through
-    // update_identity (llm_inferred) or Phase 3 reflection-tick backfill.
+    // The regex auto-write path was retired on because pattern matching on
+    // operator first-person statements is NOT operator cryptographic confirmation.
+    // Capture flows through update_identity (llm_inferred) or the reflection-tick
+    // backfill.
     const sourceAgent = 'pf7-source-' + Date.now();
     const cwd = require('os').tmpdir() + '/pf7-' + Date.now();
     const state = require('../shared-core/state.js');
@@ -597,10 +597,9 @@ console.log('\nIdentity bootstrap (substrate-side end-to-end):');
   });
 
   test('PFB2: bootstrap is DEPRECATED — never writes to identity pool (L4 integration point)', () => {
-    // Bootstrap auto-write retired on. Same
-    // root cause as PF7: regex pattern matching is not operator
-    // cryptographic confirmation. Capture flows through update_identity
-    // (llm_inferred) or Phase 3 reflection-tick backfill.
+    // Bootstrap auto-write retired on. Same root cause as PF7: regex pattern
+    // matching is not operator cryptographic confirmation. Capture flows through
+    // update_identity (llm_inferred) or the reflection-tick backfill.
     const sourceAgent = 'pfb2-source-' + Date.now();
     const cwd = require('os').tmpdir() + '/pfb2-' + Date.now();
     const day1 = new Date('2026-04-01T10:00:00Z').getTime();
@@ -1364,7 +1363,7 @@ console.log('\nInjector identity-pool wiring:');
 console.log('\nEntity axis (MAGMA-style):');
 (function runEntityAxisTests() {
   // Test-pollution isolation. Earlier tests in the suite
-  // (P17-T3 et al) set CLAUDE_PLUGIN_DATA to a /tmp dir, load state, then
+  // (T3 et al) set CLAUDE_PLUGIN_DATA to a /tmp dir, load state, then
   // rm-rf the dir. The cached shared-core/state module retains a
   // connection to the dead path, so PD6/PD7's recordAction writes vanish.
   // Mass-invalidate the substrate chain + ensure env points at the

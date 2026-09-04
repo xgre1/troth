@@ -178,7 +178,7 @@ function spawnRoleWorker(roleName, task, opts) {
   // in runner.js for Layer 4 dispatch / faculty selection. Now the worker
   // gets the right `--model role.model_pref` AND keeps the transport-side
   // routing intact.
-  // Phase 5: resolve transport against AVAILABLE providers so autonomy never pins
+  // resolve transport against AVAILABLE providers so autonomy never pins
   // every worker to the one local box. model_pref is a PREFERENCE; under frontier-
   // first a local-only role is re-routed to distributed cloud via the proxy router.
   const _wt = require('./worker-dispatch.js').resolveWorkerTransport(role, opts.dispatch_ctx);

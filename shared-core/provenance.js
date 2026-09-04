@@ -34,13 +34,13 @@
 //     - tool:   noop (tools either ran or didn't — can't re-verify
 //                 cheaply; flagged as 'unverifiable_kind')
 //
-// design grounding:
+// 
 //   - W3C PROV-O wasDerivedFrom / wasGeneratedBy / wasAttributedTo
 //   - Reflexion (Shinn 2303.11366 §3): verbal feedback + grounded
 //     references improves agent self-correction
-//   - design R17: structural verification (claim with no resolvable
+//   - structural verification (claim with no resolvable
 //     refs is structurally distinct from claim with resolvable refs)
-//   - design R23: provenance lives on the engram; never UPDATE
+//   - provenance lives on the engram; never UPDATE
 //   - Constitutional AI (Bai 2212.08073): principle-based critique
 //     can require source-ref presence as a principle
 

@@ -67,7 +67,7 @@ log('PostToolUse.errortax', {
   metadata: { recovery: diag.recovery.slice(0, 80) }
 });
 
-// One write, one policy. This used to record every failure THREE times — a
+// One write, one policy. This would record every failure THREE times — a
 // direct durable lesson, recordLesson's durable mirror, and the queue — so a
 // single timeout minted two permanent rows. Measured: 283 durable errortax
 // lessons, 238 of them infrastructure weather. Now recordLesson is the only

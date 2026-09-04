@@ -58,11 +58,9 @@ function indexToolUses(messages) {
 function compressRequest(bodyStr) {
   let stats = { elided: 0, truncated: 0, droppedEmptyBash: 0, savedBytes: 0,
                 linguaBlocks: 0, linguaSavedBytes: 0 };
-  // lingua extractive pass on the system prompt before the
-  // tool_result-dedup pass below. lingua collapses filler phrases + verbose
-  // joiners in long instruction blocks (>200 chars) without touching code
-  // fences. Test-only previously; promoting now because the dedup pass
-  // doesn't touch system prompts at all, leaving a measurable gap.
+  // lingua extractive pass on the system prompt before the tool_result-dedup
+  // pass below. lingua collapses filler phrases + verbose joiners in long
+  // instruction blocks (>200 chars) without touching code fences.
   try {
     const lingua = require('./lingua');
     const r = lingua.compressLite(bodyStr, { aggressive: false });
@@ -159,15 +157,13 @@ function compressRequest(bodyStr) {
         if (i < cutoffIdx && text.length > TRUNCATE_OLD_TO_CHARS * 4) {
           const head = text.slice(0, TRUNCATE_OLD_TO_CHARS);
           const tail = text.slice(-TRUNCATE_OLD_TO_CHARS);
-          // The marker used to end "old turn ${i}/${data.messages.length}".
-          // That denominator grows by one every turn, so every truncated
-          // block in the ENTIRE history was rewritten on every request — one
-          // changed byte early in messages, and every provider prompt-cache
-          // entry from that point on missed. Kimi bills exactly those misses
-          // (its coding endpoint charges input_tokens on the uncached
-          // remainder only), so the counter meant to describe savings was
-          // quietly buying full-price turns. The index alone is stable in an
-          // append-only transcript.
+          // That denominator grows by one every turn, so every truncated block in the
+          // ENTIRE history was rewritten on every request — one changed byte early in
+          // messages, and every provider prompt-cache entry from that point on missed.
+          // Kimi bills exactly those misses (its coding endpoint charges input_tokens on
+          // the uncached remainder only), so the counter meant to describe savings was
+          // quietly buying full-price turns. The index alone is stable in an append-only
+          // transcript.
           setToolResultText(block,
             `${head}\n[...${text.length - TRUNCATE_OLD_TO_CHARS * 2} chars elided — old turn ${i}...]\n${tail}`);
           stats.truncated++;

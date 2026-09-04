@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Config single-writer discipline (shared-core/config-file.js),.
-// Every ~/.troth/config.json writer routes through updateConfig(): strict
-// fresh read (a corrupt file REFUSES the write instead of defaulting to {}),
-// atomic temp+rename replace, dir 0700 / file 0600. These checks pin that
-// contract, plus the wire-through of the two shared-core writers that used
-// to carry their own lenient read-merge-write (transport-config, l4-config).
-// Wire-through checks run in child processes because both modules resolve
-// CONFIG_PATH from the environment at module load.
+// SPDX-License-Identifier: AGPL-3.0-only Config single-writer discipline
+// (shared-core/config-file.js),. Every ~/.troth/config.json writer routes
+// through updateConfig(): strict fresh read (a corrupt file REFUSES the write
+// instead of defaulting to {}), atomic temp+rename replace, dir 0700 / file
+// 0600. These checks pin that contract, plus the wire-through of the two
+// shared-core writers that would carry their own lenient read-merge-write
+// (transport-config, l4-config). Wire-through checks run in child processes
+// because both modules resolve CONFIG_PATH from the environment at module
+// load.
 module.exports = function run({ test, skip }) {
 const assert = require('assert');
 const fs = require('fs');

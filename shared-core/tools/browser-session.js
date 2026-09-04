@@ -1,33 +1,21 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Browser session manager.
-//
-// Substrate-side semantics for a Stagehand-style browser primitive:
-//   - Per-credential mutex (one session per credential at a time)
-//   - 10-minute session TTL (auto-close stale)
-//   - Hard cap 3 concurrent sessions globally
-//   - Audit log per action (engram-form per core design)
-//
-// Backend-agnostic by design. The actual browser driver (Stagehand on
-// local Playwright, Browserbase cloud, or any other) is INJECTED via
-// opts.driver during session.open. Substrate provides the semantics;
-// operator wires the driver they trust.
-//
-// Why backend-agnostic: requiring @browserbasehq/stagehand as a hard
-// dep would force every troth install to drag in Playwright. Operators
-// who don't need browser stay lean; operators who do install the dep
-// and inject the driver per their setup.
-//
-// Action enum : goto / act / extract / observe /
-// screenshot / close. Each action goes through the session.exec()
-// dispatcher which enforces auth + mutex + audit.
-//
-// design grounding:
-//   - design R17: STRUCTURAL mutex + concurrent cap (substrate
-//     refuses; not prompt-level "please don't open too many")
-//   - design R18: out-of-process limit enforcement
-//   - design R23: each action recorded as engram (audit trail)
-//   - Common practice: Stagehand session model (Browserbase docs);
-//     Playwright BrowserContext per-credential isolation pattern
+// SPDX-License-Identifier: AGPL-3.0-only Browser session manager.
+// Substrate-side semantics for a Stagehand-style browser primitive: -
+// Per-credential mutex (one session per credential at a time) - 10-minute
+// session TTL (auto-close stale) - Hard cap 3 concurrent sessions globally -
+// Audit log per action (engram-form per core design) Backend-agnostic by
+// design. The actual browser driver (Stagehand on local Playwright,
+// Browserbase cloud, or any other) is INJECTED via opts.driver during
+// session.open. Substrate provides the semantics; operator wires the driver
+// they trust. Why backend-agnostic: requiring @browserbasehq/stagehand as a
+// hard dep would force every troth install to drag in Playwright. Operators
+// who don't need browser stay lean; operators who do install the dep and
+// inject the driver per their setup. Action enum : goto / act / extract /
+// observe / screenshot / close. Each action goes through the session.exec()
+// dispatcher which enforces auth + mutex + audit. - STRUCTURAL mutex +
+// concurrent cap (substrate refuses; not prompt-level "please don't open too
+// many") - out-of-process limit enforcement - each action recorded as engram
+// (audit trail) - Common practice: Stagehand session model (Browserbase docs);
+// Playwright BrowserContext per-credential isolation pattern
 
 'use strict';
 

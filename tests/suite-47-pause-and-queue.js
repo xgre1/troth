@@ -201,12 +201,9 @@ test('QUEUE-4: the card offers all three controls, and still invents no numbers 
   // Two lanes, two heartbeats: the indexer being alive said nothing about
   // whether anything was reading the documents.
   assert.ok(/res\.reader_alive/.test(ui), 'and the card reads the document reader\'s own heartbeat');
-  // The "just taken in" list is DOCUMENTS. Gating it on the indexer's
-  // heartbeat would hide a reader that is working, or vouch for one that is
-  // not — the same wrong-lane mistake one line further down the page.
-  // Anchored on the intake stream's own constant, not on 'var live =' — that
-  // name appears elsewhere on the page, and the first version of this
-  // assertion matched a plugin-status line instead.
+  // The "just taken in" list is DOCUMENTS. Gating it on the indexer's heartbeat
+  // would hide a reader that is working, or vouch for one that is not — the same
+  // wrong-lane mistake one line further down the page.
   const fresh = ui.indexOf('var FRESH_MS');
   assert.ok(fresh > 0, 'the freshly-read list exists');
   assert.ok(/res\.reader_alive/.test(ui.slice(fresh, fresh + 400)),

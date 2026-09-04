@@ -2,7 +2,7 @@
 'use strict';
 // Time-to-serve, as an invariant rather than a hope.
 //
-// The proxy used to walk and parse the project before it called listen(), so on
+// The proxy would walk and parse the project before it called listen(), so on
 // a clean machine the dashboard was unreachable for 75 seconds and read as
 // broken; the desktop app aims that walk at the operator's entire home
 // directory. Moving the call after listen() changed nothing on its own,

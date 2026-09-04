@@ -107,15 +107,11 @@ async function drainOnce(state, opts) {
 
     try {
       // The secret gate lives inside ingestDocument (harvest + redact before
-      // chunking), so nothing here has to remember to call it.
-      // WHERE the document belongs, not just what it is called.
-      //
-      // recall gives a passage whose cwd matches the current project a full
-      // boost and everything else half of one (cwdBoost, recall.js). Filing
-      // these with cwd:null — which the first version did — means a corpus
-      // about one project never surfaces preferentially while working in that
-      // project, which is exactly the behaviour the reservoir exists to give.
-      // The folder the document lives in is the truthful answer.
+      // chunking), so nothing here has to remember to call it. WHERE the document
+      // belongs, not just what it is called. recall gives a passage whose cwd
+      // matches the current project a full boost and everything else half of one
+      // (cwdBoost, recall.js). The folder the document lives in is the truthful
+      // answer.
       const docCwd = isWeb ? null : (path.dirname(row.ref) || null);
       const r = await chameleon.ingestDocument({
         agent_id: opts.agent_id || 'knowledge-drain',

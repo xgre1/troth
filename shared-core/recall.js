@@ -209,7 +209,7 @@ function buildSupersededIds(rows) {
   return set;
 }
 
-// A8 — unified-memory soft ranking.
+// unified-memory soft ranking.
 //
 // Substrate-as-mind premise: ONE brain, all memories accessible, but
 // ranking biases toward what's coherent with the current work. The
@@ -397,13 +397,12 @@ function recallIdentity(opts) {
     audience: opts.audience || 'model_visible',
     include_superseded: !!opts.include_superseded }) || [];
   const qt = tokenize(opts.query);
-  // Step B: TMMA tier='flagged' filter consistency. Previously
-  // only recallEpisodic filtered flagged engrams; identity/semantic/
-  // procedural surfaced them with only truth_score-based demotion (alpha
-  // floor 0.3 keeps them retrievable). For identity specifically this
-  // matters: TMMA-flagged identity facts (contradictory user preferences,
-  // polarity flips) should NOT compete for the always-on identity envelope.
-  // opts.include_flagged surfaces them for audit views.
+  // Step B: TMMA tier='flagged' filter consistency. Every class filters flagged
+  // engrams; truth_score demotion alone (alpha floor 0.3) keeps them
+  // retrievable. For identity specifically this matters: TMMA-flagged identity
+  // facts (contradictory user preferences, polarity flips) should NOT compete
+  // for the always-on identity envelope. opts.include_flagged surfaces them for
+  // audit views.
   const _includeFlagged = !!opts.include_flagged;
   //  dedup by normalized statement. Live audit found 95%
   // waste ratio (120 rows, 6 unique). Background identity extraction
@@ -493,7 +492,7 @@ function recallSemantic(opts) {
   if (!qt.length) return [];
   const ftsQuery = buildFtsQuery(opts.query);
   if (!ftsQuery) return [];
-  // A8: drop SQL cwd filter — was hidden hard partition violating
+  // drop SQL cwd filter — was hidden hard partition violating
   // substrate-as-mind. Soft cwd-boost happens in JS-side scoring below.
   const rows = state.searchActionsFull(ftsQuery, {
     memory_class: 'semantic',
@@ -600,7 +599,7 @@ function recallEpisodic(opts) {
   if (!qt.length) return [];
   const ftsQuery = buildFtsQuery(opts.query);
   if (!ftsQuery) return [];
-  // A8: drop SQL cwd filter (hidden partition removed); cwd is now a
+  // drop SQL cwd filter (hidden partition removed); cwd is now a
   // soft scoring boost so legacy NULL-cwd rows + cross-cwd episodes
   // remain reachable when the topic warrants.
   const rows = state.searchActionsFull(ftsQuery, {
@@ -686,7 +685,7 @@ function recallProcedural(opts) {
   if (!qt.length) return [];
   const ftsQuery = buildFtsQuery(opts.query);
   if (!ftsQuery) return [];
-  // A8: drop SQL cwd filter; soft cwd-boost in JS scoring below.
+  // drop SQL cwd filter; soft cwd-boost in JS scoring below.
   const rows = state.searchActionsFull(ftsQuery, {
     memory_class: 'procedural',
     limit:        Math.max(opts.limit * 100, 500)
@@ -818,7 +817,7 @@ async function recall(opts) {
   if (!q && cls !== 'identity') return []; // identity allowed on empty query (always-on read)
 
 
-  // A8 — build topic-coherence vector once per recall invocation, share
+  // build topic-coherence vector once per recall invocation, share
   // across class sub-functions. cwd basename minus generic tokens is the
   // current-work signal; future versions may union recent dialogue +
   // active commitment tokens. Cheap (Set ops, no DB hit).

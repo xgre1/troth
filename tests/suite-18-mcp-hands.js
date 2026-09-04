@@ -1,53 +1,48 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
-// suite-18: MCP hands - governed external-MCP surface ( audit +
-// operator design). The partner's "extra hands" (external MCP servers) used
-// to run UNGOVERNED: mcp_call spawned a downstream and ran tools/call outside
-// the STVC intent system. This suite pins the governed replacement end to end:
-//   MCPH-1 workspace-layered registry (global + project .mcp.json, project wins)
-//   MCPH-2 $vault env resolution (resolves when unlocked+authorized; locked
-//          vault SKIPS with a warning and never throws / never leaks the value)
-//   MCPH-3 http-transport entry translates to an npx mcp-remote stdio bridge
-//   MCPH-4 governed REFUSAL: mcp_call with no sealed capability fails closed and
-//          the downstream is NEVER contacted (asserted via the mock)
-//   MCPH-5 governed SUCCESS: seal capability:mcp:testsrv, mcp_call succeeds and
-//          an observation engram exists (queried from the hermetic DB)
-//   MCPH-6 wildcard capability:mcp:* covers any server; exact-name does NOT
-//          cover a different server (adapter defense-in-depth)
-//   MCPH-7 backbone gateway: flag OFF => no troth_mcp_* in tools/list; ON => present
-//   MCPH-8 self-authorization still blocked: path-policy refuses writing the
-//          ~/.troth/mcp-clients.json registry (regression pin)
-//
-// Conversational registration flow (: paste in chat -> partner
-// stages via mcp_register_request -> operator approves once):
-//   MCPH-9  mcp_register_request validates strictly and stages into the
-//           pending file (atomic, 0600, registry shape, $vault verbatim)
-//   MCPH-10 INERTNESS: a pending-only server never resolves (loadDownstream,
-//           mcp_list, governed mcp_call all refuse it)
-//   MCPH-11 duplicate pending name overwrites (latest wins); a name already
-//           ACTIVE refuses with already_active (global AND workspace layers)
-//   MCPH-12 policy split: pending file (+ .tmp) partner-WRITABLE, active
-//           registry still blocked (path-policy AND bash-safety, both ways)
-//   MCPH-13 `troth mcp approve <name>` (headless passphrase) moves the entry
-//           pending -> active + seals capability:mcp:<name>; server resolves
-//   MCPH-13b after approval the governed mcp_call succeeds via the CLI-sealed
-//           capability (mock transport)
-//   MCPH-14 `troth mcp pending` lists staged entries; `troth mcp reject`
-//           removes one (single-JSON-line CLI contract)
-//   MCPH-15 audio system prompt with the FULL unified tool surface carries
-//           the registration sentence and stays under the 3400 cap untruncated
-//
+// suite-18: MCP hands - governed external-MCP surface ( audit + operator
+// design). The partner's "extra hands" (external MCP servers) must not run
+// ungoverned: mcp_call spawns a downstream and runs tools/call inside the STVC
+// intent system. This suite pins the governed replacement end to end: MCPH-1
+// workspace-layered registry (global + project .mcp.json, project wins) MCPH-2
+// $vault env resolution (resolves when unlocked+authorized; locked vault SKIPS
+// with a warning and never throws / never leaks the value) MCPH-3
+// http-transport entry translates to an npx mcp-remote stdio bridge MCPH-4
+// governed REFUSAL: mcp_call with no sealed capability fails closed and the
+// downstream is NEVER contacted (asserted via the mock) MCPH-5 governed
+// SUCCESS: seal capability:mcp:testsrv, mcp_call succeeds and an observation
+// engram exists (queried from the hermetic DB) MCPH-6 wildcard
+// capability:mcp:* covers any server; exact-name does NOT cover a different
+// server (adapter defense-in-depth) MCPH-7 backbone gateway: flag OFF => no
+// troth_mcp_* in tools/list; ON => present MCPH-8 self-authorization still
+// blocked: path-policy refuses writing the ~/.troth/mcp-clients.json registry
+// (regression pin) Conversational registration flow (: paste in chat ->
+// partner stages via mcp_register_request -> operator approves once): MCPH-9
+// mcp_register_request validates strictly and stages into the pending file
+// (atomic, 0600, registry shape, $vault verbatim) MCPH-10 INERTNESS: a
+// pending-only server never resolves (loadDownstream, mcp_list, governed
+// mcp_call all refuse it) MCPH-11 duplicate pending name overwrites (latest
+// wins); a name already ACTIVE refuses with already_active (global AND
+// workspace layers) MCPH-12 policy split: pending file (+ .tmp)
+// partner-WRITABLE, active registry still blocked (path-policy AND
+// bash-safety, both ways) MCPH-13 `troth mcp approve <name>` (headless
+// passphrase) moves the entry pending -> active + seals capability:mcp:<name>;
+// server resolves MCPH-13b after approval the governed mcp_call succeeds via
+// the CLI-sealed capability (mock transport) MCPH-14 `troth mcp pending` lists
+// staged entries; `troth mcp reject` removes one (single-JSON-line CLI
+// contract) MCPH-15 audio system prompt with the FULL unified tool surface
+// carries the registration sentence and stays under the 3400 cap untruncated
 // The MCPH- prefix is deliberate: suite-12 already owns MH-* (MCP HOSTS), and
 // these are MCP HANDS - a name collision would tangle the two in the runner
-// output and let one suite's failure masquerade as the other's.
-//
-// Hermetic: tests/hermetic-db.js has already redirected HOME before this file
-// loads (test-all.js requires it first). Registry/vault fixtures live under
+// output and let one suite's failure masquerade as the other's. Hermetic:
+// tests/hermetic-db.js has already redirected HOME before this file loads
+// (test-all.js requires it first). Registry/vault fixtures live under
 // throwaway tmpdirs; the MCP-server tests (MCPH-7) spawn against their own
-// throwaway HOME exactly like suite-17. The governed tests (MCPH-4/5/6) need an
-// operator signer; if an earlier suite already sealed the shared hermetic DB's
-// operator_key:active they self-skip (same discipline as suite-07's L4 dispatch
-// block) - run this suite standalone for the full governed assertions.
+// throwaway HOME exactly like suite-17. The governed tests (MCPH-4/5/6) need
+// an operator signer; if an earlier suite already sealed the shared hermetic
+// DB's operator_key:active they self-skip (same discipline as suite-07's L4
+// dispatch block) - run this suite standalone for the full governed
+// assertions.
 const assert = require('assert');
 const fs   = require('fs');
 const os   = require('os');

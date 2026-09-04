@@ -52,13 +52,10 @@ function _validate(payload) {
   return null;
 }
 
-// In-place ground walls: the product default on the operator's machine.
-// The declared-sandbox path used to be the ONLY path (docker or refuse,
-// bare-host opt-in); nothing on a Mac declares docker, so this road
-// refused everything the engines asked of it. The default now matches the
-// rest of the product: classify the ground, wrap the spawn in the
-// ground's own kernel profile, photograph before running. Docker stays
-// where a capability declares it; the sealed-VM execute() is untouched.
+// In-place ground walls: the product default on the operator's machine. The
+// default now matches the rest of the product: classify the ground, wrap the
+// spawn in the ground's own kernel profile, photograph before running. Docker
+// stays where a capability declares it; the sealed-VM execute() is untouched.
 function _inplaceSpec(payload) {
   const fs = require('fs');
   const ground = (payload.cwd && String(payload.cwd)) || process.env.GF_WATCH_DIR || null;

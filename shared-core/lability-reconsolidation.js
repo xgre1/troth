@@ -286,21 +286,19 @@ function reconsolidate(opts) {
   return rec.id;
 }
 
-// ── Phase 3 — corrected-fact extraction ──────────────────────────────────
-//
-// PLR §4 in the paper calls for "autonomous overwrite within 10 minutes
-// with the CORRECTED fact." Phase 1 (BG reconsolidation_review) ships
-// flag-only — substrate retires the wrong prior but doesn't claim a new
-// fact. Phase 3 closes that gap: when consensus passes AND the contradicting
-// evidence is rich enough to extract a corrected statement, an LLM micro-
-// call distills the new fact and the BG task writes it as the superseder
-// at tier='working'. Falls back to flag-only on any extract failure so the
-// safety property of phase 1 is preserved.
-//
-// Driver injection same shape as mind-state.distillProject — substrate code
-// never makes API calls directly. Tests pass deterministic mocks; production
-// passes makeReconsolidationDriverFromEnv() (HTTP to OpenAI-compatible
-// endpoint, env-configured, zero deps).
+// ── Corrected-fact extraction ────────────────────────────────── PLR §4 in
+// the paper calls for "autonomous overwrite within 10 minutes with the
+// CORRECTED fact." The background reconsolidation_review ships flag-only —
+// substrate retires the wrong prior but doesn't claim a new fact. The
+// corrected-fact path closes that gap: when consensus passes AND the
+// contradicting evidence is rich enough to extract a corrected statement, an
+// LLM micro- call distills the new fact and the BG task writes it as the
+// superseder at tier='working'. Falls back to flag-only on any extract failure
+// so the safety property of phase 1 is preserved. Driver injection same shape
+// as mind-state.distillProject — substrate code never makes API calls
+// directly. Tests pass deterministic mocks; production passes
+// makeReconsolidationDriverFromEnv() (HTTP to OpenAI-compatible endpoint,
+// env-configured, zero deps).
 
 async function extractCorrectedStatement(opts) {
   opts = opts || {};

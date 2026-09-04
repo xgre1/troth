@@ -18,9 +18,7 @@ function sleepMs(ms) {
 const HOME = process.env.HOME || require("os").homedir();
 const CONFIG_DIR = path.join(HOME, ".troth");
 const CONFIG_FILE = path.join(CONFIG_DIR, "config.json");
-// Single source of truth — whatever is in the npm package's own
-// package.json. Previously this was hardcoded and drifted from
-// package.json silently (caught by the v5.5.0 dockerized test).
+// Single source of truth — whatever is in the npm package's own package.json.
 const VERSION = require("../package.json").version;
 const { resolveAgentId } = require("../shared-core/agent-id");
 
@@ -223,7 +221,7 @@ function cleanOrphanSiblings(primaryPort) {
 }
 
 // The proxy answers EADDRINUSE by taking the next port, up to ten above the
-// one it was asked for (proxy/server.js). Everything here used to look only
+// one it was asked for (proxy/server.js). Everything here would look only
 // at the configured port, so a busy 8000 meant a healthy proxy on 8001 was
 // invisible: the wait below timed out, the CLI exited, and a first-time user
 // on a machine with anything else on 8000 could not reach the dashboard at
@@ -505,7 +503,7 @@ function migrateHeavyMcps() {
   return { migrated: toMove, backup: backupPath };
 }
 
-// P0.1 — Add "Bash" to permissions.deny in ~/.claude/settings.json so
+// Add "Bash" to permissions.deny in ~/.claude/settings.json so
 // Claude Code routes shell work through mcp__troth-bash__run instead
 // of the native Bash tool. Without this, the plugin's bash-compression
 // MCP exists but the model never picks it (preferring the native tool),
@@ -549,7 +547,7 @@ function applyBashDenyDefault() {
 
 // The command surface lives in shared-core/cli-commands.js as DATA - one
 // list feeding this dispatch Set AND the dashboard reference endpoint.
-// It moved out of this file because the reference used to regex THIS
+// It moved out of this file because the reference would regex THIS
 // file's source for the literal, and shipped bundles are minified: every
 // published build answered the reference page with zero CLI commands.
 var SUBCOMMANDS = new Set(require(__dirname + "/../shared-core/cli-commands.js"));
@@ -1347,7 +1345,7 @@ if (command === "app") {
     process.exit(1);
   }
   // The desktop app is built from a separate checkout that is not part of
-  // this repository, so there is nothing here to build. This used to point
+  // this repository, so there is nothing here to build. This would point
   // at scripts/build-app.sh and print "not found" with a path nobody could
   // act on, for a command the help text advertised.
   console.error("`troth app` builds the macOS desktop app, which is not part of this repository.");
@@ -1976,7 +1974,7 @@ if (command === "doctor") {
     // A model file on disk is not a working embedder. Two runtimes can serve
     // it — the spawned llama-server binary, or the in-process node-llama-cpp
     // optional dependency — and with NEITHER present the file is inert while
-    // this check used to answer "semantic". That is the lie that matters:
+    // this check would answer "semantic". That is the lie that matters:
     // `npm install --omit=optional`, a failed native build, or any platform
     // the binary does not auto-install on all produce it.
     var _binPath = process.env.TROTH_LLAMA_SERVER_BIN ||
@@ -2413,7 +2411,7 @@ if (command === "setup") {
 
     // Claude Code is OPTIONAL — doctor calls it optional, the engine list has
     // eight other ways in, and the plugin/subscription steps below offer it
-    // properly. This used to call ensureClaudeInstalled(), which exits 1 when
+    // properly. This would call ensureClaudeInstalled(), which exits 1 when
     // it is absent and stdin is not a TTY, and exits 1 again if a TTY user
     // declines the install: `troth setup` was unusable on any machine without
     // Claude Code, before asking a single question. Detect it, say so, move on.
@@ -2472,12 +2470,12 @@ if (command === "setup") {
       });
     }
 
-    // Secret-safe prompt: same contract as ask(), but the typed characters
-    // never reach the terminal. A pasted API key used to sit in scrollback,
-    // in tmux history and in any screen recording of the setup — and every
-    // key this wizard takes is a live credential. Falls back to the plain
-    // prompt when stdin is not a TTY (piped drivers, CI) because raw mode is
-    // not available there and a hidden prompt would simply hang.
+    // Secret-safe prompt: same contract as ask(), but the typed characters never
+    // reach the terminal. A pasted API key that echoes sits in scrollback, in tmux
+    // history and in any screen recording of the setup — and every key this wizard
+    // takes is a live credential. Falls back to the plain prompt when stdin is not
+    // a TTY (piped drivers, CI) because raw mode is not available there and a
+    // hidden prompt would simply hang.
     function askSecret(q) {
       if (!process.stdin.isTTY) return ask(q);
       return new Promise(function (resolve) {
@@ -2641,7 +2639,7 @@ if (command === "setup") {
         }
       } else if (choice === "3") {
         // The Claude subscription is its own numbered choice, sitting beside
-        // the other two subscriptions — it used to hide behind an a/b prompt
+        // the other two subscriptions — it would hide behind an a/b prompt
         // under the API-key entry, which read as "there is no subscription
         // path" to anyone scanning the numbers. Linking runs troth INSIDE
         // Claude Code (plugin + MCP): the plan answers there and no proxy
@@ -2827,7 +2825,7 @@ if (command === "setup") {
     console.log("\n  \x1b[32m+\x1b[0m Config saved to " + CONFIG_FILE);
 
     // ── Claude Code integration — RUN it, not a printed homework line. The
-    // wizard used to answer \"yes\" with instructions to type another
+    // wizard would answer \"yes\" with instructions to type another
     // command; the step people skip is always the second command.
     if (_claudeLinked) {
       console.log("\n  Claude Code integration: already linked in the engine step.");
@@ -3015,7 +3013,7 @@ if (command === "setup") {
     // ── Import existing chats — memory should not start empty when months of
     // history sit on the same disk. Additive archive import into the
     // substrate corpus; never deletes anything. Only sources that actually
-    // EXIST here are offered: the question used to name Claude Code and
+    // EXIST here are offered: the question would name Claude Code and
     // Codex together and then import claude-cli regardless, so a machine
     // with no Codex was asked about one, and a machine with only Codex was
     // offered an import that could find nothing.
@@ -3098,20 +3096,18 @@ if (parseInt(process.versions.node.split(".")[0]) < 22) {
 // at once on the same TTY.
 if (command === "cli" || command === "chat" || command === "body") return;
 
-// Every command handler above ends in process.exit(). Reaching this line with a
-// command still set means no handler claimed it: the word is in SUBCOMMANDS but
-// its module is not in this build (several ship only with the app), or it is a
-// stale entry. Falling through from here ran first-run onboarding and then the
-// launcher, so on a public clone `troth graduate` quietly wrote a config file
-// and opened a browser, and `troth config get` sat in the REPL until killed.
-// Answering "there is no such command here" is the only honest thing to do with
-// a word we did not implement.
-//
-// LAUNCHER_MODES are the exception, and the reason this list exists rather than
-// a bare `if (command)`. `troth classic` is not a command with a handler; it is
-// a request to run the launcher below in proxy mode for one invocation, so
-// reaching this line IS its success path. The first version of this guard did
-// not know that and turned `troth classic` into exit 127.
+// Every command handler above ends in process.exit(). Reaching this line with
+// a command still set means no handler claimed it: the word is in SUBCOMMANDS
+// but its module is not in this build (several ship only with the app), or it
+// is a stale entry. Falling through from here ran first-run onboarding and
+// then the launcher, so on a public clone `troth graduate` quietly wrote a
+// config file and opened a browser, and `troth config get` sat in the REPL
+// until killed. Answering "there is no such command here" is the only honest
+// thing to do with a word we did not implement. LAUNCHER_MODES are the
+// exception, and the reason this list exists rather than a bare `if
+// (command)`. `troth classic` is not a command with a handler; it is a request
+// to run the launcher below in proxy mode for one invocation, so reaching this
+// line IS its success path.
 const LAUNCHER_MODES = new Set(['classic']);
 if (command && !LAUNCHER_MODES.has(command)) {
   console.error("troth: no handler for `" + command + "` in this build.");
@@ -3187,7 +3183,7 @@ if (!fs.existsSync(CONFIG_FILE)) {
 
 var cfg = loadConfig();
 
-// The banner used to print "any", which tells the operator nothing: with a
+// The banner would print "any", which tells the operator nothing: with a
 // pinned engine he still could not see WHICH model was about to answer, and a
 // chain that quietly served something else looked identical (pinned Kimi,
 // GPT answered, felt like Sonnet). Resolve the actual MODEL NAME, not the
@@ -3424,7 +3420,7 @@ if (smartMode) {
 } else if (localBackendReachable()) {
   routingMode = "local";
 } else if (hasEnabledCloudProviders()) {
-  // Plain `troth` used to pin the proxy to "local" unconditionally. With the
+  // Plain `troth` would pin the proxy to "local" unconditionally. With the
   // local server down that pin routes EVERY request at a dead socket, so the
   // whole session fails with connection-refused while perfectly good cloud
   // engines sit unused (operator hit this: `troth classic` set
@@ -3530,7 +3526,7 @@ if (loggedInToClaudeAi) {
 console.log("");
 
 var child = spawn("claude", claudeArgs, { env: env, stdio: "inherit" });
-// Missing Claude Code used to surface as a raw unhandled ENOENT stack — the
+// Missing Claude Code would surface as a raw unhandled ENOENT stack — the
 // one crash a stranger hits on a Mac that never installed it (fresh-Mac
 // audit). doctor already calls claude optional; the launch path
 // has to be equally honest.

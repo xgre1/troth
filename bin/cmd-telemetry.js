@@ -5,7 +5,7 @@
 module.exports = function run(ctx) {
 const { command, fetchProxyJson } = ctx;
 if (command === "telemetry") {
-  // Detailed Opus 4.7 telemetry dump
+  // Detailed diagnostic counter dump
   var s = fetchProxyJson('/api/stats');
   if (!s) { console.error('Cannot reach proxy. Is it running?'); process.exit(1); }
   console.log('=== troth Model Telemetry ===');

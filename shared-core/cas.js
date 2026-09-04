@@ -76,7 +76,7 @@ function casHas(hash) {
 }
 
 // Reference count = how many LIVE artifact engrams reference this CID, either
-// as their own cid or in parent_cids. The dream-cycle GC (Phase 4) deletes a
+// as their own cid or in parent_cids. The dream-cycle GC deletes a
 // blob once refcount hits 0 (every referencing artifact engram has expired and
 // been reaped). cas-do.js encodes both the artifact's own cid and its
 // parent_cids into the engram statement, so this counts via the public

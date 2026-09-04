@@ -57,7 +57,7 @@ test('DDM-2: the wall is the half-echo check, stated where the next writer will 
 
 test('DDM-3: the scribe records the operator\'s words even on a failed turn (source pin)', () => {
   // Retiring the per-role mirror removed its one accidental virtue: an
-  // errored-then-abandoned question used to leave a user half behind.
+  // errored-then-abandoned question would leave a user half behind.
   // The daemon must carry that duty itself — an else-branch beside the
   // ok-path record, writing the prompt with an empty assistant side.
   const src = fs.readFileSync(path.join(ROOT, 'bin', 'troth-entity.js'), 'utf8');

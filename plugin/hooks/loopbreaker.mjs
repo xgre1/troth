@@ -105,7 +105,7 @@ if (allow_deny && prior >= DENY_AT) {
       'Do not retry with identical arguments — diagnose the failure first, then change approach.'
     );
   } catch (e) { /* swallow */ }
-  // P16.5 I1 — avoided_path record for the negative-precedent surfacer.
+  // avoided_path record for the negative-precedent surfacer.
   if (featureEnabled('negative_knowledge')) {
     try {
       const avoided = require(pluginRoot + '/../shared-core/avoided.js');

@@ -1,18 +1,12 @@
 #!/usr/bin/env node
-// SPDX-License-Identifier: AGPL-3.0-only
-// troth chat — interactive REPL backed by the troth-entity daemon.
-//
-// One long-lived child process per chat session. Each line of user input
-// becomes a `user_input` event on the entity's stdin; each response event
-// from stdout renders here. Slash commands work natively because the entity
-// intercepts them at its own input boundary (see Phase 3 wiring).
-//
-// Exit:
-//   /quit, /exit         clean shutdown
-//   Ctrl-D / Ctrl-C      forwards SIGTERM, then exits
-//
-// This is the human-facing twin of the voice path: same entity, same tools,
-// same substrate. Plain stdin/stdout — no Tauri, no UI dep.
+// SPDX-License-Identifier: AGPL-3.0-only troth chat — interactive REPL backed
+// by the troth-entity daemon. One long-lived child process per chat session.
+// Each line of user input becomes a `user_input` event on the entity's stdin;
+// each response event from stdout renders here. Slash commands work natively
+// because the entity intercepts them at its own input boundary. Exit: /quit,
+// /exit clean shutdown Ctrl-D / Ctrl-C forwards SIGTERM, then exits This is
+// the human-facing twin of the voice path: same entity, same tools, same
+// substrate. Plain stdin/stdout — no Tauri, no UI dep.
 
 const { spawn } = require('child_process');
 const path = require('path');
@@ -653,7 +647,7 @@ function spawnEntity() {
   // 400 …', cache warnings, etc.) doesn't smash the chat layout. We tee
   // those into ~/.troth/cli.log and only surface fatal lines to the user.
   // A missing entity runtime (broken install, partial publish, mangled app
-  // bundle) used to either crash with a raw unhandled 'error' stack or sit
+  // bundle) would either crash with a raw unhandled 'error' stack or sit
   // silent — say what is wrong and how to fix it instead.
   if (!require('fs').existsSync(ENTITY_BIN)) {
     console.error('troth: entity runtime missing at ' + ENTITY_BIN +
@@ -1411,7 +1405,7 @@ function start() {
           refresh5h();
           spinner.stop();
           // Honest empty-reply handling: a turn that aborted (providers
-          // exhausted, transport offline) used to render as a BLANK reply —
+          // exhausted, transport offline) would render as a BLANK reply —
           // the reason survived to this event and was dropped here (journey
           // find. Name the cause and point at the fix.
           if (!msg.text && (msg.status === 'aborted' || msg.reason)) {

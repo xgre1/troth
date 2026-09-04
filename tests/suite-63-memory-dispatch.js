@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // The mind answers its own memory questions.
 //
-// P7.3: a memory-shaped user turn whose recall is confident is answered by
+// a memory-shaped user turn whose recall is confident is answered by
 // the substrate directly — respond_directly, no language faculty summoned.
 // The engine stays pure: the runtime attaches pre-fetched recall to the
 // event, and the rule judges confidence STRUCTURALLY (top hit dominates its

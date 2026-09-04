@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Documents are read, not memorised.
 //
-// `troth knowledge import` used to chunk documents itself and write every
+// `troth knowledge import` would chunk documents itself and write every
 // piece as a type='lesson' ActionRecord — semantic, model-visible. On the
 // substrate this was measured on, 3,785 of those "lessons" were whole
 // research documents, and recall served them back as memories the partner

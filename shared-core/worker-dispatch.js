@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
-// Phase 5: per-worker transport resolver for autonomy. Treats a role's model_pref
+// per-worker transport resolver for autonomy. Treats a role's model_pref
 // as a PREFERENCE, not a pin, and spreads workers across what the user actually
 // has - so autonomy never collapses every role onto ONE local box (the qwen-
 // hammering bug). The actual cloud spread (deepseek vs openai vs openrouter) is

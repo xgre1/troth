@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
-// instance consolidation: two occasions that each name people and share
-// none never merge, whatever an alias or an anchor would say. Measured
-// 2026-09-02: "a friend's wedding where Jen was the bride and Tom was her
-// husband" and "cousin Emily's wedding in the city" became ONE ledger line.
+// instance consolidation: two occasions that each name people and share none
+// never merge, whatever an alias or an anchor would say.
 const assert = require('assert');
 const ic = require('../shared-core/instance-consolidation.js');
 const T = ic.__test;

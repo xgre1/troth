@@ -1,32 +1,20 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Voice profile.
-//
-// Per the design work Part 2: stable rendering preferences
-// (tone, verbosity, format, vocabulary) that survive LLM faculty swaps.
-// Every LLM tick reads the current voice_profile and inflects responses
-// accordingly. When operator swaps from Claude → local LLM → GPT, the
-// SAME voice carries — because voice lives in substrate, not in the
-// faculty's weights.
-//
-// Engram shape (operator-signed, scope='voice_profile'):
-//   extra_output: {
-//     name:                   'Felix' | null     (partner's identity name)
-//     tone:                   'terse' | 'warm' | 'formal' | 'playful' | 'neutral'
-//     verbosity:              'minimal' | 'normal' | 'verbose'
-//     format_preferences:     { markdown: bool, code_blocks: bool, headers: bool, emoji_ok: bool }
-//     vocabulary_preferences: {
-//       prefer: ['list', 'of', 'preferred', 'terms'],
-//       avoid:  ['list', 'of', 'avoided', 'terms / phrases']
-//     }
-//     style_examples:         ['short string showing desired voice']    (≤5)
-//     notes:                  null | 'free-form operator note'
-//     created_at_ms, updated_at_ms
-//   }
-//
-// Tier-constrained supersedes (integration point) means each operator-signed
-// voice update retires the prior — `getActiveVoiceProfile` returns
-// the latest non-superseded. PLR may add fine-grained drift detection
-// in Phase 5; v1 is operator-curated only.
+// SPDX-License-Identifier: AGPL-3.0-only Voice profile. Per the design work
+// Part 2: stable rendering preferences (tone, verbosity, format, vocabulary)
+// that survive LLM faculty swaps. Every LLM tick reads the current
+// voice_profile and inflects responses accordingly. When operator swaps from
+// Claude → local LLM → GPT, the SAME voice carries — because voice lives in
+// substrate, not in the faculty's weights. Engram shape (operator-signed,
+// scope='voice_profile'): extra_output: { name: 'Felix' | null (partner's
+// identity name) tone: 'terse' | 'warm' | 'formal' | 'playful' | 'neutral'
+// verbosity: 'minimal' | 'normal' | 'verbose' format_preferences: { markdown:
+// bool, code_blocks: bool, headers: bool, emoji_ok: bool }
+// vocabulary_preferences: { prefer: ['list', 'of', 'preferred', 'terms'],
+// avoid: ['list', 'of', 'avoided', 'terms / phrases'] } style_examples:
+// ['short string showing desired voice'] (≤5) notes: null | 'free-form
+// operator note' created_at_ms, updated_at_ms } Tier-constrained supersedes
+// (integration point) means each operator-signed voice update retires the
+// prior — `getActiveVoiceProfile` returns the latest non-superseded. v1 is
+// operator-curated only.
 
 'use strict';
 

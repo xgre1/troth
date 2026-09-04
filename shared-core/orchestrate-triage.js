@@ -59,7 +59,7 @@ const EXPLICIT_PATTERNS = [
   /\bin\s+parallel\s+(?:with|across|using)\s+(?:agents?|workers?|roles?)\b/i
 ];
 
-// Multi-domain markers — used to score the gap between "obviously inline"
+// Multi-domain markers — would score the gap between "obviously inline"
 // and "ask the user". Each match adds to the score; threshold below.
 const DOMAIN_MARKERS = [
   { pat: /\b(?:rest\s+)?api\b|\bendpoint(?:s)?\b|\b\/api\/|\bback[-\s]?end\b/i,             role: 'backend' },

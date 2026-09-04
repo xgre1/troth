@@ -1,45 +1,27 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// CaMeL dual-context.
-//
-// Implements the privileged-planner / quarantined-executor split from
-// CaMeL (Debenedetti et al. arXiv 2503.18813, March 2025):
-//
-//   P-LLM  (privileged planner)  — sees TYPED values + control flow;
-//                                   never raw untrusted data
-//   Q-LLM  (quarantined executor) — sees untrusted data; can only
-//                                   return TYPED values via a narrow
-//                                   schema-validated API
-//
-// Why: a single-LLM agent sees prompt-injection-laden web pages /
-// emails / tool outputs and may follow embedded instructions. CaMeL's
-// insight: separate the "what to do" loop (P-LLM, sees clean state)
-// from the "extract this fact from this dirty blob" call (Q-LLM,
-// can ONLY return typed values fitting the requested schema).
-//
-// AgentDojo benchmark (Debenedetti 2024 prior work): CaMeL bumps
-// prompt-injection-defended success rate from ~50% (audience-chain
-// coarse) to >90%. This is what design R17 enforces structurally.
-//
-// v1 substrate primitive:
-//   runQuarantined({untrusted_data, ask_for, schema, llmCall})
-//     → { ok, value, validation } where value MATCHES schema
-//   ensurePrivileged(planner_context) → strips/redacts any untrusted
-//     blob before it reaches the planner prompt
-//   TYPED_VALIDATORS for the canonical CaMeL types
-//
-// Substrate-as-mind framing: the mind has two faculties — planning
-// (P-LLM) and reading-dirty-things (Q-LLM). They don't share memory
-// directly; the only channel between them is the typed-value schema.
-// Same principle as: you read a hostile email but only extract
-// "phone number = 555-1234" — you don't let the email content
-// reshape your next action.
-//
-// design grounding:
-//   - CaMeL (Debenedetti et al. arXiv 2503.18813)
-//   - AgentDojo (Debenedetti et al. arXiv 2406.13352) for benchmark
-//   - design R17: structural separation, not prompt rule
-//   - design substrate-as-mind: faculties of one mind, distinct roles
-//   - JSON Schema draft 2020-12 (typed value validation)
+// SPDX-License-Identifier: AGPL-3.0-only CaMeL dual-context. Implements the
+// privileged-planner / quarantined-executor split from CaMeL (Debenedetti et
+// al. arXiv 2503.18813, March 2025): P-LLM (privileged planner) — sees TYPED
+// values + control flow; never raw untrusted data Q-LLM (quarantined executor)
+// — sees untrusted data; can only return TYPED values via a narrow
+// schema-validated API Why: a single-LLM agent sees prompt-injection-laden web
+// pages / emails / tool outputs and may follow embedded instructions. CaMeL's
+// insight: separate the "what to do" loop (P-LLM, sees clean state) from the
+// "extract this fact from this dirty blob" call (Q-LLM, can ONLY return typed
+// values fitting the requested schema). AgentDojo benchmark (Debenedetti 2024
+// prior work): CaMeL bumps prompt-injection-defended success rate from ~50%
+// (audience-chain coarse) to >90%. v1 substrate primitive:
+// runQuarantined({untrusted_data, ask_for, schema, llmCall}) → { ok, value,
+// validation } where value MATCHES schema ensurePrivileged(planner_context) →
+// strips/redacts any untrusted blob before it reaches the planner prompt
+// TYPED_VALIDATORS for the canonical CaMeL types Substrate-as-mind framing:
+// the mind has two faculties — planning (P-LLM) and reading-dirty-things
+// (Q-LLM). They don't share memory directly; the only channel between them is
+// the typed-value schema. Same principle as: you read a hostile email but only
+// extract "phone number = 555-1234" — you don't let the email content reshape
+// your next action. - CaMeL (Debenedetti et al. arXiv 2503.18813) - AgentDojo
+// (Debenedetti et al. arXiv 2406.13352) for benchmark - structural separation,
+// not prompt rule - design substrate-as-mind: faculties of one mind, distinct
+// roles - JSON Schema draft 2020-12 (typed value validation)
 
 'use strict';
 

@@ -119,9 +119,9 @@ function db() {
     _db.prepare("UPDATE action_records SET principal_id='partner' WHERE principal_id IS NULL AND timestamp > @since").run({ since: _healSince });
     _db.prepare("UPDATE action_records SET audience='substrate_internal' WHERE audience IS NULL AND timestamp > @since").run({ since: _healSince });
     _db.prepare("UPDATE action_records SET memory_class='operational' WHERE memory_class IS NULL AND timestamp > @since").run({ since: _healSince });
-    // Entity registry rows written before 2026-09-02 carry the episodic class
-    // and compete in the general pool; recordEngram now derives identity for
-    // scope entity:*. Re-stamp the old rows once per open (indexed on scope).
+    // Older entity registry rows carry the episodic class and compete in the
+    // general pool; recordEngram derives identity for scope entity:*. Re-stamp the
+    // old rows once per open (indexed on scope).
     _db.prepare("UPDATE action_records SET memory_class='identity' WHERE memory_class='episodic' AND timestamp > @since AND json_extract(output,'$.scope') LIKE 'entity:%'").run({ since: _healSince });
     // The emphasis pile: raw user turns promoted verbatim because they were
     // loud (caps, profanity, repetition), scope consolidated:dialogue, and the
@@ -492,25 +492,20 @@ function migrate(d) {
     d.exec('CREATE INDEX IF NOT EXISTS idx_ar_principal ON action_records(principal_id, timestamp)');
   } catch (_) { /* noop */ }
 
-  //  audience/memory-class reconstruction.
-  //
-  // audience separates content meant for the LLM prefix
-  // ('model_visible') from substrate-internal observability
-  // ('substrate_internal') — eliminates the failure mode where agent-to-
-  // agent memos or operational traces leak into trivial-query context.
-  //
-  // memory_class enforces brain-grounded type separation grounded in
-  // Tulving 1972 / Andrews-Hanna 2010: identity (always-on anchors),
-  // episodic (events/dialogue), semantic (research/lessons), procedural
-  // (compiled procedures), operational (intents/decisions/traces),
-  // ephemeral (intra-session). Each class has its own retrieval policy
-  // and mounting eligibility (see paper §B design note table).
-  //
-  // Both columns nullable on legacy rows; backfilled by
-  // scripts/backfill-audience-memory-class.js (Phase 2). NOT NULL
-  // constraint added in Phase 4 via INSERT trigger after operator
-  // validates distribution. Sentinel '__legacy__' (audience) /
-  // 'operational' (memory_class) treated as substrate_internal at read.
+  // audience/memory-class reconstruction. audience separates content meant for
+  // the LLM prefix ('model_visible') from substrate-internal observability
+  // ('substrate_internal') — eliminates the failure mode where agent-to- agent
+  // memos or operational traces leak into trivial-query context. memory_class
+  // enforces brain-grounded type separation grounded in Tulving 1972 /
+  // Andrews-Hanna 2010: identity (always-on anchors), episodic
+  // (events/dialogue), semantic (research/lessons), procedural (compiled
+  // procedures), operational (intents/decisions/traces), ephemeral
+  // (intra-session). Each class has its own retrieval policy and mounting
+  // eligibility (see paper §B design note table). Both columns nullable on
+  // legacy rows; backfilled by scripts/backfill-audience-memory-class.js. A NOT
+  // NULL constraint can follow via INSERT trigger once the distribution is
+  // validated. Sentinel '__legacy__' (audience) / 'operational' (memory_class)
+  // treated as substrate_internal at read.
   try {
     d.exec('ALTER TABLE action_records ADD COLUMN audience TEXT');
   } catch (_) { /* column already there */ }
@@ -1843,15 +1838,14 @@ function recordAction(rec, searchText) {
       for (const _sid of _ids) { if (_sid) _ins.run(String(_sid), rec.id, rec.timestamp || Date.now()); }
     }
   } catch (_) { /* index mirror failure is non-fatal */ }
-  // Extend the tamper-evident signed chain over THIS write. The chain used
-  // to attest only control-channel dispatches — 40 rows against ~582,000
-  // engram writes — so a raw UPDATE of memory, identity or goals was
-  // invisible to `troth audit verify`: it attested a chain that covered
-  // nothing. Every recordAction now appends one signed row (sha256 of the
-  // stored columns, ed25519 over the running chain hash; the read-head +
-  // append is one immediate transaction so concurrent writers serialize
-  // instead of forking the chain). Synchronous — sub-millisecond — and
-  // fail-open: losing one chain row beats losing the memory.
+  // Extend the tamper-evident signed chain over THIS write. A chain that attests
+  // only control-channel dispatches leaves a raw UPDATE of memory, identity or
+  // goals invisible to `troth audit verify`. Every recordAction appends one
+  // signed row (sha256 of the stored columns, ed25519 over the running chain
+  // hash; the read-head + append is one immediate transaction so concurrent
+  // writers serialize instead of forking the chain). Synchronous —
+  // sub-millisecond — and fail-open: losing one chain row beats losing the
+  // memory.
   try {
     const _sa = require('./signed-audit.js');   // lazy: signed-audit requires state at its top
     _sa.attestSync({
@@ -1892,8 +1886,8 @@ function getAction(id) {
   return row || null;
 }
 
-// ── P16 Tier 1 — DecisionGraph typed edges ─────────────────────────────────
-// Six canonical labels per research G16.D (evidence-based, minimal,
+// ── DecisionGraph typed edges ─────────────────────────────────
+// Six canonical labels (evidence-based, minimal,
 // explosion-resistant). Custom labels allowed via 'ext:' prefix; only the
 // six are first-class for query optimization.
 const CANONICAL_EDGE_LABELS = Object.freeze([
@@ -1964,7 +1958,7 @@ function getEdge(id) {
   `).get(id) || null;
 }
 
-// ── P16.5 I3 — Counterfactual branch CRUD ─────────────────────────────────
+// ── Counterfactual branch CRUD ─────────────────────────────────
 const CF_STATUSES = Object.freeze(['candidate', 'materialized', 'discarded']);
 
 function createBranch(opts) {
@@ -2029,7 +2023,7 @@ function listBranches(opts) {
   });
 }
 
-// ── P17 Tier 3 — wire-format profile CRUD ────────────────────────────────
+// ── wire-format profile CRUD ────────────────────────────────
 const WFP_STATUSES = Object.freeze(['candidate', 'active', 'discarded']);
 
 function saveWireFormatProfile(opts) {
@@ -2958,7 +2952,7 @@ function deleteEmbedding(engram_id) {
 // more work than the defect deserves.
 //
 // Superseded engrams are deliberately NOT swept. They are real memories kept
-// for audit ("what did I used to believe"), recall already excludes them by
+// for audit ("what did I would believe"), recall already excludes them by
 // following the supersession chain, and they are 336 vectors — half a percent.
 // Taking their vectors would trade an honest 0.5% for the loss of a real
 // answer.
@@ -3498,7 +3492,7 @@ function streamRecallableEmbeddings() {
       AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'entity:%')
   `).iterate();
 }
-// Fetch full action rows for an id set — used to build dense-hit result objects
+// Fetch full action rows for an id set — would build dense-hit result objects
 // (statement/class/recency) for engrams the dense arm surfaced but the lexical
 // pool never pulled.
 function getActionsByIds(ids) {
@@ -3747,12 +3741,12 @@ const _exports = {
   // audit subsystem — allowlist audit
   recordAllowlistAudit,
   listAllowlistAudit,
-  // P16 Tier 1 — DecisionGraph typed edges
+  // DecisionGraph typed edges
   recordEdge,
   queryEdges,
   getEdge,
   CANONICAL_EDGE_LABELS,
-  // P16.5 I3 — Counterfactual branches
+  // Counterfactual branches
   createBranch,
   getBranch,
   listBranches,
@@ -3765,7 +3759,7 @@ const _exports = {
   claimIntent,
   markIntentObserved,
   markIntentFailed,
-  // P17 Tier 3 — wire-format profiles
+  // wire-format profiles
   saveWireFormatProfile,
   getWireFormatProfile,
   listWireFormatProfiles,

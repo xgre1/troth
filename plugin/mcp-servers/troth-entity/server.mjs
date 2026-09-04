@@ -16,7 +16,7 @@
 //      plug-in to a host with its own LLM). Calls a configured
 //      transport (router by default — never directly Anthropic).
 //
-// This split fixes the framing where the entity used to bring its own
+// This split fixes the framing where the entity would bring its own
 // LLM provider stack into a Claude Code session — wrong: the host's
 // LLM (Claude in that session) is the language faculty when the entity
 // plugs in. The entity adds substrate intelligence via tools, not by

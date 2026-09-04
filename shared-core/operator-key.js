@@ -176,9 +176,8 @@ function unlock(passphrase, opts) {
       return crypto.sign(null, buf, privateKey).toString('base64');
     },
     lock() {
-      // Best-effort: drop the reference; GC reclaims. Node KeyObject
-      // does not expose explicit zeroize. For higher assurance use
-      // hardware-backed keys (Phase 2 option).
+      // Best-effort: drop the reference; GC reclaims. Node KeyObject does not expose
+      // explicit zeroize. For higher assurance use hardware-backed keys.
       locked = true;
     }
   };

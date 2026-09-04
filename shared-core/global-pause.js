@@ -1,26 +1,18 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Global pause / kill-switch.
-//
-// Operator-signed emergency brake. When a global_pause engram is the
-// current authority (not superseded by a global_resume), the
-// not_globally_paused STVC predicate refuses all transitions tagged
-// for dispatch. This is the structural kill-switch the operator must
-// have before any dispatcherer ships: otherwise a runaway partner can
-// only be stopped by killing the substrate process (and would resume
-// from WAL on restart).
-//
-// Granularity:
-//   - global_pause      → halts ALL dispatch
-//   - scope_pause:<glob> → halts dispatch whose scope matches the glob
-//
-// Both are operator_confirmed engrams, signed via operator-key.js.
-// Resume = a global_resume / scope_resume engram that supersedes the
-// matching pause (tier-constrained supersedes / integration point protects this:
-// only operator_confirmed writes can retire operator_confirmed pauses).
-//
-// STVC predicate: `not_globally_paused` evaluates against the proposed
-// transition. The Phase 1.5 wiring covers global pause; scope-glob
-// matching arrives when dispatcherers ship (Phase 2+).
+// SPDX-License-Identifier: AGPL-3.0-only Global pause / kill-switch.
+// Operator-signed emergency brake. When a global_pause engram is the current
+// authority (not superseded by a global_resume), the not_globally_paused STVC
+// predicate refuses all transitions tagged for dispatch. This is the
+// structural kill-switch the operator must have before any dispatcherer ships:
+// otherwise a runaway partner can only be stopped by killing the substrate
+// process (and would resume from WAL on restart). Granularity: - global_pause
+// → halts ALL dispatch - scope_pause:<glob> → halts dispatch whose scope
+// matches the glob Both are operator_confirmed engrams, signed via
+// operator-key.js. Resume = a global_resume / scope_resume engram that
+// supersedes the matching pause (tier-constrained supersedes / integration
+// point protects this: only operator_confirmed writes can retire
+// operator_confirmed pauses). STVC predicate: `not_globally_paused` evaluates
+// against the proposed transition. This covers global pause; scope-glob
+// matching arrives with the dispatchers (Phase 2+).
 
 'use strict';
 

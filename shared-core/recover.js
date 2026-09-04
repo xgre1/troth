@@ -1,43 +1,30 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Recovery flow.
-//
-// Re-anchors the substrate's operator authority when the primary key
-// is lost. Without this, a forgotten passphrase or destroyed key file
-// is permanent — the partner can never be issued operator-tier writes
-// again, which kills its autonomy and eventually dormant-locks it.
-//
-// Pre-condition (set up at `troth init` time):
-//   The operator passed --recovery-pubkey at init. bootstrap.runInit
-//   wrote a sealed recovery_directive engram carrying that public key.
-//   The corresponding PRIVATE key lives offline (paper backup, hardware
-//   wallet, second laptop, etc) under the operator's control.
-//
-// Recovery flow:
-//   1. Read the active recovery_directive — find the authorized
-//      successor pubkey + id.
-//   2. Generate a NEW primary keypair (new passphrase, new key dir).
-//   3. Sign a new operator_key:active engram with the RECOVERY private
-//      key. integration point verifies against the directive's pubkey (one of the
-//      multi-candidate verifiers from Phase 1.4b) and accepts the write.
-//   4. The new engram supersedes the old operator_key:active via
-//      tier-constrained supersedes (integration point protects this — recovery key
-//      is operator-tier authority, so it can retire the prior op-tier
-//      key engram).
-//   5. Subsequent operator-tier writes verify against the NEW primary
-//      pubkey (substrate-first lookup short-circuits there).
-//
-// Threat model:
-//   - Recovery private key compromise → attacker can re-anchor the
-//     substrate to a key THEY hold. Mitigation: operator stores the
-//     recovery private key offline + uses a different passphrase from
-//     the primary; treats the recovery key like a hardware-token PIN.
-//   - Recovery directive tampering at write time → blocked by integration point
-//     when the directive engram was originally written.
-//   - Stale recovery directive (operator rotated it but the engram
-//     still references the old key) → operator should write a NEW
-//     directive engram before destroying the new recovery key. Tier-
-//     constrained supersedes lets a recovery write rotate the directive
-//     too. Phase 1.4c will ship `troth recover --rotate-directive`.
+// SPDX-License-Identifier: AGPL-3.0-only Recovery flow. Re-anchors the
+// substrate's operator authority when the primary key is lost. Without this, a
+// forgotten passphrase or destroyed key file is permanent — the partner can
+// never be issued operator-tier writes again, which kills its autonomy and
+// eventually dormant-locks it. Pre-condition (set up at `troth init` time):
+// The operator passed --recovery-pubkey at init. bootstrap.runInit wrote a
+// sealed recovery_directive engram carrying that public key. The corresponding
+// PRIVATE key lives offline (paper backup, hardware wallet, second laptop,
+// etc) under the operator's control. Recovery flow: 1. Read the active
+// recovery_directive — find the authorized successor pubkey + id. 2. Generate
+// a NEW primary keypair (new passphrase, new key dir). 3. Sign a new
+// operator_key:active engram with the RECOVERY private key. integration point
+// verifies against the directive's pubkey and accepts the write. 4. The new
+// engram supersedes the old operator_key:active via tier-constrained
+// supersedes (integration point protects this — recovery key is operator-tier
+// authority, so it can retire the prior op-tier key engram). 5. Subsequent
+// operator-tier writes verify against the NEW primary pubkey (substrate-first
+// lookup short-circuits there). Threat model: - Recovery private key
+// compromise → attacker can re-anchor the substrate to a key THEY hold.
+// Mitigation: operator stores the recovery private key offline + uses a
+// different passphrase from the primary; treats the recovery key like a
+// hardware-token PIN. - Recovery directive tampering at write time → blocked
+// by integration point when the directive engram was originally written. -
+// Stale recovery directive (operator rotated it but the engram still
+// references the old key) → operator should write a NEW directive engram
+// before destroying the new recovery key. Tier- constrained supersedes lets a
+// recovery write rotate the directive too.
 
 'use strict';
 

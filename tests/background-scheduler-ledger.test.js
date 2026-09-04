@@ -1,13 +1,9 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
-// The scheduler's cadence survives the process. It used to live in a Map born
-// empty on every boot, so each fresh proxy/entity believed no task had ever
-// run and re-fired everything — four "weekly" substrate backups in one day,
-// each a synchronous copy of a multi-GB state.db, is what that looked like on
-// a real machine. Both runners now share one persisted ledger; this holds the
-// contract: a recorded run is visible to the NEXT process before any task
-// fires.
+// The scheduler's cadence survives the process. Both runners now share one
+// persisted ledger; this holds the contract: a recorded run is visible to the
+// NEXT process before any task fires.
 
 require('./hermetic-db.js');
 const assert = require('assert');

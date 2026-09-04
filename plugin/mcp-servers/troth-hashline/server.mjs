@@ -276,15 +276,13 @@ function handleEdit(args) {
   } catch (_) {}
 
   // The substrate's edit ledger must include edits made through troth's OWN
-  // tool, or the Code Map calls hashline-built files "never edited".
-  //
-  // "Same record shape as the mark-edit hook" is what this comment used to
-  // claim while writing the hash and the line count and nothing else — no
-  // codelens link at all. Measured over 120 consecutive edit records, 101
-  // carried none, because this is the tool contributors here are told to use:
-  // the path that ran most was the path that taught the graph least. Both
-  // writers now call one function for it, so the shape is shared rather than
-  // described.
+  // tool, or the Code Map calls hashline-built files "never edited". "Same
+  // record shape as the mark-edit hook" is what this comment would claim while
+  // writing the hash and the line count and nothing else — no codelens link at
+  // all. Measured over 120 consecutive edit records, 101 carried none, because
+  // this is the tool contributors here are told to use: the path that ran most
+  // was the path that taught the graph least. Both writers now call one function
+  // for it, so the shape is shared rather than described.
   try {
     const actionRecord = require(serverDir + '../../../shared-core/action-record.js');
     let entities = { ids: null, symbols: null };

@@ -30,7 +30,7 @@ if (command === "stats") {
   if (s.workflow) console.log('Workflow: ' + (s.workflow.task ? '"' + s.workflow.task.slice(0, 60) + '" (' + s.workflow.phase + ')' : 'idle'));
   if (s.cochange) console.log('CoChange: ' + (s.cochange.trackedFiles || 0) + ' files tracked');
   if (s.checkpoint) console.log('Checkpoints: ' + (s.checkpoint.checkpointed || 0) + ' created, ' + (s.checkpoint.rollbacks || 0) + ' rollbacks');
-  // Opus 4.7 / April 2026 telemetry summary
+  // diagnostic counter summary
   if (s.authmode || s.cacheratio || s.errortax) {
     console.log('\n--- model telemetry ---');
     if (s.authmode) console.log('Auth: api-key=' + (s.authmode.apiKeyRequests||0) + ' oauth=' + (s.authmode.oauthRequests||0));

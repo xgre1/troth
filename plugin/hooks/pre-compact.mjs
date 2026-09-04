@@ -124,7 +124,7 @@ try {
   log('PreCompact.mind.error', { session_id, reason: 'mind_persist_threw', metadata: { message: String(e && e.message || e) } });
 }
 
-// Phase 0.5 — Compact handoff decision.
+// Compact handoff decision.
 //
 // PreCompact cannot use hookSpecificOutput.additionalContext (CC schema
 // rejects hookEventName 'PreCompact' silently — the previous addContext

@@ -1,18 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
-// control-audit — factory for the control-channel audit callback.
-//
-// Tees every control-channel boundary event (kind=control_channel.*) into
-// (a) a substrate engram (existing behaviour, soft / discardable, observable
-//     via /recall and the live-view ring), and
-// (b) the tamper-evident signed-audit chain (shared-core/signed-audit.js),
-//     restricted to ACTION events — dispatched and handler_threw. The chain
-//     is the operator's structural proof per design R17: "operator can
-//     prove tamper to a third party without trusting the substrate."
-//
-// Why a factory: bin/troth-entity.js previously inlined this as a closure,
-// which made signed-audit-on-dispatch impossible to test without booting the
-// full entity. Extracting it keeps the layering thin and makes
+// control-audit — factory for the control-channel audit callback. Tees every
+// control-channel boundary event (kind=control_channel.*) into (a) a substrate
+// engram (existing behaviour, soft / discardable, observable via /recall and
+// the live-view ring), and (b) the tamper-evident signed-audit chain
+// (shared-core/signed-audit.js), restricted to ACTION events — dispatched and
+// handler_threw. Extracting it keeps the layering thin and makes
 // tests/signed-audit-dispatch.test.js a unit test, not a process test.
 
 const DEFAULT_SIGNED_KINDS = new Set([

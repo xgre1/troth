@@ -226,10 +226,10 @@ const PREDICATE_KINDS = {
       }
     }
 
-    // Resolve operator public key candidates. Same multi-pubkey chain
-    // as engram.js integration point inline check (Phase 1.4b): substrate-active
-    // primary + recovery_directive successor + filesystem fallback.
-    // Lazy require both modules to avoid circular load at module init.
+    // Resolve operator public key candidates. Same multi-pubkey chain as the
+    // engram.js inline check: substrate-active primary + recovery_directive
+    // successor + filesystem fallback. Lazy require both modules to avoid circular
+    // load at module init.
     const opKeyMod = require('./operator-key.js');
     const pubCandidates = [];
     let eng = null;
@@ -383,16 +383,12 @@ const PREDICATE_KINDS = {
     return null;
   },
 
-  // autonomous step — irreversibility_sealed.
-  //
-  // High-stakes intents (class >= high) MUST carry at least one valid
-  // operator-signed seal engram referencing this intent. Without this,
-  // partner could dispatch destructive actions without operator review.
-  // The seal flow itself lives in Phase 2; this predicate establishes
-  // the wall.
-  //
-  // Predicate body: { kind: 'irreversibility_sealed' }
-  // Silent pass for non-intent + low/medium classes.
+  // autonomous step — irreversibility_sealed. High-stakes intents (class >=
+  // high) MUST carry at least one valid operator-signed seal engram referencing
+  // this intent. Without this, partner could dispatch destructive actions
+  // without operator review. This predicate establishes the wall; the seal flow
+  // lives beside it. Predicate body: { kind: 'irreversibility_sealed' } Silent
+  // pass for non-intent + low/medium classes.
   irreversibility_sealed(_pred, ctx) {
     const r = ctx.proposed || {};
     const out = (r.output && typeof r.output === 'object') ? r.output : null;
@@ -869,7 +865,7 @@ function listInvariants(opts) {
     // A pre-migrate substrate genuinely has no invariants table, and no
     // invariants genuinely means nothing to violate. Any OTHER failure means
     // we could not read rules that may well exist, which is not the same as
-    // there being none: validateTransition used to approve with zero
+    // there being none: validateTransition would approve with zero
     // violations either way, so an unreadable database silently disabled the
     // wall it is supposed to enforce.
     if (/no such table/i.test(String(e && e.message || e))) return [];

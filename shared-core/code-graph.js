@@ -73,14 +73,12 @@ function findEntities(store, name, root) {
       if (e) out.push(e);
     }
   } catch (_) { /* fts unavailable */ }
-  // Rank before answering, because a common name has many definitions: this
-  // repo holds 15 entities called `recordAction`, and the first version took
-  // whichever six the index happened to return. A test's own local helper won,
-  // reported "nothing calls this" about the substrate's central write path,
-  // and would have been believed.
-  //
-  // Order: exact name, then real code over tests, then shallower paths — a
-  // definition in shared-core outranks one in a fixture.
+  // Rank before answering, because a common name has many definitions: a repo
+  // can hold a dozen entities called `recordAction`, and an unranked lookup
+  // takes whichever the index happens to return. A test's own local helper won,
+  // reported "nothing calls this" about the substrate's central write path, and
+  // would have been believed. Order: exact name, then real code over tests, then
+  // shallower paths — a definition in shared-core outranks one in a fixture.
   const isTest = (p) => /(^|\/)(tests?|spec|__tests__|fixtures?)\//.test(String(p || '')) ||
                         /\.(test|spec)\./.test(String(p || ''));
   const rank = (e) => (e.name === name ? 0 : 1) * 100 +

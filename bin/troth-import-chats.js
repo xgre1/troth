@@ -191,14 +191,13 @@ async function ingestOne(cap, src, title, scope, cwd) {
   return { ok: any, recorded: rec };
 }
 
-// Per-project provenance for claude-cli sessions. The projects dir encodes
-// the working directory in its NAME ('-Users-x-snap'), and the import used
-// to throw that away: every chunk was titled by session uuid with cwd null,
-// so "remember what we did in snap" had nothing to hold on to.
-// Decoding the name back to a path is AMBIGUOUS when
-// the path itself contains hyphens, so: the SCOPE carries the full encoded
-// dir (unique + stable), the cwd is stored only when the naive decode
-// verifiably exists on disk, and the title gets a human tail either way.
+// Per-project provenance for claude-cli sessions. The projects dir encodes the
+// working directory in its NAME ('-Users-x-snap'), thrown away, every chunk is
+// titled by session uuid with cwd null, so "remember what we did in snap" had
+// nothing to hold on to. Decoding the name back to a path is AMBIGUOUS when
+// the path itself contains hyphens, so: the SCOPE carries the full encoded dir
+// (unique + stable), the cwd is stored only when the naive decode verifiably
+// exists on disk, and the title gets a human tail either way.
 function projectMetaFor(file, source) {
   if (source !== 'claude-cli') return { scope: RAW_SCOPE, cwd: null, tail: null };
   const dirBase = path.basename(path.dirname(file));

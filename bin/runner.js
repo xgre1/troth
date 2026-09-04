@@ -150,7 +150,7 @@ function spawnWorker(task, worktreePath, runDir, opts) {
   const tenant   = opts.tenant || process.env.TROTH_TENANT || null;
   const tenantDb = tenant ? path.join(HOME, '.troth', 'tenants', tenant, 'state.db') : null;
 
-  // A6: capability allowlist. Default closed: read-only rootfs, no caps,
+  // capability allowlist. Default closed: read-only rootfs, no caps,
   // no network. Roles that need write to /workspace get it via the bind
   // mount (always rw). Roles that need network must declare it.
   const caps = Array.isArray(opts.capabilities) ? opts.capabilities : [];
@@ -166,7 +166,7 @@ function spawnWorker(task, worktreePath, runDir, opts) {
       '--name', containerName,
       '--memory=4g', '--cpus=2',
       '--workdir', '/workspace',
-      // A6: read-only rootfs, no caps, scoped network. Bind-mounted
+      // read-only rootfs, no caps, scoped network. Bind-mounted
       // /workspace stays writable; tmp gets a small tmpfs for scratch.
       '--read-only',
       '--tmpfs', '/tmp:rw,size=128m',
@@ -176,7 +176,7 @@ function spawnWorker(task, worktreePath, runDir, opts) {
       '-v', worktreePath + ':/workspace',
     ];
     if (tenantDb) {
-      // A3: per-tenant substrate DB mounted into the container so
+      // per-tenant substrate DB mounted into the container so
       // substrate writes from the worker land in the tenant file.
       try { fs.mkdirSync(path.dirname(tenantDb), { recursive: true }); } catch (e) {}
       dockerArgs.push('-v', path.dirname(tenantDb) + ':/tenant');
@@ -187,7 +187,7 @@ function spawnWorker(task, worktreePath, runDir, opts) {
       // splitting tenant artifacts + leaving dangling CIDs if the DB is moved.
       dockerArgs.push('-e', 'TROTH_CAS_DIR=/tenant/cas');
     }
-    // A2: provider/role/tenant env so the worker side knows who it is.
+    // provider/role/tenant env so the worker side knows who it is.
     dockerArgs.push('-e', 'TROTH_AGENT_ID=' + agentId);
     if (provider) dockerArgs.push('-e', 'TROTH_PROVIDER=' + provider);
     if (faculty)  dockerArgs.push('-e', 'TROTH_FACULTY=' + faculty);
@@ -1558,7 +1558,7 @@ function cmdRace(task, opts) {
     return 1;
   }
 
-  // A4: write market_run ActionRecord. Substrate now records the race
+  // write market_run ActionRecord. Substrate now records the race
   // start so cmdRaceResult can rebuild the group from substrate alone
   // and the dashboard can surface in-progress races.
   const groupId = opts.group_id || 'race-' + Date.now();
@@ -1607,7 +1607,7 @@ function cmdRaceResult(groupId) {
     return 0;
   }
 
-  // A5: real verification. For each run, query substrate for type='edit'
+  // real verification. For each run, query substrate for type='edit'
   // ActionRecords whose agent_id matches the worker. Read each edit's
   // verification.ast field — if AST passed, score boost; if AST failed
   // or no edits at all, the worker either ran but produced nothing or

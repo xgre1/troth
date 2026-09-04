@@ -1,25 +1,17 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// mcp-routes.js — the dashboard's MCP wire endpoints, in the OPEN proxy
-//.
-//
-// These routes used to live in a module that also carried autonomy routes, and
-// when that module moved out of this tree they went with it: /api/mcp/status
-// and /api/mcp/install answered nowhere and the dashboard's Wire buttons hit
-// 404. MCP wiring belongs here, next to the installer (shared-core/mcp-hosts.js)
-// and the dashboard that uses it, so server.js dispatches these first.
-//
-//   GET  /api/mcp/status   → read-only; best-effort probes, never throws.
-//   POST /api/mcp/install  → auth-gated (checkRemoteAuth: loopback bypass,
-//                            Bearer token for anything remote).
-//     ?client=claude_code (default): the plugin flow via `claude plugin ...`
-//       run with execFile (no shell) and HARD-CODED args — nothing from the
-//       request is ever spliced into a command. Marketplace source prefers
-//       THIS core checkout (its .claude-plugin/marketplace.json ships in the
-//       repo and in the app bundle), falling back to the GitHub id for
-//       installs where the local manifest is absent.
-//     ?client=cursor|windsurf|cline|claude_desktop: the shared installer
-//       (shared-core/mcp-hosts.js): 4-server router-gateway, merge-only,
-//       backup + atomic write, router.json provisioning.
+// SPDX-License-Identifier: AGPL-3.0-only mcp-routes.js — the dashboard's MCP
+// wire endpoints, in the OPEN proxy . MCP wiring belongs here, next to the
+// installer (shared-core/mcp-hosts.js) and the dashboard that uses it, so
+// server.js dispatches these first. GET /api/mcp/status → read-only;
+// best-effort probes, never throws. POST /api/mcp/install → auth-gated
+// (checkRemoteAuth: loopback bypass, Bearer token for anything remote).
+// ?client=claude_code (default): the plugin flow via `claude plugin ...` run
+// with execFile (no shell) and HARD-CODED args — nothing from the request is
+// ever spliced into a command. Marketplace source prefers THIS core checkout
+// (its .claude-plugin/marketplace.json ships in the repo and in the app
+// bundle), falling back to the GitHub id for installs where the local manifest
+// is absent. ?client=cursor|windsurf|cline|claude_desktop: the shared
+// installer (shared-core/mcp-hosts.js): 4-server router-gateway, merge-only,
+// backup + atomic write, router.json provisioning.
 
 "use strict";
 

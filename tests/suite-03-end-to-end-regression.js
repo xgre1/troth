@@ -1445,13 +1445,11 @@ console.log('\nPhase E — KnowledgeAtlas + AgentMarket:');
     assert.strictEqual(result.failed, 0);
     assert.strictEqual(freshState.countActions({ cwd: '/projA' }), 2);
 
-    // F5 regression — FTS5 mirror MUST be populated for every imported
-    // record so searchActions returns hits post-import. The cross-machine
-    // bench previously appeared broken because it probed with an FTS5-
-    // unsafe query (`claude-code` parses as `claude` MINUS `code`); the
-    // index was actually populated all along. This assertion locks the
-    // contract: row count in action_records_fts == row count in
-    // action_records for imported rows.
+    // F5 regression — FTS5 mirror MUST be populated for every imported record so
+    // searchActions returns hits post-import. The probe must use an FTS5-safe
+    // query: `claude-code` parses as `claude` MINUS `code` and reads as an empty
+    // index. This assertion locks the contract: row count in action_records_fts ==
+    // row count in action_records for imported rows.
     const ftsRows = freshState._dbForQuery()
       .prepare('SELECT COUNT(*) AS n FROM action_records_fts').get().n;
     assert.strictEqual(ftsRows, 2, 'FTS5 mirror must have 1 row per imported record');
@@ -1649,15 +1647,11 @@ console.log('\nPreCompact hook integration:');
   });
 
   test('PreCompact hook: the handoff says WHERE the work sits — branch and recent commits', () => {
-    // The dirty list said what had changed and never what it changed FROM.
-    // A post-compact agent that knows the files but not the branch has to ask,
-    // and asking is the thing this record exists to prevent.
-    //
-    // The repository is BUILT here rather than borrowed from the surrounding
-    // checkout. The first version pointed at this tree and passed — then failed
-    // inside the public export, which is a plain directory with no git history
-    // at all, so the reads returned empty and the assertion had nothing to
-    // stand on. A test that only holds where its author ran it is not a test.
+    // The dirty list said what had changed and never what it changed FROM. A
+    // post-compact agent that knows the files but not the branch has to ask, and
+    // asking is the thing this record exists to prevent. The repository is BUILT
+    // here rather than borrowed from the surrounding checkout. A test that only
+    // holds where its author ran it is not a test.
     const gitEnv = Object.assign({}, process.env, {
       GIT_AUTHOR_NAME: 'suite', GIT_AUTHOR_EMAIL: 'suite@invalid',
       GIT_COMMITTER_NAME: 'suite', GIT_COMMITTER_EMAIL: 'suite@invalid'
@@ -2149,7 +2143,7 @@ console.log('\nPreCompact hook integration:');
 (() => {
   const ka = require('../proxy/modules/keepalive');
 
-  // Wait for n ms — used to let timers actually fire in the real runtime.
+  // Wait for n ms — would let timers actually fire in the real runtime.
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   test('keepalive: disabled by default — track() does nothing', () => {
@@ -2314,7 +2308,7 @@ console.log('\nPreCompact hook integration:');
   });
 })();
 
-// --- P16 Tier 1: Verified Intent Layer foundation ---
+// --- Verified Intent Layer foundation ---
 console.log('\nP16 Tier 1 — intent type + DecisionGraph edges + path queries:');
 (function runP16T1Tests() {
   const pP16  = require('path');

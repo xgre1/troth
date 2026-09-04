@@ -581,7 +581,7 @@ function controlUnlock(payload, opts) {
 
 // ── Drop-box: receive while locked, reveal only with the passphrase ────
 //
-// One passphrase-derived key used to gate viewing, adding, AND agent use,
+// One passphrase-derived key would gate viewing, adding, AND agent use,
 // so a locked vault could not even accept a freshly captured login. That
 // pushed operators to leave it unlocked, which made the lock decorative.
 // Asymmetric crypto splits the directions: an X25519 keypair minted on

@@ -114,13 +114,13 @@ async function run(args, _ctx) {
     };
   }
 
-  // Ensure parent directory exists. Mirror Claude Code's canonical Write
-  // and the intent:fs:do write dispatcher (which already mkdir -p's): create
-  // the parent tree if missing so a write into a not-yet-existing folder
-  // succeeds in one step. Previously this returned 'parent_missing', which
-  // stalled autonomous goals whose step had no shell tool to mkdir first
-  // (the worker literally reported "Write doesn't create parent directories,
-  // and I have no Bash" and filed an operator request instead of finishing).
+  // Ensure parent directory exists. Mirror Claude Code's canonical Write and the
+  // intent:fs:do write dispatcher (which already mkdir -p's): create the parent
+  // tree if missing so a write into a not-yet-existing folder succeeds in one
+  // step. Returning 'parent_missing' here stalls autonomous goals whose step had
+  // no shell tool to mkdir first (the worker literally reported "Write doesn't
+  // create parent directories, and I have no Bash" and filed an operator request
+  // instead of finishing).
   const parentDir = path.dirname(file_path);
   try { fs.mkdirSync(parentDir, { recursive: true }); }  // no-op if it already exists
   catch (e) {

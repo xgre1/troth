@@ -412,7 +412,7 @@ function readJsonBody(req) {
 
 initCache(WATCH_DIR);
 
-// Project indexing does NOT gate the port. It used to run here, at module
+// Project indexing does NOT gate the port. It would run here, at module
 // scope, so the whole walk finished before server.listen() was ever reached:
 // on a clean machine the dashboard was unreachable for 75 seconds and looked
 // broken, and the desktop app aims this at the operator's entire home
@@ -434,10 +434,8 @@ function startProjectIndexing() {
   } else {
     log('CodeLens: off — not indexing ' + WATCH_DIR);
   }
-  // cochange and buildgraph shell out to git and are fully synchronous, so
-  // they hold the loop exactly as the index used to. Deferred by a tick each
-  // so the first paint of the dashboard lands before git is asked anything,
-  // and timed, because "boot is slow" is not a diagnosis.
+  // Deferred by a tick each so the first paint of the dashboard lands before git
+  // is asked anything, and timed, because "boot is slow" is not a diagnosis.
   setTimeout(() => {
     const t = Date.now();
     try { require('./modules/cochange').init(WATCH_DIR); } catch (e) {}
@@ -682,7 +680,7 @@ function processResponse(responseBody, isRemoteAPI) {
 }
 
 // Max wall-clock for any single HTTP request end-to-end. A stuck
-// upstream or an infinite retry loop inside a module used to pin this
+// upstream or an infinite retry loop inside a module would pin this
 // process at 100% CPU for hours; the watchdog below kills the request
 // and releases the socket. Configurable via env for long benchmarks.
 const REQUEST_MAX_MS = parseInt(process.env.GF_REQUEST_MAX_MS || '600000'); // 10 min
@@ -777,15 +775,13 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (req.method === 'GET' && (url === '/icon-192.png' || url === '/icon-512.png')) {
-    // The PWA/tab icon. This used to read scripts/icon.iconset/icon_128x128.png,
-    // a path that exists in no checkout of this repository, so every dashboard
-    // visitor got a 404 for their tab icon. Drawn inline
-    // instead: an SVG of the wordmark's chrome ring, served under the.png
-    // names the manifest already asks for, since every browser that requests
-    // these accepts image/svg+xml. Nothing to ship, nothing to go missing.
-    // The mark is the wordmark's "t" in the chrome lockup — the same thing the
-    // sidebar shows. A ring belonged to no product anyone could name. Drawn as
-    // strokes rather than <text> so it does not depend on a font being present.
+    // The PWA/tab icon. Drawn inline instead: an SVG of the wordmark's chrome
+    // ring, served under the.png names the manifest already asks for, since every
+    // browser that requests these accepts image/svg+xml. Nothing to ship, nothing
+    // to go missing. The mark is the wordmark's "t" in the chrome lockup — the
+    // same thing the sidebar shows. A ring belonged to no product anyone could
+    // name. Drawn as strokes rather than <text> so it does not depend on a font
+    // being present.
     const size = url === '/icon-512.png' ? 512 : 192;
     const icon = '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size + '" viewBox="0 0 100 100">'
       + '<rect width="100" height="100" rx="22" fill="#0B0D10"/>'
@@ -1703,7 +1699,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === 'GET' && (url.startsWith('/api/substrate/') || url === '/api/embed/status' || url === '/api/localchat/status' || url === '/api/memory/readiness' || url === '/api/memory/recent' || url === '/api/memory/queue' || url === '/api/usage/plan-window' || url === '/api/config/coherence')) {
-    // A4: these reads serve the partner's MEMORY. The dead
+    // these reads serve the partner's MEMORY. The dead
     // duplicate handlers further down all carried checkRemoteAuth, but this
     // live chain had none - any non-loopback caller could read the substrate
     // when the proxy was bound beyond 127.0.0.1. Same gate as /api/runs:
@@ -2029,7 +2025,7 @@ const server = http.createServer((req, res) => {
         var dlTurns = dm.recentTurns(dlTurnsOpts);
         out = { agent_id: dlAgent, cwd: dlCwd, turns: dlTurns };
       } else if (url === '/api/substrate/watcher/status') {
-        // G8/Property #3 — embedded Claude Code session watcher.
+        // Property #3 — embedded Claude Code session watcher.
         // Singleton runtime; start/stop via POST endpoints below.
         var w = require('../tools/claude-session-watcher.js');
         if (!global.__troth_watcher_runtime) {
@@ -2037,7 +2033,7 @@ const server = http.createServer((req, res) => {
         }
         out = global.__troth_watcher_runtime.status();
       } else if (url === '/api/substrate/mcp-activity') {
-        // G12 — per-host MCP tool activity. Group recent tool_call
+        // per-host MCP tool activity. Group recent tool_call
         // records by agent_id + tool_name + count.
         var maU = new URL(req.url, 'http://localhost');
         var maSince = parseInt(maU.searchParams.get('since_hours') || '168', 10);
@@ -2054,7 +2050,7 @@ const server = http.createServer((req, res) => {
         }
         out = { since_hours: maSince, activity: rows };
       } else if (url === '/api/substrate/scopes') {
-        // G13 — list chameleon scopes + their counts. Powers the Research
+        // list chameleon scopes + their counts. Powers the Research
         // screen (which corpora exist, how big, how much is searchable)
         // and corpus deletion.
         //
@@ -2129,7 +2125,7 @@ const server = http.createServer((req, res) => {
           return;
         }
       } else if (url.startsWith('/api/substrate/anchor-suggestions')) {
-        // Tier 1 / A — pattern detector for anchor suggestions.
+        // A — pattern detector for anchor suggestions.
         var asU = new URL(req.url, 'http://localhost');
         var asAgent  = asU.searchParams.get('agent_id') || resolveAgentId();
         var asStatus = asU.searchParams.get('status')   || 'pending';
@@ -2138,7 +2134,7 @@ const server = http.createServer((req, res) => {
         var asItems = anchorSuggester.listSuggestions({ agent_id: asAgent, status: asStatus, limit: asLimit });
         out = { agent_id: asAgent, status: asStatus, count: asItems.length, items: asItems };
       } else if (url.startsWith('/api/substrate/insights')) {
-        // G7 — proactive insights surfacing (delegated to insight-surfacer
+        // proactive insights surfacing (delegated to insight-surfacer
         // module). Same pattern as the catchall's other delegations:
         // build `out`, status defaults 200, single res.end at bottom.
         var siU = new URL(req.url, 'http://localhost');
@@ -2150,7 +2146,7 @@ const server = http.createServer((req, res) => {
         var siItems  = surfacer.listInsights({ agent_id: siAgent, status: siStatus, min_priority: siMin, limit: siLimit });
         out = { agent_id: siAgent, status: siStatus, count: siItems.length, items: siItems };
       } else if (url.startsWith('/api/substrate/revisions')) {
-        // G6 — commitment revision protocol (delegated to revision-protocol).
+        // commitment revision protocol (delegated to revision-protocol).
         var rvU = new URL(req.url, 'http://localhost');
         var rvAgent  = rvU.searchParams.get('agent_id') || resolveAgentId();
         var rvStatus = rvU.searchParams.get('status')   || 'all';
@@ -2161,7 +2157,7 @@ const server = http.createServer((req, res) => {
       } else if (url === '/api/substrate/market') {
         out = { agents: sharedMarket.analyzeWinners(sharedState) || {} };
       } else if (url.startsWith('/api/substrate/cost-attribution')) {
-        // P16.5 I2 — cost attribution. Two modes:
+        // cost attribution. Two modes:
         //   ?intent_id=<uuid>  → attributeCost on a specific intent
         //   ?cwd=<path>&since=<ms> → costByIntent leaderboard
         // Falls back to lifetime cost-of-failure if neither given.
@@ -2544,7 +2540,7 @@ const server = http.createServer((req, res) => {
         }
         // Single-writer path: strict read + atomic replace. A corrupt file
         // refuses the write (surfacing as a 400 below) instead of wiping
-        // every field the lenient read used to lose.
+        // every field the lenient read would lose.
         configFileStore.patchConfig({ dispatch_prefer: prefer });
         try { loadProviders(); } catch (_) {}
         log('Dispatch preference set to: ' + prefer);
@@ -3093,7 +3089,7 @@ const server = http.createServer((req, res) => {
   }
 
   // ===== API: Schedules (v6.3) =====
-  // A3: schedules dispatch Docker runs exactly like /api/runs,
+  // schedules dispatch Docker runs exactly like /api/runs,
   // so they carry the same token gate. Loopback bypass inside checkRemoteAuth
   // keeps the localhost dashboard working; remote callers need the bearer.
   if (url === '/api/schedules' || url.startsWith('/api/schedules/')) {
@@ -3257,7 +3253,7 @@ const server = http.createServer((req, res) => {
         const q = String((new URL(req.url, 'http://x')).searchParams.get('q') || '').trim();
         if (!q) { jsonResponse(res, 200, { items: [] }); return; }
         // The SAME recall the partner uses — hybrid lexical + dense over the
-        // whole recallable corpus. This used to call the legacy
+        // whole recallable corpus. This would call the legacy
         // commitment-only path, whose candidate window is the newest 200
         // engrams scored on word overlap with no embeddings at all: on a
         // large substrate that is only the last week deep, so typing a
@@ -3416,7 +3412,7 @@ const server = http.createServer((req, res) => {
   }
 
   // ===== API: the local stack, one component at a time =====
-  // Setup used to ask "turn on memory?" and then only nudge the embedder,
+  // Setup would ask "turn on memory?" and then only nudge the embedder,
   // leaving the reranker and the local chat model to be discovered by someone
   // who already knew they existed. Everything the open core offers locally is
   // named here, each with its own offer, its own progress and its own proof —
@@ -3636,14 +3632,12 @@ const server = http.createServer((req, res) => {
         const logPath = path.join(os2.homedir(), '.troth', 'import-chats.log');
         const fd = fs.openSync(logPath, 'a');
         const child = require('child_process').spawn(process.execPath,
-          // --full: both halves (raw archive + distilled facts), the same
-          // contract the app's Rust import sends. The dashboard used to
-          // spawn bare (raw-only), so an open-repo user's import built the
-          // archive but never the recallable facts — the two surfaces
-          // disagreeing about what "import" MEANS is the same two-truths
-          // disease as the config mirrors. The distill half calls THIS
-          // proxy for its gentle per-session inference, which is up by
-          // definition here.
+          // --full: both halves (raw archive + distilled facts), the same contract the
+          // app's Rust import sends. The dashboard would spawn bare (raw-only), so an
+          // open-repo user's import built the archive but never the recallable facts —
+          // the two surfaces disagreeing about what "import" MEANS is the same
+          // two-truths disease as the config mirrors. The distill half calls THIS proxy
+          // for its gentle per-session inference, which is up by definition here.
           [path.join(__dirname, '..', 'bin', 'troth-import-chats.js'), '--source', src, '--full'],
           { detached: true, stdio: ['ignore', fd, fd] });
         child.unref();
@@ -4172,10 +4166,8 @@ const server = http.createServer((req, res) => {
       let body; try { body = JSON.parse(buf || '{}'); } catch (_) { jsonResponse(res, 400, { error: 'bad_json' }); return; }
       try {
         const dm = require('../shared-core/dialogue-memory.js');
-        // ONE mind, one dialogue stream. Voice was previously partitioned
-        // under 'troth-desktop-voice' which session-start.mjs never saw —
-        // V-2 "I have no context" was structural. Defaulting to the
-        // env-resolved collaborator id unifies the streams across surfaces.
+        // ONE mind, one dialogue stream. Defaulting to the env-resolved collaborator
+        // id unifies the streams across surfaces.
         const agent_id = body.agent_id || resolveAgentId();
         const role = String(body.role || '').toLowerCase();
         const content = String(body.content || '');
@@ -4692,7 +4684,7 @@ const server = http.createServer((req, res) => {
                 delete pv.apiKey; // never lands in config.json
               } catch (_) { /* fall through — apiKey will be written to JSON as fallback */ }
             } else if (pv.apiKey === '') {
-              // An emptied field means REVOKE. Only long values used to reach
+              // An emptied field means REVOKE. Only long values would reach
               // this block, so clearing a key changed nothing: the env file
               // kept it, loadProviders backfilled it on the next load, and the
               // lane went on answering with a credential the operator had
@@ -4877,11 +4869,11 @@ const server = http.createServer((req, res) => {
         // alone isn't enough — activeByok() skips any provider without
         // enabled:true, so a pinned openai_sub silently fell back to the
         // auto chain (→ local). The apiKey providers get enabled on key-save;
-        // the OAuth path used to forget this. Preserve the chosen model.
+        // the OAuth path would forget this. Preserve the chosen model.
         try {
           configFileStore.updateConfig((current) => {
             current.providers = Object.assign({}, current.providers);
-            // No model is seeded here on purpose. This line used to write
+            // No model is seeded here on purpose. This line would write
             // 'gpt-5.2-codex', which codex-oauth.js documents as a 400 from
             // this endpoint ("not supported with a ChatGPT account"), so a
             // successful sign-in persisted a value guaranteed to fail. The
@@ -4981,7 +4973,7 @@ const server = http.createServer((req, res) => {
   // and intents are immutable; only learned facts can be forgotten, and the
   // original stays for forensics — retrieval hides it.
   //
-  // This endpoint is what the Tauri app calls, and it used to write a
+  // This endpoint is what the Tauri app calls, and it would write a
   // free-standing scope:'system:tombstone' engram — which NOTHING filters,
   // so the "forgotten" fact keeps surfacing, and a sanctioned path that
   // does not work invites raw sqlite against state.db.
@@ -5923,7 +5915,7 @@ const server = http.createServer((req, res) => {
       }
     }
 
-    // P6: recall forcing. A fresh memory-shaped question on a request that
+    // recall forcing. A fresh memory-shaped question on a request that
     // carries a troth recall tool gets tool_choice forced to it — the one
     // hard-enforcement mechanism the proxy lane has for agents without our
     // hooks. Every guard (manual thinking, client choice, mid-loop, the
@@ -5947,7 +5939,7 @@ const server = http.createServer((req, res) => {
     }
 
     if (routeTarget === 'anthropic') {
-      // P3.5: /ultrareview replication. If the latest user message triggers
+      // /ultrareview replication. If the latest user message triggers
       // the pattern, inject a 4-pass audit system block and force effort=max.
       // Works on any Anthropic model, but sharpest on Opus 4.7.
       try {
@@ -5958,7 +5950,7 @@ const server = http.createServer((req, res) => {
           log('ULTRAREVIEW | triggered — effort=max, 4-pass audit injected');
         }
       } catch (e) {}
-      // P3.3: Vision size validation — warn on images exceeding Opus 4.7's
+      // Vision size validation — warn on images exceeding Opus 4.7's
       // 2,576px long-edge per-image limit. Anthropic will server-side
       // downsample, degrading visual fidelity. This is observation-only;
       // auto-downscale requires an image-processing dep we don't ship.
@@ -5987,7 +5979,7 @@ const server = http.createServer((req, res) => {
           body = JSON.stringify(bodyObj);
         } catch (e) {}
       }
-      // P2.2/P2.3: Task Budgets + effort (Opus 4.7 public beta + xhigh support).
+      // P2.3: Task Budgets + effort (Opus 4.7 public beta + xhigh support).
       // Anthropic recommends xhigh (not high) as the starting point for coding on 4.7.
       // task_budget is advisory; max_tokens remains the hard cap.
       let callHeaders = req.headers;
@@ -6017,7 +6009,7 @@ const server = http.createServer((req, res) => {
         } catch (e) {}
       }
       log('REQ #' + stats.requests + ' | ANTHROPIC API | ' + projectType + '/' + mode);
-      // P3.1: record our char-based estimate of the outbound body so we can
+      // record our char-based estimate of the outbound body so we can
       // compare against the actual input_tokens Anthropic reports.
       let estimatedInputTokens = 0;
       try {
@@ -6032,7 +6024,7 @@ const server = http.createServer((req, res) => {
           const p = JSON.parse(responseBody);
           const servedModel = p.model || requestedModel;
           if (p.usage && requestedModel) {
-            // P3.1: drift telemetry — our estimate vs Anthropic's real count.
+            // drift telemetry — our estimate vs Anthropic's real count.
             if (estimatedInputTokens > 0) {
               try {
                 require('./modules/tokencount').logActualVsEstimated(
@@ -6309,12 +6301,11 @@ const server = http.createServer((req, res) => {
       // closing). 400 is deliberate so upstream CLIs surface it immediately
       // instead of retrying 5xx/429 into ~128s of silence.
       if (writePinFailure(res, fbOpts)) return;
-      // Fallback chain failed — only fall through to local if the local
-      // backend is actually reachable. Without this guard the proxy used
-      // to ECONNREFUSED to a dead host (e.g. a remote LLM box on a
-      // private network that's offline, or a local Ollama that was
-      // never started) and CC sat in a 1.2M ms retry loop. Cleaner:
-      // surface the failure immediately.
+      // Fallback chain failed — only fall through to local if the local backend is
+      // actually reachable. Without this guard the proxy would ECONNREFUSED to a
+      // dead host (e.g. a remote LLM box on a private network that's offline, or a
+      // local Ollama that was never started) and CC sat in a 1.2M ms retry loop.
+      // Cleaner: surface the failure immediately.
       try {
         var routerMod = require('./modules/router');
         if (routerMod.isLocalAvailable && !routerMod.isLocalAvailable()) {
@@ -6421,7 +6412,7 @@ function unlinkPidFile() {
 process.on('uncaughtException', (err) => { console.error('[FATAL] uncaught exception (proxy stays alive):', err.message || err); });
 process.on('unhandledRejection', (err) => { console.error('[FATAL] unhandled rejection (proxy stays alive):', err && err.message || err); });
 // Handle both SIGINT (Ctrl-C) and SIGTERM (plain `kill <pid>`). Without
-// the SIGTERM handler, the default Node behaviour used to ignore the
+// the SIGTERM handler, the default Node behaviour would ignore the
 // signal on this process because a listener existed for 'SIGINT' only —
 // leaving SIGKILL as the only way out.
 function gracefulShutdown(signal) {
@@ -6457,7 +6448,7 @@ server.timeout        = REQUEST_MAX_MS + 30000; // idle socket reaper (watchdog 
 
 // One-shot scan for other troth-proxy-* instances at boot. The CLI launcher
 // already cleans orphans (bin/troth.js cleanOrphanSiblings), but launchd and
-// /api/repair/restart start server.js directly and used to only WARN — so a
+// /api/repair/restart start server.js directly and would only WARN — so a
 // stray survived boots for hours, silently heating the laptop. Now boot
 // closes them itself with the /api/repair/reap discipline: SIGTERM, 2.5s,
 // SIGKILL survivors. TROTH_KEEP_SIBLINGS=1 keeps the old warn-only behavior

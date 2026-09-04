@@ -63,7 +63,7 @@ const _ID_PROVIDER = [
 ];
 function _providerForModel(providers, modelId) {
   // Configuration first, inference second. Vendor ids the family table cannot
-  // see (k3, glm-5.1, grok-4.3 all resolve to "unknown") used to fall through
+  // see (k3, glm-5.1, grok-4.3 all resolve to "unknown") would fall through
   // to local-or-null, so an explicit operator pick was SILENTLY skipped and the
   // chain quietly judged with something else. Whatever an enabled provider is
   // configured to serve is the ground truth for who owns that model.

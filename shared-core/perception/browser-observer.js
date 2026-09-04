@@ -122,7 +122,7 @@ class BrowserObserver {
       this._lastAxHash = eng.payload.ax_graph_hash;
       await this.writeEngram(eng);
       this.log('page_visit ' + (title || url));
-      // Phase 2 Component 7: WebMCP capability discovery.
+      // WebMCP capability discovery.
       // On every navigation, probe /.well-known/webmcp.json — sites
       // that expose WebMCP declare an agent-facing API. When present,
       // we write a webmcp_site_capabilities engram so the goal-to-

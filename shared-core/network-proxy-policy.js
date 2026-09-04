@@ -1,33 +1,22 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Network proxy policy.
-//
-// A forward proxy in the sandbox's network namespace, configured from the
-// substrate allowlist and wired in via HTTP_PROXY / HTTPS_PROXY, so a fetch to
-// a host the operator never allowed is refused at the network edge rather than
-// trusted to the caller. Parity with substrate web_fetch. WebSocket / raw TCP:
-// deny by default, explicit operator approval.
-//
-// What ships here (substrate side):
-//   - buildSquidConfig({allowed_hosts, audit_log_path}) — emits a squid
-//     conf string operator can drop into a sidecar
-//   - buildMitmproxyAddon() — emits a Python addon that reads the
-//     substrate allowlist + writes denial audits
-//   - mirrorAllowlistToProxyConfig(opts) — writes both configs to
-//     ~/.troth/proxy/ for sidecar to pick up
-//   - recordSidecarDenial({host, reason, goal_id}) — substrate-side
-//     audit row (parity with l4_allowlist_audit)
-//
-// Actual sidecar process (running squid OR mitmproxy as a container
-// network-namespace neighbor) is OPERATOR-side / sandbox-runtime
-// (Phase 1.2). This module is the policy bridge.
-//
-// design grounding:
-//   - design R17: STRUCTURAL allowlist — substrate refuses to write
-//     a permissive proxy config; the substrate allowlist IS the proxy
-//     allowlist (not two configs to drift)
-//   - design R18: out-of-process enforcement (proxy in different
-//     PID namespace than the LLM-driving substrate)
-//   - Common practice: mitmproxy addons for policy; squid acl http_access
+// SPDX-License-Identifier: AGPL-3.0-only Network proxy policy. A forward proxy
+// in the sandbox's network namespace, configured from the substrate allowlist
+// and wired in via HTTP_PROXY / HTTPS_PROXY, so a fetch to a host the operator
+// never allowed is refused at the network edge rather than trusted to the
+// caller. Parity with substrate web_fetch. WebSocket / raw TCP: deny by
+// default, explicit operator approval. What ships here (substrate side): -
+// buildSquidConfig({allowed_hosts, audit_log_path}) — emits a squid conf
+// string operator can drop into a sidecar - buildMitmproxyAddon() — emits a
+// Python addon that reads the substrate allowlist + writes denial audits -
+// mirrorAllowlistToProxyConfig(opts) — writes both configs to ~/.troth/proxy/
+// for sidecar to pick up - recordSidecarDenial({host, reason, goal_id}) —
+// substrate-side audit row (parity with l4_allowlist_audit) Actual sidecar
+// process (running squid OR mitmproxy as a container network-namespace
+// neighbor) is OPERATOR-side / sandbox-runtime . This module is the policy
+// bridge. - STRUCTURAL allowlist — substrate refuses to write a permissive
+// proxy config; the substrate allowlist IS the proxy allowlist (not two
+// configs to drift) - out-of-process enforcement (proxy in different PID
+// namespace than the LLM-driving substrate) - Common practice: mitmproxy
+// addons for policy; squid acl http_access
 
 'use strict';
 

@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
 // reconciled-view, question-shaped: the ledger holds the whole class, the
-// question asks for a slice. Fixtures are the measured shapes from the
-// LongMemEval probe (2026-09-02): "acquired in the last month" over a
-// 28-line plant ledger, "items of clothing" over purchases of fishing hooks.
+// question asks for a slice.
 const assert = require('assert');
 const { buildReconciledView } = require('../shared-core/reconciled-view.js');
 
@@ -14,9 +12,9 @@ function t(name, fn) { try { fn(); console.log('  ✓ ' + name); pass++; } catch
 console.log('\n=== reconciled view, question-shaped ===\n');
 
 const DAY = 86400000;
-const ASKED = Date.UTC(2023, 5, 15);            // 2023-06-15
-const inWin = ASKED - 10 * DAY;                 // 2023-06-05
-const outWin = ASKED - 200 * DAY;               // 2022-11-27
+const ASKED = Date.UTC(2023, 5, 15);
+const inWin = ASKED - 10 * DAY;
+const outWin = ASKED - 200 * DAY;
 
 const plants = [
   { source: 'instance-pool', id: 'i1', statement: '[instance] purchase: bought peace lily — Bought a peace lily from a nursery [completed] (attested ×1)', refs: ['dialogue.turn:r1'], _attested_ts: inWin, _cos: 0.62 },
@@ -192,9 +190,8 @@ t('the model-read shape drives the view in any language; the patterns stand in w
   assert.strictEqual(shapeByPatterns('Can you recommend a show?').request, true);
 });
 
-// What is still open: the clothing ledger as the probe measured it (2026-09-02),
-// two obligations among three purchases. "Pick up" reads as acquiring to the
-// verb families; the status ask has to win over the verb.
+// "Pick up" reads as acquiring to the verb families; the status ask has to win
+// over the verb.
 const clothing = [
   { source: 'instance-pool', id: 'c1', statement: '[instance] purchase: purchased H&M — Bought a white button-down shirt from H&M [completed] (attested ×1)', refs: ['dialogue.turn:s6'], _kind: 'purchase', _status: 'completed', _qualifier: 'purchased', _entity: 'H&M' },
   { source: 'instance-pool', id: 'c2', statement: '[instance] purchase: purchased Levi\'s — Bought new black jeans from Levi\'s [completed] (attested ×1)', refs: ['dialogue.turn:s6'], _kind: 'purchase', _status: 'completed', _qualifier: 'purchased', _entity: 'Levi\'s' },

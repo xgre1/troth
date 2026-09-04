@@ -49,7 +49,7 @@ const T0 = Date.now() - 90 * 24 * 3600 * 1000; // the buried corpus is old
 test('CINV-1: a corpus buried under more than 2000 newer engrams is still counted, exactly', () => {
   for (let i = 0; i < 5; i++) seedChunk(SCOPE_OLD, '[buried #' + i + '] the harbour survey of 1974', 'cinv-agent', T0 + i);
 
-  // Bury it. 2100 newer rows is past the reader cap that used to define the
+  // Bury it. 2100 newer rows is past the reader cap that would define the
   // whole answer — one more than the window means the corpus vanished.
   const d = state._dbForQuery();
   const insert = d.prepare(

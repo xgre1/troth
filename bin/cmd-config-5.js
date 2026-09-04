@@ -22,9 +22,9 @@ const SECRET_KEY = /(^|[._-])(apikey|api_key|token|secret|password|passphrase|cr
 
 function isSecretPath(dotPath) {
   return String(dotPath).split(".").some((seg) => {
-    // camelCase is a word boundary too. The first version of this check tested
-    // the raw segment, so `remoteToken` (the bearer token for remote proxy
-    // access) printed in clear while `remote_token` would have been masked.
+    // camelCase is a word boundary too: tested on the raw segment, `remoteToken`
+// (the bearer token for remote proxy access) prints in clear while
+// `remote_token` is masked.
     return SECRET_KEY.test(seg.replace(/([a-z0-9])([A-Z])/g, "$1_$2"));
   });
 }

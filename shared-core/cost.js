@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// P16.5 I2 — Cost attribution graph.
+// Cost attribution graph.
 //
 // Walks the causal DAG (parent_id + action_record_edges) and attributes
 // total cost to root intents. Lets us answer:

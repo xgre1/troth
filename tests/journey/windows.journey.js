@@ -38,7 +38,7 @@ module.exports.run = async (ctx, check) => {
       const at = rel + ':' + (i + 1);
       // HOME is not set on Windows; os.homedir() is. Reading the env var with
       // no fallback puts every file the product owns in an undefined place.
-      // Only when HOME is used to BUILD A PATH. Comparing it against another
+      // Only when HOME is would BUILD A PATH. Comparing it against another
       // process's environment (a ps-based check, unix-only by nature) is not a
       // portability defect, and flagging it made the check cry wolf on its
       // first run.

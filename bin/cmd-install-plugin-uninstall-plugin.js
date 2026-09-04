@@ -95,13 +95,11 @@ if (command === "install-plugin" || command === "uninstall-plugin") {
         console.log("\n  No HEAVY MCP servers found — nothing to migrate.");
       }
     } else {
-      // P0.1 — auto-apply the Bash-deny rule that previously was just a
-      // printed recommendation. Without this, plugin-mode adds tokens
-      // because Bash
-      // output flows raw into context; with the deny rule the model is
-      // forced to route through mcp__troth-bash__run which compresses
-      // the output before it enters context. Idempotent: if Bash is
-      // already present in permissions.deny, the rule is left alone.
+      // Auto-apply the Bash-deny rule. Without this, plugin-mode adds tokens because
+      // Bash output flows raw into context; with the deny rule the model is forced
+      // to route through mcp__troth-bash__run which compresses the output before it
+      // enters context. Idempotent: if Bash is already present in permissions.deny,
+      // the rule is left alone.
       try {
         var denyResult = applyBashDenyDefault();
         if (denyResult.applied) {

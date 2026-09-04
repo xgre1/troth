@@ -1,34 +1,20 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Per-service API wrappers.
-//
-// Thin named-tool layer on top of api_call.js for the operations the
-// partner uses often enough that a dedicated schema beats consulting
-// chameleon-ingested OpenAPI docs (implementation step) every time.
-//
-// Design rule:
-//   - Each wrapper is ≤ 30 LOC.
-//   - Each wrapper validates only what api_call doesn't (service-
-//     specific shape: e.g. supabase_run_sql requires `query`).
-//   - All auth + URL building + response handling delegate to api_call.
-//   - Wrappers DO NOT expand the service registry — they reuse the
-//     registry baked into api-call.js.
-//
-// v1 wrappers (5; high-frequency, low-risk):
-//   github_get_repo        (read)
-//   github_create_issue    (write — reversible)
-//   vercel_list_projects   (read)
-//   notion_search          (read)
-//   supabase_run_sql       (write — needs PostgREST endpoint or RPC)
-//
-// Deferred to v2 (added on demand when goals hit them):
-//   github_create_repo / github_create_pr / vercel_deploy
-//   openai_chat / anthropic_messages   (transports already exist)
-//   gmail_search / gmail_send          (extended tools module)
-//   twilio_sms_send / cloudflare_*      (Phase 5)
-//   stripe_create_charge                (Phase 6 spend_authority)
-//
-// design grounding: same as api-call.js — R17 credential wall, R23
-// audience='external' on responses, CaMeL untrusted-input principle.
+// SPDX-License-Identifier: AGPL-3.0-only Per-service API wrappers. Thin
+// named-tool layer on top of api_call.js for the operations the partner uses
+// often enough that a dedicated schema beats consulting chameleon-ingested
+// OpenAPI docs (implementation step) every time. Design rule: - Each wrapper
+// is ≤ 30 LOC. - Each wrapper validates only what api_call doesn't (service-
+// specific shape: e.g. supabase_run_sql requires `query`). - All auth + URL
+// building + response handling delegate to api_call. - Wrappers DO NOT expand
+// the service registry — they reuse the registry baked into api-call.js. v1
+// wrappers (5; high-frequency, low-risk): github_get_repo (read)
+// github_create_issue (write — reversible) vercel_list_projects (read)
+// notion_search (read) supabase_run_sql (write — needs PostgREST endpoint or
+// RPC) Deferred to v2 (added on demand when goals hit them):
+// github_create_repo / github_create_pr / vercel_deploy openai_chat /
+// anthropic_messages (transports already exist) gmail_search / gmail_send
+// (extended tools module) twilio_sms_send / cloudflare_* stripe_create_charge
+// same as api-call.js — R17 credential wall, R23 audience='external' on
+// responses, CaMeL untrusted-input principle.
 
 'use strict';
 

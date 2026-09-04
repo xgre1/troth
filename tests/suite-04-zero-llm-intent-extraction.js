@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Auto-split from tests/test-all.js (verbatim section bodies; order preserved).
-// Sections: P16 Tier 2: Zero-LLM intent extraction + capture hook + edge auto-create | P16.5 I2: Cost attribution graph | P16.5 I1: Negative-knowledge substrate | P16.5 I3: Counterfactual replay | P17 Tier 1: TOON wire format | P17 Tier 2: TRON for nested DAGs | P17 Tier 3: Schema Reflector | PHASE CH: Chameleo
+// Sections: Zero-LLM intent extraction + capture hook + edge auto-create | Cost attribution graph | Negative-knowledge substrate | Counterfactual replay | TOON wire format | TRON for nested DAGs | Schema Reflector | PHASE CH: Chameleo
 module.exports = function run({ test }) {
 const assert = require('assert');
 const dedup = require('../proxy/modules/dedup');
 const { record, getRecent } = require('../proxy/modules/perflog');
 const { probe } = require('../proxy/modules/health');
 const audit = require('../proxy/modules/audit');
-// --- P16 Tier 2: Zero-LLM intent extraction + capture hook + edge auto-create ---
+// --- Zero-LLM intent extraction + capture hook + edge auto-create ---
 console.log('\nP16 Tier 2 — intent extraction + capture hook + edge auto-create:');
 (function runP16T2Tests() {
   const E = require('../shared-core/intent-extract');
@@ -427,7 +427,7 @@ console.log('\nP16 Tier 2 — intent extraction + capture hook + edge auto-creat
   });
 })();
 
-// --- P16.5 I2: Cost attribution graph ---
+// --- Cost attribution graph ---
 console.log('\nP16.5 I2 — cost attribution graph:');
 (function runP165I2Tests() {
   const pI2  = require('path');
@@ -610,7 +610,7 @@ console.log('\nP16.5 I2 — cost attribution graph:');
   }, 500).unref();
 })();
 
-// --- P16.5 I1: Negative-knowledge substrate ---
+// --- Negative-knowledge substrate ---
 console.log('\nP16.5 I1 — negative-knowledge substrate:');
 (function runP165I1Tests() {
   const pI1  = require('path');
@@ -745,7 +745,7 @@ console.log('\nP16.5 I1 — negative-knowledge substrate:');
   }, 500).unref();
 })();
 
-// --- P16.5 I3: Counterfactual replay ---
+// --- Counterfactual replay ---
 console.log('\nP16.5 I3 — counterfactual replay:');
 (function runP165I3Tests() {
   const pI3  = require('path');
@@ -917,7 +917,7 @@ console.log('\nP16.5 I3 — counterfactual replay:');
   }, 500).unref();
 })();
 
-// --- P17 Tier 1: TOON wire format ---
+// --- TOON wire format ---
 console.log('\nP17 Tier 1 — TOON wire format:');
 (function runP17T1Tests() {
   const W  = require('../shared-core/wire-format');
@@ -1093,7 +1093,7 @@ console.log('\nP17 Tier 1 — TOON wire format:');
   });
 })();
 
-// --- P17 Tier 2: TRON for nested DAGs ---
+// --- TRON for nested DAGs ---
 console.log('\nP17 Tier 2 — TRON nested encoder:');
 (function runP17T2Tests() {
   const W = require('../shared-core/wire-format');
@@ -1208,7 +1208,7 @@ console.log('\nP17 Tier 2 — TRON nested encoder:');
   });
 })();
 
-// --- P17 Tier 3: Schema Reflector ---
+// --- Schema Reflector ---
 console.log('\nP17 Tier 3 — schema reflector:');
 (function runP17T3Tests() {
   const pT3  = require('path');
@@ -2758,7 +2758,7 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
 
   test('ENT-90: runner.resolveProviderModel maps provider aliases to canonical models', () => {
     // Regression guard for the spawnWorker A1 fix: subprocess fallback
-    // used to hardcode `--model gemini-3.1-pro` regardless of the
+    // would hardcode `--model gemini-3.1-pro` regardless of the
     // --providers flag. Without this mapping the race is silently single-model.
     const runnerPath = require('path').resolve(__dirname, '../bin/runner.js');
     // Don't import (it has side effects) — read & eval the resolver via regex.
@@ -3776,7 +3776,7 @@ console.log('\nPhase CH3 — Chameleon OpenAPI/JSON adapter (structured):');
   test('ENT-34: substrate-tools dispatches engram_search through registered tool', () => {
     // Test-pollution isolation: earlier tests in the suite leave the
     // cached shared-core/state module pointing at a wiped /tmp dir
-    // (P17-T3 et al set CLAUDE_PLUGIN_DATA then rm the dir). The cached
+    // (T3 et al set CLAUDE_PLUGIN_DATA then rm the dir). The cached
     // engram/substrate-tools modules hold that stale state reference,
     // so recordEngram writes to a dead path and engram_search reads
     // nothing back. Mass-invalidate require.cache for the substrate

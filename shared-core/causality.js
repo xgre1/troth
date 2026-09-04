@@ -157,16 +157,13 @@ function summarize(state, action_id) {
   };
 }
 
-// ── P16 Tier 1 — Edge-aware causal walk ───────────────────────────────────
-// Same intent as traceCausalChain (parent_id only) but also follows typed
-// edges in action_record_edges. Returns records in BFS-by-depth order.
-// Cycle-guarded.
-//
-// opts:
-//   maxNodes (default 64) — hard cap on returned records
-//   labels   (default ['refines_intent','produces_edit','satisfies','supersedes'])
-//            typed in-edges to follow (records on the FROM side of these
-//            edges are pulled in as ancestors of the current node)
+// ── Edge-aware causal walk ─────────────────────────────────── Same intent as
+// traceCausalChain (parent_id only) but also follows typed edges in
+// action_record_edges. Returns records in BFS-by-depth order. Cycle-guarded.
+// opts: maxNodes (default 64) — hard cap on returned records labels (default
+// ['refines_intent','produces_edit','satisfies','supersedes']) typed in-edges
+// to follow (records on the FROM side of these edges are pulled in as
+// ancestors of the current node)
 function traceCausalChainTyped(state, action_id, opts) {
   if (!state || !action_id) return [];
   opts = opts || {};

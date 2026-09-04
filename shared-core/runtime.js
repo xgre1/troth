@@ -25,21 +25,18 @@ const wireFormat   = require('./wire-format');
 
 // Build the short textual manifest injected into the agent's context.
 // Pichay-style page handles. Each evicted/paged-out record appears as
-// `<troth:page:UUID>` so the model has a clear, parseable marker to
-// fault on. The handle itself is the canonical retrieval token: pass it
-// to troth_fault_in (or troth_fetch_action with the same id) and
-// the substrate returns the byte-equal record. This format is the same
-// as the working-set state-of-the-art (Pichay arXiv:2603.09023):
-// minimal text marker, model-recognizable, no hallucination risk.
-// P17 Tier 1 — buildManifest accepts a `format` option:
-//   'json'  (default, legacy human-readable) — line-oriented manifest with
-//           verbose footer.
-//   'toon'  (compact wire) — a TOON-encoded manifest block. Header is
-//           still JSON (small, parseable); rows are pipe-delimited.
-//           Returns the same { text, manifest, tokens_used } shape so
-//           callers don't branch.
-// Capability flag negotiation is the GMP v0.2 contract; this
-// function trusts the caller (MCP server / hook) has already negotiated.
+// `<troth:page:UUID>` so the model has a clear, parseable marker to fault on.
+// The handle itself is the canonical retrieval token: pass it to
+// troth_fault_in (or troth_fetch_action with the same id) and the substrate
+// returns the byte-equal record. This format is the same as the working-set
+// state-of-the-art (Pichay arXiv:2603.09023): minimal text marker,
+// model-recognizable, no hallucination risk. buildManifest accepts a `format`
+// option: 'json' (default, human-readable) — line-oriented manifest with
+// verbose footer. 'toon' (compact wire) — a TOON-encoded manifest block.
+// Header is still JSON (small, parseable); rows are pipe-delimited. Returns
+// the same { text, manifest, tokens_used } shape so callers don't branch.
+// Capability flag negotiation is the GMP v0.2 contract; this function trusts
+// the caller (MCP server / hook) has already negotiated.
 function buildManifest(session_id, opts) {
   opts = opts || {};
   const format = opts.format === 'toon' ? 'toon' : 'json';
@@ -62,7 +59,7 @@ function buildManifest(session_id, opts) {
 
   const lines = m.entries.map(e => {
     const pin = e.pinned ? ' ★' : '';
-    // P16 Tier 2: intent records use a distinct marker prefix so the
+    // intent records use a distinct marker prefix so the
     // model can tell at a glance "this is the why for downstream actions"
     // vs "this is a generic evicted action". Both prefixes resolve via
     // the same troth_fault_in MCP tool.

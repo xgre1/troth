@@ -130,7 +130,7 @@ log('UserPromptSubmit.topic_shift', {
 // Re-orient: try to derive a task signature from the current prompt,
 // fetch a hot/cold-shaped mind state for it, and inject a focused
 // re-orientation block via addContext. This makes the dynamic delivery
-// (P2) actually take effect — the agent gets fresh task-relevant
+// actually take effect — the agent gets fresh task-relevant
 // context the moment a shift is detected, not just a logged event.
 try {
   const snapRows = stateModule.queryActions({

@@ -416,7 +416,7 @@ function parseFrame(frame, emit, acc) {
   }
   // Responses API — completion.
   if (event === 'response.completed' || (data && data.type === 'response.completed')) {
-    // R9: flush accumulated function calls as ONE tool_calls chunk — composeAgentic
+    // flush accumulated function calls as ONE tool_calls chunk — composeAgentic
     // OVERWRITES pendingToolCalls per chunk, so every call must arrive together.
     if (acc) {
       const tcs = Object.keys(acc).map((k, i) => ({ id: acc[k].id || ('codex_tc_' + i), type: 'function', function: { name: acc[k].name || '', arguments: acc[k].args || '{}' } }));

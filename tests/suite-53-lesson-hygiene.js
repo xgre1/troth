@@ -87,7 +87,7 @@ test('LSN-5: the transient writers say so, and the sweep is scheduled (source pi
 
 // ── Which failures earn the shelf ────────────────────────────────────
 //
-// errortax used to write every classified failure THREE times — a direct
+// errortax would write every classified failure THREE times — a direct
 // durable lesson, recordLesson's durable mirror, and the queue — so one
 // timeout minted two permanent rows. Measured on a working substrate: 283
 // durable errortax lessons, 238 of them infrastructure weather, 76 about a

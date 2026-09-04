@@ -1,53 +1,32 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Typed Goal projector.
-//
-// Projects engrams scope='goal' (+ their satisfaction / abandonment /
-// decomposition markers) into a typed Goal shape the dashboard, app
-// inbox, and idle-pursuit can consume without re-parsing engram blobs.
-//
-// Per design slice 2.2 the spec is a "table" — but we keep the
-// substrate append-only (R23) and read goals as a PROJECTION over
-// engrams + status markers (same pattern as goal-status.js).
-//
-// Typed Goal shape (design 2.2):
-//   { id, parent_id, status, percent_done, next_action, blocked_on,
-//     deadline, regime, project_id, ts }
-//
-// Field provenance:
-//   id            — engram.id
-//   parent_id     — engram.parent_id (set when goal was queued as a
-//                   sub-goal by the ADaPT decomposer)
-//   status        — derived: 'satisfied' / 'abandoned' / 'open'
-//                   from goal-status markers (existing module)
-//   percent_done  — operator-supplied TEXT ("30%", "drafted, untested"),
-//                   nullable. Stored as engram.output.percent_done.
-//   next_action   — operator or partner annotation, nullable. Stored as
-//                   engram.output.next_action.
-//   blocked_on    — string describing what is blocking, nullable.
-//   deadline      — ISO-8601 string, nullable.
-//   regime        — 'sandbox' | 'host' | null. Inherited from goal
-//                   submission context.
-//   project_id    — METADATA only. Substrate-as-mind keeps recall
-//                   unified across projects (no partitioning). project_id
-//                   is for UX filtering/grouping ONLY. design grounding:
-//                   design substrate-as-mind invariant — ONE brain
-//                   across projects, project is a tag not a wall.
-//   ts            — engram.timestamp (creation)
-//
-// design grounding:
-//   - W3C PROV-O Activity/Entity — goal is Entity, satisfaction is
-//     Activity wasGeneratedBy partner. Projector reads both.
-//   - Cohen + Levesque 1990 "Intention is Choice with Commitment":
-//     intentions persist until satisfied, becomes-impossible, or
-//     irrelevant. Status enum maps directly.
-//   - Fowler Event Sourcing — append-only marker pattern. Read side
-//     is a projection; write side never mutates.
-//   - design R23 immutability.
-//
-// Out of scope for v1:
-//   - LLM-judged percent_done auto-update (operator/partner sets it).
-//   - Deadline overdue notification (Phase 4 inbox surface).
-//   - Cross-project view in dashboard (UX layer, separate slice).
+// SPDX-License-Identifier: AGPL-3.0-only Typed Goal projector. Projects
+// engrams scope='goal' (+ their satisfaction / abandonment / decomposition
+// markers) into a typed Goal shape the dashboard, app inbox, and idle-pursuit
+// can consume without re-parsing engram blobs. Per design slice 2.2 the spec
+// is a "table" — but we keep the substrate append-only and read goals as a
+// PROJECTION over engrams + status markers (same pattern as goal-status.js).
+// Typed Goal shape (design 2.2): { id, parent_id, status, percent_done,
+// next_action, blocked_on, deadline, regime, project_id, ts } Field
+// provenance: id — engram.id parent_id — engram.parent_id (set when goal was
+// queued as a sub-goal by the ADaPT decomposer) status — derived: 'satisfied'
+// / 'abandoned' / 'open' from goal-status markers (existing module)
+// percent_done — operator-supplied TEXT ("30%", "drafted, untested"),
+// nullable. Stored as engram.output.percent_done. next_action — operator or
+// partner annotation, nullable. Stored as engram.output.next_action.
+// blocked_on — string describing what is blocking, nullable. deadline —
+// ISO-8601 string, nullable. regime — 'sandbox' | 'host' | null. Inherited
+// from goal submission context. project_id — METADATA only. Substrate-as-mind
+// keeps recall unified across projects (no partitioning). project_id is for UX
+// filtering/grouping ONLY. design substrate-as-mind invariant — ONE brain
+// across projects, project is a tag not a wall. ts — engram.timestamp
+// (creation) - W3C PROV-O Activity/Entity — goal is Entity, satisfaction is
+// Activity wasGeneratedBy partner. Projector reads both. - Cohen + Levesque
+// 1990 "Intention is Choice with Commitment": intentions persist until
+// satisfied, becomes-impossible, or irrelevant. Status enum maps directly. -
+// Fowler Event Sourcing — append-only marker pattern. Read side is a
+// projection; write side never mutates. - design R23 immutability. Out of
+// scope for v1: - LLM-judged percent_done auto-update (operator/partner sets
+// it). - Deadline overdue notification. - Cross-project view in dashboard (UX
+// layer, separate slice).
 
 'use strict';
 

@@ -1,41 +1,23 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Signed append-only audit chain.
-//
-// Per Chan et al. 2024 "Visibility into AI Agents":
-//   Every action_record signed with ed25519. Verification: append-only
-//   chain, hash chains back. Operator can `troth audit verify` to
-//   confirm no tampering.
-//
-// Chain construction:
-//   record_hash    = sha256( canonical_json(record) )
-//   chain_hash[i]  = sha256( chain_hash[i-1] + record_hash[i] )
-//   chain_hash[0]  = sha256( record_hash[0] )                  (genesis)
-//   signature[i]   = ed25519_sign( chain_hash[i], private_key )
-//
-// Any tamper:
-//   - changing record body → record_hash mismatch → chain_hash mismatch
-//   - removing a row       → next row's prev_chain_hash mismatch
-//   - forging a signature  → ed25519 verify fails against public key
-//
-// Key storage:
-//   - macOS preferred: Secure Enclave via keychain (NOT implemented v1
-//     would need native module). v1 falls back to file at
-//     ~/.troth/audit-keys/active.{pub,key} with 0600 perms on key.
-//   - Linux: same file fallback.
-//
-// Key rotation:
-//   - Each signed row carries public_key_id. New key generation creates
-//     a new id. Verifier looks up the right pubkey per row.
-//
-// design grounding:
-//   - Chan et al. 2024 "Visibility into AI Agents" (signed action log
-//     pattern)
-//   - Merkle tree / hash chain (Merkle 1979) — tamper detection
-//   - RFC 8032 ed25519
-//   - design R23: chain is append-only; verifier refuses to accept
-//     a chain that mutates prior rows
-//   - design R17: signature verification is STRUCTURAL — operator
-//     can prove tamper to a third party without trusting the substrate
+// SPDX-License-Identifier: AGPL-3.0-only Signed append-only audit chain. Per
+// Chan et al. 2024 "Visibility into AI Agents": Every action_record signed
+// with ed25519. Verification: append-only chain, hash chains back. Operator
+// can `troth audit verify` to confirm no tampering. Chain construction:
+// record_hash = sha256( canonical_json(record) ) chain_hash[i] = sha256(
+// chain_hash[i-1] + record_hash[i] ) chain_hash[0] = sha256( record_hash[0] )
+// (genesis) signature[i] = ed25519_sign( chain_hash[i], private_key ) Any
+// tamper: - changing record body → record_hash mismatch → chain_hash mismatch
+// - removing a row → next row's prev_chain_hash mismatch - forging a signature
+// → ed25519 verify fails against public key Key storage: - macOS preferred:
+// Secure Enclave via keychain (NOT implemented v1 would need native module).
+// v1 falls back to file at ~/.troth/audit-keys/active.{pub,key} with 0600
+// perms on key. - Linux: same file fallback. Key rotation: - Each signed row
+// carries public_key_id. New key generation creates a new id. Verifier looks
+// up the right pubkey per row. - Chan et al. 2024 "Visibility into AI Agents"
+// (signed action log pattern) - Merkle tree / hash chain (Merkle 1979) —
+// tamper detection - RFC 8032 ed25519 - chain is append-only; verifier refuses
+// to accept a chain that mutates prior rows - signature verification is
+// STRUCTURAL — operator can prove tamper to a third party without trusting the
+// substrate
 
 'use strict';
 
@@ -95,10 +77,10 @@ function ensureKey(opts) {
   const privPem = privateKey.export({ type: 'pkcs8', format: 'pem' });
   const pubPem  = publicKey.export({ type: 'spki',  format: 'pem' });
   const id = 'gck:' + crypto.createHash('sha256').update(pubPem).digest('hex').slice(0, 16);
-  // wx: exclusive create. Two processes generating on a virgin key dir used
-  // to race — the loser kept signing with an in-memory key whose .pub was
-  // just overwritten, and every one of its rows failed verification forever.
-  // Losing the race now means adopting the winner's key instead.
+  // wx: exclusive create. Two processes generating on a virgin key dir would
+  // race — the loser kept signing with an in-memory key whose .pub was just
+  // overwritten, and every one of its rows failed verification forever. Losing
+  // the race now means adopting the winner's key instead.
   try {
     fs.writeFileSync(privPath, privPem, { mode: 0o600, flag: 'wx' });
     fs.writeFileSync(pubPath,  pubPem,  { mode: 0o644 });

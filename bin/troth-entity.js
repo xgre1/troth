@@ -575,7 +575,7 @@ function emit(obj) {
 
 function main() {
   const _decideBase = decisionEngine.makeEngine((_closedExt && _closedExt.rules && _closedExt.rules.length) ? [..._closedExt.rules, ...decisionEngine.DEFAULT_RULES] : undefined);
-  // P7.3 — memory-shaped user turns get recall attached BEFORE the engine
+  // memory-shaped user turns get recall attached BEFORE the engine
   // decides, so ruleMemoryDispatch can answer straight from the substrate.
   // The engine stays pure (no I/O in rules); the runtime awaits decide, so
   // an async wrapper is contract-clean. Recall failure just drops the
@@ -754,7 +754,7 @@ function main() {
     }
     return matched;
   }
-  // A6: always-on anchor read for the L0 identity envelope.
+  // always-on anchor read for the L0 identity envelope.
   // Northoff 2006 cognitive modeling — identity stays always-on background.
   // Drops query-token gate (current anchorsMatchingQuery only fires when
   // the query overlaps an anchor's statement, so "operator prefers tabs"
@@ -894,12 +894,11 @@ function main() {
       // and reused here.
 
       // <memory_decisions> — top-3 most recent procedural decisions
-      // (scope='decision:*'). Procedural recall was previously gated by
-      // intent.full_recall; on dmn_slot turns the partner lost lineage
-      // for "we chose X because Z" context. Always-on, capped tight.
-      // Project-scoped: prefer same-project decisions. If <3 exist for
-      // current project, fill from cross-project by recency so the partner
-      // is never completely blind to lineage even in a fresh project.
+      // (scope='decision:*'). Gated by intent.full_recall, dmn_slot turns lose the
+      // lineage of "we chose X because Z". Always-on, capped tight. Project-scoped:
+      // prefer same-project decisions. If <3 exist for current project, fill from
+      // cross-project by recency so the partner is never completely blind to lineage
+      // even in a fresh project.
       try {
         const decisionHits = engram.listEngrams({
           audience: 'model_visible',
@@ -1222,14 +1221,12 @@ function main() {
               const recency = Math.max(0, 1 - ageMs / (30 * 24 * 60 * 60 * 1000));
               candidates.push({ text, score: overlap * 0.9 + recency * 0.1, hits });
             }
-            // previously required token-hit
-            // gate, which dropped concerns entirely on content-light turns
-            // ("ok do it", "ship it"). Now keep the token-hit gate for
-            // ranking PRECISION (matched concerns float up), but ALWAYS
-            // include the top-2 most-recent unresolved concerns as a
-            // fallback so a turn with no content tokens still gets some
-            // "what we're in the middle of" anchor. The hard 3-item cap
-            // below means total volume is unchanged.
+            // A required token-hit gate drops concerns entirely on content-light turns
+            // ("ok do it", "ship it"). Keep the token-hit gate for ranking PRECISION
+            // (matched concerns float up), but ALWAYS include the top-2 most-recent
+            // unresolved concerns as a fallback so a turn with no content tokens still
+            // gets some "what we're in the middle of" anchor. The hard 3-item cap below
+            // means total volume is unchanged.
             const matched = candidates
               .filter(c => c.hits > 0)
               .sort((a, b) => b.score - a.score);
@@ -1311,35 +1308,27 @@ function main() {
       // double-emit them. (topAnchorsAlwaysOn / anchorsMatchingQuery remain for
       // the /context slash skill.)
 
-      // L1 — recent dialogue for in-session continuity. Gated by topic-
-      // shift: if the current query has drifted far from the recent
-      // window (Jaccard overlap below the shift threshold), the dialogue
-      // block is dropped entirely. Empirical motivation: a 'how do I
-      // cook risotto' turn after a code-refactor conversation was
-      // pivoting the model back to the refactor because the transcript
-      // looked like 'what we are doing now'. The substrate's own
-      // topic-shift module (P5/Q6 of the mind layer) was previously
-      // dead code from the entity's perspective — wired here now.
-      // Substrate-as-mind: dialogue turns live in the partner brain.
-      // Drop hard agent_id filter — the entity's prefix sees the
-      // continuous thread across surfaces (cli + voice + plugin), not
-      // just this surface's silo. cwd remains as soft boost via the
-      // unified read default. Missed in the  P2.b sweep.
-      // Focused clones (cockpit): when the turn carries a conversation id,
-      // the window is THAT thread only, so the graphics pane thinks in
-      // graphics while the site pane thinks in the site. Without one
-      // (CLI, voice) the window stays cross-surface exactly as before.
-      // Memory above (identity/goals/engrams) is global either way: one
-      // mind, scoped attention.
-      // WINDOW SIZE BY SURFACE: 3 turns/700
-      // chars was tuned for spoken brevity and STARVED panel chats on the
-      // native path. The claude/gpt backbone resumes the full harness
-      // transcript per conversation, so switching a pane's engine to LOCAL
-      // dropped the operator's brief from 10 turns back out of a 3-turn
-      // window: the model re-asked answered questions and said it had
-      // nothing stored, in the SAME pane. A focused pane is a chat client:
-      // it gets a chat-sized window; voice/CLI (no conversation id) keeps
-      // the tight low-latency one.
+      // L1 — recent dialogue for in-session continuity. Gated by topic- shift: if
+      // the current query has drifted far from the recent window (Jaccard overlap
+      // below the shift threshold), the dialogue block is dropped entirely. Example:
+      // a 'how do I cook risotto' turn after a code-refactor conversation was
+      // pivoting the model back to the refactor because the transcript looked like
+      // 'what we are doing now'. Substrate-as-mind: dialogue turns live in the
+      // partner brain. Drop hard agent_id filter — the entity's prefix sees the
+      // continuous thread across surfaces (cli + voice + plugin), not just this
+      // surface's silo. cwd remains as soft boost via the unified read default.
+      // Focused clones (cockpit): when the turn carries a conversation id, the
+      // window is THAT thread only, so the graphics pane thinks in graphics while
+      // the site pane thinks in the site. Without one (CLI, voice) the window stays
+      // cross-surface exactly as before. Memory above (identity/goals/engrams) is
+      // global either way: one mind, scoped attention. WINDOW SIZE BY SURFACE: 3
+      // turns/700 chars was tuned for spoken brevity and STARVED panel chats on the
+      // native path. The claude/gpt backbone resumes the full harness transcript per
+      // conversation, so switching a pane's engine to LOCAL dropped the operator's
+      // brief from 10 turns back out of a 3-turn window: the model re-asked answered
+      // questions and said it had nothing stored, in the SAME pane. A focused pane
+      // is a chat client: it gets a chat-sized window; voice/CLI (no conversation
+      // id) keeps the tight low-latency one.
       const _paneConvId = (action && action.options && action.options.conversation_id) || null;
       // Working memory for THIS thread, and nothing else.
       //
@@ -1592,7 +1581,7 @@ function main() {
     });
   });
 
-  // Pending-slash state for the auto_persist hook (Phase 8 follow-up).
+  // Pending-slash state for the auto_persist hook.
   // When a /think or /init invocation is in flight, this stashes the
   // skill record so the post-LLM emit can persist response.text as an
   // engram with the declared scope — model-independent substrate write.
@@ -1742,7 +1731,7 @@ function main() {
           try { if (this._abort) this._abort(); } catch (_) { /* best-effort wake */ }
         }
       };
-      // Tagless interactive turns used to skip registration entirely, which
+      // Tagless interactive turns would skip registration entirely, which
       // left Simple-mode turns uncancellable end to end: the app's Esc and
       // stop button stopped nothing but TTS while the agentic loop kept
       // working. Register them under the shared
@@ -2580,16 +2569,14 @@ function main() {
       if (_closedExt && _closedExt.onControlEvent && event && _closedExt.onControlEvent(event, { runtime, emit, AGENT_ID, CWD })) {
         continue;
       }
-      // Slash command interception (Phase 3 of Mode A skills layer).
-      // When user_input.text starts with `/`, parse it as a slash invocation:
-      //   unknown slash → emit error, do NOT submit garbage to the runtime
-      //   known slash → resolve via slash/executor (substitutions + bash + @file
-      //     + substrate trace engram), then submit a runtime event with the
-      //     RESOLVED markdown body as input.text so the decision engine sees a
-      //     normal LLM action with the skill's instructions inline.
-      // Async resolution; we kick the IIFE and rely on stdin backpressure to
-      // keep ordering — troth-entity is single-user by design, no concurrent
-      // turns in flight.
+      // Slash command interception. When user_input.text starts with `/`, parse it
+      // as a slash invocation: unknown slash → emit error, do NOT submit garbage to
+      // the runtime known slash → resolve via slash/executor (substitutions + bash +
+      // @file + substrate trace engram), then submit a runtime event with the
+      // RESOLVED markdown body as input.text so the decision engine sees a normal
+      // LLM action with the skill's instructions inline. Async resolution; we kick
+      // the IIFE and rely on stdin backpressure to keep ordering — troth-entity is
+      // single-user by design, no concurrent turns in flight.
       if (event && event.type === 'user_input' && event.input && typeof event.input.text === 'string') {
         // Interactive turns default to thinking OFF: on thinking models
         // (Qwen3.6 etc.) hidden reasoning turned a one-word reply into a
@@ -3061,14 +3048,12 @@ function main() {
       emit({ kind: 'control_channel_skipped', reason: 'TROTH_OPERATOR_PUBKEY_B64 not set' });
     } else {
       const handlers = {
-        // Operator-signed direct navigate of the always-on browser
-        // daemon. Skips the full intent+STVC pipeline (which requires
-        // sealed capability + grounded_in engrams) and goes straight
-        // to CDP. THIS is a wire-test / debug surface — proves the
-        // Phase 2 observer→engram chain end-to-end without first
-        // building the sealing UX. Operator's signature on the
-        // envelope is the authorization. Promoted intent path is
-        // `intent:browser:goal` / `intent:browser:do` per spec.
+        // Operator-signed direct navigate of the always-on browser daemon. Skips the
+        // full intent+STVC pipeline (which requires sealed capability + grounded_in
+        // engrams) and goes straight to CDP. THIS is a wire-test / debug surface —
+        // proves the observer→engram chain end-to-end. Operator's signature on the
+        // envelope is the authorization. Promoted intent path is `intent:browser:goal`
+        // / `intent:browser:do` per spec.
         'control:browser_navigate': async (payload) => {
           // autonomous step (#3) — debug-gated. This scope skips STVC entirely
           // (CDP navigate on operator signature alone). Useful for wire-
@@ -3087,51 +3072,34 @@ function main() {
           await obs.session.send('Page.navigate', { url });
           return { ok: true, navigated_to: url };
         },
-        // Operator-signed bulk-seal: records ANY operator_confirmed
-        // engram (capability, grounding, presence_proof, charter,
-        // skill, reactor, schedule…). Payload carries the engram body
-        // verbatim PLUS the operator's inner signature over the
-        // canonical body. Substrate writes via engram.recordEngram
-        // with source_authority='operator_confirmed' so STVC
-        // signature_verifies predicate accepts downstream uses.
-        //
-        // This is THE unlock for Phase 2 substrate-thesis-correct
-        // flow: operator pre-seals capability:browser:do:* + a
-        // grounding presence_proof once at setup; from then on
-        // Gem-the-faculty can emit intent:browser:goal that passes
-        // STVC's capability_covers_intent + grounded_in_sealed
-        // predicates without operator round-trip per action.
-        //
-        // Payload shape: {
-        //   scope:             string,    // 'capability:browser:do:*', 'presence_proof', etc.
-        //   payload:           object,    // engram body (capability spec / grounding fields)
-        //   signature:         base64,    // Ed25519 over canon(payload) under operator pubkey
-        //   statement?:        string,    // human-readable
-        //   max_irreversibility?: string, // for capability engrams
-        //   expiry?:           number,    // ms epoch, for capability engrams
-        //   grounded_in?:      [string],  // referenced engrams (rare; mostly empty for seals)
-        // }
-        // Operator sealed engram — UNIFORM passthrough to recordEngram.
-        // Operator on outside prepares the EXACT canonical body that
-        // recordEngram will verify (statement + scope + source_authority
-        // + extra_output, via opKey.canonicalEngramBody) and signs it.
-        // Handler writes verbatim — no merging, no defaults — so the
-        // signature verifies against the same bytes operator signed.
-        //
-        // Works for ANY operator-tier scope: capability:*, grounding,
-        // presence_proof, partner_charter, recovery_directive, etc.
-        // Spec-specific shape validation (e.g. capability's
-        // max_irreversibility) belongs in operator's signing helper,
-        // not the substrate handler — keeping this handler small and
-        // signature-shape-agnostic is what makes the seal-once-then-
-        // emit-many flow work without further per-type plumbing.
-        //
-        // Payload: {
-        //   scope:            string,
-        //   statement?:       string,
-        //   extra_output?:    object,   // recorded verbatim
-        //   signature:        base64,   // Ed25519 over canon body
-        // }
+        // Operator-signed bulk-seal: records ANY operator_confirmed engram
+        // (capability, grounding, presence_proof, charter, skill, reactor, schedule…).
+        // Payload carries the engram body verbatim PLUS the operator's inner signature
+        // over the canonical body. Substrate writes via engram.recordEngram with
+        // source_authority='operator_confirmed' so STVC signature_verifies predicate
+        // accepts downstream uses. The operator pre-seals capability:browser:do:* + a
+        // grounding presence_proof once at setup; from then on the faculty can emit
+        // intent:browser:goal that passes STVC's capability_covers_intent +
+        // grounded_in_sealed predicates without operator round-trip per action.
+        // Payload shape: { scope: string, // 'capability:browser:do:*',
+        // 'presence_proof', etc. payload: object, // engram body (capability spec /
+        // grounding fields) signature: base64, // Ed25519 over canon(payload) under
+        // operator pubkey statement?: string, // human-readable max_irreversibility?:
+        // string, // for capability engrams expiry?: number, // ms epoch, for
+        // capability engrams grounded_in?: [string], // referenced engrams (rare;
+        // mostly empty for seals) } Operator sealed engram — UNIFORM passthrough to
+        // recordEngram. Operator on outside prepares the EXACT canonical body that
+        // recordEngram will verify (statement + scope + source_authority +
+        // extra_output, via opKey.canonicalEngramBody) and signs it. Handler writes
+        // verbatim — no merging, no defaults — so the signature verifies against the
+        // same bytes operator signed. Works for ANY operator-tier scope: capability:*,
+        // grounding, presence_proof, partner_charter, recovery_directive, etc.
+        // Spec-specific shape validation (e.g. capability's max_irreversibility)
+        // belongs in operator's signing helper, not the substrate handler — keeping
+        // this handler small and signature-shape-agnostic is what makes the
+        // seal-once-then- emit-many flow work without further per-type plumbing.
+        // Payload: { scope: string, statement?: string, extra_output?: object, //
+        // recorded verbatim signature: base64, // Ed25519 over canon body }
         'control:seal_engram': async (payload) => {
           const scope = String(payload && payload.scope || '').trim();
           if (!scope) return { ok: false, error: 'scope_required' };
@@ -3150,15 +3118,13 @@ function main() {
           });
           return { ok: !!id, id: id || null };
         },
-        // Operator sends a chat turn TO THE PARTNER (the substrate that
-        // is the brain inside this body). Internally identical to a
-        // stdin user_input — same runtime.submit() path the entity's
-        // input loop uses (line ~1708). Difference: we await the next
-        // `kind:'response'` emit so the operator's signed-engram POST
-        // returns the actual reply text instead of fire-and-forget.
-        // Single-user/sequential turn assumption applies (same as the
-        // stdin loop) — concurrent operator chats would race; not a
-        // real concern for Phase 1 since one operator one body.
+        // Operator sends a chat turn TO THE PARTNER (the substrate that is the brain
+        // inside this body). Internally identical to a stdin user_input — same
+        // runtime.submit() path the entity's input loop uses (line ~1708). Difference:
+        // we await the next `kind:'response'` emit so the operator's signed-engram
+        // POST returns the actual reply text instead of fire-and-forget.
+        // Single-user/sequential turn assumption applies (same as the stdin loop) —
+        // concurrent operator chats would race; one operator, one body.
         'control:chat': async (payload) => {
           const text = String(payload && payload.text || '').trim();
           if (!text) throw new Error('control:chat requires payload.text');

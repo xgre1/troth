@@ -112,7 +112,7 @@ for (const c of candidates) {
         decision: 'observed',
         reason:   c.contradiction_kind,
         prior_statement_excerpt: String(c.prior_statement || '').slice(0, 200),
-        // Phase 3 — keep an excerpt of the contradicting assistant turn so
+        // keep an excerpt of the contradicting assistant turn so
         // the BG reconsolidation_review task can ask an LLM to extract the
         // corrected fact (vs the phase-1 flag-only path that just retires
         // the prior). Capped at 600 chars per row to bound DB growth; the

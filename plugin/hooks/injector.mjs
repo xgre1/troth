@@ -42,12 +42,11 @@ const _rawPrompt = payload.user_prompt || payload.prompt || '';
 const prompt = _rawPrompt.length > 6000 ? _rawPrompt.slice(0, 6000) : _rawPrompt;
 const session = payload.session_id || null;
 
-// Active agent_id for read-side isolation. Substrate writes already filter
-// by agent_id (engram.js, dialogue-memory.js refuse list calls without it);
-// the injector previously merged ALL agents' commitments into prefix, so
-// /agent foo switch did nothing for context isolation — UI veneer over a
-// leaking pool. Source of truth: agent-registry's last_active_at, which the
-// /agent skill touches on every switch (executor.js calls touchActive on
+// Active agent_id for read-side isolation. Substrate writes already filter by
+// agent_id (engram.js, dialogue-memory.js refuse list calls without it); a
+// prefix that merges every agent's commitments makes an /agent switch a veneer
+// over a leaking pool. Source of truth: agent-registry's last_active_at, which
+// the /agent skill touches on every switch (executor.js calls touchActive on
 // resolve). Falls back to null when no registered agents (fresh install) —
 // state.queryActions then returns the legacy unfiltered set so existing
 // installs don't lose their pre-registry engrams.
@@ -91,7 +90,7 @@ if (/^\s*(\[SYSTEM NOTIFICATION|<task-notification)/.test(_rawPrompt)) { allow()
 const _deadline = Date.now() + 12000;
 const hookTimeLeft = () => Date.now() < _deadline;
 
-// P0.3 — relevance gate. The injector used to emit precedent + repomap
+// relevance gate. The injector would emit precedent + repomap
 // on EVERY user prompt regardless of relevance, which adds ~648 cache-
 // creation tokens per turn. For short or
 // non-code prompts (e.g. "thanks", "continue", "yes"), the map is wasted
@@ -190,7 +189,7 @@ try {
     // Every recall that is shown has been judged: the cross-encoder runs on
     // every prompt that reaches recall, short ones included. A short prompt
     // ("how is it going?", "I pinned it") matched on one word is exactly the
-    // one that used to surface a stranger as ground truth.
+    // one that would surface a stranger as ground truth.
     const didRerank = true;
     const _t0 = Date.now();
     const recallP = recall.recall({
@@ -281,12 +280,12 @@ try {
   }
 } catch (_) { /* recall must NEVER break the hook — degrade to the pull hints below */ }
 
-// P16 — Δ9 through-line preservation. Surface the most
+// Δ9 through-line preservation. Surface the most
 // recent in-cwd intent record as a compact L1 hint so the model holds
 // the "what we're working on" anchor across turns. Per Semantic
 // Anchoring (arXiv:2508.12630, ~18% measured recall gain).
 //
-// Substrate already writes type='intent' records (P16 / GMP v0.2 —
+// Substrate already writes type='intent' records (
 // see action-record.js TYPES.intent) carrying { goal, constraint,
 // chosen_path }. shared-core/mind-state.js consumes them at session-
 // start via recomputeFromSubstrate. This block puts the latest one
@@ -332,7 +331,7 @@ try {
 } catch (_) { /* never break the hook on goal lookup failure */ }
 if (goalBlock) pieces.push(goalBlock);
 
-// P14 — Per-turn fresh insight surfacing.
+// Per-turn fresh insight surfacing.
 //
 // background-worker generates insights as `decision:insight_surfaced`
 // records mid-session via insight-surfacer.recordInsight (drift alerts,
@@ -454,7 +453,7 @@ try {
 } catch (_) { /* never break the hook on matcher failure */ }
 if (replayPlanBlock) pieces.push(replayPlanBlock);
 
-// P15 — Phase C compiled procedures hint at prompt time.
+// Phase C compiled procedures hint at prompt time.
 //
 // background-worker.taskProcedureCompile detects recurring tool-call
 // sequences (Trace2Skill ≥2 sessions threshold) and persists them as
@@ -625,19 +624,14 @@ try {
 } catch (_) { /* never break the hook on epistemic-density failure */ }
 if (voidBlock) pieces.push(voidBlock);
 
-// P13.1 — Pull-based memory redesign.
-// The blocks below USED TO be pushed every turn (precedent ~500 chars,
-// session snapshot up to 1200 chars, repomap up to 700 chars). Live
-// compounding bench measured cost grew +32% s1→s5 with cache_creation
-// growing 6× — exactly the MemGPT-style anti-pattern the scope warns
-// against. Per Pichay/OMEGA/MemPalace research, the L0/L1 push budget
-// must stay under ~800 tokens; L3 (precedent, repomap, snapshot) is
-// pull-only, surfaced via PostToolUse triggers (P13.2) or via the
-// model calling troth_query_actions / troth_search_actions.
-//
-// We surface a compact pull HINT instead of the data itself: the model
-// sees "N prior verified edits exist; call troth_query_actions to
-// retrieve" rather than the edits themselves.
+// Pull-based memory: pushing these blocks every turn compounds across a
+// session (cache creation grows with every turn), the MemGPT-style
+// anti-pattern. Per Pichay/OMEGA/MemPalace research, the L0/L1 push budget
+// must stay under ~800 tokens; L3 (precedent, repomap, snapshot) is pull-only,
+// surfaced via PostToolUse triggers (P13.2) or via the model calling
+// troth_query_actions / troth_search_actions. We surface a compact pull HINT
+// instead of the data itself: the model sees "N prior verified edits exist;
+// call troth_query_actions to retrieve" rather than the edits themselves.
 let precedentCount = 0;
 try {
   if (codeRelevant) {
@@ -661,7 +655,7 @@ if (precedentCount > 0) {
   );
 }
 
-// P16.5 I1 — Negative precedent. When TROTH_NEGATIVE_KNOWLEDGE=1, look
+// Negative precedent. When TROTH_NEGATIVE_KNOWLEDGE=1, look
 // for recent avoided_path records (critic blocks, loopbreaker fires,
 // etc.) whose fingerprint or stored text matches signals from the
 // current prompt. Surface up to ~200 chars (L1 trigger budget). Default
@@ -739,7 +733,7 @@ if (prompt.length >= 30 && !prompt.startsWith('/')) {
     }
 
     // 2+3. Engrams — hybrid selection: 1 foundational + up-to-2 topical
-    // Tier 1 / Item C: engrams across ALL cwds eligible, but the ones
+    // engrams across ALL cwds eligible, but the ones
     // matching the current cwd get a 0.3 boost (project context still
     // weighted higher than cross-project facts).
     // Agent-scoped: only the active sub-brain's pool. Identity-pool query
@@ -902,7 +896,7 @@ if (prompt.length >= 30 && !prompt.startsWith('/')) {
     // Two-tier engram surfacing — fix for cross-cwd leak. Engrams from
     // OTHER projects were polluting current-project context (e.g.,
     // chatforge engrams surfacing while working on troth). Fix:
-    //   Tier 1: prefer engrams from CURRENT cwd if they have any topic
+    //   prefer engrams from CURRENT cwd if they have any topic
     //           match (overlap > 0) — even at lower raw score.
     //   Tier 2: fall back to other-cwd engrams ONLY if current cwd has
     //           none with overlap.

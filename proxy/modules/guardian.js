@@ -1,10 +1,8 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Guardian — blocks dangerous Bash commands before they reach Claude Code.
-//
-// Previously also did "shadow verify" of Write tool content via subprocess.
-// That was removed (April 16, 2026) because it mutated the assistant message
-// (broken pattern called out in validator.js docstring) and the validator now
-// handles Write syntax checking properly via tree-sitter pre-flight.
+// SPDX-License-Identifier: AGPL-3.0-only Guardian — blocks dangerous Bash
+// commands before they reach Claude Code. That was removed (April 16, 2026)
+// because it mutated the assistant message (broken pattern called out in
+// validator.js docstring) and the validator now handles Write syntax checking
+// properly via tree-sitter pre-flight.
 
 let stats = { blocked: 0 };
 

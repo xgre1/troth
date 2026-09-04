@@ -1,33 +1,25 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Bootstrap.
-//
-// Solves the chicken-and-egg of cryptographic operator-write binding
-// (integration point). At first instantiation no operator_key exists, no signed
-// engrams exist, and engram.js's integration point wall would refuse every
-// operator-tier write — including the operator_key:active engram itself.
-//
-// Resolution: bootstrap is a one-shot dedicated path that:
-//   1. Generates the operator's Ed25519 keypair (via operator-key.js)
-//      and writes encrypted private key + public key to disk.
-//   2. Unlocks the just-created signer.
-//   3. Writes operator_key:active engram (publishes the public key to
-//      the substrate). integration point verification falls back to the filesystem
-//      pubkey at this step because no operator_key:active engram exists
-//      yet — that fallback is the bootstrap path.
-//   4. Writes bootstrap_sealed engram (irrevocable marker). After this
-//      exists, future calls to runInit refuse to overwrite.
-//   5. Optional: writes partner_charter engram if opts.charter is set.
-//
-// The bootstrap_sealed marker is the substrate-side fence — even if the
-// operator deletes the filesystem keypair, runInit still refuses to
-// re-bootstrap because the marker engram exists. Recovery from a lost
-// key requires the recovery_directive flow (deferred to Phase 1.4b).
-//
-// All bootstrap writes go through engram.recordEngram with proper
-// Ed25519 signatures over canonicalEngramBody. There is NO bypass —
-// integration point fires for every write; the bootstrap pubkey is found via
-// filesystem fallback for the very first one, then via substrate
-// lookup for subsequent ones in the same bootstrap session.
+// SPDX-License-Identifier: AGPL-3.0-only Bootstrap. Solves the chicken-and-egg
+// of cryptographic operator-write binding (integration point). At first
+// instantiation no operator_key exists, no signed engrams exist, and
+// engram.js's integration point wall would refuse every operator-tier write —
+// including the operator_key:active engram itself. Resolution: bootstrap is a
+// one-shot dedicated path that: 1. Generates the operator's Ed25519 keypair
+// (via operator-key.js) and writes encrypted private key + public key to disk.
+// 2. Unlocks the just-created signer. 3. Writes operator_key:active engram
+// (publishes the public key to the substrate). integration point verification
+// falls back to the filesystem pubkey at this step because no
+// operator_key:active engram exists yet — that fallback is the bootstrap path.
+// 4. Writes bootstrap_sealed engram (irrevocable marker). After this exists,
+// future calls to runInit refuse to overwrite. 5. Optional: writes
+// partner_charter engram if opts.charter is set. The bootstrap_sealed marker
+// is the substrate-side fence — even if the operator deletes the filesystem
+// keypair, runInit still refuses to re-bootstrap because the marker engram
+// exists. Recovery from a lost key requires the recovery_directive flow. All
+// bootstrap writes go through engram.recordEngram with proper Ed25519
+// signatures over canonicalEngramBody. There is NO bypass — integration point
+// fires for every write; the bootstrap pubkey is found via filesystem fallback
+// for the very first one, then via substrate lookup for subsequent ones in the
+// same bootstrap session.
 
 'use strict';
 

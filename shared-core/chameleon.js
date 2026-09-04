@@ -142,7 +142,7 @@ async function ingestDocument(opts) {
   } catch (_) { /* redactor unavailable: ingest the text as given */ }
 
   const chunks = chunkText(safeText, opts);
-  // Phase 1 — compute OUTSIDE the write path: chunk statements and their
+  // compute OUTSIDE the write path: chunk statements and their
   // best-effort embeddings (async, can take seconds on a long document).
   let embedded = 0;
   const prepared = [];
@@ -172,7 +172,7 @@ async function ingestDocument(opts) {
     if (embedding) embedded++;
     prepared.push({ stmt: stmt, embedding: embedding });
   }
-  // Phase 2 — ONE synchronous transaction writes every chunk row. The
+  // ONE synchronous transaction writes every chunk row. The
   // document's ingest marker IS its chunk rows (listIngestedSources reads
   // input.source off them), so a half-written document would read as
   // "already imported" and its missing tail could never be completed —

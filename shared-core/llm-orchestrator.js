@@ -130,7 +130,7 @@ function makeOrchestrator(opts) {
     throw new Error('llm-orchestrator: opts.transport.stream(req) is required');
   }
   const evaluator = typeof opts.evaluate === 'function' ? opts.evaluate : null;
-  // Faculty name used to name the engine in honest-failure text when a
+  // Faculty name would name the engine in honest-failure text when a
   // transport throws before it streams anything (pre-stream start failure).
   const facultyLabel = (opts.faculty_label != null) ? String(opts.faculty_label) : '';
   const stablePrefix = opts.stable_prefix || '';
@@ -645,7 +645,7 @@ function makeOrchestrator(opts) {
       }
       const req = { messages, options: reqOptions };
       // Resilience: a single transient transport hiccup (a 5xx, a dropped SSE, a
-      // refused connection) used to abort the ENTIRE turn mid-task. Retry the SAME request a bounded number of times before
+      // refused connection) would abort the ENTIRE turn mid-task. Retry the SAME request a bounded number of times before
       // giving up. Only retried when NOTHING has been committed yet (no streamed
       // text / tool call), so a retry can't duplicate output or double-bill a
       // partial response. NEVER retried: timeout / loop_detected / iteration_cap /
@@ -783,7 +783,7 @@ function makeOrchestrator(opts) {
             if (chunk && chunk.delta) {
               turnText += String(chunk.delta);
               // NOT streamed live in the agentic loop. Every round's text
-              // used to paint the reply surface as it arrived, so the
+              // would paint the reply surface as it arrived, so the
               // per-round plan preambles (codex models re-emit their
               // manifest EVERY round) reached the operator no matter what
               // the final assembly kept — the finalText routing alone fixed
@@ -1003,7 +1003,7 @@ function makeOrchestrator(opts) {
           catch (e) { resultStr = JSON.stringify({ error: 'tool_runner_threw', detail: String(e && e.message || e) }); }
           }
           let resultContent = typeof resultStr === 'string' ? resultStr : JSON.stringify(resultStr);
-          // STRUCTURAL secret wall (R17): remember secret-shaped literals from
+          // STRUCTURAL secret wall: remember secret-shaped literals from
           // every tool result BEFORE truncation, so outbound reply text can be
           // redacted no matter what the model decides to echo (live find
           // a fresh Supabase secret was pasted into the chat).
@@ -1214,15 +1214,14 @@ function makeOrchestrator(opts) {
 
 // _honestStartFailure - synthesize the operator-facing text for a transport
 // that threw BEFORE it streamed anything (a pre-stream START failure: no key,
-// bad config, unwired module). The catch around transport.stream() used to
-// return EMPTY text here, which the surface rendered as a silent dead panel
-// (studio p10 phase-C,: kimi_sub with no TROTH_KIMI_SUB_KEY threw
-// no_api_key and the operator saw nothing). Faculty-agnostic: correct for any
-// engine whose stream() throws on start. Names the engine (when known) and a
-// SANITIZED reason. The sanitizer NEVER echoes key material: any long
-// key-shaped token (sk-..., long base64/hex runs, bearer-style secrets) is
-// redacted, and the whole line is length-bounded, so an error string that
-// happened to embed a key can never leak through this text.
+// bad config, unwired module). Empty text here renders as a silent dead panel
+// (a lane throwing no_api_key would look dead instead of failed).
+// Faculty-agnostic: correct for any engine whose stream() throws on start.
+// Names the engine (when known) and a SANITIZED reason. The sanitizer NEVER
+// echoes key material: any long key-shaped token (sk-..., long base64/hex
+// runs, bearer-style secrets) is redacted, and the whole line is
+// length-bounded, so an error string that happened to embed a key can never
+// leak through this text.
 function _sanitizeStartError(msg) {
   let s = String(msg == null ? '' : msg);
   // Redact anything key-shaped: sk-/bearer-prefixed tokens, and any long

@@ -37,7 +37,7 @@ function test(name, fn) {
     return;
   }
 
-  // A test that cannot run here has to be able to say so. Three bodies used to
+  // A test that cannot run here has to be able to say so. Three bodies would
   // print "(skip: ... closed overlay)" and then return, which the harness read
   // as success, so the headline counted them among the passes. `skip(reason)`
   // throws a marker this runner recognises; anything else thrown is still a

@@ -595,8 +595,8 @@ console.log('\nL4 docker sandbox:');
   });
 })();
 
-// ─────────────────────────────────────────────────────────────────────────
-// L4 — Sandbox runtime (Phase 1.2 cross-platform adapter selection)
+// ───────────────────────────────────────────────────────────────────────── L4
+// — Sandbox runtime
 // ─────────────────────────────────────────────────────────────────────────
 console.log('\nL4 sandbox runtime (cross-platform):');
 (function () {
@@ -1249,7 +1249,7 @@ console.log('\nL4 operator inbox:');
   // handled depends on web_allowlist.mode, which substrate-tools reads from the
   // L4 config: 'strict' refuses and escalates to the operator inbox, 'auto_grow'
   // adds the host, writes an audit row and retries, so the operator is not made
-  // to curate a list by hand. This test used to assert strict only, so it passed
+  // to curate a list by hand. This test would assert strict only, so it passed
   // on a clone (where the L4 config is absent and strict is the default) and
   // failed on any machine configured for auto_grow. Assert the invariant that
   // holds either way: refused-and-escalated, or fetched-and-recorded. Never
@@ -3609,7 +3609,7 @@ console.log('\ndesign phase WAL replication:');
     // a second; only contention pushes it out.
     //
     // A failed assertion inside a timer callback belongs to nobody: it is not
-    // on the promise chain, so it used to surface as an uncaught exception and
+    // on the promise chain, so it would surface as an uncaught exception and
     // take the whole run down instead of failing one test. Settle explicitly.
     const DEADLINE_MS = 10_000, STEP_MS = 25;
     return new Promise((resolve, reject) => {
@@ -6637,7 +6637,7 @@ console.log('\ndesign phase analytics token-savings USD equiv:');
 
   // The invariant is that the resolved baseline model drives the rates, and
   // the resolution is: ~/.troth/config.json baseline_model, else the default.
-  // This used to insert baseline_cost_events rows and expect the most-used
+  // This would insert baseline_cost_events rows and expect the most-used
   // value there to win, but analytics.js no longer reads that table, so the
   // test was asserting a cascade step that had been removed. Drive the live
   // path instead, through the config file analytics actually reads.

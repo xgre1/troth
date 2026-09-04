@@ -13,7 +13,7 @@
 //   - absolute node (process.execPath) + absolute server paths, so app-only
 //     users with no system node still get working servers
 //
-// A6: the wired surface is the 4-server ROUTER-GATEWAY, matching
+// the wired surface is the 4-server ROUTER-GATEWAY, matching
 // the app installer and the plugin's own .mcp.json. Wiring all 7 servers put
 // ~79 tool schemas into every session (substrate 45 + memory 18 + entity 6 +
 // the 4 light ones) — a recurring token tax + tool-choice overload. Now only

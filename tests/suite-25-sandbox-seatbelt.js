@@ -117,10 +117,7 @@ if (!here) {
   });
 
   test('SANDBOX-11: the jail leaves no scratch behind in the operator project', async () => {
-    // The scratch home used to be <project>/.troth-sandbox: one npm install
-    // staged 632 files and 3 MB of npm cache into the operator's next
-    // commit, and even a read-only command created the directory. It now
-    // lives outside the work, keyed to the project.
+    // It now lives outside the work, keyed to the project.
     const clean = path.join(jail, 'cleanliness');
     fs.mkdirSync(clean, { recursive: true });
     const r = await sb.runInSandbox('echo hello > note.txt', { cwd: clean });
@@ -189,11 +186,10 @@ if (!here) {
   });
 
   test('SANDBOX-10: the policy governing the jail is unreachable from inside it', async () => {
-    // The profile used to live in WORK, which the jailed process owns. Our
-    // rewrite-before-every-spawn hid it, but a long-lived jailed process
-    // (dev server, watcher, MCP bridge) could swap the file in the window
-    // between that write and sandbox-exec's read, handing the NEXT command
-    // an "(allow default)" policy. The fix is ground it cannot touch.
+    // Our rewrite-before-every-spawn hid it, but a long-lived jailed process (dev
+    // server, watcher, MCP bridge) could swap the file in the window between that
+    // write and sandbox-exec's read, handing the NEXT command an "(allow default)"
+    // policy. The fix is ground it cannot touch.
     const policy = path.join(sb.PROFILE_DIR, 'profile-none.sb');
     let r = await sb.runInSandbox('printf %s "(version 1)(allow default)" > ' + JSON.stringify(policy) + ' && echo REWROTE || echo REFUSED', { cwd: jail });
     assert.ok(/REFUSED/.test(r.stdout || ''), 'policy rewrite from inside must refuse, got: ' + (r.stdout || '').trim());

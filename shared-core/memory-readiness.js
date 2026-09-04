@@ -188,19 +188,14 @@ function readiness() {
     out.indexing.passages_per_hour = (embRow && embRow.n > 0) ? embRow.n : null;
   } catch (_) { /* table not created yet */ }
 
-  // WHAT is being indexed, not just how much.
-  //
-  // The progress line sits under "Import your chat history", so a bare count
-  // reads as "your Claude Code sessions are indexing" whatever the backlog
-  // actually is — a backlog can be entirely ingested documents with no chat
-  // sessions in it. Naming the mix costs one query and removes the guess.
-  //
-  // The breakdown MUST use the same predicate as recall_missing above. The
-  // first version did not, and the card showed "indexed 100%" beside "32
-  // memories waiting for an index" — two counts of one thing, disagreeing in
-  // public. Rows that carry no embeddable text, and the chat archive that
-  // recall excludes, are not part of the backlog, so they cannot appear in
-  // its breakdown either.
+  // WHAT is being indexed, not just how much. The progress line sits under
+  // "Import your chat history", so a bare count reads as "your Claude Code
+  // sessions are indexing" whatever the backlog actually is — a backlog can be
+  // entirely ingested documents with no chat sessions in it. Naming the mix
+  // costs one query and removes the guess. The breakdown MUST use the same
+  // predicate as recall_missing above. Rows that carry no embeddable text, and
+  // the chat archive that recall excludes, are not part of the backlog, so they
+  // cannot appear in its breakdown either.
   try {
     const d = require('./state.js')._dbForQuery();
     const row = d.prepare(`

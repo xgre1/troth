@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: Apache-2.0
-// P16 Tier 2 — UserPromptSubmit hook that extracts a structured intent
+// UserPromptSubmit hook that extracts a structured intent
 // from the user's prompt and writes it as type='intent' ActionRecord.
 //
 // Default OFF. Opt in via env TROTH_CAPTURE_INTENT=1.

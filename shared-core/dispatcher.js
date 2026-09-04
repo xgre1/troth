@@ -75,7 +75,7 @@ function _findAdapter(intentScope) {
   return null;
 }
 
-// P7.4 — the irreversibility FLOOR. An intent's self-declared class can
+// the irreversibility FLOOR. An intent's self-declared class can
 // only RAISE the stakes, never lower them: the adapter knows what its
 // effects can reach (shell is high whatever the intent claims), so the
 // effective class is the max of both. Without this, an under-declared

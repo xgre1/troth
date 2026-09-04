@@ -68,7 +68,7 @@ const textOf = (msg) => ((msg.result && msg.result.content) || []).map((c) => c.
 test('TBS-1: a secret in command OUTPUT never reaches the model', async () => {
   // The command carries only the prefix (which TPW-21 pins as allowed —
   // otherwise nobody could grep for the problem); the OUTPUT assembles the
-  // full credential shape. That output used to flow back verbatim.
+  // full credential shape. That output would flow back verbatim.
   const msg = await callRun({ command: "printf 'sk-ant-'; printf 'A%.0s' {1..24}; echo" });
   const text = textOf(msg);
   assert.ok(text.indexOf('sk-ant-AAAAAAAA') === -1, 'credential literal reached the model: ' + text.slice(0, 200));

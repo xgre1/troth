@@ -76,7 +76,7 @@ test('KIMI-TX-2: the base-URL join preserves the /coding/ prefix and is byte-ide
 // -- ORCH-START-FAIL - pre-stream honest-failure synthesis (unit) ---------
 // The gap the p10 phase-C profile found RED: when a transport's stream()
 // THROWS before producing any chunk (a BYOK/membership lane with no key), the
-// orchestrator's fatalReturn used to carry EMPTY text - a silent dead panel.
+// orchestrator's fatalReturn would carry EMPTY text - a silent dead panel.
 // It now synthesizes an honest, engine-named, key-safe line. Faculty-agnostic.
 const orchestrator = require('../shared-core/llm-orchestrator.js');
 

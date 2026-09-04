@@ -37,7 +37,7 @@ module.exports.run = async (ctx, check) => {
   check('it reports the same state after a restart', sa === sb,
     'before: ' + sa.slice(0, 240) + '\n        after:  ' + sb.slice(0, 240));
 
-  // The specific claim that used to flip: every part's presence must be a fact
+  // The specific claim that would flip: every part's presence must be a fact
   // about the disk, so two processes cannot disagree about it.
   const pa = (a.json && a.json.parts) || {};
   const pb = (b.json && b.json.parts) || {};

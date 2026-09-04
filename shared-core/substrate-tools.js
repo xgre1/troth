@@ -295,19 +295,15 @@ const REGISTRY = {
         }
       } catch (_) { /* drift detection is best-effort */ }
 
-      // autonomous step — tier downgrade to 'llm_inferred'.
-      //
-      // integration point (cryptographic operator-write binding) requires an Ed25519
-      // signature for operator_confirmed writes. update_identity is the
-      // LLM-faculty proactive capture path — LLM is making a judgment
-      // call ("this looks save-worthy") which IS llm_inferred quality by
-      // definition, not operator's signed seal. Operator promotes to
-      // operator_confirmed via the signed CLI (`troth confirm <id>`,
-      // Phase 1.4) when reviewing identity facts.
-      //
-      // Tier-constrained supersedes (integration point) still protects real
-      // operator_confirmed facts — llm_inferred writes here can't
-      // override an operator-signed identity engram.
+      // autonomous step — tier downgrade to 'llm_inferred'. integration point
+      // (cryptographic operator-write binding) requires an Ed25519 signature for
+      // operator_confirmed writes. update_identity is the LLM-faculty proactive
+      // capture path — LLM is making a judgment call ("this looks save-worthy")
+      // which IS llm_inferred quality by definition, not operator's signed seal.
+      // Operator promotes to operator_confirmed via the signed CLI (`troth confirm
+      // <id>`) when reviewing identity facts. Tier-constrained supersedes
+      // (integration point) still protects real operator_confirmed facts —
+      // llm_inferred writes here can't override an operator-signed identity engram.
       const id = engram.recordEngram({
         agent_id: ctx.agent_id || 'operator',
         user_id:  ctx.user_id  || 'operator',
@@ -1017,7 +1013,7 @@ const REGISTRY = {
 
   // design: generic API client. Replaces "use web_fetch with
   // hand-rolled bodies" for structured-JSON services. Credential value
-  // never crosses LLM boundary (R17); substrate resolves from vault and
+  // never crosses LLM boundary; substrate resolves from vault and
   // injects per service auth shape (Bearer / x-api-key / basic / etc.).
   //
   // DEPRECATED for partner use. Drifts from substrate-as-subject (no

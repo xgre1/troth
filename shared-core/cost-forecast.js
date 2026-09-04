@@ -1,39 +1,23 @@
-// SPDX-License-Identifier: AGPL-3.0-only
-// Cost forecasting.
-//
-// Before pursuing a goal, surface an empirical estimate:
-//   "this class historically costs P50 \$X / P90 \$Y; takes P50 N min /
-//    P90 M min".
-//
-// Operator approval surfaces (dashboard, app, CLI) read this to gate
-// expensive runs. Without it, every goal is a blind commit.
-//
-// Design principle: the mind knows what its own actions cost. Forecasting is
-// the substrate predicting its own future spend from its own history —
-// no external model, no third-party telemetry.
-//
-// v1 algorithm: empirical quantiles per goal_class. v2 (deferred) adds
-// quantile-regression conditioning on prompt_size_features per the
-// design spec — but we need enough per-class data first to
-// justify it, and JS-native quantile regression (without sklearn)
-// is non-trivial.
-//
-// design grounding:
-//   - Hyndman+Fan 1996 "Sample quantiles in statistical packages"
-//     (type-7 empirical quantile — linear interpolation; numpy default)
-//   - Koenker+Bassett 1978 (quantile regression — v2 target)
-//   - design R23: forecasts read-only over existing ledgers
-//
-// Data sources (existing — no new tables):
-//   l4_briefings: success, spent_usd, ts, goal_class
-//   l4_cost_events: usd, ts, goal_class (per-charge granularity)
-//
-// v1 limitations:
-//   - Per-class only (no prompt-size conditioning)
-//   - Time inference from briefing.ts deltas — approximate (run
-//     duration not directly recorded; we use median spacing within
-//     class as a noisy proxy for run length)
-//   - 30-day default window; falls back to all-time when undersampled
+// SPDX-License-Identifier: AGPL-3.0-only Cost forecasting. Before pursuing a
+// goal, surface an empirical estimate: "this class historically costs P50 \$X
+// / P90 \$Y; takes P50 N min / P90 M min". Operator approval surfaces
+// (dashboard, app, CLI) read this to gate expensive runs. Without it, every
+// goal is a blind commit. Design principle: the mind knows what its own
+// actions cost. Forecasting is the substrate predicting its own future spend
+// from its own history — no external model, no third-party telemetry. v1
+// algorithm: empirical quantiles per goal_class. v2 (deferred) adds
+// quantile-regression conditioning on prompt_size_features per the design spec
+// — but we need enough per-class data first to justify it, and JS-native
+// quantile regression (without sklearn) is non-trivial. - Hyndman+Fan 1996
+// "Sample quantiles in statistical packages" (type-7 empirical quantile —
+// linear interpolation; numpy default) - Koenker+Bassett 1978 (quantile
+// regression — v2 target) - forecasts read-only over existing ledgers Data
+// sources (existing — no new tables): l4_briefings: success, spent_usd, ts,
+// goal_class l4_cost_events: usd, ts, goal_class (per-charge granularity) v1
+// limitations: - Per-class only (no prompt-size conditioning) - Time inference
+// from briefing.ts deltas — approximate (run duration not directly recorded;
+// we use median spacing within class as a noisy proxy for run length) - 30-day
+// default window; falls back to all-time when undersampled
 
 'use strict';
 

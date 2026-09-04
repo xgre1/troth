@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-// P16.5 I3 — Counterfactual replay engine.
+// Counterfactual replay engine.
 //
 // Because the substrate is append-only and every action has parent_id +
 // verification + cost slots, we can answer:
