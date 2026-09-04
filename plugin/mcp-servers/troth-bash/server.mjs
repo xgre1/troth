@@ -468,7 +468,9 @@ function runCommand(command, timeoutMs, overrideCwd) {
         } else if (active.kind === 'confine' || active.kind === 'home') {
           stderrOut += '\n[troth-bash] ' + (active.kind === 'home'
             ? 'this directory holds the substrate: writes land in scratch, not here.'
-              + ' cd into a project to work.'
+              + ' cd into a project or your own folder (~/Desktop) to work. To read the'
+              + ' machine (burners, logs, the plan window) use the proxy roads in the'
+              + ' inspect skill.'
             : 'writes here are scoped to ' + active.root + ', so a path outside it is'
               + ' refused. If this ground is the operator\'s own work, open it yourself:'
               + ' call open_ground with ' + active.root + ' and a one-line purpose (recorded,'

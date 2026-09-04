@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The partner reads the machine and troth's own state through the proxy,
+  which runs outside the session walls: `GET /api/system/load` names the
+  machine's leaders by CPU time and by memory (command name only) beside
+  troth's own processes, `GET /api/system/log` answers a bounded unified-log
+  query, `GET /api/providers/codex/probe` sends one word down the ChatGPT
+  lane and reports the model that served or the status and the reset time,
+  and `GET /api/logs` takes `grep` and `limit` over a 2000-line buffer. The
+  `inspect` skill lists these roads, and the shell's note on substrate ground
+  says where writes belong.
 - Model catalog verified against every vendor on 2026-09-04: Claude Fable 5.1,
   GPT-5.6 Sol and Terra on the ChatGPT lane, Grok 4.6, GLM-5.3 and 5.3 Flash,
   Gemini 3.8 Flash and 3.1 Pro, the Coding Plan's Qwen3.7/3.6 Plus and GLM-5,

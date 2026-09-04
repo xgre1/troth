@@ -48,6 +48,11 @@ const PURPOSES = {
   // folder.
   'knowledge-import': { kind: 'trusted-plumbing' },
   'terminal-mode': { kind: 'trusted-plumbing' },
+  // The unified log read on the partner's behalf (proxy/modules/inspect.js):
+  // `log` refuses to run inside any seatbelt, so it runs at the parent
+  // boundary with argv authored there and a predicate held to a small
+  // character class. Read-only by the tool's nature.
+  'system-inspect': { kind: 'trusted-plumbing' },
   // ground-walled purposes; adopters pick one consciously and the profile
   // tightens per purpose without touching call sites again.
   'inference':   { kind: 'ground', ground: 'confine' },

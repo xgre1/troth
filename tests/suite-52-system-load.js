@@ -83,4 +83,16 @@ test('SYS-5: a live snapshot answers in the documented shape without throwing', 
     assert.ok(typeof p.role === 'string' && typeof p.rss_mb === 'number' && typeof p.cpu_seconds === 'number');
   }
 });
+test('SYS-6: machine-wide burners come from the same snapshot, by name only', () => {
+  const top = sl.parseTopBurners(FIXTURE, 3);
+  assert.strictEqual(top.total, 7, 'every process row counts, troth-owned or not');
+  assert.strictEqual(top.by_cpu[0].pid, 4004, 'the day-old browser leads by CPU time');
+  assert.strictEqual(top.by_cpu[0].comm, 'Chrome', 'the command name, never its arguments');
+  assert.ok(!JSON.stringify(top).includes('user-data-dir'), 'no argument reaches the answer');
+  assert.strictEqual(top.by_rss[0].pid, 4002, 'the reranker leads by memory');
+  const mcp = sl.parseTopBurners(FIXTURE, 10).by_cpu.find((r) => r.pid === 4006);
+  assert.strictEqual(mcp.comm, 'node server.mjs', 'an interpreter is named with its script');
+  assert.ok(sl.snapshot().top && Array.isArray(sl.snapshot().top.by_cpu), 'the live snapshot carries the leaders');
+});
+
 };

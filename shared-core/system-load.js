@@ -72,6 +72,31 @@ function parsePsSnapshot(psText, opts) {
   return rows;
 }
 
+// Machine-wide burners from the same snapshot: the question the partner's
+// walls cannot answer from inside (`ps` and `top` are setuid and refuse to
+// exec under a seatbelt). Command name only — an argument can carry a
+// secret, a name cannot; an interpreter is named with its script.
+function parseTopBurners(psText, n) {
+  const rows = [];
+  for (const line of String(psText || '').split('\n')) {
+    const m = line.match(/^\s*(\d+)\s+(\d+)\s+([\d:.-]+)\s+(.*)$/);
+    if (!m) continue;
+    const [, pid, rss, time, args] = m;
+    const parts = args.trim().split(/\s+/);
+    let comm = path.basename(parts[0] || '');
+    if (/^(node|python3?|bash|sh|zsh|ruby|perl)$/.test(comm) && parts[1] && parts[1][0] !== '-') {
+      comm += ' ' + path.basename(parts[1]);
+    }
+    rows.push({ pid: parseInt(pid, 10), rss_mb: Math.round(parseInt(rss, 10) / 1024), cpu_seconds: parseCpuTime(time), comm });
+  }
+  const k = Math.max(1, Math.min(50, parseInt(n, 10) || 8));
+  return {
+    total: rows.length,
+    by_cpu: rows.slice().sort((a, b) => b.cpu_seconds - a.cpu_seconds).slice(0, k),
+    by_rss: rows.slice().sort((a, b) => b.rss_mb - a.rss_mb).slice(0, k)
+  };
+}
+
 // ps TIME: [DD-]HH:MM:SS or MM:SS.ss — cumulative CPU actually consumed.
 function parseCpuTime(s) {
   let days = 0;
@@ -104,10 +129,11 @@ function lastUse(port, home) {
 // The full snapshot the route serves.
 function snapshot() {
   let psText = '';
+  let psOk = true;
   try {
     psText = require('child_process')
       .execSync('ps -eo pid,rss,time,args', { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
-  } catch (_) { /* a machine where ps fails still gets the machine block */ }
+  } catch (_) { psOk = false; /* a machine where ps fails still gets the machine block */ }
 
   const home = process.env.HOME || os.homedir();
   const now = Date.now();
@@ -131,8 +157,11 @@ function snapshot() {
       load1: Math.round(os.loadavg()[0] * 100) / 100
     },
     total_rss_mb: processes.reduce((a, p) => a + (p.rss_mb || 0), 0),
-    processes
+    processes,
+    // ps_ok says whether the leaders are a measurement or an empty answer:
+    // inside a wall ps cannot run, and an empty list must not read as idle.
+    top: Object.assign({ ps_ok: psOk }, parseTopBurners(psText, 8))
   };
 }
 
-module.exports = { snapshot, parsePsSnapshot, parseCpuTime, leashMinutes };
+module.exports = { snapshot, parsePsSnapshot, parseTopBurners, parseCpuTime, leashMinutes };

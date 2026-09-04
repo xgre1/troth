@@ -96,7 +96,7 @@ function noteError(where, msg) {
 // JWTs, etc. that leak into log strings get masked before they're stored
 // in the buffer or printed to stdout.
 const logBuffer = [];
-const MAX_LOG_LINES = 200;
+const MAX_LOG_LINES = 2000;
 const _origLog = console.log;
 const _origErr = console.error;
 console.log = function(...args) {
@@ -1289,6 +1289,18 @@ const server = http.createServer((req, res) => {
     try {
       jsonResponse(res, 200, require('../shared-core/system-load.js').snapshot());
     } catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
+    return;
+  }
+
+  // The unified log, read by the proxy on the partner's behalf: `log show`
+  // refuses to run inside any seatbelt, and the partner's shell always sits
+  // inside one. Bounded window, validated predicate, capped line count.
+  if (url === '/api/system/log' && req.method === 'GET') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    try {
+      jsonResponse(res, 200, require('./modules/inspect.js').unifiedLog({
+        last: query.get('last'), predicate: query.get('predicate'), limit: query.get('limit') }));
+    } catch (e) { jsonResponse(res, 400, { error: 'unified_log_failed', detail: String(e && e.message || e).slice(0, 300) }); }
     return;
   }
 
@@ -4362,8 +4374,9 @@ const server = http.createServer((req, res) => {
   // process's empty buffer and the filter returns [] forever.
   if (req.method === 'GET' && url === '/api/logs') {
     if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
-    const since = parseInt(query.get('since') || '0');
-    const lines = since ? logBuffer.filter(l => l.ts > since) : logBuffer;
+    // since / grep / limit: a lane measured hours later is still in reach.
+    const lines = require('./modules/inspect.js').filterLogLines(logBuffer, {
+      since: query.get('since'), grep: query.get('grep'), limit: query.get('limit') });
     jsonResponse(res, 200, {
       lines: lines,
       process_started_at: PROCESS_STARTED_AT,
@@ -4840,6 +4853,17 @@ const server = http.createServer((req, res) => {
     } catch (e) {
       jsonResponse(res, 500, { error: 'codex_status_failed', detail: String(e && e.message || e) });
     }
+    return;
+  }
+  // One word down the ChatGPT lane with the proxy's own token: the model that
+  // served, or the status, the reason and the reset time on a plan limit.
+  // The token never leaves this process; the partner's shell cannot read it
+  // by design, so this is the partner's road to "does the lane answer".
+  if (req.method === 'GET' && url === '/api/providers/codex/probe') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    require('./modules/inspect.js').codexProbe({ model: query.get('model'), timeout_ms: query.get('timeout_ms') })
+      .then((r) => jsonResponse(res, 200, r))
+      .catch((e) => jsonResponse(res, 500, { error: 'codex_probe_failed', detail: String(e && e.message || e).slice(0, 300) }));
     return;
   }
   if (req.method === 'POST' && url === '/api/providers/codex/login') {
