@@ -671,15 +671,44 @@ const CACHE_RELATIVE = [
   '.gradle', '.m2', '.bun', '.deno', '.nvm', '.pnpm-store', '.yarn'
 ];
 
+// The per-user temporary directories the OS hands out on its own: on macOS
+// the DARWIN_USER_TEMP_DIR (…/T) and its cache sibling (…/C) under
+// /var/folders. TMPDIR points every environment-reading tool at the jail's
+// scratch, but mktemp asks the OS directly and writes here whatever TMPDIR
+// says, so a script's `tmp=$(mktemp -d)` dies on confined ground without
+// this. The host harness's own scratch root (/private/tmp/claude-<uid>) is
+// the same class: its sessions are told to work there.
+function _userTempPaths() {
+  const out = [];
+  try {
+    // The OS's own answer first (what mktemp asks), then the process's
+    // temp root when it lives in the same tree.
+    let t = null;
+    if (process.platform === 'darwin') {
+      try { const r = spawnSync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }); t = r && r.status === 0 ? String(r.stdout || '').trim() : null; } catch (_) { t = null; }
+    }
+    if (!t || !/\/var\/folders\//.test(t)) { const p = fs.realpathSync(os.tmpdir()); t = /\/var\/folders\//.test(p) ? p : null; }
+    if (t) {
+      t = fs.realpathSync(t);
+      out.push(t);
+      const c = path.join(path.dirname(t), 'C');
+      if (fs.existsSync(c)) out.push(fs.realpathSync(c));
+    }
+  } catch (_) { /* no usable temp root: nothing to open */ }
+  try {
+    const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+    const h = uid == null ? null : path.join('/private/tmp', 'claude-' + uid);
+    if (h && fs.existsSync(h)) out.push(fs.realpathSync(h));
+  } catch (_) { /* no harness scratch: nothing to open */ }
+  return out;
+}
+
 function _cachePaths() {
   const home = process.env.HOME || os.homedir();
-  // The system temp root is deliberately NOT here. Temporary files already
-  // have a home: the environment points them at scratch, which is writable.
-  // Opening the whole user temp tree would hand confined ground a large area
-  // outside the project for nothing measured — no command class needed it —
-  // and would leave the confinement untestable, since a test's own throwaway
-  // directories live there.
-  return CACHE_RELATIVE.map((rel) => path.join(home, rel));
+  // The whole system temp root stays closed; only the per-user temporary
+  // directories above open, for the one command class (mktemp) that
+  // reaches them past TMPDIR.
+  return CACHE_RELATIVE.map((rel) => path.join(home, rel)).concat(_userTempPaths());
 }
 
 // Later rules win in SBPL, so order carries meaning: the blanket write deny
