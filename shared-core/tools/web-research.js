@@ -20,7 +20,7 @@ const daemonMod = require('../perception/chromium-daemon.js');
 const cdpMod    = require('../perception/cdp-client.js');
 
 const NAV_WAIT_MS = () => parseInt(process.env.TROTH_WEB_NAV_WAIT_MS || '2800', 10) || 2800;
-const MAX_CHARS   = () => parseInt(process.env.TROTH_WEB_MAX_CHARS   || '20000', 10) || 20000;
+const MAX_CHARS   = () => parseInt(process.env.TROTH_WEB_MAX_CHARS   || '60000', 10) || 60000;
 
 // Run fn(session) against a CDP page, ensuring the daemon + cleaning up. Returns
 // fn's value, or a structured error envelope (never throws).

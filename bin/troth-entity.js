@@ -1394,8 +1394,11 @@ function main() {
         dropDialogue = false;
       }
       if (!dropDialogue) {
-        // Chars follow the same surface split as the turn limit above.
-        const transcript = dialogueMemory.renderTranscript(turns, { max_chars: 4000 });
+        // Chars follow the same surface split as the turn limit above. The
+        // budget holds a long reply whole: a reply that outgrows it would take
+        // the whole exchange with it, and the next turn would arrive with no
+        // memory of what was just said.
+        const transcript = dialogueMemory.renderTranscript(turns, { max_chars: parseInt(process.env.TROTH_DIALOGUE_CHARS || '24000', 10) || 24000 });
         if (transcript) {
           // Temporal honesty (operator-reported: the CLI greeted with a
           // days-old project as if it were live). The window is one thread's

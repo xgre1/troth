@@ -12,6 +12,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- In the chat, a reply is set for the terminal: headings, lists with hanging
+  indents, numbered and ticked items, fenced code under a labelled rule,
+  aligned tables, quotes, rules and inline marks, wrapped to a reading width
+  in the partner's own tone. The working line names what is happening in
+  plain words ("reading server.js", "running npm test", "recalling"), and
+  the turn ends with one line of what was done: "read 3 files, searched
+  twice, ran 1 command · 14s". A window resize repaints the composer clean.
+- The recent dialogue handed to the engine keeps a long reply whole
+  (24,000 characters, `TROTH_DIALOGUE_CHARS`), so the next turn still knows
+  what was just said.
+- A fetched page keeps up to 60,000 characters (`TROTH_WEB_MAX_CHARS`).
+- The proxy starts only from ground it can read: a shell inside a session
+  wall is told to start it from the service or from the operator's own
+  terminal, `troth restart` puts an installed service back under its
+  manager before cycling it, and a proxy whose home is unreadable stops with
+  the reason instead of answering every request with "no engine configured".
 - An engine other than Claude receives the tools it can act on: the coding
   tools and every MCP tool, in the order they arrived. Claude Code's own
   product surfaces and its deferred set stay behind on the ChatGPT, Kimi,
