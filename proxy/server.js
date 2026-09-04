@@ -5458,6 +5458,13 @@ const server = http.createServer((req, res) => {
     // (< 80 chars trimmed). Real code work has longer prompts (paths,
     // error messages, multi-line snippets) and falls through.
     let _latestUserForCl = '';
+    // How long the request shaping below holds this loop, stage by stage:
+    // a body of many tool results makes every stage's cost real, and the
+    // LOOP STALL line alone names only the route that happened to be in
+    // hand. A hold past half a second is logged with its stages.
+    const _hold = [];
+    let _holdT = Date.now();
+    const _mark = (n) => { const t = Date.now(); if (t - _holdT >= 50) _hold.push(n + ':' + (t - _holdT)); _holdT = t; };
     try {
       const _p = JSON.parse(body);
       const _msgs = _p.messages || [];
@@ -5484,6 +5491,7 @@ const server = http.createServer((req, res) => {
       /\b(?:fix|refactor|implement|debug|bug|error|exception|stack\s*trace|crash|hang|leak|test|build|deploy|migration|schema|api|endpoint|route|handler|controller|model|component|hook|reducer|selector|service|class\s+\w|function\s+\w|def\s+\w|import\s+\w|from\s+['"][^'"]+|await\s+|async\s+|Promise\b|=>|console\.|require\(|\.tsx?\b|\.jsx?\b|\.py\b|\.go\b|\.rs\b|\.java\b|\.rb\b|\.kt\b|\.swift\b|\.cpp\b|\.h\b|package\.json|tsconfig|cargo\.toml|requirements\.txt|Dockerfile)\b/i.test(_trim);
     const _isTrivialPrompt = _trim.length < 80 && !_hasCodeKw;
     const repoMap = (isModuleEnabled('codelens') && !_isTrivialPrompt) ? queryContext(body) : '';
+    _mark('parse+codelens');
     let projectType = 'unknown';
     let mode = 'unknown';
     // x-troth-raw: 1 — the client is a harness, a oneshot or a tool, not a
@@ -5495,6 +5503,7 @@ const server = http.createServer((req, res) => {
     if (isModuleEnabled('injector') && !rawRequest) {
       const injection = inject(body, repoMap);
       body = injection.body;
+      _mark('inject');
       projectType = injection.projectType;
       mode = injection.mode;
       if (projectType !== 'unknown') stats.injected++;
@@ -5516,6 +5525,7 @@ const server = http.createServer((req, res) => {
       const beforeKB = (Buffer.byteLength(body) / 1024).toFixed(1);
       const compressed = compressRequest(body);
       body = compressed.body;
+      _mark('compressor');
       if (compressed.stats.elided || compressed.stats.truncated || compressed.stats.droppedEmptyBash) {
         const afterKB = (Buffer.byteLength(body) / 1024).toFixed(1);
         log(`COMPRESSOR | ${beforeKB}KB → ${afterKB}KB | elided:${compressed.stats.elided} truncated:${compressed.stats.truncated} dropped:${compressed.stats.droppedEmptyBash}`);
@@ -5552,6 +5562,7 @@ const server = http.createServer((req, res) => {
         }
       } catch (e) {}
     }
+    _mark('contextfilter');
 
     // ── Learn from failures in incoming request ──
     try { if (isModuleEnabled('critic')) require('./modules/critic').learnFromRequest(body); } catch (e) {}
@@ -5559,6 +5570,11 @@ const server = http.createServer((req, res) => {
     // ── Preprocess: strip thinking blocks, handle compaction blocks, extract metadata ──
     const preprocessed = preprocessAnthropicBody(body);
     body = preprocessed.bodyStr;
+    _mark('preprocess');
+    {
+      const _held = _hold.reduce((n, s) => n + (parseInt(s.split(':')[1], 10) || 0), 0);
+      if (_held >= 500) log('REQUEST HOLD ' + _held + 'ms | ' + Math.round(Buffer.byteLength(body) / 1024) + 'KB | ' + _hold.join(' '));
+    }
     // Mutable so the voice-triage fast-model branch can also update what
     // downstream Opus-4.7-only handlers see (adaptive thinking, effort,
     // vision validator). Without this they fire against the original
