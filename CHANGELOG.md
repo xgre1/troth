@@ -44,6 +44,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   half a second is logged with the route in hand and the background task
   running at the time. The chat-history import runs beside the loop
   instead of holding it for the length of the import.
+- The current concerns that bias recall (open goals, active commitments)
+  are read once a minute on the read worker and handed to recall, so no
+  question pays that read.
 - Recall answers in well under a second on a large substrate: the dense arm
   searches an in-memory index of the stored embeddings (int8, built once
   per process, new rows joining through a cursor) instead of reading every

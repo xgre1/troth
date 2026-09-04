@@ -6518,6 +6518,12 @@ server.listen(listenPort, BIND_HOST, () => {
       const rw = require('../shared-core/read-worker.js');
       rw.warm('substrate_counts', 20000, 'substrate_counts', {}, { timeout_ms: 180000 });
       rw.warm('memory_readiness', 20000, 'memory_readiness', {}, { timeout_ms: 180000 });
+      const refreshConcerns = () => rw.run('concern_tokens', {}, { timeout_ms: 120000 })
+        .then((t) => { try { require('../shared-core/recall.js').setConcernTokens(t); } catch (_) {} })
+        .catch(() => {});
+      refreshConcerns();
+      const tc = setInterval(refreshConcerns, 60000);
+      tc.unref();
     } catch (_) {}
   }, 2000);
   process.title = 'troth-proxy-' + listenPort;

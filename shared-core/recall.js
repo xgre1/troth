@@ -298,6 +298,22 @@ function _gatherConcernTokens() {
   return out;
 }
 
+// The concern tokens change with goals and commitments, not with each
+// question: one read a minute serves every recall in between.
+let _concernCache = { at: 0, tokens: null };
+const CONCERN_INLINE_TTL_MS = 10 * 60 * 1000;
+function _concernTokensCached() {
+  const now = Date.now();
+  if (_concernCache.tokens && now - _concernCache.at < CONCERN_INLINE_TTL_MS) return _concernCache.tokens;
+  const tokens = _gatherConcernTokens();
+  _concernCache = { at: now, tokens };
+  return tokens;
+}
+// A process with a read worker hands the tokens in from there, so the
+// request path never pays the read.
+function setConcernTokens(tokens) {
+  _concernCache = { at: Date.now(), tokens: tokens instanceof Set ? tokens : new Set(Array.isArray(tokens) ? tokens : []) };
+}
 function buildTopicTokens(opts) {
   const out = new Set();
   if (opts.cwd && typeof opts.cwd === 'string') {
@@ -315,7 +331,7 @@ function buildTopicTokens(opts) {
   // Klinger concerns: caller may pass include_concerns=false to suppress
   // (debug / tests). Otherwise default-on, gated by env var inside.
   if (opts.include_concerns !== false) {
-    const concerns = _gatherConcernTokens();
+    const concerns = _concernTokensCached();
     for (const t of concerns) out.add(t);
   }
   return out;
@@ -837,12 +853,12 @@ async function recall(opts) {
   // across class sub-functions. cwd basename minus generic tokens is the
   // current-work signal; future versions may union recent dialogue +
   // active commitment tokens. Cheap (Set ops, no DB hit).
-  const topicTokens = buildTopicTokens({ cwd: opts.cwd || null });
+  const _t0 = Date.now();
+  if (_PROFILE || opts.profile === true) _phases = [];
+  const topicTokens = _phase('topic', () => buildTopicTokens({ cwd: opts.cwd || null }));
   const subOpts = { query: q, audience, limit, cwd: opts.cwd || null, topicTokens,
     include_superseded: !!opts.include_superseded,
     include_flagged:    !!opts.include_flagged };
-  const _t0 = Date.now();
-  if (_PROFILE || opts.profile === true) _phases = [];
 
   // Candidate POOL is wider than the final `limit` so the semantic rerank
   // below can RESCUE a genuinely-relevant engram that lexical/recency
@@ -1091,6 +1107,7 @@ async function recall(opts) {
   // OFF by default (per-turn latency ~0.4-0.8s on the every-turn path); callers
   // opt in with opts.rerank=true. Graceful-degrade: reranker unavailable / down →
   // keep the blend order (never blocks or errors recall).
+  if (_phases) _phases.push('at_rerank:' + (Date.now() - _t0));
   if (opts.rerank && results.length >= 1 && q && q.length >= 3) {
     try {
       const reranker = require('./local-reranker.js');
@@ -1117,6 +1134,7 @@ async function recall(opts) {
   // duplicates (the same fact recorded N times, e.g. "operator prefers terse
   // responses" ×3) survive and waste top-k slots. Collapse them here, keeping the
   // highest-ranked instance (results are already in final sort/rerank order).
+  if (_phases) _phases.push('at_dedup:' + (Date.now() - _t0));
   if (results.length > 1) {
     const _seenStmt = new Set();
     const _deduped = [];
@@ -1136,6 +1154,7 @@ async function recall(opts) {
     results = _deduped;
   }
   // One brain, many threads. A caller that names its conversation and its
+  if (_phases) _phases.push('at_contexts:' + (Date.now() - _t0));
   // bound contexts reads: identity always; a fact that names no context or
   // a bound one (a fact without a home is general knowledge); its own turns;
   // another conversation's turns only once cooled, and only from a bound
@@ -1218,6 +1237,7 @@ async function recall(opts) {
   // Fire-and-forget; bumpRetrievalBatch is wrapped in try/catch so a
   // stats-table issue can't break recall. Skip when caller opts out
   // (audit/preview paths that don't want to influence future ranking).
+  if (_phases) _phases.push('at_end:' + (Date.now() - _t0));
   if (results.length && opts.skip_retrieval_feedback !== true) {
     _phase('feedback', () => {
       try {
@@ -1249,5 +1269,4 @@ module.exports = {
   _recallIdentity:   recallIdentity,
   _recallSemantic:   recallSemantic,
   _recallEpisodic:   recallEpisodic,
-  _recallProcedural: recallProcedural
-};
+  _recallProcedural: recallProcedural, setConcernTokens, _gatherConcernTokens };
