@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Caller-windowed consolidation — ingested histories whose turns are far
 // older than any cadence lookback (bench haystacks, imported archives).
 // Proves: (1) the cadence window alone sees NOTHING in an old history,

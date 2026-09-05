@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // A file served from cache was still read.
 //
 // The read ledger (action_records type='read') is what every "what has been

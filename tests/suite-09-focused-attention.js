@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Focused attention (COCKPIT-DESIGN-v0.1.md section 14): dialogue turns are
 // stamped with their conversation thread (session_id column) and the
 // INJECTED working window can be scoped by thread (cockpit panes) or by

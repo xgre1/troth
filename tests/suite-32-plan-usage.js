@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Plan-window usage — the honest half of "show my 5h usage"
 // (PLAN-COHERENCE item 5). planWindow sums ONLY subscription-marked rows
 // (' (plan)'), only inside the trailing window, grouped by plan family.

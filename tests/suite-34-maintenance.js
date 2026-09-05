@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Maintenance topology (field report): dashboards froze at
 // "28 still indexing / 20,682 still embedding" for TWO DAYS because the
 // drain lived only in the entity daemon and a dashboard-only install never

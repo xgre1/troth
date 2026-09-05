@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // A page the partner read must never arrive as something the operator said.
 //
 // This wall exists because of a hole: the same day web

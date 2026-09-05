@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // engram-gc decay-age regression.
 // Proves decay is measured from LAST RETRIEVAL, not write time (research
 // AI-Memory-Consolidation-Implementation-Details.md §3.5: Ebbinghaus utility

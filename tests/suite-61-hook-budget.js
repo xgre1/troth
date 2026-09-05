@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The hook that enriches prompts must never cost the prompt its context.
 //
 // The UserPromptSubmit injector walks recall, entities, epistemic density,

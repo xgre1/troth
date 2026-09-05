@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // A memory that cannot start must not look like a memory that is empty.
 //
 // Field report: an operator asked about work discussed months

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The session-open road: the partner opens a folder of the operator's own
 // work for one session — a stated purpose on record, a photograph before the
 // grant applies, nothing persisted. Two grounds never open, by anyone's hand:

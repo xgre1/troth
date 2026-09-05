@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The ChatGPT lane's model choice: plain gpt ids of any generation are
 // honoured, "*-codex" ids and foreign ids fall to the default, the default
 // is the id verified with a ChatGPT account, the shortlist behind it is

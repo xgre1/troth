@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // suite-12: shared MCP host installer.
 // Hermetic: every test runs against a throwaway HOME so the real
 // ~/.claude.json / ~/.cursor/mcp.json / ~/.troth/router.json are never touched.

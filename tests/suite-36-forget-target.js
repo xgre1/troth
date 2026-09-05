@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // /forget retires the row you MEANT, not one that reads like it.
 //
 // Clicking Forget in the dashboard can retire a DIFFERENT memory. The

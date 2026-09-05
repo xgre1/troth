@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The chat surface names every tool with its target on the status row while
 // it runs, leaves one summary line per turn in the transcript, keeps the
 // composer one height under the fixed layout, and a stop reaches the daemon.

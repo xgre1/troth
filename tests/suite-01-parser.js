@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Auto-split from tests/test-all.js (verbatim section bodies; order preserved).
 // Sections: PARSER | STORE | CLEANER | GUARDIAN | LOOPGUARD | PINNING | RANKER | COMPRESSOR | VALIDATOR (v5.10) | CRITIC | PREPROCESSOR | ERROR TAXONOMY (P4.2) | CACHE RATIO (P4.1) | ULTRAREVIEW (P3.5) | VISION VALIDATOR (P3.3, Opus 4.7 2,576px limit) | COMPRESSION BUFFER (P3.2, Hermes 80% pattern) | TOKEN ESTI
 module.exports = function run({ test }) {

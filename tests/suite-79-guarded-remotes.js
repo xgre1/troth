@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Guarded publish destinations: a push toward an armed destination passes
 // only while a green gate pass covers the exact tree at HEAD. The list ships
 // empty — the empty case must cost nothing and block nothing — and arming is

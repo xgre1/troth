@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // bench digest - the full-ingestion stage of a benchmark box. Proves:
 // (1) identities land before instances, so one occurrence told under two
 // names in two sessions merges by identity; (2) the session becomes a

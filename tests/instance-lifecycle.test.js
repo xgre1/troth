@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // instance lifecycle — status transitions and same-occurrence merging.
 // Specimens are the two counting hazards: "Dr. Patel"
 // (planned visit later completed — tense-based counting can't decide) and

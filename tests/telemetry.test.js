@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The machine's own telemetry: a hook writes how long it took, the proxy
 // writes each error it answered with, and the doctor reads both into two
 // lines a person can act on. Files only, never leaving the machine.

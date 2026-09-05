@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The live pass takes the local engine when it answers, else the operator's
 // engine through the proxy under a budget, else none. Probes are injected:
 // no network is touched.

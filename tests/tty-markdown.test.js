@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // A reply rendered for the terminal: no markdown marker survives, every
 // line fits the width, lists hang under their bullet, code keeps its shape,
 // tables align, and a pipe (tty:false) receives the text as it came.

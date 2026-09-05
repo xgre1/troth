@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The doctor tells the truth about where the Claude Code plugin runs from:
 // a directory marketplace pointing at this checkout runs these hooks, and
 // the cache registry's version is not the version in use.

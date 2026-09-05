@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The standing rules fit the block the harness will actually show. Order:
 // this project's rules, then the rules the prompt's own words touch, then
 // the newest; a rule is shown by its opening sentences; the footer counts

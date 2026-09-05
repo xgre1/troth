@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // What an MCP child is allowed to know.
 //
 // Before this boundary, startDownstream handed every downstream server —

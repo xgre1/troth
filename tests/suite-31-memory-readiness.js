@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Memory readiness — one owner for the pipeline's truth (PLAN-COHERENCE law 5).
 //
 // The counts are the load-bearing part: recall_missing feeds the "still

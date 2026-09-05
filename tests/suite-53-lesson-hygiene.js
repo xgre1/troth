@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // What a lesson is allowed to outlive.
 //
 // recordLesson dual-writes: a delivery queue (session_lessons, served once by

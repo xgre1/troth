@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // `troth mcp install hermes` writes the four troth servers under mcp_servers
 // and names troth as the memory provider in ~/.hermes/config.yaml, touching no
 // other line, and places the provider files where Hermes loads plugins.

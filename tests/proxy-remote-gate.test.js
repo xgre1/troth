@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // One door for the network: a request that did not arrive over loopback, or
 // that a browser drove from elsewhere, carries the remote token or gets 401
 // on every route but /health. Hermetic: sandbox HOME, a free port, the real

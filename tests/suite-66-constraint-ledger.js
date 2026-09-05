@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The operator's "don't" binds mechanically, in three writing systems.
 //
 // Omission constraints decay in prose (73%→33% by turn 16, arXiv:2604.20911);

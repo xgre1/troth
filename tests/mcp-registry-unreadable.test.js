@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The staging file: absent or empty reads as nothing staged; a file that
 // cannot be read or parsed is an error naming it, on the module road and
 // on the CLI, never an empty list.

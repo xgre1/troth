@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // CAS test. Hermetic on two axes:
 //   1. blob ops run against a throwaway TROTH_CAS_DIR — never the live
 //      ~/.troth/cas;

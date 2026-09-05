@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Auto-split from tests/test-all.js (verbatim section bodies; order preserved).
 // Sections: end-to-end regression suite | Query + Causality (behavior) | GMP v0.1 conformance (behavior) | Virtual Runtime Layer | KnowledgeAtlas + AgentMarket | PRECOMPACT HOOK (product gap 1): turns Layer 5 from theory to practice | cachestable (prompt-cache p
 module.exports = function run({ test }) {

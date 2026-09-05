@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // A short acknowledgement inside a live thread is a continuation of that
 // thread and mounts its window; a greeting stays a greeting.
 const assert = require('assert');

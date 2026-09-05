@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // bench digest, the cache key: the extractor prompt dates every turn so the
 // words' relative days resolve, which makes the day part of what is
 // extracted. The same session said on another day is another extraction;

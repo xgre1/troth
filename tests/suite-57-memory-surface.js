@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The first walk toward the memory files meets the memory itself.
 //
 // Reading CLAUDE.md or memory/*.md is a memory question wearing a file's

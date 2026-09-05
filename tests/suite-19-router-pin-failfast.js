@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // suite-19 — router pinned-engine fail-fast.
 //
 // The operator pinned ChatGPT (routing.pin='openai_sub'); the plan hit its

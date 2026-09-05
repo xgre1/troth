@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The shell wall refuses an order and lets a file body through: the words of
 // an order inside a here-document are data on their way into a file, while
 // the same words as a command, before or after the document, stay refused,

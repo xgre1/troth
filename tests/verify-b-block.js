@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Verify B3+B4+B5+B7 against live state.db with proper isolation:
 //   - Every test row tagged with TAG (random per run) so we can find + clean up.
 //   - Delta-based assertions (count_before vs count_after) for PLR.

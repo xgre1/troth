@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // suite-19-video-gen.js — video_generate tool (shared-core/tools/video-gen.js).
 //
 // Fully OFFLINE + deterministic, the suite-14 discipline. Every request goes

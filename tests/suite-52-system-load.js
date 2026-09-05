@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The inventory behind "why is the laptop hot".
 //
 // troth keeps long-lived children on the machine it runs on: a proxy, two

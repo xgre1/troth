@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Advice becomes protocol on the proxy lane.
 //
 // Foreign agents have no hooks, so a memory question reaches the model with

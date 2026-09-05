@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The doctor reads the plugin the Claude Code sessions really load: the
 // cache copy with its version and whether shared-core is reachable from it,
 // or this checkout itself.

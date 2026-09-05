@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Identity envelope is byte-identical across surfaces.
 // Acceptance criterion: "all three surfaces emit byte-identical
 // <memory_identity> excluding tier=flagged." The substrate's single-mind

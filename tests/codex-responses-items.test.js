@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The ChatGPT lane's request body: a multi-step turn reaches the Responses
 // endpoint as its own items — the assistant's tool calls as function_call,
 // their results as function_call_output — so the model sees what it ran and

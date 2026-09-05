@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Auto-split from tests/test-all.js (verbatim section bodies; order preserved).
 // Sections: Zero-LLM intent extraction + capture hook + edge auto-create | Cost attribution graph | Negative-knowledge substrate | Counterfactual replay | TOON wire format | TRON for nested DAGs | Schema Reflector | PHASE CH: Chameleo
 module.exports = function run({ test }) {

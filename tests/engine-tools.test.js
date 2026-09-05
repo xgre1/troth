@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // A non-Claude lane receives the tools the engine can act on: the coding
 // tools and every MCP tool, in the order they arrived. Claude Code's own
 // product surfaces and its deferred set stay behind.

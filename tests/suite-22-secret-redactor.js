@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // suite-22: STRUCTURAL outbound secret redaction (R17 hard wall). Live find
 // a pane received a fresh secret in a Supabase tool result and
 // pasted it into the chat, telling the operator to place it manually. The

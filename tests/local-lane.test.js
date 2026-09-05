@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The local lane: a server on this machine leads by default; a host on
 // another machine leads only when the operator chose it, never carries
 // background reading unless opened to it, and no local server is handed a

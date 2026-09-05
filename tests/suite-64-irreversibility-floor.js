@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The stakes of an action are set by what it can do, not by what it claims.
 //
 // The seal wall (irreversibility_sealed) existed and held — for intents that

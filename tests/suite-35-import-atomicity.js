@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Import atomicity (field question): "what if someone closes
 // the laptop mid-import?" A session's ingest marker IS its chunk rows, so
 // a half-written session would read as "already imported" and its

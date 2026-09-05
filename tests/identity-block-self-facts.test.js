@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The [troth/identity] block leads with what the operator has stated about
 // themselves, as the memory's understanding keeps it: the current fact per
 // subject with the day it was said, never the row a newer statement

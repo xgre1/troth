@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The one-road containment holds only if every spawn of the engine child
 // carries BOTH halves: the walled hands mounted (troth-bash, troth-hashline
 // over --mcp-config with --strict-mcp-config) AND the native mutating tools

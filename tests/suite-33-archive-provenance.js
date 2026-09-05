@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Archive provenance + reachability (field report): imported
 // chunks titled by session uuid with cwd null in ONE flat scope,
 // so "remember what we did in <project>" had nothing to hold on to, and the

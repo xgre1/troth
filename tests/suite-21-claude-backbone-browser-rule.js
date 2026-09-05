@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // suite-21: the Claude backbone (subprocess-cli claude_cli profile) must carry
 // the governed-browser directive in --append-system-prompt on EVERY turn.
 // Live find (18i): a Claude-backbone pane, told nothing, defaulted to writing

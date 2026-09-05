@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The ground decision reaches the tool an operator actually drives.
 //
 // The classifier and the profiles are each pinned by their own suite. What

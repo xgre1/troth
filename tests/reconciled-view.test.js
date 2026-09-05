@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // reconciled-view - fixtures are the two measured failures: the tanks run
 // where the answer arbitrated ledger-vs-raw and lost, and the kits run
 // where a raw-attested item missing from the ledger had to be added.

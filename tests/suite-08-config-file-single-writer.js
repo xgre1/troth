@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only Config single-writer discipline
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // (shared-core/config-file.js),. Every ~/.troth/config.json writer routes
 // through updateConfig(): strict fresh read (a corrupt file REFUSES the write
 // instead of defaulting to {}), atomic temp+rename replace, dir 0700 / file

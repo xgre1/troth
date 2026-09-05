@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Documents are read, not memorised.
 //
 // `troth knowledge import` would chunk documents itself and write every

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Auto-split from tests/test-all.js (verbatim section bodies; order preserved).
 // Sections: IDENTITY-EXTRACT | ENGRAM-VERIFY | PROCEDURE COMPILER | PROCEDURE MATCHER | IDENTITY BOOTSTRAP | INJECTOR + COMPILED PROCEDURES | INJECTOR + Δ9 THROUGH-LINE (P16 current_goal anchor)
 module.exports = function run({ test }) {

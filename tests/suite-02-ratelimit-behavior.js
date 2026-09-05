@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Auto-split from tests/test-all.js (verbatim section bodies; order preserved).
 // Sections: RATELIMIT (behavior) | PLUGIN HOOKS (behavior) | PROXY ↔ PLUGIN COEXISTENCE (behavior) | CRITIC ↔ REFLEXION LOOP (behavior) | ERRORTAX (behavior) | CRITIC (behavior) | TASK TIER CLASSIFIER (behavior) | DANGER CLASSIFIER (behavior) | REPOMAP (behavior) | EDIT MATCHER (behavior) | INJECTOR (behavior) 
 module.exports = function run({ test, skip }) {

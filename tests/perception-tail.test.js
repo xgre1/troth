@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // perception-tail test. Proves the live-view tee that
 // backs control:perception_tail + control:browser_state: the substrate's
 // browser observer writes perception engrams through recordEngram, and a

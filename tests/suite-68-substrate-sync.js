@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Substrate sync — one mind, reachable from every device.
 //
 // What this suite pins is the sequencer contract: arrival order is the only

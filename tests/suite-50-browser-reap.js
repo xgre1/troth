@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // What the idle reaper is allowed to close.
 //
 // The reaper exists so nothing troth starts outlives its usefulness on a

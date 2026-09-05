@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The two rules that graduated from warning to wall.
 //
 // In-context rules do not bind behavior — measured here at roughly sixty

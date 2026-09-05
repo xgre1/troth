@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Auto-split from tests/test-all.js (verbatim section bodies; order preserved).
 // Sections: VOICE TRIAGE | CODEX OAUTH (Step 8a — ChatGPT subscription transport) | OPENAI TRANSLATE (proxy/modules/openai-translate.js — Step 8a.4) | AGENT REGISTRY | PERSONAL-NAME LEAK GUARD | TOOLS (shared-core/tools — Mode A plug surface) | INT (intent-ro
 module.exports = function run({ test }) {

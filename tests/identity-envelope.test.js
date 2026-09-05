@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // composeEnvelope unit test (single-mind). Verifies the single-mind invariant:
 // union of both pools, flagged-excluded from BOTH, dedup, authority×salience
 // ranking via the shared fail-neutral model, hard budget.

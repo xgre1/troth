@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // A project is not a folder.
 //
 // Six places in this tree name a per-project store by sha256 of the DIRECTORY

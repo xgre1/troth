@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // suite-20 - Kimi Code membership as a NATIVE faculty (operator design
 // correction,: "Kimi must play with BOTH depending on your
 // choices"). The Kimi Code endpoint (https://api.kimi.com/coding/) is

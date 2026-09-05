@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Where the jail decision is made for the agent's own shell.
 //
 // troth-bash is the tool agents actually drive in the open repo, and until

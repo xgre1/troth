@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The undo net holds only if a photograph exists before every action and a
 // restore reproduces the photographed state EXACTLY — including files that
 // were deleted, files born after the photograph, and the operator's own

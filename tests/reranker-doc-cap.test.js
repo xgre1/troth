@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The reranker gives every document a verdict even when one of them is longer
 // than the server's batch: documents are cut to a budget, and a batch the
 // server still calls too large is asked again shorter.

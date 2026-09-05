@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Rules the operator gave, kept the way facts are kept.
 //
 // type='lesson' fills with machine-written rows — curriculum import, fidelity

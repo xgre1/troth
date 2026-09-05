@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // host.keyhsm secure-enclave backend.
 // Acceptance criterion: 'hardware-signed operator-tier engram
 // requires a touch, key never in process memory.' Touch-to-sign is a

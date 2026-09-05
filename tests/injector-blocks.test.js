@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Two facts about the per-prompt injector, pinned at the source: every block
 // carries its own label (the precedent pointer is not "recall"), and topical
 // overlap reads letters of any script, so a Greek prompt meets a Greek fact.

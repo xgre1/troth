@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Spawn census: the perimeter of process creation, frozen.
 //
 // Every file below is a REVIEWED legacy spawn site with its call count at

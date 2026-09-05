@@ -3,6 +3,8 @@
 // Kimi Code membership endpoint (Anthropic-compatible) instead of the proxy,
 // which has no subscription lane. Pure resolver, so these are plain unit tests.
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 module.exports = function run({ test }) {
   const assert = require('assert');
   const { resolveKimiLane, DEFAULT_BASE } = require('../shared-core/kimi-cli-lane.js');

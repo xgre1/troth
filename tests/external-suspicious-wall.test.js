@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // external_suspicious_not_grounded STVC wall test (S4, M2).
 // Proves the prompt-injection wall is REAL, not cosmetic an internal audit: an
 // intent that grounds in a flagged-injection engram (scope contains

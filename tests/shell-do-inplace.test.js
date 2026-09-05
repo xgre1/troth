@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The in-place default classifies the ground, wraps the spawn in the ground's
 // kernel profile and photographs first. These tests pin: the road WORKS, the
 // wall rides the argv, the photo fires, and the refusals that should survive

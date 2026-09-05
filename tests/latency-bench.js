@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // latency-bench — measure end-to-end command turnaround through a single
 // persistent troth-entity child. Confirms the Phase 7a/7b claim that
 // deterministic skills resolve in <100 ms p95 once the entity is warm.

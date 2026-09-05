@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The egress proxy: the one road out of an install jail.
 //
 // Everything here runs against local listeners — no test touches the real

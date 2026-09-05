@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // instance-pool read arm — the understood stratum reads first on
 // count-shaped queries, and ONLY there. Three proofs: (1) a count query
 // naming an entity by alias reaches instances stored under the canonical

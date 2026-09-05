@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // A fact the substrate can check, not just recall.
 //
 // The failure mode is not forgetting — it is remembering WRONG and bridging the

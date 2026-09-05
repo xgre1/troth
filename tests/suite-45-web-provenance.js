@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Pages the partner read, kept and MARKED.
 //
 // `WebFetch` leaves **0 records** in the substrate. Not "unsaved" — unseen: no

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // suite-13: open /api/mcp routes.
 // The dashboard's Wire buttons POST /api/mcp/install and poll /api/mcp/status;
 // strip-l4 batch 4b had orphaned those handlers inside the closed overlay

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // reconciled-view, question-shaped: the ledger holds the whole class, the
 // question asks for a slice.
 const assert = require('assert');

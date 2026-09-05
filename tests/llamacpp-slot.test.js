@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // A conversation keeps one llama.cpp slot across its calls, so the server
 // finds the conversation's KV cache where it left it.
 const assert = require('assert');

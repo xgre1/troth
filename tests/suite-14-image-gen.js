@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // suite-14-image-gen.js — image_generate tool (shared-core/tools/image-gen.js).
 //
 // Fully OFFLINE + deterministic. The tool's whole network+SSE call is behind an

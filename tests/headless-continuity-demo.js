@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Headless end-to-end demo of phases.
 //
 // Simulates an operator working across TWO projects (troth, crypto-app)

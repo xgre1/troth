@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // instance consolidation: two occasions that each name people and share none
 // never merge, whatever an alias or an anchor would say.
 const assert = require('assert');

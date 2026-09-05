@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The memory's understanding passes run where every install keeps a process
 // alive: the proxy's maintenance worker. Pinned at the source, so a task
 // list edit cannot silently drop them; the engine budget is what keeps the

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Being on 127.0.0.1 does not make a caller the operator.
 //
 // Until  the proxy treated every loopback request as authenticated.

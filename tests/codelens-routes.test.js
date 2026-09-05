@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // Code Map routes. The proxy says which project it indexes, takes another
 // over POST /api/codelens/index, and remembers the choice across a restart
 // that begins where an app bundle begins: in the home folder, which is not

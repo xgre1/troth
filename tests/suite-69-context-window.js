@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 module.exports = function run({ test }) {
 const assert = require('assert');
 const fs = require('fs');

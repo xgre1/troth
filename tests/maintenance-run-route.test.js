@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // A maintenance task runs on request, by name, outside its cadence: the
 // proxy answers with the task's own note and refuses a name it does not
 // know with the list it does. Hermetic: a sandbox HOME, a free port, the

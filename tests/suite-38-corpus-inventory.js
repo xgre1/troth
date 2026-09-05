@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // What corpora does this mind hold, and what is inside one?
 //
 // Both questions have wrong answers on a grown substrate:

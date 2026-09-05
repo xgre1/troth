@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // A connector reports the state it is really in: a server that answers is
 // connected with its tools, a bridge that asks for a sign-in names the
 // address to visit and stays running, a server that answers nothing is

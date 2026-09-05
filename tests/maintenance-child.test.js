@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // The maintenance worker beside the loop: the child boots on a throwaway
 // substrate, says ready with its task list, answers a status ask, takes a
 // foreground ping, and stops when its stdin closes; the proxy-side handle

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // A memory comes back the size it went in.
 //
 // All three recall arms clipped every returned statement to 600 characters —

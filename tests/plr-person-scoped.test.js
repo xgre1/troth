@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // PLR person-scoping regression test (single-mind). Standalone (does not
 // touch the large test-all.js suite) — proves the root-cause fix for the
 // "0 reconsolidation_candidate ever" defect an internal audit: a belief

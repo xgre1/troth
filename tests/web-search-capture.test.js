@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // A web search the partner ran is research: its results enter the knowledge
 // queue under the search itself, the way a fetched page does, so a later
 // question meets what was found and not only what was asked.

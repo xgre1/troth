@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 'use strict';
+// Every run stays off the operator's real substrate (a throwaway HOME).
+require('./hermetic-db.js');
 // suite-16 — cross-faculty fallthrough contract.
 // A dead claude_cli organ was eating whole turns: spawn failures and empty
 // exits surfaced as a silent empty "ok", plain-text auth errors streamed as
