@@ -536,8 +536,26 @@ function toolKind(name, args) {
   if (v === 'reading the dialogue' || v === 'consulting memory' || v === 'reading your rules') return 'recall';
   if (v.startsWith('running /') || v === 'running a skill') return 'skill';
   const map = { reading: 'read', editing: 'edit', writing: 'write', searching: 'search', matching: 'search', running: 'run',
-    fetching: 'web', browsing: 'web', delegating: 'delegate', recalling: 'recall', remembering: 'remember', drawing: 'draw', rendering: 'render' };
+    fetching: 'web', browsing: 'web', delegating: 'delegate', recalling: 'recall', remembering: 'remember', drawing: 'draw', rendering: 'render',
+    starting: 'job', waiting: 'job', checking: 'job', stopping: 'job' };
   return map[v.split(/[\s:]/)[0]] || 'other';
+}
+// The trail says what happened: the working verb in the past.
+function pastVerb(v) {
+  const s = String(v || '');
+  const table = [['running', 'ran'], ['reading', 'read'], ['editing', 'edited'], ['writing', 'wrote'], ['searching', 'searched'],
+    ['matching', 'matched'], ['fetching', 'fetched'], ['browsing', 'browsed'], ['delegating', 'delegated'], ['recalling', 'recalled'],
+    ['remembering', 'remembered'], ['consulting', 'consulted'], ['drawing', 'drew'], ['rendering', 'rendered'], ['mapping', 'mapped'],
+    ['waiting', 'waited'], ['checking', 'checked'], ['stopping', 'stopped'], ['starting', 'started'], ['noting', 'noted'],
+    ['opening', 'opened'], ['loading', 'loaded'], ['using', 'used']];
+  for (const [a, b] of table) if (s === a || s.startsWith(a + ' ')) return b + s.slice(a.length);
+  return s;
+}
+function fmtDur(ms) {
+  const s = Math.max(0, ms || 0) / 1000;
+  if (s < 10) return s.toFixed(1) + 's';
+  if (s < 60) return Math.round(s) + 's';
+  return Math.floor(s / 60) + 'm' + String(Math.round(s % 60)).padStart(2, '0') + 's';
 }
 
 // The line under the working verb: what the tool is actually on, whole and
@@ -1333,6 +1351,8 @@ function start() {
         if (key.name === 'escape' || (key.ctrl && key.name === 'c')) { closePick(false); return; }
         return;
       }
+      // Ctrl-O: the trail shows what each finished tool was on.
+      if (key.ctrl && key.name === 'o') { if (handlers.detail) handlers.detail(); return; }
       if (key.ctrl && key.name === 'c') {
         // Delegate to outer scope so it can apply tiered semantics
         // (cancel in-flight first, then clear buffer, then exit-on-double).
@@ -1497,6 +1517,8 @@ function start() {
   let turnTools = 0;
   let turnActions = [];
     const toolStarts = new Map();
+  // Ctrl-O: each finished tool's line also shows what it was on.
+  let detailMode = false;
   let turnStart = 0;
 
   child.stderr.setEncoding('utf8');
@@ -1584,21 +1606,34 @@ function start() {
           spinner.stream(String(msg.content || '').length);
           break;
         case 'tool_request': {
-          // The tool of the moment rides the status row and leaves with the
-          // next one; the transcript keeps one summary line per turn (see
-          // 'response'), the way the operator reads a turn: what was done,
-          // never a ladder of every step.
+          // The tool of the moment rides the working line; when it finishes it
+          // leaves one line in the trail and the working line says thinking.
           turnTools++;
           turnActions.push(toolKind(msg.name, msg.args || msg.input));
           {
             const _args = msg.args || msg.input;
             const _verb = toolVerb(msg.name, _args);
-            spinner.update(_verb, toolDetail(msg.name, _args, _verb));
+            const _detail = toolDetail(msg.name, _args, _verb);
+            toolStarts.set(String(msg.id || turnTools), { verb: _verb, detail: _detail, at: Date.now() });
+            spinner.update(_verb, _detail);
           }
           break;
         }
         case 'tool_result': {
-          spinner.update(null);
+          const key = String(msg.id || turnTools);
+          const started = toolStarts.get(key) || null;
+          if (started) toolStarts.delete(key);
+          const verb = started ? started.verb : (msg.name ? toolVerb(msg.name, {}) : 'a tool');
+          const took = typeof msg.ms === 'number' ? msg.ms : (started ? Date.now() - started.at : 0);
+          const why = msg.ok === false ? String(msg.why || 'failed').replace(/_/g, ' ') : null;
+          out(color(why ? RED : DIM, '  ◦ ' + pastVerb(verb) + ' · ' + fmtDur(took) + (why ? ' · ' + why : '')) + '\n');
+          if (detailMode && started && started.detail) out(color(DIM, '    ' + started.detail) + '\n');
+          spinner.update('thinking' + (turnTools ? ' · step ' + turnTools : ''));
+          break;
+        }
+        case 'turn_progress': {
+          const mins = Math.round((msg.elapsed_ms || 0) / 60000);
+          out(color(DIM, '  ◦ still working · ' + (msg.steps || 0) + ' steps · ' + mins + ' min' + (msg.last_tool ? ' · last: ' + toolVerb(msg.last_tool, {}) : '')) + '\n');
           break;
         }
         case 'response': {
@@ -1823,10 +1858,16 @@ function start() {
     if (n.recall) parts.push('recalled');
     if (n.remember) parts.push('remembered');
     if (n.other) parts.push(count(n.other, '1 more action', 'more actions'));
+    if (n.job) parts.push('followed ' + count(n.job, '1 job', 'jobs'));
     const what = parts.length ? parts.join(', ') : turnTools + (turnTools === 1 ? ' tool' : ' tools');
     return what + (secs ? ' · ' + secs + 's' : '');
   }
   rl.on('escape', () => { cancelInFlight(); });
+  rl.on('detail', () => {
+    detailMode = !detailMode;
+    out(color(DIM, '  ◦ details ' + (detailMode ? 'on: each finished tool also shows what it was on' : 'off')) + '\n');
+    rl.prompt();
+  });
   rl.on('interrupt', () => {
     if (cancelInFlight()) return;
     if (rl.getBuffer().length > 0) {

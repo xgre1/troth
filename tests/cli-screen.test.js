@@ -37,7 +37,7 @@ fs.writeFileSync(FAKE_ENGINE, [
   '  stream: async function* (req) {',
   '    const msgs = Array.isArray(req && req.messages) ? req.messages : [];',
   '    if (msgs.some((m) => m && m.role === "tool")) { yield { delta: "finished" }; yield { done: true }; return; }',
-  '    yield { tool_calls: [{ id: "call_1", type: "function", function: { name: "Bash", arguments: JSON.stringify({ command: "sleep 30 && echo ' + MARK + '" }) } }] };',
+  '    const last = msgs.filter((m) => m && m.role === "user").pop(); const cmd = /quick/.test(String(last && last.content || "")) ? "echo trail-ok" : "sleep 30 && echo ' + MARK + '"; yield { tool_calls: [{ id: "call_1", type: "function", function: { name: "Bash", arguments: JSON.stringify({ command: cmd }) } }] };',
   '    yield { done: true };',
   '  },',
   '  abort: () => {}',
@@ -191,6 +191,22 @@ console.log('\n=== chat composer on a real terminal ===\n');
       tmux(['send-keys', '-t', SES, '/quit', 'Enter']);
       for (let i = 0; i < 32 && alive(); i++) await sleep(250);
       assert.strictEqual(alive(), 0, 'the command outlived the chat');
+    });
+
+    await t('a finished tool leaves a trail line, a long turn says so, and Ctrl-O turns details on', async () => {
+      await startChat(110, 30, ENGINE_ENV + ' TROTH_TURN_PROGRESS_STEPS=1');
+      tmux(['send-keys', '-t', SES, 'quick check please', 'Enter']);
+      let s = '';
+      for (let i = 0; i < 40 && !/finished/.test(s = screen(true)); i++) await sleep(500);
+      assert.ok(/finished/.test(s), 'the reply came: ' + s.slice(-400));
+      assert.ok(/◦ ran echo trail-ok · \d+(\.\d)?s/.test(s), 'the trail line names the command and its time: ' + s.slice(-500));
+      assert.ok(/still working · 1 steps/.test(s), 'the progress note printed: ' + s.slice(-500));
+      assert.ok(/◦ ran 1 command/.test(s), 'the turn summary stays: ' + s.slice(-300));
+      tmux(['send-keys', '-t', SES, 'C-o']);
+      await sleep(800);
+      assert.ok(/details on/.test(screen(true)), 'Ctrl-O says details are on: ' + screen(true).slice(-300));
+      tmux(['send-keys', '-t', SES, '/quit', 'Enter']);
+      await sleep(1500);
     });
     proxy.close();
   } catch (e) {

@@ -46,14 +46,16 @@ t('every tool is named in plain words, whatever the case of its name', () => {
   assert.strictEqual(toolVerb('', {}), 'using a tool');
 });
 
-t('a tool rides the status row and never becomes a transcript line (source pin)', () => {
+t('a tool rides the status row while it runs and leaves one trail line when it ends (source pin)', () => {
   const req = /case 'tool_request': \{([\s\S]*?)break;/.exec(src);
   assert.ok(req, 'tool_request case found');
-  assert.ok(/spinner\.update\(_verb, toolDetail\(msg\.name, _args, _verb\)\)/.test(req[1]), 'the verb and what the tool is on go to the status row');
+  assert.ok(/spinner\.update\(_verb, _detail\)/.test(req[1]), 'the verb and what the tool is on go to the status row');
   assert.ok(!/\bout\(/.test(req[1]), 'nothing is written to the transcript when a tool starts');
   const res = /case 'tool_result': \{([\s\S]*?)break;/.exec(src);
   assert.ok(res, 'tool_result case found');
-  assert.ok(!/\bout\(/.test(res[1]), 'nothing is written to the transcript when a tool ends');
+  assert.strictEqual((res[1].match(/\bout\(/g) || []).length, 2, 'one trail line, plus the detail line behind Ctrl-O');
+  assert.ok(/pastVerb\(verb\)/.test(res[1]) && /fmtDur\(took\)/.test(res[1]), 'the trail line is the verb in the past with its time');
+  assert.ok(/spinner\.update\('thinking'/.test(res[1]), 'the working line says thinking between tools');
 });
 
 t('the turn leaves one summary line: tools and seconds (source pin)', () => {

@@ -12,6 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Turn budget: a long turn posts a progress line every 12 steps or 10
+  minutes (steps, elapsed, the last tool). At 30 minutes the tools close and
+  the answer is asked for; a model that keeps calling ends the turn as
+  `turn_budget` with a plain line. A step budget holds only when
+  `TROTH_TURN_BUDGET_STEPS` is set, so a default turn has no step cliff;
+  `TROTH_TURN_BUDGET_MIN`, `TROTH_TURN_PROGRESS_STEPS` and
+  `TROTH_TURN_PROGRESS_MIN` raise or lower the rest.
+- Chat trail: every finished tool leaves one line, the verb in the past with
+  its time and, when it failed or was refused, why. Between tools the working
+  line says thinking and the step count. Ctrl-O turns details on, so each
+  finished tool also shows what it was on. The entity signals tool finished
+  with name, time and outcome for the tools it runs itself.
 - Tool loop pacing: the same action repeated back to back with changing
   results is a poll. From the third time it runs after a wait that grows (5,
   15, 30, 60 s) and the result says so; the sixth closes the tools for the

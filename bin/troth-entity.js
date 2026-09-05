@@ -1481,7 +1481,17 @@ function main() {
         // app can settle the chip (and its sub-agent indicator) instead of
         // leaving every harness tool "working" until the first text delta.
         onToolEnd: (r) => {
-          emit({ kind: 'tool_result', id: (r && r.id) || '' });
+          const o = { kind: 'tool_result', id: (r && r.id) || '' };
+          if (r && r.name) o.name = r.name;
+          if (r && typeof r.ms === 'number') o.ms = r.ms;
+          if (r && typeof r.ok === 'boolean') o.ok = r.ok;
+          if (r && r.why) o.why = r.why;
+          if (r && typeof r.chars === 'number') o.chars = r.chars;
+          emit(o);
+        },
+        // A long turn says so: the surface prints a progress line.
+        onProgress: (p) => {
+          emit(Object.assign({ kind: 'turn_progress' }, p || {}));
         },
         // Stream each text delta so the UI shows tokens flowing ("writing")
         // instead of a frozen "Thinking" even on zero-tool turns. Voice turns
