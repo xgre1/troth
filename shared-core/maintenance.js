@@ -48,9 +48,16 @@ function start(opts) {
         if (v && v.ok) state.recordAction(rec, ar.toSearchText(rec));
       } catch (_) { /* best-effort */ }
     },
-    getView: () => ({ substrate_ctx: { agent_id: opts.agent_id || resolveAgentId(), user_id: 'default', cwd: null } }),
+    getView: () => view(opts),
     notify: typeof opts.notify === 'function' ? opts.notify : null
   });
 }
 
-module.exports = { taskList, start };
+// The view a task runs against: the substrate context of this machine's
+// partner, the same for a ticked run and a run asked for by name.
+function view(opts) {
+  const { resolveAgentId } = require('./agent-id.js');
+  return { substrate_ctx: { agent_id: (opts && opts.agent_id) || resolveAgentId(), user_id: 'default', cwd: null } };
+}
+
+module.exports = { taskList, start, view };

@@ -25,6 +25,10 @@ function start(opts) {
   const entry = opts.entry || ENTRY;
   let child = null, stopped = false, restarts = 0, pauseMs = RESTART_MIN_MS, restartTimer = null;
   let lastStatus = null, lastNote = null, lastForeground = 0, startedAt = 0;
+  let taskNames = [], runSeq = 0;
+  const pendingRuns = new Map();
+  const readyWaiters = [];
+  const RUN_WAIT_MS = Math.max(parseInt(process.env.TROTH_MAINT_RUN_WAIT_MS || '600000', 10) || 600000, 1000);
 
   function send(o) {
     if (!child || !child.stdin || child.stdin.destroyed) return;
@@ -50,7 +54,21 @@ function start(opts) {
       if (!m || typeof m !== 'object') { if (line.trim()) log('[maintenance] ' + line.trim()); return; }
       if (m.kind === 'status') { lastStatus = Object.assign({ _at: Date.now() }, m); return; }
       if (m.kind === 'note') { lastNote = Object.assign({ _at: Date.now() }, m); log('[maintenance] ' + m.task + ': ' + (m.notes || []).join(' | ')); return; }
-      if (m.kind === 'ready') { log('Maintenance worker up beside the loop (pid ' + m.pid + ', ' + (m.tasks || []).length + ' tasks)'); return; }
+      if (m.kind === 'ready') {
+        taskNames = Array.isArray(m.tasks) ? m.tasks.slice() : [];
+        log('Maintenance worker up beside the loop (pid ' + m.pid + ', ' + taskNames.length + ' tasks)');
+        const waiting = readyWaiters.splice(0);
+        for (const w of waiting) { clearTimeout(w.timer); w.resolve(true); }
+        return;
+      }
+      if (m.kind === 'ran') {
+        const p = pendingRuns.get(String(m.id));
+        if (!p) return;
+        pendingRuns.delete(String(m.id));
+        clearTimeout(p.timer);
+        p.resolve({ ok: !!m.ok, task: m.task || null, notes: Array.isArray(m.notes) ? m.notes : [], events: m.events || 0, ms: m.ms || 0, error: m.error || null, tasks: Array.isArray(m.tasks) ? m.tasks : undefined });
+        return;
+      }
       if (m.kind === 'stall') { log('[maintenance] WORKER STALL ' + m.ms + 'ms | task: ' + (m.task || '-')); return; }
       if (m.kind === 'fatal') { log('Maintenance worker failed: ' + m.error); return; }
     });
@@ -58,6 +76,7 @@ function start(opts) {
     child.on('error', (e) => log('Maintenance worker error: ' + (e && e.message || e)));
     child.on('exit', (code, signal) => {
       child = null;
+      for (const [id, p] of pendingRuns) { clearTimeout(p.timer); p.reject(new Error('maintenance worker exited while running the task')); pendingRuns.delete(id); }
       if (stopped) return;
       log('Maintenance worker exited (pid ' + pid + ', code ' + code + (signal ? ', ' + signal : '') + ')');
       scheduleRestart();
@@ -97,6 +116,31 @@ function start(opts) {
       send({ kind: 'foreground' });
     },
     askStatus: () => send({ kind: 'status' }),
+    // The task names the worker announced when it came up.
+    tasks: () => taskNames.slice(),
+    // Resolves once the worker has announced its tasks, or after the wait.
+    whenReady: (ms) => new Promise((resolve) => {
+      if (taskNames.length || (!child && !restartTimer)) { resolve(taskNames.length > 0); return; }
+      const w = { resolve, timer: null };
+      w.timer = setTimeout(() => { const i = readyWaiters.indexOf(w); if (i >= 0) readyWaiters.splice(i, 1); resolve(false); }, ms || 10000);
+      w.timer.unref();
+      readyWaiters.push(w);
+    }),
+    // Run one task now, by name, outside its cadence: the worker answers
+    // with the task's own notes. Resolves { ok, notes, ms } or { ok:false,
+    // error, tasks } for a name it does not know; rejects when the worker
+    // is away or does not answer within the wait.
+    runTask: (name, timeout_ms) => new Promise((resolve, reject) => {
+      if (!child) { reject(new Error('maintenance worker is not running')); return; }
+      const id = String(++runSeq);
+      const timer = setTimeout(() => {
+        pendingRuns.delete(id);
+        reject(new Error('maintenance worker did not answer within ' + Math.round((timeout_ms || RUN_WAIT_MS) / 1000) + 's'));
+      }, timeout_ms || RUN_WAIT_MS);
+      timer.unref();
+      pendingRuns.set(id, { resolve, reject, timer });
+      send({ kind: 'run', id, task: String(name || '') });
+    }),
     stop: () => {
       stopped = true;
       if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }

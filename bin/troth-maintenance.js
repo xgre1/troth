@@ -10,10 +10,12 @@
 //   in  (stdin):  {kind:'foreground'}  the proxy served a request that counts
 //                                       as activity (the worker is idle-gated)
 //                 {kind:'status'}      answer with a status line now
+//                 {kind:'run',id,task}  run that task now, answer as 'ran'
 //   out (stdout): {kind:'ready',pid,tasks}   {kind:'status',...} every few
 //                 seconds   {kind:'note',task,notes}   {kind:'stall',ms,task}
 //                 when this process's own loop held past two seconds
 //                 {kind:'stopped',why}   {kind:'fatal',error}
+//                 {kind:'ran',id,ok,task,notes,ms}  the answer to a run
 // The proxy going away closes stdin, and the worker stops with it.
 const readline = require('readline');
 const maintenance = require('../shared-core/maintenance.js');
@@ -51,6 +53,23 @@ function stop(why) {
   setTimeout(() => process.exit(0), 50).unref();
 }
 
+// One task now, by name, outside its cadence: the same task object the
+// worker ticks, the same view, its own notes back on the line.
+async function runNow(m) {
+  const id = m && m.id != null ? String(m.id) : '';
+  const name = String((m && m.task) || '');
+  const tasks = worker._tasks || [];
+  const task = tasks.find((t) => t && t.name === name);
+  if (!task) { emit({ kind: 'ran', id, ok: false, error: 'unknown_task', tasks: tasks.map((t) => t.name) }); return; }
+  const started = Date.now();
+  try {
+    const r = await Promise.resolve(task.run(maintenance.view()));
+    emit({ kind: 'ran', id, ok: true, task: name, notes: (r && Array.isArray(r.notes)) ? r.notes : [], events: (r && Array.isArray(r.events)) ? r.events.length : 0, ms: Date.now() - started });
+  } catch (e) {
+    emit({ kind: 'ran', id, ok: false, task: name, error: String(e && e.message || e), ms: Date.now() - started });
+  }
+}
+
 const rl = readline.createInterface({ input: process.stdin });
 rl.on('line', (line) => {
   let m = null;
@@ -58,6 +77,7 @@ rl.on('line', (line) => {
   if (!m || typeof m !== 'object') return;
   if (m.kind === 'foreground') worker.noteForegroundActivity();
   else if (m.kind === 'status') emit(status());
+  else if (m.kind === 'run') runNow(m);
 });
 rl.on('close', () => stop('stdin closed'));
 process.on('SIGTERM', () => stop('SIGTERM'));

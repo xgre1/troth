@@ -68,8 +68,12 @@ t('an entry that is not a task never ends the loop', async () => {
 
 t('the worker view names the operator agent so facts land where recall reads', () => {
   const viewStart = src.indexOf('getView:', listStart);
-  const view = src.slice(viewStart, viewStart + 200);
-  assert.ok(/resolveAgentId\(\)/.test(view), view);
+  const view = src.slice(viewStart, viewStart + 120);
+  assert.ok(/view\(opts\)/.test(view), view);
+  const fnStart = src.indexOf('function view(');
+  assert.ok(fnStart > 0, 'the view builder exists');
+  const fn = src.slice(fnStart, fnStart + 400);
+  assert.ok(/resolveAgentId\(\)/.test(fn), fn);
 });
 
 t('the daily engine budget counts, caps and resets by day', () => {

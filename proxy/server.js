@@ -3857,25 +3857,51 @@ const server = http.createServer((req, res) => {
     req.on('end', async () => {
       let body; try { body = JSON.parse(buf || '{}'); } catch (_) { body = {}; }
       const w = global.__troth_maintenance;
-      const tasks = (w && Array.isArray(w._tasks)) ? w._tasks : [];
-      const task = tasks.find((t) => t && t.name === String(body.task || ''));
-      if (!task) { jsonResponse(res, 404, { error: 'unknown_task', tasks: tasks.map((t) => t.name) }); return; }
+      const name = String(body.task || '');
       const started = Date.now();
-      try {
-        const view = { substrate_ctx: { agent_id: resolveAgentId(), user_id: 'default', cwd: null } };
-        const r = await Promise.resolve(task.run(view));
-        const notes = (r && Array.isArray(r.notes)) ? r.notes : [];
+      // The ledger row for a run that was asked for: the shape of a ticked
+      // run, the reason says it was asked.
+      const ledger = (taskName, notes) => {
         try {
           const stM = require('../shared-core/state.js');
           const arM = require('../shared-core/action-record.js');
           const rec = {
             id: arM.uuidv7(), timestamp: Date.now(), type: 'decision', agent_id: 'maintenance', cwd: null, user_id: 'default',
-            input: { kind: 'background_task_run', task: task.name, signals: { operator: true } },
+            input: { kind: 'background_task_run', task: taskName, signals: { operator: true } },
             output: { decision: 'ran', reason: 'asked', notes: notes.slice(0, 4).join(' | ').slice(0, 500) }
           };
           const v = arM.validate ? arM.validate(rec) : { ok: true };
           if (v && v.ok) stM.recordAction(rec, arM.toSearchText(rec));
         } catch (_) { /* the answer below still carries the notes */ }
+      };
+      if (w && typeof w.runTask === 'function') {
+        // The worker in its own process announces its tasks when it comes
+        // up; a request that lands before that line waits for it.
+        if (typeof w.whenReady === 'function') { try { await w.whenReady(10000); } catch (_) {} }
+        const names = w.tasks();
+        if (names.indexOf(name) < 0) { jsonResponse(res, 404, { error: 'unknown_task', tasks: names }); return; }
+        try {
+          const r = await w.runTask(name);
+          if (!r || !r.ok) {
+            if (r && r.error === 'unknown_task') { jsonResponse(res, 404, { error: 'unknown_task', tasks: r.tasks || names }); return; }
+            jsonResponse(res, 500, { error: 'task_failed', task: name, detail: String((r && r.error) || 'no answer').slice(0, 300) });
+            return;
+          }
+          ledger(name, r.notes || []);
+          jsonResponse(res, 200, { ok: true, task: name, notes: r.notes || [], events: r.events || 0, elapsed_ms: Date.now() - started });
+        } catch (e) {
+          jsonResponse(res, 500, { error: 'task_failed', task: name, detail: String(e && e.message || e).slice(0, 300) });
+        }
+        return;
+      }
+      const tasks = (w && Array.isArray(w._tasks)) ? w._tasks : [];
+      const task = tasks.find((t) => t && t.name === name);
+      if (!task) { jsonResponse(res, 404, { error: 'unknown_task', tasks: tasks.map((t) => t.name) }); return; }
+      try {
+        const view = { substrate_ctx: { agent_id: resolveAgentId(), user_id: 'default', cwd: null } };
+        const r = await Promise.resolve(task.run(view));
+        const notes = (r && Array.isArray(r.notes)) ? r.notes : [];
+        ledger(task.name, notes);
         jsonResponse(res, 200, { ok: true, task: task.name, notes, events: (r && Array.isArray(r.events)) ? r.events.length : 0, elapsed_ms: Date.now() - started });
       } catch (e) {
         jsonResponse(res, 500, { error: 'task_failed', task: task.name, detail: String(e && e.message || e).slice(0, 300) });
