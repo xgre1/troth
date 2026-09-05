@@ -55,6 +55,31 @@ function supersededIds(rows) {
   return dead;
 }
 
+// The rules in the order they are read: superseded ones dropped, duplicates
+// folded, this project's first, then the ones the prompt's own words touch,
+// then the newest. Both the per-prompt block and rule_list read this order.
+function rankRules(rows, opts) {
+  opts = opts || {};
+  const dead = supersededIds(rows);
+  const toks = promptTokens(opts.prompt);
+  const rank = (r) => (r && r.scope === 'project' ? 0 : 1);
+  const ts = (r) => Number(r && (r.ts || r.timestamp || r.created_at)) || 0;
+  const seen = new Set();
+  const out = [];
+  const ordered = rows.filter((r) => r && !dead.has(r.id))
+    .map((r) => ({ r, hit: overlap(r && r.text, toks) }))
+    .sort((a, b) => rank(a.r) - rank(b.r) || b.hit - a.hit || ts(b.r) - ts(a.r));
+  for (const x of ordered) {
+    const full = String((x.r && x.r.text) || '').replace(/\s+/g, ' ').trim();
+    if (!full) continue;
+    const key = full.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ row: x.r, text: full, hit: x.hit });
+  }
+  return { rules: out, superseded: dead.size };
+}
+
 function renderStandingRules(state, opts) {
   opts = opts || {};
   let rows = [];
@@ -62,28 +87,12 @@ function renderStandingRules(state, opts) {
   catch (_) { return null; }
   if (!rows.length) return null;
 
-  const dead = supersededIds(rows);
   const budget = Number.isFinite(opts.budget_chars) ? opts.budget_chars : MAX_CHARS;
-  const toks = promptTokens(opts.prompt);
-  const rank = (r) => (r && r.scope === 'project' ? 0 : 1);
-  const ts = (r) => Number(r && (r.ts || r.timestamp || r.created_at)) || 0;
-  // This project's rules first; then the rules the prompt's own words touch;
-  // then the newest. The order decides what survives the budget.
-  rows = rows.filter((r) => !dead.has(r.id))
-    .map((r) => ({ r, hit: overlap(r && r.text, toks) }))
-    .sort((a, b) => rank(a.r) - rank(b.r) || b.hit - a.hit || ts(b.r) - ts(a.r))
-    .map((x) => x.r);
-
-  const seen = new Set();
+  const ranked = rankRules(rows, { prompt: opts.prompt });
   const lines = [];
   let omitted = 0, chars = 0;
-  for (const r of rows) {
-    const full = String((r && r.text) || '').replace(/\s+/g, ' ').trim();
-    if (!full) continue;
-    const key = full.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const line = '  · ' + clipRule(full, RULE_CHARS) + (r.scope === 'project' ? '  [this project]' : '');
+  for (const { row, text } of ranked.rules) {
+    const line = '  · ' + clipRule(text, RULE_CHARS) + (row.scope === 'project' ? '  [this project]' : '');
     if (chars + line.length > budget) { omitted++; continue; }
     chars += line.length + 1;
     lines.push(line);
@@ -91,13 +100,45 @@ function renderStandingRules(state, opts) {
   if (!lines.length) return null;
 
   const foot = omitted
-    ? '\n  (' + omitted + ' more rule' + (omitted === 1 ? '' : 's') + ' hold this turn too; read them with rule_list when a task touches how work is done)'
+    ? '\n  (' + omitted + ' more rule' + (omitted === 1 ? '' : 's') + ' hold this turn too; when a task touches how work is done, ask rule_list with the topic)'
     : '';
   return {
     text: '[troth/STANDING-RULES] ' + (lines.length + omitted) + ' rules the operator set. They hold for ' +
           'this turn whether or not it looks related' + (omitted ? ' (' + lines.length + ' shown)' : '') + ':\n' + lines.join('\n') + foot,
-    count: lines.length, superseded: dead.size, omitted
+    count: lines.length, superseded: ranked.superseded, omitted
   };
 }
 
-module.exports = { renderStandingRules, supersededIds, clipRule, MAX_CHARS, RULE_CHARS };
+// The rules on a topic, for the tool: the same order as the block, whole
+// text for the rules that fit the budget and an opening line for the rest,
+// each with its scope and the day it was set. What does not fit is counted.
+const LIST_CHARS = 8000;
+const LIST_LIMIT = 20;
+function listRulesFor(state, opts) {
+  opts = opts || {};
+  let rows = [];
+  try { rows = state.listOperatorLessons({ limit: 100, cwd: opts.cwd || null }) || []; }
+  catch (_) { rows = []; }
+  const limit = Math.max(1, Math.min(100, parseInt(opts.limit || LIST_LIMIT, 10) || LIST_LIMIT));
+  const budget = Number.isFinite(opts.budget_chars) ? opts.budget_chars : LIST_CHARS;
+  const ranked = rankRules(rows, { prompt: opts.topic });
+  const items = [];
+  let chars = 0, omitted = 0, clipped = 0;
+  for (const { row, text } of ranked.rules) {
+    if (items.length >= limit) { omitted++; continue; }
+    const when = row.timestamp ? new Date(Number(row.timestamp)).toISOString().slice(0, 10) : null;
+    let shown = text;
+    if (chars + shown.length > budget) {
+      shown = clipRule(text, RULE_CHARS);
+      if (chars + shown.length > budget) { omitted++; continue; }
+      clipped++;
+    }
+    chars += shown.length;
+    items.push({ id: row.id, when, scope: row.scope === 'project' ? 'this project' : 'general', text: shown });
+  }
+  const out = { count: ranked.rules.length, shown: items.length, omitted, clipped, superseded_dropped: ranked.superseded, items };
+  if (omitted || clipped) out.note = (omitted ? omitted + ' more rule' + (omitted === 1 ? '' : 's') + ' not shown' : '') + (omitted && clipped ? '; ' : '') + (clipped ? clipped + ' shown by their opening only' : '') + '. Ask again with a narrower topic for the rest.';
+  return out;
+}
+
+module.exports = { renderStandingRules, listRulesFor, rankRules, supersededIds, clipRule, MAX_CHARS, RULE_CHARS, LIST_CHARS, LIST_LIMIT };

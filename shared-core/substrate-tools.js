@@ -465,19 +465,20 @@ const REGISTRY = {
       type: 'function',
       function: {
         name: 'rule_list',
-        description: 'The standing working rules the operator has given, newest first. Read-only and non-consuming. Use before recording a new rule, and when asked what rules you work under.',
+        description: 'The standing working rules the operator has given, on a topic: this project\'s rules first, then the ones the topic\'s words touch, then the newest; superseded rules dropped. Each carries its scope and the day it was set. Read-only and non-consuming. Use before recording a new rule, and when a task touches how work is done.',
         parameters: {
           type: 'object',
           properties: {
+            topic: { type: 'string', description: 'What the task is about, in a few words; the rules touching these words come first' },
             limit: { type: 'number', description: 'Max rules (default 20)', minimum: 1, maximum: 100 }
           }
         }
       }
     },
     run: async (args, ctx) => {
-      const lessonMod = require('./lesson.js');
-      const items = lessonMod.listRules({ limit: args.limit || 20, cwd: ctx.cwd || null });
-      return { count: items.length, items };
+      const rules = require('./standing-rules.js');
+      const state = require('./state.js');
+      return rules.listRulesFor(state, { topic: (args && args.topic) || '', limit: (args && args.limit) || undefined, cwd: (ctx && ctx.cwd) || null });
     }
   },
 

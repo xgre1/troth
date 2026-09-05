@@ -47,7 +47,7 @@ t('a long rule is shown by its opening sentences, with a mark that more follows'
 
 t('the footer counts what did not fit and names where the rest lives', () => {
   const b = sr.renderStandingRules(state, { prompt: 'anything', cwd: null });
-  assert.ok(new RegExp('\\(' + b.omitted + ' more rules hold this turn too; read them with rule_list').test(b.text), b.text.slice(-200));
+  assert.ok(new RegExp('\\(' + b.omitted + ' more rules hold this turn too; when a task touches how work is done, ask rule_list with the topic\\)').test(b.text), b.text.slice(-200));
   assert.ok(/60 rules the operator set/.test(b.text), 'the true count leads');
 });
 
