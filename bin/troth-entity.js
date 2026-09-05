@@ -590,6 +590,17 @@ function main() {
     if (event && event.type === 'user_input' && event.input &&
         typeof event.input.text === 'string') {
       _updateContextBinding(event.input.text, eventConversationId(event));
+      // A live thread (an exchange in this conversation within the last six
+      // hours) makes a bare 'ok' a continuation the engine answers; the
+      // engine's own short-text shortcut steps aside when this is set.
+      try {
+        const _cid = eventConversationId(event);
+        if (_cid) {
+          const _t = dialogueMemory.recentTurns({ cwd: CWD, same_cwd: true, limit: 1, conversation_id: _cid }) || [];
+          const _ts = _t.length ? Number(_t[_t.length - 1].ts || _t[_t.length - 1].timestamp || 0) : 0;
+          if (_t.length && (!_ts || (Date.now() - _ts) < 6 * 3600 * 1000)) event = { ...event, thread_live: true };
+        }
+      } catch (_) { /* liveness is a gift, never a gate */ }
     }
     if (_memShaped && event && event.type === 'user_input' && event.input &&
         typeof event.input.text === 'string' && !event.recall &&

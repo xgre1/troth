@@ -81,6 +81,10 @@ const ruleEchoForShortInput = {
     const text = event.input.text.trim();
     if (text.length === 0) return { kind: 'noop' };
     if (text.length > DEFAULT_TEXT_PASSTHROUGH_LIMIT) return null;
+    // Inside a live thread a bare 'ok' is a continuation (go on, do it), and
+    // the engine answers it with the thread mounted; the canned ack is for
+    // an 'ok' with nothing behind it. The host marks the event.
+    if (event.thread_live === true) return null;
     if (/^(ok|okay|thanks|thank you|cheers|got it|sounds good|sgtm)\.?\!?$/i.test(text)) {
       return { kind: 'respond_directly', text: 'Acknowledged.', reason: 'ack_passthrough' };
     }
