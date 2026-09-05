@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Chat: `/mcps` is a pick list. The servers troth reaches are rows (scope,
+  transport, note, switched off); picking one offers Check, Switch off or on,
+  and Remove (with a confirmation), each answered on one line from the
+  dashboard's registry. The chat answers it itself, so it works while a turn
+  runs and never touches that turn.
+- Chat: a deterministic slash typed while a turn runs is a side question,
+  answered beside the working line; plain text typed meanwhile waits and is
+  sent when the reply lands (a stop drops it by name).
 - Dashboard, Settings > Integrations: the MCP servers troth reaches, each
   with where it comes from (general, or a project's `.mcp.json`), its note,
   a check that starts the server from the proxy and reports connected with
@@ -113,6 +121,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own reason and never restarts on another key.
 
 ### Fixed
+- Leaving the chat while a command runs stops the command: the entity's exit
+  cancels every turn still running before it drains, so the command's process
+  group is killed and nothing outlives the daemon (before, a `/quit` or a
+  double Ctrl-C left the running shell behind as an orphan).
+- A slash typed while a turn ran replaced the working line with
+  "running /mcps", printed its answer as if the work had ended, and left the
+  chat believing nothing was in flight, so Escape no longer stopped the turn.
+  The turn's state is now untouched by a side question.
 - The ChatGPT plan answers on its own: in the app a ChatGPT pin runs the
   entity's own ChatGPT faculty instead of the Claude Code harness, so no
   Claude sign-in is needed, and the picker lists the models the ChatGPT

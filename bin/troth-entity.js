@@ -2999,6 +2999,9 @@ function main() {
   async function shutdown(signal) {
     bgWorker.stop();
     for (const w of watchers) { try { w.stop(); } catch (_) {} }
+    // An exit cancels every turn still running: the tool loop stops at its next
+    // step and a command's process group is killed, so no orphan outlives the daemon.
+    for (const sig of _activeTurns.values()) { try { sig.cancel('operator_exit'); } catch (_) {} }
     const drained = await runtime.drainAndStop({ timeout_ms: 5000 });
     // Graceful halt: drop a body_halting diagnostic engram +
     // clean-shutdown sentinel so the next boot can detect prior-process

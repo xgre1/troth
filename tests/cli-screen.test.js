@@ -23,13 +23,38 @@ const SES = 'chat';
 const tmux = (args) => spawnSync('tmux', ['-L', SOCK].concat(args), { encoding: 'utf8', timeout: 20000 });
 const screen = (history) => String(tmux(['capture-pane', '-p', '-t', SES].concat(history ? ['-S', '-300'] : [])).stdout || '');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const fs = require('fs');
+const http = require('http');
+
+// A stand-in language faculty: the first call asks for one shell command (a
+// long sleep carrying a marker), the call after the tool result answers in
+// words. Nothing leaves the machine.
+const MARK = 'orphan-probe-' + process.pid;
+const FAKE_ENGINE = path.join(process.env.HOME, 'fake-engine.js');
+fs.writeFileSync(FAKE_ENGINE, [
+  "'use strict';",
+  'module.exports = {',
+  '  stream: async function* (req) {',
+  '    const msgs = Array.isArray(req && req.messages) ? req.messages : [];',
+  '    if (msgs.some((m) => m && m.role === "tool")) { yield { delta: "finished" }; yield { done: true }; return; }',
+  '    yield { tool_calls: [{ id: "call_1", type: "function", function: { name: "Bash", arguments: JSON.stringify({ command: "sleep 30 && echo ' + MARK + '" }) } }] };',
+  '    yield { done: true };',
+  '  },',
+  '  abort: () => {}',
+  '};'
+].join('\n'));
+const ENGINE_ENV = 'TROTH_ENTITY_LLM=' + FAKE_ENGINE + ' TROTH_ENTITY_LLM_PIN=1';
+// How many processes carry the marker on their command line: the shell that
+// runs the sleep, and nothing else once it is gone.
+const alive = () => String(spawnSync('pgrep', ['-f', MARK], { encoding: 'utf8' }).stdout || '').split('\n').filter(Boolean).length;
+async function untilStarted() { let n = 0; for (let i = 0; i < 40 && !(n = alive()); i++) await sleep(500); return n; }
 
 let pass = 0, fail = 0;
 async function t(name, fn) { try { await fn(); console.log('  ✓ ' + name); pass++; } catch (e) { console.log('  ✗ ' + name + ': ' + e.message); fail++; } }
 
-async function startChat(cols, rows) {
+async function startChat(cols, rows, extraEnv) {
   tmux(['kill-server']);
-  const env = 'HOME=' + process.env.HOME + ' TROTH_CONFIG_DIR=' + process.env.HOME + '/.troth STATE_DB_PATH=' + process.env.HOME + '/.troth/state.db';
+  const env = 'HOME=' + process.env.HOME + ' TROTH_CONFIG_DIR=' + process.env.HOME + '/.troth STATE_DB_PATH=' + process.env.HOME + '/.troth/state.db' + (extraEnv ? ' ' + extraEnv : '');
   const r = tmux(['new-session', '-d', '-s', SES, '-x', String(cols), '-y', String(rows), 'cd ' + process.env.HOME + ' && env ' + env + ' node ' + path.join(REPO, 'bin', 'troth-chat.js') + ' 2>/dev/null']);
   assert.strictEqual(r.status, 0, 'tmux session: ' + (r.stderr || ''));
   for (let i = 0; i < 40; i++) { await sleep(500); if (/╭/.test(screen())) return; }
@@ -86,6 +111,88 @@ console.log('\n=== chat composer on a real terminal ===\n');
       assert.ok(/typed text that stays after a resize/.test(s), 'the text is still in the panel');
       assert.strictEqual((s.match(/╭/g) || []).length, 1, 'exactly one panel top: ' + (s.match(/╭/g) || []).length);
     });
+
+    // A fake dashboard for the /mcps picker: one active server, a probe that
+    // answers connected with two tools, and a log of what was asked.
+    const asked = [];
+    const proxy = http.createServer((req, res) => {
+      let b = '';
+      req.on('data', (c) => { b += c; });
+      req.on('end', () => {
+        asked.push(req.method + ' ' + req.url + ' ' + b);
+        res.setHeader('content-type', 'application/json');
+        if (req.method === 'GET' && req.url === '/api/mcp/servers') { res.end(JSON.stringify({ active: [{ name: 'supabase', transport: 'http', scope: 'general', note: 'the database' }], pending: [] })); return; }
+        if (req.method === 'POST' && req.url === '/api/mcp/probe') { res.end(JSON.stringify({ state: 'connected', tools: [{ name: 'a' }, { name: 'b' }] })); return; }
+        res.statusCode = 404; res.end('{}');
+      });
+    });
+    await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
+    const PROXY_ENV = 'TROTH_PROXY_URL=http://127.0.0.1:' + proxy.address().port;
+    await startChat(110, 30, ENGINE_ENV + ' ' + PROXY_ENV);
+
+    await t('a slash typed during a turn is answered beside the work, and Escape still stops the work', async () => {
+      tmux(['send-keys', '-t', SES, 'run it', 'Enter']);
+      assert.ok(await untilStarted() > 0, 'the command started: ' + screen().slice(-400));
+      tmux(['send-keys', '-t', SES, '/usage', 'Enter']);
+      await sleep(3000);
+      const s = screen(true);
+      assert.ok(alive() > 0, 'the work kept running');
+      assert.ok(!/running \/usage/.test(s), 'the working line was not taken over: ' + s.slice(-400));
+      assert.ok(/\(\d+(\.\d)?s\)/.test(screen()), 'the working line is still up: ' + screen().slice(-400));
+      tmux(['send-keys', '-t', SES, 'Escape']);
+      for (let i = 0; i < 24 && alive(); i++) await sleep(250);
+      assert.strictEqual(alive(), 0, 'Escape killed the command');
+      assert.ok(/stopped/.test(screen(true)), 'the stop is named: ' + screen(true).slice(-400));
+      // The stop hands the words back to the composer; clear them before the next case.
+      tmux(['send-keys', '-t', SES, 'C-c']);
+      await sleep(2000);
+      assert.ok(/│\s+│/.test(screen()), 'the composer is empty again: ' + screen().slice(-400));
+    });
+
+    await t('plain text typed during a turn waits behind it, and a stop drops it by name', async () => {
+      tmux(['send-keys', '-t', SES, 'run it', 'Enter']);
+      assert.ok(await untilStarted() > 0, 'the command started: ' + screen().slice(-400));
+      tmux(['send-keys', '-t', SES, 'and then this', 'Enter']);
+      await sleep(1500);
+      let s = screen(true);
+      assert.ok(/queued · sends when the running turn ends/.test(s), 'the wait is named: ' + s.slice(-400));
+      assert.ok(alive() > 0, 'the work kept running');
+      tmux(['send-keys', '-t', SES, 'Escape']);
+      for (let i = 0; i < 24 && alive(); i++) await sleep(250);
+      s = screen(true);
+      assert.ok(/dropped the queued message: and then this/.test(s), 'the drop is named: ' + s.slice(-400));
+      tmux(['send-keys', '-t', SES, 'C-c']);
+      await sleep(2000);
+    });
+
+    await t('/mcps opens a pick list of the servers; a pick offers the actions; Check asks the dashboard and prints the state', async () => {
+      tmux(['send-keys', '-t', SES, '/mcps', 'Enter']);
+      let s = '';
+      for (let i = 0; i < 20 && !/▸ supabase/.test(s = screen()); i++) await sleep(500);
+      assert.ok(/▸ supabase  general · http · the database/.test(s), 'the server row is offered: ' + s.slice(-400));
+      tmux(['send-keys', '-t', SES, 'Enter']);
+      for (let i = 0; i < 20 && !/▸ Check supabase/.test(s = screen()); i++) await sleep(500);
+      assert.ok(/Check supabase/.test(s) && /Switch off supabase/.test(s) && /Remove supabase/.test(s), 'the actions: ' + s.slice(-400));
+      tmux(['send-keys', '-t', SES, 'Enter']);
+      for (let i = 0; i < 20 && !/connected · 2 tools/.test(s = screen(true)); i++) await sleep(500);
+      assert.ok(/supabase · connected · 2 tools/.test(s), 'the check result: ' + s.slice(-400));
+      assert.ok(asked.some((c) => /^POST \/api\/mcp\/probe .*"name":"supabase"/.test(c)), 'the probe was asked: ' + asked.join(' | '));
+      tmux(['send-keys', '-t', SES, '/mcps', 'Enter']);
+      for (let i = 0; i < 20 && !/▸ supabase/.test(s = screen()); i++) await sleep(500);
+      tmux(['send-keys', '-t', SES, 'Escape']);
+      await sleep(800);
+      s = screen();
+      assert.ok(!/▸ supabase/.test(s) && /╭/.test(s), 'Escape closes the list and the panel stays: ' + s.slice(-400));
+    });
+
+    await t('leaving the chat while a command runs leaves no orphan behind', async () => {
+      tmux(['send-keys', '-t', SES, 'run it', 'Enter']);
+      assert.ok(await untilStarted() > 0, 'the command started: ' + screen().slice(-400));
+      tmux(['send-keys', '-t', SES, '/quit', 'Enter']);
+      for (let i = 0; i < 32 && alive(); i++) await sleep(250);
+      assert.strictEqual(alive(), 0, 'the command outlived the chat');
+    });
+    proxy.close();
   } catch (e) {
     console.log('  ✗ the chat came up: ' + e.message); fail++;
   } finally {

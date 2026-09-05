@@ -826,6 +826,11 @@ function start() {
   // row carries the command's own one-line description, taken from the skill
   // that defines it, so the list is readable without knowing the vocabulary.
   const SLASH_DESC = {};
+  // The slash commands the entity answers on its own, without the model. One
+  // typed while a turn runs is a side question, answered beside the work
+  // instead of waiting behind it. Mirrors the executor's deterministic set.
+  const SLASH_DET = new Set(['goal', 'remember', 'refuse', 'invariants', 'forget', 'context',
+                             'dialogue-reset', 'agent', 'mcps', 'usage', 'engine', 'help']);
   const SLASH_CMDS = (function () {
     try {
       const rows = require('../shared-core/slash/loader.js').skillSummaries(process.cwd()) || [];
@@ -1059,13 +1064,15 @@ function start() {
         // list jumping as it scrolls.
         let nameW = 0;
         for (let mi = start; mi < start + cap; mi++) {
-          const n = (menuKind === 'arg' ? menuItems[mi] : '/' + menuItems[mi]).length;
+          const n = (menuKind === 'cmd' ? '/' + menuItems[mi] : menuItems[mi]).length;
           if (n > nameW) nameW = n;
         }
         const descW = Math.max(0, outer - nameW - 10);
         for (let mi = start; mi < start + cap; mi++) {
-          const label = menuKind === 'arg' ? menuItems[mi] : '/' + menuItems[mi];
-          let desc = menuKind === 'arg' ? '' : (SLASH_DESC[menuItems[mi]] || '');
+          // Only the command list carries the slash and a description; a value
+          // list and a pick list show their rows as they are.
+          const label = menuKind === 'cmd' ? '/' + menuItems[mi] : menuItems[mi];
+          let desc = menuKind === 'cmd' ? (SLASH_DESC[menuItems[mi]] || '') : '';
           if (desc.length > descW) desc = descW > 1 ? desc.slice(0, descW - 1) + '…' : '';
           const head = mi === menuSel
             ? '  ' + silver('▸ ') + color(BOLD, label)
@@ -1130,8 +1137,8 @@ function start() {
       process.stdout.write('\r');
       for (const item of menuItems.map((c, i) => {
         return i === menuSel
-          ? '    ' + silver('▸ ') + color(BOLD, '/' + c)
-          : '      ' + color(DIM,  '/' + c);
+          ? '    ' + silver('▸ ') + color(BOLD, (menuKind === 'pick' ? '' : '/') + c)
+          : '      ' + color(DIM,  (menuKind === 'pick' ? '' : '/') + c);
       })) {
         process.stdout.write('\n' + item);
       }
@@ -1148,6 +1155,8 @@ function start() {
     };
 
     function recomputeMenu() {
+      // A pick list stands on its own: it is not derived from the buffer.
+      if (menuActive && menuKind === 'pick') return;
       if (!buffer.startsWith('/')) { menuActive = false; return; }
       const sp = buffer.indexOf(' ');
 
@@ -1223,6 +1232,30 @@ function start() {
       // with a closed set of values offer them without waiting for a keystroke.
       recomputeMenu();
       redraw();
+    }
+
+    // A pick list: rows offered by the program (an MCP server, an action on
+    // it), walked with the arrows, taken with Enter, closed with Escape or
+    // Ctrl-C. Nothing typed reaches the buffer while it is open.
+    let pickItems = [];
+    let pickDone  = null;
+    function openPick(items, onPick) {
+      pickItems  = items.slice();
+      pickDone   = onPick;
+      menuItems  = pickItems.map((it) => it.label);
+      menuKind   = 'pick';
+      menuSel    = 0;
+      menuActive = true;
+      redraw();
+    }
+    function closePick(chosen) {
+      const done = pickDone;
+      const it = (chosen && pickItems[menuSel]) || null;
+      pickItems = []; pickDone = null;
+      menuActive = false; menuKind = 'cmd'; menuItems = []; menuSel = 0;
+      if (!chosen) { redraw(); return; }
+      eraseInputAndMenu();
+      if (done) done(it ? it.value : null);
     }
 
     function submit() {
@@ -1309,6 +1342,13 @@ function start() {
         return;
       }
 
+      if (menuActive && menuKind === 'pick') {
+        if (key.name === 'up')   { menuSel = (menuSel - 1 + menuItems.length) % menuItems.length; redraw(); return; }
+        if (key.name === 'down') { menuSel = (menuSel + 1) % menuItems.length; redraw(); return; }
+        if (key.name === 'return' || key.name === 'enter') { closePick(true); return; }
+        if (key.name === 'escape' || (key.ctrl && key.name === 'c')) { closePick(false); return; }
+        return;
+      }
       if (key.ctrl && key.name === 'c') {
         // Delegate to outer scope so it can apply tiered semantics
         // (cancel in-flight first, then clear buffer, then exit-on-double).
@@ -1419,6 +1459,7 @@ function start() {
 
     return {
       on(ev, fn) { handlers[ev] = fn; },
+      pick(items, onPick) { openPick(items, onPick); },
       prompt() {
         paused = false;
         if (fixedUI) process.stdout.write('\x1b[' + (termRows() - 2) + ';1H\x1b[2K');
@@ -1461,6 +1502,12 @@ function start() {
   // Track the most recently resolved slash command so dispatch labels can
   // say "running /think" instead of "running skill". Reset on response.
   let lastSlash = null;
+  // A turn in flight owns the working line. A deterministic slash typed while
+  // it runs is a side question: the entity answers it at once and the answer
+  // is printed beside the work, never taken for the end of the turn. Anything
+  // else typed meanwhile waits and is sent when the reply lands.
+  let sideSlashes = 0;
+  const queuedLines = [];
   // Track per-turn faculty + cumulative tool count for the response trailer.
   let turnFaculty = null;
   let turnTools = 0;
@@ -1507,6 +1554,7 @@ function start() {
             msg.goals_kept + ' goals, ' + msg.engrams_kept + ' engrams)\n'));
           break;
         case 'slash_resolved':
+          if (sideSlashes > 0) break;
           lastSlash = msg.name || null;
           spinner.update(lastSlash ? 'running /' + lastSlash : 'running skill');
           break;
@@ -1518,6 +1566,7 @@ function start() {
           }
           break;
         case 'dispatch': {
+          if (sideSlashes > 0 && msg.faculty === 'deterministic') break;
           turnFaculty = msg.faculty || null;
           spinner.update(dispatchVerb(msg.faculty, lastSlash));
           // Reflect the dispatched engine in the composing footer live —
@@ -1569,6 +1618,13 @@ function start() {
           break;
         }
         case 'response': {
+          // A side question's answer lands beside the running work: printed,
+          // with the turn's own state left exactly as it was.
+          if (sideSlashes > 0 && msg.faculty === 'deterministic') {
+            sideSlashes--;
+            if (msg.text) for (const segment of renderReply(msg.text).split('\n')) out('  ' + segment + '\n');
+            break;
+          }
           // A cancelled turn still finishes upstream and its reply still
           // arrives. Dropping the text is right, but the working indicator
           // belongs to that same turn and has to go with it: left running, it
@@ -1577,6 +1633,7 @@ function start() {
             dropNextResponse = false;
             spinner.stop();
             awaitingResponse = false;
+            sideSlashes = 0;
             turnModel = null;
             break;
           }
@@ -1622,6 +1679,7 @@ function start() {
             awaitingResponse = false;
             lastSlash = null; turnFaculty = null; turnTools = 0; turnActions = []; turnStart = 0;
             rl.prompt();
+            sideSlashes = 0; flushQueued();
             break;
           }
           if (!fixedUI) out('\n');
@@ -1648,6 +1706,7 @@ function start() {
           awaitingResponse = false;
           lastSlash = null; turnFaculty = null; turnTools = 0; turnActions = []; turnStart = 0;
           rl.prompt();
+          sideSlashes = 0; flushQueued();
           break;
         }
         case 'error':
@@ -1658,6 +1717,7 @@ function start() {
             (msg.detail ? color(DIM, ' — ' + msg.detail) : '') + '\n');
           awaitingResponse = false;
           rl.prompt();
+          sideSlashes = 0; flushQueued();
           break;
         case 'worker_event': {
           // surface per-step worker activity from autonomous
@@ -1749,6 +1809,9 @@ function start() {
     dropNextResponse = true;
     out('\n' + color(DIM, '  ◦ ' + (turnTools > 0 ? turnSummary() + ' · ' : '') + 'stopped') + '\n\n');
     lastSlash = null; turnFaculty = null; turnTools = 0; turnActions = []; turnStart = 0;
+    sideSlashes = 0;
+    // A stop also drops what was waiting behind the turn, and says so.
+    while (queuedLines.length) out(color(DIM, '  ◦ dropped the queued message: ' + queuedLines.shift().slice(0, 80)) + '\n');
     // The words go back into the composer so a cancel does not cost the typing.
     if (inFlightText && rl.setBuffer) rl.setBuffer(inFlightText);
     else rl.prompt();
@@ -1861,6 +1924,33 @@ function start() {
     if (!ready) {
       out(color(DIM, '  entity warming up · queuing\n'));
     }
+    // /mcps is answered here, without the entity: it works while a turn runs
+    // and never touches that turn.
+    if (/^\/mcps(\s|$)/.test(line)) { openMcpPicker(); return; }
+    if (awaitingResponse) {
+      const name = line.startsWith('/') ? line.slice(1).split(/\s+/)[0] : null;
+      if (name && SLASH_DET.has(name)) { sideSlashes++; sendEvent(line); return; }
+      queuedLines.push(line);
+      out(color(DIM, '  ◦ queued · sends when the running turn ends') + '\n');
+      rl.prompt();
+      return;
+    }
+    sendTurn(line);
+  });
+  function sendEvent(line) {
+    const event = {
+      type: 'user_input',
+      input: { text: line },
+      parent_id: null,
+      options: { agentic: AGENTIC, auto_write: AUTO_WRITE, conversation_id: CONV_ID }
+    };
+    try { child.stdin.write(JSON.stringify(event) + '\n'); return true; }
+    catch (e) {
+      console.log(color(RED, '  ! write failed: ' + e.message));
+      return false;
+    }
+  }
+  function sendTurn(line) {
     awaitingResponse = true;
     // Held so a cancel can return the words to the composer.
     inFlightText = String(line || '');
@@ -1869,19 +1959,100 @@ function start() {
     ctrlcArmed = false;
     if (ctrlcTimer) { clearTimeout(ctrlcTimer); ctrlcTimer = null; }
     spinner.start();
-    const event = {
-      type: 'user_input',
-      input: { text: line },
-      parent_id: null,
-      options: { agentic: AGENTIC, auto_write: AUTO_WRITE, conversation_id: CONV_ID }
-    };
-    try { child.stdin.write(JSON.stringify(event) + '\n'); }
-    catch (e) {
-      console.log(color(RED, '  ! write failed: ' + e.message));
-      awaitingResponse = false;
+    if (!sendEvent(line)) { awaitingResponse = false; spinner.stop(); rl.prompt(); }
+  }
+  // The next waiting line goes out once the reply has landed.
+  function flushQueued() {
+    if (awaitingResponse || !queuedLines.length) return;
+    const next = queuedLines.shift();
+    out(color(DIM, '  ◦ sending the queued message') + '\n');
+    sendTurn(next);
+  }
+
+  // /mcps: the partner's external hands as a list to act on. Rows come from
+  // the dashboard's registry over HTTP; a pick opens the actions on that
+  // server (check, switch off or on, remove) and each action prints one line.
+  function mcpApi(method, route, body) {
+    return new Promise((resolve, reject) => {
+      let u;
+      try { u = new URL(route, require('../shared-core/dashboard-url.js').proxyBaseUrl()); } catch (e) { reject(e); return; }
+      const mod = u.protocol === 'https:' ? require('https') : require('http');
+      const payload = body ? JSON.stringify(body) : null;
+      const headers = payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {};
+      const req = mod.request(u, { method, timeout: 20000, headers }, (res) => {
+        let b = '';
+        res.on('data', (c) => { b += c; if (b.length > 1024 * 1024) req.destroy(new Error('reply too large')); });
+        res.on('end', () => {
+          let json = null;
+          try { json = b ? JSON.parse(b) : null; } catch (_) { json = null; }
+          resolve({ status: res.statusCode, json });
+        });
+      });
+      req.on('timeout', () => req.destroy(new Error('timed out')));
+      req.on('error', reject);
+      if (payload) req.write(payload);
+      req.end();
+    });
+  }
+  function mcpRowLabel(s) {
+    return s.name + '  ' + s.scope + (s.project ? ' · ' + s.project : '') + ' · ' + s.transport +
+      (s.disabled ? ' · off' : '') + (s.note ? ' · ' + s.note : '');
+  }
+  function openMcpPicker() {
+    mcpApi('GET', '/api/mcp/servers').then(({ status, json }) => {
+      if (status !== 200 || !json) throw new Error('status ' + status);
+      const active = json.active || [];
+      const pending = json.pending || [];
+      if (!active.length && !pending.length) {
+        out(color(DIM, '  ◦ no MCP servers yet · stage one in the dashboard, Settings > Integrations') + '\n');
+        rl.prompt(); return;
+      }
+      const items = active.map((s) => ({ label: mcpRowLabel(s), value: s }));
+      for (const p of pending) items.push({ label: p.name + '  staged · approve it in the dashboard, Settings > Integrations', value: null });
+      rl.pick(items, (s) => { if (!s) { rl.prompt(); return; } openMcpActions(s); });
+    }).catch((e) => {
+      out(color(RED, '  ✗ the dashboard did not answer (' + e.message + ') · is the proxy running?') + '\n');
       rl.prompt();
-    }
-  });
+    });
+  }
+  function openMcpActions(s) {
+    const items = [
+      { label: 'Check ' + s.name, value: 'probe' },
+      { label: (s.disabled ? 'Switch on ' : 'Switch off ') + s.name, value: 'toggle' },
+      { label: 'Remove ' + s.name, value: 'remove' },
+      { label: 'Back', value: 'back' }
+    ];
+    rl.pick(items, (act) => {
+      if (!act || act === 'back') { openMcpPicker(); return; }
+      if (act === 'remove') {
+        rl.pick([{ label: 'Yes, remove ' + s.name, value: true }, { label: 'No, keep it', value: false }], (yes) => {
+          if (!yes) { openMcpActions(s); return; }
+          mcpAct('/api/mcp/remove', { name: s.name }, s.name + ' removed');
+        });
+        return;
+      }
+      if (act === 'toggle') {
+        mcpAct('/api/mcp/enable', { name: s.name, enabled: !!s.disabled }, s.name + (s.disabled ? ' switched on' : ' switched off'));
+        return;
+      }
+      out(color(DIM, '  ◦ checking ' + s.name + '…') + '\n');
+      mcpApi('POST', '/api/mcp/probe', { name: s.name }).then(({ json }) => {
+        const r = json || {};
+        const said = r.state === 'connected' ? s.name + ' · connected · ' + ((r.tools || []).length) + ' tools'
+          : r.state === 'sign_in_needed' ? s.name + ' · sign-in needed' + (r.url ? ' · ' + r.url : '')
+          : s.name + ' · ' + (r.state || 'unreachable') + (r.error ? ' · ' + r.error : '');
+        out(color(r.state === 'connected' ? DIM : RED, '  ◦ ' + said) + '\n');
+        rl.prompt();
+      }).catch((e) => { out(color(RED, '  ✗ ' + s.name + ' · ' + e.message) + '\n'); rl.prompt(); });
+    });
+  }
+  function mcpAct(route, body, said) {
+    mcpApi('POST', route, body).then(({ status, json }) => {
+      if (status === 200) out(color(DIM, '  ◦ ' + said) + '\n');
+      else out(color(RED, '  ✗ ' + ((json && (json.reason || json.error)) || ('status ' + status))) + '\n');
+      rl.prompt();
+    }).catch((e) => { out(color(RED, '  ✗ ' + e.message) + '\n'); rl.prompt(); });
+  }
 
   rl.on('close', () => {
     try { child.stdin.end(); } catch (_) {}
