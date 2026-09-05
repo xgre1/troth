@@ -40,11 +40,24 @@ function makeOllamaTransport(opts) {
     let messages = [];
     if (!String(req.user || '') && Array.isArray(req.messages) && req.messages.length) {
       const toText = (c) => Array.isArray(c) ? c.map((b) => (b && (b.text || b.content)) || (typeof b === 'string' ? b : '')).join('') : String(c == null ? '' : c);
+      // The history keeps the model's own tool calls and their results in
+      // the chat API's shape, so a call already made is read as made.
       for (const m of req.messages) {
         if (!m) continue;
         const txt = toText(m.content);
+        if (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length) {
+          const calls = m.tool_calls.map((tc) => {
+            const fn = tc && tc.function; if (!fn || !fn.name) return null;
+            let args = {};
+            try { args = typeof fn.arguments === 'string' ? (fn.arguments ? JSON.parse(fn.arguments) : {}) : (fn.arguments || {}); } catch (_) { args = { _raw: String(fn.arguments || '') }; }
+            return { function: { name: fn.name, arguments: args } };
+          }).filter(Boolean);
+          messages.push({ role: 'assistant', content: txt, tool_calls: calls });
+          continue;
+        }
+        if (m.role === 'tool') { messages.push({ role: 'tool', content: txt || '(no output)' }); continue; }
         if (!txt.trim()) continue;
-        messages.push({ role: m.role === 'tool' ? 'user' : m.role, content: m.role === 'tool' ? ('Tool result: ' + txt) : txt });
+        messages.push({ role: m.role, content: txt });
       }
     }
     if (!messages.length) {

@@ -76,20 +76,54 @@ function makeAnthropicTransport(opts) {
 
     let _sys = String(req.system || '');
     let _user = String(req.user || '');
-    // composeAgentic drives transports with a `messages` array, not {system,user}
-    // without this the request got EMPTY content. Flatten to system + ONE user
-    // prompt (single message keeps Anthropic's strict role-alternation happy).
+    // composeAgentic drives transports with a `messages` array. It is
+    // rendered in Anthropic's own turn shape so the model reads its earlier
+    // tool calls and their results as its own history: an assistant turn
+    // with tool_calls becomes tool_use blocks, a tool message becomes a
+    // tool_result block in the following user turn, and neighbouring turns
+    // of one role fold into one message, which keeps the strict role
+    // alternation the endpoint requires.
+    let _turns = [];
     if (!_user && Array.isArray(req.messages) && req.messages.length) {
       const toText = (c) => Array.isArray(c) ? c.map((b) => (b && (b.text || b.content)) || (typeof b === 'string' ? b : '')).join('') : String(c == null ? '' : c);
-      const sys = []; const convo = [];
+      const sys = [];
+      const push = (role, blocks) => {
+        if (!blocks.length) return;
+        const last = _turns[_turns.length - 1];
+        if (last && last.role === role) last.content = last.content.concat(blocks);
+        else _turns.push({ role, content: blocks });
+      };
       for (const m of req.messages) {
         if (!m) continue;
         const txt = toText(m.content).trim();
-        if (m.role === 'system') { if (txt) sys.push(txt); }
-        else if (txt) convo.push((m.role === 'assistant' ? 'Assistant: ' : m.role === 'tool' ? 'Tool result: ' : 'User: ') + txt);
+        if (m.role === 'system') { if (txt) sys.push(txt); continue; }
+        if (m.role === 'assistant') {
+          const blocks = [];
+          if (txt) blocks.push({ type: 'text', text: txt });
+          for (const tc of (Array.isArray(m.tool_calls) ? m.tool_calls : [])) {
+            const fn = tc && tc.function; if (!fn || !fn.name) continue;
+            let input = {};
+            try { input = typeof fn.arguments === 'string' ? (fn.arguments ? JSON.parse(fn.arguments) : {}) : (fn.arguments || {}); } catch (_) { input = { _raw: String(fn.arguments || '') }; }
+            blocks.push({ type: 'tool_use', id: String(tc.id || ('tc_' + blocks.length)), name: fn.name, input });
+          }
+          push('assistant', blocks);
+          continue;
+        }
+        if (m.role === 'tool') {
+          push('user', [{ type: 'tool_result', tool_use_id: String(m.tool_call_id || ''), content: txt || '(no output)' }]);
+          continue;
+        }
+        if (txt) push('user', [{ type: 'text', text: txt }]);
       }
       if (!_sys && sys.length) _sys = sys.join('\n\n');
-      _user = convo.join('\n\n');
+      // A history that is one user turn stays a plain string, the shape the
+      // proxy's caching and shaping have always read.
+      if (_turns.length === 1 && _turns[0].role === 'user' && _turns[0].content.every((b) => b.type === 'text')) {
+        _user = _turns[0].content.map((b) => b.text).join('\n\n');
+        _turns = [];
+      } else if (_turns.length && _turns[0].role !== 'user') {
+        _turns.unshift({ role: 'user', content: [{ type: 'text', text: '(continued)' }] });
+      }
     }
     // R9 (act, don't narrate): forward the substrate tool surface in Anthropic's
     // NATIVE shape so the direct-API faculty actually calls tools instead of only
@@ -100,7 +134,7 @@ function makeAnthropicTransport(opts) {
       max_tokens: (req.options && req.options.max_tokens) || maxTokensDefault,
       stream: true,
       system: _sys,
-      messages: [{ role: 'user', content: _user }]
+      messages: _turns.length ? _turns : [{ role: 'user', content: _user }]
     };
     if (req.options && Array.isArray(req.options.tools) && req.options.tools.length) {
       bodyObj.tools = req.options.tools.map((t) => {
