@@ -903,6 +903,13 @@ function start() {
       try { const s = process.stdout.getWindowSize(); if (s && s[1] > 0) return s[1]; } catch (_) {}
       return process.stdout.rows || 24;
     }
+    // TROTH_COMPOSER_LOG=<file> records every erase and frame with its
+    // arithmetic, for reading a screen fault after the fact.
+    const _clogPath = process.env.TROTH_COMPOSER_LOG || '';
+    function _clog(o) {
+      if (!_clogPath) return;
+      try { require('fs').appendFileSync(_clogPath, JSON.stringify(Object.assign({ t: Date.now() }, o)) + '\n'); } catch (_) {}
+    }
 
     // The last frame is erased from its first row. The terminal is asked for
     // its true width every time: a resize reflows the rows the frame occupied
@@ -923,6 +930,7 @@ function start() {
         for (let i = logical; i < lastCursorRow; i++) up += rowsNow(Math.max(0, lastDrawW - 2));
         up += Math.floor(lastCursorCol / w);
       }
+      _clog({ kind: 'erase', w, lastDrawW, up, lastCursorRow, lastLeadRows, lastLeadLen, lastDetailLen, lastCursorCol });
       if (up > 0) process.stdout.write('\x1b[' + up + 'A');
       process.stdout.write('\r\x1b[J');
       lastCursorRow = 0;
@@ -936,8 +944,8 @@ function start() {
     // the panel is erased and redrawn in place on every keystroke, so nothing
     // depends on a scroll region. TROTH_FIXED_UI opts into one.
     const BOX_MARGIN = 2;
-    function boxMetrics() {
-      const outer = Math.max(24, termWidth() - BOX_MARGIN * 2);
+    function boxMetrics(w) {
+      const outer = Math.max(24, (w || termWidth()) - BOX_MARGIN * 2);
       return { outer, textW: outer - 4 };   // │ + space … space + │
     }
 
@@ -977,7 +985,13 @@ function start() {
       redraw();
     }
     function renderInput() {
-      const { outer, textW } = boxMetrics();
+      // One width for the whole frame, read once and recorded before the
+      // first row goes out: a resize that lands mid-frame leaves the rows
+      // already written at this width, and the erase that follows counts
+      // them by it.
+      const W = termWidth();
+      lastDrawW = W;
+      const { outer, textW } = boxMetrics(W);
       const pad = ' '.repeat(BOX_MARGIN);
       const bar = color(DIM, '│');
       const rows = [];
@@ -992,16 +1006,16 @@ function start() {
         // Air above it, so the working line reads as the partner starting to
         // answer rather than as part of the operator's own card.
         process.stdout.write('\n');
-        process.stdout.write(fit(pad + spinnerLead, termWidth() - 1) + '\n');
+        process.stdout.write(fit(pad + spinnerLead, W - 1) + '\n');
         leadRows = 2;
         if (spinnerDetail) {
-          process.stdout.write(fit(pad + '  ' + spinnerDetail, termWidth() - 1) + '\n');
+          process.stdout.write(fit(pad + '  ' + spinnerDetail, W - 1) + '\n');
           leadRows = 3;
         }
       }
       lastLeadRows = leadRows;
-      lastLeadLen = spinnerLead ? stripAnsi(fit(pad + spinnerLead, termWidth() - 1)).length : 0;
-      lastDetailLen = (spinnerLead && spinnerDetail) ? stripAnsi(fit(pad + '  ' + spinnerDetail, termWidth() - 1)).length : 0;
+      lastLeadLen = spinnerLead ? stripAnsi(fit(pad + spinnerLead, W - 1)).length : 0;
+      lastDetailLen = (spinnerLead && spinnerDetail) ? stripAnsi(fit(pad + '  ' + spinnerDetail, W - 1)).length : 0;
       // The panel never grows past the screen: text taller than the room is
       // shown through a window that ends at the caret, and a marker row counts
       // what lies outside it. A panel whose top scrolled into the terminal's
@@ -1057,14 +1071,14 @@ function start() {
             ? '  ' + silver('▸ ') + color(BOLD, label)
             : '    ' + color(DIM, label);
           const gap = ' '.repeat(Math.max(1, nameW - label.length + 2));
-          process.stdout.write(fit(pad + head + (desc ? gap + color(DIM, desc) : ''), termWidth() - 1) + '\n');
+          process.stdout.write(fit(pad + head + (desc ? gap + color(DIM, desc) : ''), W - 1) + '\n');
         }
         menuRows = cap;
         if (menuItems.length > cap) {
           const shown = start + cap;
           process.stdout.write(fit(pad + '    ' + color(DIM, menuItems.length - shown > 0
             ? '+' + (menuItems.length - shown) + ' more'
-            : '↑ ' + start + ' above'), termWidth() - 1) + '\n');
+            : '↑ ' + start + ' above'), W - 1) + '\n');
           menuRows += 1;
         }
         lastMenuRows = menuRows;
@@ -1073,9 +1087,9 @@ function start() {
       }
       // Flush with the panel's own left edge: an extra space reads as a line
       // that has come loose from the box.
-      process.stdout.write(fit(pad + meterText(), termWidth() - 1));
+      process.stdout.write(fit(pad + meterText(), W - 1));
       lastInputRows = leadRows + drawn.length + 3 + menuRows;
-      lastDrawW = termWidth();
+      lastDrawW = W;
 
       // Put the cursor back on the text row it belongs to. Row 0 is the top
       // border, rows 1..n the text, row n+1 the bottom border, row n+2 the
@@ -1086,12 +1100,23 @@ function start() {
         cRow = cRowAbs - winStart + (above > 0 ? 1 : 0);
         cCol = ((cursor - 1) % textW) + 1;
       }
-      const up = drawn.length + 1 + menuRows - cRow;
+      let up = drawn.length + 1 + menuRows - cRow;
+      const wNow = termWidth();
+      if (wNow !== W) {
+        // The width changed under this frame: every row written at W now
+        // holds ceil(len / wNow) rows, wherever in the frame the change
+        // landed, and the caret's row is reached on its first segment.
+        const rowsNow = (len) => Math.max(1, Math.ceil(len / wNow));
+        const rowW = rowsNow(Math.max(0, W - 2));
+        const meterLen = stripAnsi(fit(pad + meterText(), W - 1)).length;
+        up = (rowsNow(meterLen) - 1) + menuRows * rowsNow(Math.max(0, W - 1)) + rowW + (drawn.length - 1 - cRow) * rowW + (rowW - 1);
+      }
       if (up > 0) process.stdout.write('\x1b[' + up + 'A');
       lastCursorRow = leadRows + cRow + 1;
       lastCursorCol = BOX_MARGIN + 2 + cCol;
       process.stdout.write('\r');
       if (lastCursorCol > 0) process.stdout.write('\x1b[' + lastCursorCol + 'C');
+      _clog({ kind: 'frame', W, leadRows, drawn: drawn.length, menuRows, lastCursorRow, lastCursorCol, lead: spinnerLead ? stripAnsi(spinnerLead).slice(0, 24) : null });
     }
 
     function renderMenu() {
@@ -1170,8 +1195,9 @@ function start() {
       // A drag delivers many resizes a few milliseconds apart while the
       // terminal is still reflowing; the frame is erased and drawn once,
       // after the last of them, against a settled screen.
+      _clog({ kind: 'resize', w: termWidth(), lastDrawW, lastCursorRow });
       if (resizeSettle) clearTimeout(resizeSettle);
-      resizeSettle = setTimeout(() => { resizeSettle = null; redraw(); }, 120);
+      resizeSettle = setTimeout(() => { resizeSettle = null; _clog({ kind: 'settle', w: termWidth() }); redraw(); }, 300);
     });
 
     function commitSelection() {
