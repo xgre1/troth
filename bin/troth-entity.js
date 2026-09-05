@@ -2134,7 +2134,9 @@ function main() {
       if (_registryKey != null && _activeTurns.get(_registryKey) === _cancelSignal) {
         _activeTurns.delete(_registryKey);
       }
-      return res;
+      // The ledger row for this turn names the engine that served it and how
+      // long it took, beside the text.
+      return Object.assign({}, res, { faculty: choice.faculty, elapsed_ms });
     }
     if (action.kind === 'tool') {
       // v0.1: tool dispatch is not wired in the entity binary itself; this

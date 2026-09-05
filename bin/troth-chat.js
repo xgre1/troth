@@ -522,7 +522,13 @@ function toolVerb(name, args) {
     case 'engram_record': case 'troth_engram_record': return 'remembering';
     case 'engram_search': case 'troth_recall': case 'recall': return 'recalling';
     case 'dialogue_recent': case 'dialogue_search': return 'reading the dialogue';
-    case 'tool_load': return 'loading a tool' + (a.name ? ': ' + head(a.name, 40) : '');
+    case 'rule_list': return 'reading your rules';
+    case 'rule_record': return 'noting a rule';
+    case 'code_file_map': case 'code_who_calls': return 'mapping the code';
+    case 'jobs_status': return 'checking the jobs';
+    case 'web_allowlist_list': return 'checking the allowlist';
+    case 'api_services_list': return 'listing the services';
+    case 'tool_load': return 'opening ' + (a.name ? 'the ' + String(a.name).replace(/_/g, ' ') + ' tool' : 'a tool');
     case 'mcp_call': {
       const srv = String(a.server || '');
       if (/^troth-(substrate|memory)$/.test(srv)) return /record|remember/.test(String(a.tool || '')) ? 'remembering' : 'consulting memory';
@@ -543,7 +549,7 @@ function toolVerb(name, args) {
   }
   if (mcp) return 'using ' + key.replace(/_/g, ' ');
   const first = [a.command, a.file_path, a.url, a.query, a.pattern].find((v) => typeof v === 'string' && v.trim());
-  return 'using ' + (n || 'a tool') + (first ? ': ' + head(first, 40) : '');
+  return 'using ' + (n ? n.replace(/_/g, ' ') : 'a tool') + (first ? ': ' + head(first, 40) : '');
 }
 // The kind of act a tool is, for the turn's one-line summary.
 function toolKind(name, args) {
@@ -887,15 +893,37 @@ function start() {
     let lastLeadRows = 0;
     let lastLeadLen = 0;
     let lastDetailLen = 0;
-    function termWidth() { return process.stdout.columns || 80; }
+    // The width and height the terminal holds right now, asked of the
+    // terminal itself: the process's own copy lags a resize by an event.
+    function termWidth() {
+      try { const s = process.stdout.getWindowSize(); if (s && s[0] > 0) return s[0]; } catch (_) {}
+      return process.stdout.columns || 80;
+    }
+    function termHeight() {
+      try { const s = process.stdout.getWindowSize(); if (s && s[1] > 0) return s[1]; } catch (_) {}
+      return process.stdout.rows || 24;
+    }
 
+    // The last frame is erased from its first row. The terminal is asked for
+    // its true width every time: a resize reflows the rows the frame occupied
+    // before this process hears of it, so a row drawn wider than the width
+    // now in force wraps onto more rows and is counted that way. A tick that
+    // lands between the resize and the event still erases the whole frame.
     function eraseInputAndMenu() {
-      // Cursor is somewhere on the input area (set by the previous render
-      // to either the end of the buffer or the cursor position within a
-      // wrapped buffer). Move up to the first input row, then clear from
-      // there to end of screen — wipes wrapped input rows AND any menu
-      // rows in a single sweep.
-      if (lastCursorRow > 0) process.stdout.write('\x1b[' + lastCursorRow + 'A');
+      const w = termWidth();
+      let up = lastCursorRow;
+      if (lastCursorRow > 0 && lastDrawW && w !== lastDrawW) {
+        const rowsNow = (len) => Math.max(1, Math.ceil(len / w));
+        up = 0;
+        let logical = 0;
+        if (lastLeadRows) { up += 1 + rowsNow(lastLeadLen) + (lastLeadRows > 2 ? rowsNow(lastDetailLen) : 0); logical += lastLeadRows; }
+        // The top border, then the text rows above the cursor's own.
+        up += rowsNow(Math.max(0, lastDrawW - 2));
+        logical += 1;
+        for (let i = logical; i < lastCursorRow; i++) up += rowsNow(Math.max(0, lastDrawW - 2));
+        up += Math.floor(lastCursorCol / w);
+      }
+      if (up > 0) process.stdout.write('\x1b[' + up + 'A');
       process.stdout.write('\r\x1b[J');
       lastCursorRow = 0;
       lastInputRows = 0;
@@ -978,7 +1006,7 @@ function start() {
       // shown through a window that ends at the caret, and a marker row counts
       // what lies outside it. A panel whose top scrolled into the terminal's
       // history could not be erased on the next frame.
-      const screenRows = process.stdout.rows || 24;
+      const screenRows = termHeight();
       const roomText = Math.max(1, screenRows - leadRows - 4);
       const cRowAbs = cursor === 0 ? 0 : Math.floor((cursor - 1) / textW);
       let winStart = 0, winEnd = rows.length;
@@ -1008,7 +1036,7 @@ function start() {
       // selection, so arrowing past the edge scrolls the list, not the screen.
       let menuRows = 0;
       if (menuActive && menuItems.length) {
-        const room = Math.max(3, (process.stdout.rows || 24) - drawn.length - 8);
+        const room = Math.max(3, termHeight() - drawn.length - 8);
         const cap  = Math.min(8, room, menuItems.length);
         const half = Math.floor(cap / 2);
         const start = Math.min(Math.max(0, menuSel - half), Math.max(0, menuItems.length - cap));
@@ -1122,11 +1150,13 @@ function start() {
       menuActive = true;
     }
 
+    let resizeSettle = null;
     function redraw() {
       // Piped stdout is a transcript, not a screen: per-keystroke redraws put
       // one "❯ h ❯ he ❯ hel…" per character into logs. The submitted line is
       // printed by submit(); live echo is only for a terminal that can erase.
       if (!process.stdout.isTTY) return;
+      if (resizeSettle) return; // the settled redraw paints this frame
       eraseInputAndMenu();
       renderInput();
       // Choices are drawn by renderInput, inside the composer block.
@@ -1137,21 +1167,11 @@ function start() {
     // clears from there. The transcript above is left to the terminal.
     process.stdout.on('resize', () => {
       if (!process.stdout.isTTY || fixedUI) return;
-      const newW = Math.max(1, termWidth());
-      if (lastInputRows > 0 || lastCursorRow > 0) {
-        const rowsNow = (len) => Math.max(1, Math.ceil(len / newW));
-        let up = 0;
-        let logical = 0;
-        if (lastLeadRows) { up += 1 + rowsNow(lastLeadLen) + (lastLeadRows > 2 ? rowsNow(lastDetailLen) : 0); logical += lastLeadRows; }
-        // The top border, then the text rows above the cursor's own.
-        up += rowsNow(Math.max(0, lastDrawW - 2));
-        logical += 1;
-        for (let i = logical; i < lastCursorRow; i++) up += rowsNow(Math.max(0, lastDrawW - 2));
-        up += Math.floor(lastCursorCol / newW);
-        process.stdout.write((up > 0 ? '\x1b[' + up + 'A' : '') + '\r\x1b[J');
-      }
-      lastCursorRow = 0; lastInputRows = 0; lastMenuRows = 0;
-      redraw();
+      // A drag delivers many resizes a few milliseconds apart while the
+      // terminal is still reflowing; the frame is erased and drawn once,
+      // after the last of them, against a settled screen.
+      if (resizeSettle) clearTimeout(resizeSettle);
+      resizeSettle = setTimeout(() => { resizeSettle = null; redraw(); }, 120);
     });
 
     function commitSelection() {
