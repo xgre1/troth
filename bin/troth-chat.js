@@ -148,9 +148,14 @@ function refresh5h() {
       res.on('end', () => {
         try {
           const rows = ((JSON.parse(b).persistent_provider_usage || {}).recent_5h || {}).by_model || [];
+          // The window that meters THIS engine: the rows for the model in use
+          // (a plan's 5-hour window is per lane), every row only while no
+          // engine has answered yet.
+          const key = String(statusEngine || '').split(/\s+/)[0].toLowerCase();
+          const mine = key ? rows.filter((r) => String(r.actual_model || r.model || '').toLowerCase().startsWith(key)) : [];
           let tin = 0, tout = 0;
-          for (const r of rows) { tin += r.input_tokens || 0; tout += r.output_tokens || 0; }
-          win5 = { tin, tout };
+          for (const r of (mine.length ? mine : rows)) { tin += r.input_tokens || 0; tout += r.output_tokens || 0; }
+          win5 = { tin, tout, engine: mine.length ? key : null };
           drawStatus();
         } catch (_) { /* stale value keeps showing; never break the REPL */ }
       });
@@ -548,7 +553,12 @@ function toolKind(name, args) {
   return map[v.split(/[\s:]/)[0]] || 'other';
 }
 
-const fmtTok = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : String(n || 0);
+const fmtTok = (n) => {
+  n = Number(n) || 0;
+  if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k';
+  return String(n);
+};
 
 // Rotating thought-words while the brain works (same idea as the app's
 // whimsy pill) — the label breathes instead of a frozen 'thinking'.
