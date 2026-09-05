@@ -73,8 +73,8 @@ console.log('\n=== /api/mcp/servers and /api/mcp/reject ===\n');
     const r = await get('/api/mcp/servers');
     assert.strictEqual(r.code, 200);
     assert.deepStrictEqual(r.data.active.map((a) => a.name), ['alpha', 'zeta']);
-    assert.deepStrictEqual(r.data.active[0], { name: 'alpha', transport: 'http', command: 'https://alpha.example/mcp', scope: 'general', project: null, path: null, note: null });
-    assert.deepStrictEqual(r.data.active[1], { name: 'zeta', transport: 'stdio', command: 'npx -y zeta-mcp', scope: 'general', project: null, path: null, note: null });
+    assert.deepStrictEqual(r.data.active[0], { name: 'alpha', transport: 'http', command: 'https://alpha.example/mcp', scope: 'general', project: null, path: null, note: null, disabled: false });
+    assert.deepStrictEqual(r.data.active[1], { name: 'zeta', transport: 'stdio', command: 'npx -y zeta-mcp', scope: 'general', project: null, path: null, note: null, disabled: false });
     assert.strictEqual(r.data.pending.length, 1);
     assert.strictEqual(r.data.pending[0].name, 'staged');
     assert.strictEqual(r.data.pending[0].note, 'for the calendar');
@@ -153,7 +153,7 @@ console.log('\n=== /api/mcp/servers and /api/mcp/reject ===\n');
     assert.ok(active.notes.staged.approved_at > 0);
     const r = await get('/api/mcp/servers');
     const row = r.data.active.find((x) => x.name === 'staged');
-    assert.deepStrictEqual(row, { name: 'staged', transport: 'stdio', command: 'x --y', scope: 'general', project: null, path: null, note: 'for the calendar' });
+    assert.deepStrictEqual(row, { name: 'staged', transport: 'stdio', command: 'x --y', scope: 'general', project: null, path: null, note: 'for the calendar', disabled: false });
     assert.deepStrictEqual(r.data.pending, []);
   });
 
@@ -165,6 +165,64 @@ console.log('\n=== /api/mcp/servers and /api/mcp/reject ===\n');
     assert.ok(/data-settings-tab="integrations">\s*<div class="card-title">MCP servers troth reaches</.test(html), 'the card sits under the tab');
     assert.ok(/group === 'integrations' && typeof loadMcpServers === 'function'\) loadMcpServers\(\)/.test(html), 'opening the tab loads the list');
     assert.ok(!/function loadMcpStatus\(includeTccId\) \{\s*try \{ loadMcpServers\(\)/.test(html), 'the Connections loader does not fetch the list');
+  });
+
+  await t('owns() claims the operator actions too', async () => {
+    assert(routes.owns('/api/mcp/add'));
+    assert(routes.owns('/api/mcp/enable'));
+    assert(routes.owns('/api/mcp/remove'));
+    assert(!routes.owns('/api/mcp/added'));
+  });
+
+  await t('add stages a server with the agent\'s own checks and it waits for approval', async () => {
+    const bad = await post('/api/mcp/add', JSON.stringify({ name: 'Bad Name', config: { command: 'x' } }));
+    assert.strictEqual(bad.code, 400); assert.strictEqual(bad.data.error, 'bad_name');
+    const badCfg = await post('/api/mcp/add', JSON.stringify({ name: 'cal', config: { type: 'http', url: 'nope' } }));
+    assert.strictEqual(badCfg.code, 400); assert.strictEqual(badCfg.data.error, 'bad_config');
+    const dup = await post('/api/mcp/add', JSON.stringify({ name: 'zeta', config: { command: 'x' } }));
+    assert.strictEqual(dup.code, 400); assert.strictEqual(dup.data.error, 'already_active');
+    const ok = await post('/api/mcp/add', JSON.stringify({ name: 'cal', config: { command: 'npx', args: ['-y', 'cal-mcp'] }, note: 'the calendar' }));
+    assert.strictEqual(ok.code, 200, JSON.stringify(ok.data));
+    const list = await get('/api/mcp/servers');
+    assert.deepStrictEqual(list.data.pending.map((p) => [p.name, p.note]), [['cal', 'the calendar']]);
+    assert.ok(!list.data.active.some((x) => x.name === 'cal'), 'staging never activates');
+    const rej = await post('/api/mcp/reject', JSON.stringify({ name: 'cal' }));
+    assert.strictEqual(rej.code, 200);
+  });
+
+  await t('off keeps the entry and takes it out of the spawn road; on puts it back', async () => {
+    const client = require(path.join(REPO, 'shared-core', 'tools', 'mcp-client.js'));
+    const off = await post('/api/mcp/enable', JSON.stringify({ name: 'zeta', enabled: false }));
+    assert.strictEqual(off.code, 200, JSON.stringify(off.data));
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(client.loadDownstream(), 'zeta'), false, 'the partner does not see it');
+    let row = (await get('/api/mcp/servers')).data.active.find((x) => x.name === 'zeta');
+    assert.strictEqual(row.disabled, true);
+    assert.strictEqual(row.command, 'npx -y zeta-mcp', 'the entry is kept whole');
+    const on = await post('/api/mcp/enable', JSON.stringify({ name: 'zeta', enabled: true }));
+    assert.strictEqual(on.code, 200);
+    assert.strictEqual(Object.prototype.hasOwnProperty.call(client.loadDownstream(), 'zeta'), true);
+    row = (await get('/api/mcp/servers')).data.active.find((x) => x.name === 'zeta');
+    assert.strictEqual(row.disabled, false);
+    const unknown = await post('/api/mcp/enable', JSON.stringify({ name: 'ghost', enabled: false }));
+    assert.strictEqual(unknown.code, 409); assert.strictEqual(unknown.data.reason, 'not_active');
+  });
+
+  await t('remove drops the entry and its note, and says not_active the second time', async () => {
+    const r = await post('/api/mcp/remove', JSON.stringify({ name: 'staged' }));
+    assert.strictEqual(r.code, 200, JSON.stringify(r.data));
+    const active = JSON.parse(fs.readFileSync(ACTIVE, 'utf8'));
+    assert.strictEqual(active.mcpServers.staged, undefined);
+    assert.strictEqual(active.notes.staged, undefined);
+    assert.ok(active.mcpServers.zeta, 'the others stay');
+    const again = await post('/api/mcp/remove', JSON.stringify({ name: 'staged' }));
+    assert.strictEqual(again.code, 409); assert.strictEqual(again.data.reason, 'not_active');
+  });
+
+  await t('the card carries the controls: check, on and off, remove, add', async () => {
+    const html = fs.readFileSync(path.join(REPO, 'proxy', 'ui', 'dashboard.html'), 'utf8');
+    for (const fn of ['probeMcpServer', 'toggleMcpServer', 'removeMcpServer', 'addMcpServer', 'mcpAction']) assert.ok(new RegExp('function ' + fn + '\\(').test(html), fn);
+    assert.ok(/id="mcp-add-config"/.test(html) && /id="mcp-add-name"/.test(html) && /id="mcp-add-note"/.test(html), 'the add form');
+    assert.ok(/\/api\/mcp\/probe/.test(html), 'the check asks the probe road');
   });
 
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch (_) {}

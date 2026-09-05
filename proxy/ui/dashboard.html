@@ -2948,6 +2948,13 @@ setInterval(function(){
       <div id="mcp-servers-active" style="margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--text-muted);line-height:2;">checking…</div>
       <div class="card-hint" style="margin-top:14px;color:var(--text-dim)">Waiting for your approval</div>
       <div id="mcp-servers-pending" style="font-family:var(--mono);font-size:11px;color:var(--text-muted);line-height:2;">…</div>
+      <div class="card-hint" style="margin-top:14px;color:var(--text-dim)">Add a server</div>
+      <div style="display:grid;grid-template-columns:160px 1fr;gap:8px;align-items:start;margin-top:6px">
+        <input id="mcp-add-name" placeholder="name (a-z, 0-9, - _)" style="font-family:var(--mono);font-size:11px;padding:6px 8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px">
+        <textarea id="mcp-add-config" rows="3" placeholder='{"command": "npx", "args": ["-y", "some-mcp"]}  or  {"type": "http", "url": "https://…/mcp"}' style="font-family:var(--mono);font-size:11px;padding:6px 8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px;resize:vertical"></textarea>
+        <input id="mcp-add-note" placeholder="what it is for" style="font-family:var(--mono);font-size:11px;padding:6px 8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:6px">
+        <div><button class="btn" style="padding:4px 12px;font-size:11px" onclick="addMcpServer()">Stage for approval</button> <span id="mcp-add-msg" style="font-size:11px;color:var(--text-dim);margin-left:8px"></span></div>
+      </div>
     </div>
 
   </div>
@@ -3157,7 +3164,9 @@ function applyOperatorMode() {
     }
     if (typeof setSettingsTab === 'function') {
       var sp = document.getElementById('page-settings');
-      if (sp && sp.classList.contains('active')) setSettingsTab('mcp');
+      // Only the gated tab is moved off; a tab the operator chose stays put
+      // across the status polls that re-run this.
+      if (sp && sp.classList.contains('active') && typeof _settingsTab !== 'undefined' && _settingsTab === 'machine') setSettingsTab('mcp');
     }
   }
 }
@@ -6900,8 +6909,21 @@ function loadMcpServers() {
     var scopeOf = function (s) { return s.scope === 'project' ? 'project · ' + (s.project || '') : 'general'; };
     act.innerHTML = (a.length
       ? a.map(function (s) {
-          return '<div><span style="color:var(--text)">' + esc(s.name) + '</span>  <span style="color:var(--text-dim)">' + esc(scopeOf(s)) + '</span>  <span style="color:var(--text-dim)">' + esc(s.transport || 'stdio') + '</span>  <span style="color:var(--text-dim)">' + esc(s.command || '') + '</span>'
-            + (s.note ? '<div style="color:var(--text-dim);padding-left:14px;line-height:1.6">' + esc(s.note) + '</div>' : '') + '</div>';
+          var nm = esc(s.name);
+          var off = s.disabled === true;
+          var controls = s.scope === 'project'
+            ? '<span style="color:var(--text-dim)">in the project file</span>'
+            : '<button class="btn" style="padding:2px 10px;font-size:11px" onclick="probeMcpServer(\'' + nm + '\')">Check</button>'
+              + ' <button class="btn" style="padding:2px 10px;font-size:11px" onclick="toggleMcpServer(\'' + nm + '\', ' + (off ? 'true' : 'false') + ')">' + (off ? 'Turn on' : 'Turn off') + '</button>'
+              + ' <button class="btn" style="padding:2px 10px;font-size:11px" onclick="removeMcpServer(\'' + nm + '\')">Remove</button>';
+          return '<div style="display:flex;flex-wrap:wrap;gap:0 12px;align-items:center">'
+            + '<span style="color:var(--text)' + (off ? ';opacity:.5' : '') + '">' + nm + (off ? ' (off)' : '') + '</span>'
+            + '<span style="color:var(--text-dim)">' + esc(scopeOf(s)) + '</span>'
+            + '<span style="color:var(--text-dim)">' + esc(s.transport || 'stdio') + '</span>'
+            + '<span style="color:var(--text-dim);word-break:break-all">' + esc(s.command || '') + '</span>'
+            + '<span id="mcp-state-' + nm + '" style="color:var(--text-dim)"></span>'
+            + '<span style="margin-left:auto">' + controls + '</span></div>'
+            + (s.note ? '<div style="color:var(--text-dim);padding-left:14px;line-height:1.6">' + esc(s.note) + '</div>' : '');
         }).join('')
       : '<div style="color:var(--text-dim)">none yet — when the agent needs a service it stages the server (mcp_register_request) and it appears below for your approval</div>')
       + (d && d.active_error ? '<div style="color:var(--text-dim)">registry: ' + esc(d.active_error) + '</div>' : '');
@@ -6914,6 +6936,64 @@ function loadMcpServers() {
         }).join('')
       : '<div style="color:var(--text-dim)">nothing waiting</div>';
   }).catch(function () { act.textContent = 'the proxy did not answer'; pend.textContent = ''; });
+}
+// One road for the operator's actions on a server: reject a staged one,
+// switch one off or on, remove one. The list is read again afterwards.
+function mcpAction(action, name, extra) {
+  var body = Object.assign({ name: name }, extra || {});
+  return fetch('/api/mcp/' + action, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!(d && d.ok)) toast('refused: ' + ((d && (d.detail || d.error || d.reason)) || 'unknown'));
+      loadMcpServers();
+      return d;
+    })
+    .catch(function () { toast('the proxy did not answer'); });
+}
+function removeMcpServer(name) {
+  if (!window.confirm('Remove "' + name + '" from the registry? The agent stops seeing it at once.')) return;
+  mcpAction('remove', name).then(function (d) { if (d && d.ok) toast('removed ' + name); });
+}
+function toggleMcpServer(name, enabled) {
+  mcpAction('enable', name, { enabled: !!enabled }).then(function (d) { if (d && d.ok) toast((enabled ? 'on: ' : 'off: ') + name); });
+}
+// A live check from the proxy: the server is started, asked for its tools,
+// and the answer is written into the row.
+function probeMcpServer(name) {
+  var slot = document.getElementById('mcp-state-' + name);
+  if (slot) slot.textContent = 'checking…';
+  fetch('/api/mcp/probe', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: name }) })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!slot) return;
+      var st = (d && d.state) || 'unreachable';
+      if (st === 'connected') { slot.style.color = 'var(--text)'; slot.textContent = 'connected · ' + ((d.tools || []).length) + ' tools'; }
+      else if (st === 'sign_in_needed') { slot.style.color = 'var(--text)'; slot.innerHTML = 'sign-in needed · <a href="' + String(d.url || '').replace(/"/g, '') + '" target="_blank" rel="noopener">open the sign-in page</a>'; }
+      else { slot.style.color = 'var(--text-dim)'; slot.textContent = st + (d && d.error ? ' · ' + String(d.error).slice(0, 160) : ''); }
+    })
+    .catch(function () { if (slot) slot.textContent = 'the proxy did not answer'; });
+}
+// The operator staging a server by hand: the same checks the agent's
+// request passes, then it waits below for the approval.
+function addMcpServer() {
+  var name = (document.getElementById('mcp-add-name').value || '').trim();
+  var raw = (document.getElementById('mcp-add-config').value || '').trim();
+  var note = (document.getElementById('mcp-add-note').value || '').trim();
+  var msg = document.getElementById('mcp-add-msg');
+  var config;
+  try { config = JSON.parse(raw); } catch (_) { msg.textContent = 'the config must be JSON: {"command": …} or {"type": "http", "url": …}'; return; }
+  if (config && config.mcpServers && typeof config.mcpServers === 'object') {
+    // A whole snippet pasted from a README: the one entry inside is the server.
+    var keys = Object.keys(config.mcpServers);
+    if (keys.length === 1) { if (!name) { name = keys[0]; document.getElementById('mcp-add-name').value = name; } config = config.mcpServers[keys[0]]; }
+  }
+  msg.textContent = 'staging…';
+  mcpAction('add', name, { config: config, note: note }).then(function (d) {
+    if (d && d.ok) {
+      msg.textContent = 'staged — approve it from your shell: troth mcp approve ' + name;
+      document.getElementById('mcp-add-name').value = ''; document.getElementById('mcp-add-config').value = ''; document.getElementById('mcp-add-note').value = '';
+    } else msg.textContent = (d && (d.detail || d.error)) || 'refused';
+  });
 }
 function rejectMcpServer(name) {
   fetch('/api/mcp/reject', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: name }) })

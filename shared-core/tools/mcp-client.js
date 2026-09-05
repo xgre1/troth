@@ -69,7 +69,12 @@ function _readServersFile(p) {
   if (!p || !fs.existsSync(p)) return {};
   try {
     const cfg = JSON.parse(fs.readFileSync(p, 'utf8'));
-    return (cfg && cfg.mcpServers && typeof cfg.mcpServers === 'object') ? cfg.mcpServers : {};
+    const servers = (cfg && cfg.mcpServers && typeof cfg.mcpServers === 'object') ? cfg.mcpServers : {};
+    // A server switched off by the operator stays in the file and out of
+    // the spawn road: the partner neither sees nor starts it.
+    const live = {};
+    for (const name of Object.keys(servers)) { const s = servers[name]; if (s && typeof s === 'object' && s.disabled === true) continue; live[name] = s; }
+    return live;
   } catch (_) { return {}; }
 }
 
@@ -302,6 +307,48 @@ function rejectPendingServer(name) {
   return { ok: true, name };
 }
 
+// Operator-side changes to the global registry. Each is one read, one
+// atomic write; the project files belong to their projects and are left
+// alone. A capability sealed for a removed server stays sealed: the name
+// resolves to nothing, so nothing can be called with it.
+function removeActiveServer(name) {
+  const p = _activeGlobalPath();
+  const obj = _readRegistryObject(p);
+  if (!obj.mcpServers || !obj.mcpServers[name]) return { ok: false, reason: 'not_active', name };
+  delete obj.mcpServers[name];
+  if (obj.notes) delete obj.notes[name];
+  _writeRegistryObjectAtomic(p, obj);
+  return { ok: true, name };
+}
+
+// Off keeps the entry with its note and takes it out of the spawn road;
+// on puts it back. The partner sees only what is on.
+function setActiveServerEnabled(name, enabled) {
+  const p = _activeGlobalPath();
+  const obj = _readRegistryObject(p);
+  const spec = obj.mcpServers && obj.mcpServers[name];
+  if (!spec || typeof spec !== 'object') return { ok: false, reason: 'not_active', name };
+  if (enabled) delete spec.disabled; else spec.disabled = true;
+  _writeRegistryObjectAtomic(p, obj);
+  return { ok: true, name, enabled: !!enabled };
+}
+
+// The operator staging a server from a surface of their own (dashboard,
+// app): the same checks the partner's request passes, the same parking
+// lot, the same approval afterwards.
+function stageServer(args) {
+  const name = args && typeof args.name === 'string' ? args.name.trim() : '';
+  if (!name || !args || !args.config || typeof args.config !== 'object') return { ok: false, error: 'bad_args', detail: 'name (string) + config (object) required' };
+  if (!PENDING_NAME_RE.test(name)) return { ok: false, error: 'bad_name', detail: 'name must match [a-z0-9_-]{1,64}' };
+  const norm = _normalizeRegisterConfig(args.config);
+  if (norm.error) return { ok: false, error: 'bad_config', detail: norm.error };
+  let active = {};
+  try { active = loadDownstream(null, null) || {}; } catch (_) { active = {}; }
+  if (Object.prototype.hasOwnProperty.call(active, name)) return { ok: false, error: 'already_active', detail: 'server "' + name + '" is already in the active registry' };
+  const r = stagePendingServer(name, norm.config, args.note ? String(args.note) : '');
+  return { ok: true, name, pending_path: r.path };
+}
+
 // Every server the partner can reach and where each comes from: the global
 // registry (scope 'general') and the .mcp.json of each project troth knows,
 // the workspace root's projects and the opened folders (scope 'project').
@@ -315,7 +362,7 @@ function listActiveServers(opts) {
     const transport = String(spec.type || spec.transport || (spec.url ? 'http' : 'stdio')).toLowerCase();
     const cmd = [spec.command].concat(Array.isArray(spec.args) ? spec.args : []).filter(Boolean).join(' ');
     const n = notes && notes[name] && notes[name].note;
-    rows.push({ name, transport, command: spec.url ? String(spec.url) : cmd, scope, project: dir ? path.basename(dir) : null, path: dir || null, note: n ? String(n) : null });
+    rows.push({ name, transport, command: spec.url ? String(spec.url) : cmd, scope, project: dir ? path.basename(dir) : null, path: dir || null, note: n ? String(n) : null, disabled: spec.disabled === true });
   };
   const servers = (obj) => (obj && obj.mcpServers && typeof obj.mcpServers === 'object') ? obj.mcpServers : {};
   const notes = (obj) => (obj && obj.notes && typeof obj.notes === 'object') ? obj.notes : null;
@@ -980,6 +1027,9 @@ module.exports = {
   approvePendingServer,
   rejectPendingServer,
   listActiveServers,
+  removeActiveServer,
+  setActiveServerEnabled,
+  stageServer,
   DEFAULT_PENDING_PATH,
   // Pure helpers - unit-testable without spawning a process.
   _toSpawnSpec,

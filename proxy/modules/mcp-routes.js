@@ -39,7 +39,8 @@ function owns(url) {
   // /api/mcp/install?client=cursor still is.
   if (typeof url !== "string") return false;
   const p = url.split("?")[0];
-  return p === "/api/mcp/status" || p === "/api/mcp/install" || p === "/api/mcp/probe" || p === "/api/mcp/servers" || p === "/api/mcp/reject";
+  const MINE = ["/api/mcp/status", "/api/mcp/install", "/api/mcp/probe", "/api/mcp/servers", "/api/mcp/reject", "/api/mcp/add", "/api/mcp/enable", "/api/mcp/remove"];
+  return MINE.indexOf(p) >= 0;
 }
 
 // Prefer the local checkout/bundle as the marketplace source: it always
@@ -82,7 +83,11 @@ function handle(req, res, url, deps) {
     return true;
   }
 
-  if (req.method === "POST" && url === "/api/mcp/reject") {
+  // The operator's own actions on the registry, from the dashboard or the
+  // app: reject a staged server, stage one, switch one off or on, remove
+  // one. Approval is not here: it signs with the operator key on the shell.
+  const ACTION = { "/api/mcp/reject": "reject", "/api/mcp/add": "add", "/api/mcp/enable": "enable", "/api/mcp/remove": "remove" }[url];
+  if (req.method === "POST" && ACTION) {
     if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: "unauthorized" }); return true; }
     let buf = "";
     req.on("data", (c) => { buf += c; });
@@ -93,8 +98,13 @@ function handle(req, res, url, deps) {
       if (!name) { jsonResponse(res, 400, { error: "name required" }); return; }
       try {
         const client = require(path.join(coreRoot(), "shared-core", "tools", "mcp-client.js"));
-        const r = client.rejectPendingServer(name);
-        jsonResponse(res, r && r.ok ? 200 : 409, Object.assign({ name }, r || { ok: false, reason: "unknown" }));
+        let r;
+        if (ACTION === "reject") r = client.rejectPendingServer(name);
+        else if (ACTION === "remove") r = client.removeActiveServer(name);
+        else if (ACTION === "enable") r = client.setActiveServerEnabled(name, body.enabled !== false);
+        else r = client.stageServer({ name, config: body.config, note: body.note });
+        const code = r && r.ok ? 200 : (r && r.reason ? 409 : 400);
+        jsonResponse(res, code, Object.assign({ name }, r || { ok: false, reason: "unknown" }));
       } catch (e) { jsonResponse(res, 500, { ok: false, name, error: String(e && e.message || e) }); }
     });
     return true;
