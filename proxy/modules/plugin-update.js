@@ -51,11 +51,10 @@ function versions(opts) {
 // usual places.
 function hostCommand(opts) {
   opts = opts || {};
-  const cp = require('child_process');
   try {
-    const r = cp.spawnSync('/bin/sh', ['-lc', 'command -v claude'], { encoding: 'utf8', timeout: 8000 });
-    const p = String(r.stdout || '').trim().split('\n')[0];
-    if (r.status === 0 && p && fs.existsSync(p)) return p;
+    const out = spawnPurpose.execFileSync('plugin-update', '/bin/sh', ['-lc', 'command -v claude'], { encoding: 'utf8', timeout: 8000 });
+    const p = String(out || '').trim().split('\n')[0];
+    if (p && fs.existsSync(p)) return p;
   } catch (_) {}
   const home = opts.home || process.env.HOME || os.homedir();
   for (const c of [path.join(home, '.local', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude']) {

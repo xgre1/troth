@@ -83,7 +83,7 @@ const REGISTRY = {
   "bin/runner.js": 29,
   "bin/sweep-commitments.js": 1,
   "bin/troth-body.js": 3,
-  "bin/troth-chat.js": 2,
+  "bin/troth-chat.js": 1,
   "bin/troth-pre-compact.js": 1,
   "bin/troth.js": 39
 };

@@ -43,6 +43,9 @@ const PURPOSES = {
   // asking for the context a prompt gets): argv is ours, the prompt travels
   // on stdin, the child is short-lived.
   'hook-context': { kind: 'trusted-plumbing' },
+  // The doctor asking each node on the PATH to load the database binding:
+  // argv is ours, the child is short-lived, its refusal is the finding.
+  'doctor': { kind: 'trusted-plumbing' },
   // The product's own CLI reading a folder of notes into the spool: argv is
   // ours (the path the operator named), detached, logged to the substrate
   // folder.

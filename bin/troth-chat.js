@@ -410,20 +410,21 @@ function banner() {
 
 function stripAnsi(s) { return String(s).replace(/\x1b\[[0-9;]*m/g, ''); }
 // A string cut to w visible characters with an ellipsis, colour codes kept
-// and closed: what a one-row status line needs to stay one row.
-function clampVisible(s, w) {
+// and closed (close: the code appended after the ellipsis): what a one-row
+// status line and every composer row need to stay one row.
+function clampVisible(s, w, close) {
   s = String(s == null ? '' : s);
   if (w <= 0) return '';
   if (stripAnsi(s).length <= w) return s;
   let out = '', vis = 0, i = 0;
   while (i < s.length && vis < w - 1) {
     if (s[i] === '\x1b') {
-      const m = /^\x1b\[[0-9;]*m/.exec(s.slice(i));
+      const m = s.slice(i).match(/^\x1b\[[0-9;]*m/);
       if (m) { out += m[0]; i += m[0].length; continue; }
     }
     out += s[i]; i++; vis++;
   }
-  return out + '…' + RESET;
+  return out + '…' + (close === undefined ? RESET : close);
 }
 
 // The reply's type: the partner's steel tone for text, brighter for what is
@@ -915,19 +916,7 @@ function start() {
     // Nothing the composer draws may wrap: a wrapped line costs a physical row
     // the block's arithmetic does not know about, and the erase comes up short.
     // Measured on visible characters — colour codes carry no width.
-    function fit(s, w) {
-      if (w <= 0) return '';
-      if (stripAnsi(s).length <= w) return s;
-      let out = '', vis = 0, i = 0;
-      while (i < s.length && vis < w - 1) {
-        if (s[i] === '\x1b') {
-          const m = /^\x1b\[[0-9;]*m/.exec(s.slice(i));
-          if (m) { out += m[0]; i += m[0].length; continue; }
-        }
-        out += s[i]; i++; vis++;
-      }
-      return out + '…' + (isTTY ? RESET : '');
-    }
+    function fit(s, w) { return clampVisible(s, w, isTTY ? RESET : ''); }
 
     // The meter under the composer: which engine is answering, what this
     // conversation has cost, and how warm the plan's rolling window is.

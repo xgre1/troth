@@ -121,23 +121,26 @@ function chatgptCheck(ctx) {
 // NODE_MODULE_VERSION message. Every node on the PATH is tried, so the
 // one a hook will meet is the one reported.
 function nodeAbiCheck(ctx) {
-  var cp = require('child_process');
+  // Every node on the PATH is asked to load the binding; each ask is a
+  // process of its own, so a refusal never takes the doctor down with it.
   var binding = path.join(ctx.repoRoot, 'node_modules', 'better-sqlite3');
   if (!fs.existsSync(binding)) return { name: 'Database binding', ok: false, detail: 'better-sqlite3 is not installed under this checkout: npm ci' };
   var nodes = [];
   try {
-    var w = cp.spawnSync('/bin/sh', ['-lc', 'which -a node'], { encoding: 'utf8', timeout: 8000 });
-    nodes = String(w.stdout || '').split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+    var w = spawnPurpose.execFileSync('doctor', '/bin/sh', ['-lc', 'which -a node'], { encoding: 'utf8', timeout: 8000, stdio: ['ignore', 'pipe', 'pipe'] });
+    nodes = String(w || '').split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
   } catch (_) { nodes = []; }
   if (nodes.indexOf(process.execPath) < 0) nodes.unshift(process.execPath);
   var seen = {}, bad = [], good = [];
   nodes.forEach(function (n) {
     var real = n; try { real = fs.realpathSync(n); } catch (_) {}
     if (seen[real]) return; seen[real] = true;
-    var r = cp.spawnSync(n, ['-e', 'require(process.argv[1]); process.stdout.write(process.versions.node)', binding], { encoding: 'utf8', timeout: 15000 });
-    var v = String(r.stdout || '').trim();
-    if (r.status === 0) { good.push('node ' + v + ' (' + n + ')'); return; }
-    var m = /NODE_MODULE_VERSION (\d+)[\s\S]*?requires NODE_MODULE_VERSION (\d+)/.exec(String(r.stderr || ''));
+    var v = '', status = 0, stderr = '';
+    try {
+      v = String(spawnPurpose.execFileSync('doctor', n, ['-e', 'require(process.argv[1]); process.stdout.write(process.versions.node)', binding], { encoding: 'utf8', timeout: 15000, stdio: ['ignore', 'pipe', 'pipe'] }) || '').trim();
+    } catch (e) { status = (e && typeof e.status === 'number') ? e.status : 1; stderr = String((e && e.stderr) || (e && e.message) || ''); }
+    if (status === 0) { good.push('node ' + v + ' (' + n + ')'); return; }
+    var m = /NODE_MODULE_VERSION (\d+)[\s\S]*?requires NODE_MODULE_VERSION (\d+)/.exec(stderr);
     bad.push((m ? 'built for ABI ' + m[1] + ', this node wants ' + m[2] : 'refuses to load') + ' (' + n + ')');
   });
   if (!bad.length) return { name: 'Database binding', ok: true, detail: 'loads under ' + good.join(', ') };
