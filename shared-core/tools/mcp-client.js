@@ -276,6 +276,14 @@ function approvePendingServer(name) {
   const active = _readRegistryObject(activePath);
   if (!active.mcpServers || typeof active.mcpServers !== 'object') active.mcpServers = {};
   active.mcpServers[name] = entry;
+  // The note travels with the entry: a sibling map the spawn road never
+  // reads (_readServersFile takes mcpServers only), so the dashboard can say
+  // what a server is for without the spec carrying foreign keys.
+  const staged = pending.notes && pending.notes[name];
+  if (staged && staged.note) {
+    if (!active.notes || typeof active.notes !== 'object') active.notes = {};
+    active.notes[name] = { note: String(staged.note), requested_at: staged.requested_at || null, approved_at: Date.now() };
+  }
   _writeRegistryObjectAtomic(activePath, active);
   delete pending.mcpServers[name];
   if (pending.notes) delete pending.notes[name];
@@ -292,6 +300,47 @@ function rejectPendingServer(name) {
   if (pending.notes) delete pending.notes[name];
   _writeRegistryObjectAtomic(pendingPath, pending);
   return { ok: true, name };
+}
+
+// Every server the partner can reach and where each comes from: the global
+// registry (scope 'general') and the .mcp.json of each project troth knows,
+// the workspace root's projects and the opened folders (scope 'project').
+// A project entry sharing a name with a general one wins inside that project
+// (loadDownstream); both are listed so the operator sees the shadowing. The
+// note is the sibling notes map that approve writes next to mcpServers.
+function listActiveServers(opts) {
+  const rows = [];
+  const push = (name, spec, scope, dir, notes) => {
+    spec = spec || {};
+    const transport = String(spec.type || spec.transport || (spec.url ? 'http' : 'stdio')).toLowerCase();
+    const cmd = [spec.command].concat(Array.isArray(spec.args) ? spec.args : []).filter(Boolean).join(' ');
+    const n = notes && notes[name] && notes[name].note;
+    rows.push({ name, transport, command: spec.url ? String(spec.url) : cmd, scope, project: dir ? path.basename(dir) : null, path: dir || null, note: n ? String(n) : null });
+  };
+  const servers = (obj) => (obj && obj.mcpServers && typeof obj.mcpServers === 'object') ? obj.mcpServers : {};
+  const notes = (obj) => (obj && obj.notes && typeof obj.notes === 'object') ? obj.notes : null;
+  const globalPath = (opts && opts.configPath) || process.env.TROTH_MCP_CLIENTS_CONFIG || DEFAULT_CONFIG_PATH;
+  const g = _readRegistryObject(globalPath);
+  for (const name of Object.keys(servers(g)).sort()) push(name, servers(g)[name], 'general', null, notes(g));
+  let dirs = [];
+  if (opts && Array.isArray(opts.projects)) dirs = opts.projects.slice();
+  else {
+    try {
+      const gp = require('./ground-policy.js');
+      const root = gp.workspaceRoot();
+      try { for (const d of fs.readdirSync(root)) dirs.push(path.join(root, d)); } catch (_) {}
+      try { for (const d of gp.openedFolders()) dirs.push(d); } catch (_) {}
+    } catch (_) {}
+  }
+  const seen = new Set();
+  for (const dir of dirs.sort()) {
+    if (!dir || seen.has(dir)) continue;
+    seen.add(dir);
+    let obj;
+    try { obj = _readRegistryObject(path.join(dir, PROJECT_CONFIG_BASENAME)); } catch (_) { continue; }
+    for (const name of Object.keys(servers(obj)).sort()) push(name, servers(obj)[name], 'project', dir, notes(obj));
+  }
+  return rows;
 }
 
 // Translate a downstream spec into a concrete stdio spawn spec:
@@ -930,6 +979,7 @@ module.exports = {
   listPendingServers,
   approvePendingServer,
   rejectPendingServer,
+  listActiveServers,
   DEFAULT_PENDING_PATH,
   // Pure helpers - unit-testable without spawning a process.
   _toSpawnSpec,

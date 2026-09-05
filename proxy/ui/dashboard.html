@@ -2718,6 +2718,7 @@ setInterval(function(){
     <button data-stab="machine" class="active" onclick="setSettingsTab('machine')">This machine</button>
     <button data-stab="behaviour" onclick="setSettingsTab('behaviour')">Behaviour</button>
     <button data-stab="connections" onclick="setSettingsTab('connections')">Connections</button>
+    <button data-stab="integrations" onclick="setSettingsTab('integrations')">Integrations</button>
     <button data-stab="security" onclick="setSettingsTab('security')">Security</button>
   </div>
 
@@ -2941,7 +2942,7 @@ setInterval(function(){
       </div>
     </div>
 
-    <div class="settings-card full-width" data-settings-tab="mcp">
+    <div class="settings-card full-width" data-settings-tab="integrations">
       <div class="card-title">MCP servers troth reaches</div>
       <div class="card-hint">The servers the agent can call through <code>mcp_call</code>. Each starts on its first call and stays up for the session. A server the agent asked for waits here until you approve it from your shell (approval signs with your operator key): <code>troth mcp approve &lt;name&gt;</code>.</div>
       <div id="mcp-servers-active" style="margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--text-muted);line-height:2;">checking…</div>
@@ -6784,11 +6785,11 @@ function applyProvidersVisibility() {
 // sectioned, in document order: Settings is three rooms behind one door, and
 // the strapline is the navigation. Card names (backend/network/…) deep-link
 // into their room.
-var SETTINGS_TAB_GROUPS = { backend: 'machine', network: 'machine', telemetry: 'machine', mindset: 'behaviour', modules: 'behaviour', mcp: 'connections', security: 'security' };
+var SETTINGS_TAB_GROUPS = { backend: 'machine', network: 'machine', telemetry: 'machine', mindset: 'behaviour', modules: 'behaviour', mcp: 'connections', integrations: 'integrations', security: 'security' };
 var _settingsTab = 'machine';
 function setSettingsTab(name) {
   var group = name ? (SETTINGS_TAB_GROUPS[name] || name) : _settingsTab;
-  if (!/^(machine|behaviour|connections|security)$/.test(group)) group = 'machine';
+  if (!/^(machine|behaviour|connections|integrations|security)$/.test(group)) group = 'machine';
   _settingsTab = group;
   [].forEach.call(document.querySelectorAll('#page-settings [data-settings-tab]'), function (c) {
     var g = SETTINGS_TAB_GROUPS[c.dataset.settingsTab] || 'machine';
@@ -6799,6 +6800,7 @@ function setSettingsTab(name) {
   });
   if (group === 'connections' && typeof loadMcpStatus === 'function') loadMcpStatus();
   if (group === 'connections' && typeof loadBrowserStatus === 'function') loadBrowserStatus();
+  if (group === 'integrations' && typeof loadMcpServers === 'function') loadMcpServers();
 }
 // The passphrase is never held in a variable longer than the request: the
 // fields are cleared on every outcome, success or failure.
@@ -6895,9 +6897,14 @@ function loadMcpServers() {
   fetch('/api/mcp/servers').then(function (r) { return r.json(); }).then(function (d) {
     var a = (d && d.active) || [];
     var p = (d && d.pending) || [];
-    act.innerHTML = a.length
-      ? a.map(function (s) { return '<div><span style="color:var(--text)">' + esc(s.name) + '</span>  <span style="color:var(--text-dim)">' + esc(s.transport || 'stdio') + '</span>  <span style="color:var(--text-dim)">' + esc(s.command || '') + '</span></div>'; }).join('')
-      : '<div style="color:var(--text-dim)">none added yet — the agent asks for one with mcp_register_request, or you stage one with <code>troth mcp add</code></div>';
+    var scopeOf = function (s) { return s.scope === 'project' ? 'project · ' + (s.project || '') : 'general'; };
+    act.innerHTML = (a.length
+      ? a.map(function (s) {
+          return '<div><span style="color:var(--text)">' + esc(s.name) + '</span>  <span style="color:var(--text-dim)">' + esc(scopeOf(s)) + '</span>  <span style="color:var(--text-dim)">' + esc(s.transport || 'stdio') + '</span>  <span style="color:var(--text-dim)">' + esc(s.command || '') + '</span>'
+            + (s.note ? '<div style="color:var(--text-dim);padding-left:14px;line-height:1.6">' + esc(s.note) + '</div>' : '') + '</div>';
+        }).join('')
+      : '<div style="color:var(--text-dim)">none yet — when the agent needs a service it stages the server (mcp_register_request) and it appears below for your approval</div>')
+      + (d && d.active_error ? '<div style="color:var(--text-dim)">registry: ' + esc(d.active_error) + '</div>' : '');
     pend.innerHTML = p.length
       ? p.map(function (s) {
           var cmd = 'troth mcp approve ' + s.name;
@@ -6915,7 +6922,6 @@ function rejectMcpServer(name) {
     .catch(function () { toast('the proxy did not answer'); });
 }
 function loadMcpStatus(includeTccId) {
-  try { loadMcpServers(); } catch (_) {}
   var dot = document.getElementById('mcp-status-dot');
   var txt = document.getElementById('mcp-status-text');
   if (!txt) return;

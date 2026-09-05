@@ -73,14 +73,7 @@ function handle(req, res, url, deps) {
     const out = { active: [], pending: [] };
     try {
       const client = require(path.join(coreRoot(), "shared-core", "tools", "mcp-client.js"));
-      let down = {};
-      try { down = client.loadDownstream() || {}; } catch (e) { out.active_error = String(e && e.message || e); }
-      out.active = Object.keys(down).sort().map((name) => {
-        const s = down[name] || {};
-        const cmd = [s.command].concat(Array.isArray(s.args) ? s.args : []).filter(Boolean).join(" ");
-        const transport = String(s.type || s.transport || (s.url ? "http" : "stdio")).toLowerCase();
-        return { name, transport, command: s.url ? String(s.url) : cmd };
-      });
+      try { out.active = client.listActiveServers(); } catch (e) { out.active_error = String(e && e.message || e); }
       try {
         out.pending = (client.listPendingServers() || []).map((r) => ({ name: r.name, transport: r.transport || null, note: r.note || null, requested_at: r.requested_at || null }));
       } catch (e) { out.pending_error = String(e && e.message || e); }
