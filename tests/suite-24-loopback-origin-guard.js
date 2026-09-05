@@ -98,18 +98,23 @@ test('CSRF-4: a bearer token still authorises deliberate remote access', () => {
 // settings.json runs a command on every tool use. It sat outside
 // BLOCKED_PREFIXES until  while ~/.zshenv was blocked for the same
 // reason, and bin/troth.js proves the file is a real write target.
-test('PATHPOL-1: agent-host config is not partner-writable', () => {
+test('PATHPOL-1: agent-host code is not partner-writable, agent-host configuration is', () => {
   const { isWritablePath, BLOCKED_PREFIXES } = require('../shared-core/tools/path-policy.js');
   // Ask the policy which HOME it expanded rather than the environment: other
   // suites move process.env.HOME after this module has already captured it,
   // and a test that disagrees with the code it checks proves nothing.
   const H = BLOCKED_PREFIXES.find((b) => b.name === 'ssh_dir').prefix.replace(/\/\.ssh\/$/, '');
-  for (const rel of ['/.claude/settings.json', '/.claude/settings.local.json',
-                     '/.claude/hooks/x.sh', '/.claude/plugins/p/index.js',
-                     '/.claude/agents/a.md']) {
+  // Code the host executes stays closed: hook scripts and the plugin root.
+  for (const rel of ['/.claude/hooks/x.sh', '/.claude/plugins/p/index.js']) {
     const r = isWritablePath(H + rel);
     assert.strictEqual(r.allowed, false, rel + ' must be refused');
     assert.strictEqual(r.reason, 'blocked_system_path', rel + ' must be refused as a system path');
+  }
+  // The operator's own configuration is ordinary partner work: the settings
+  // (and the permissions in them) and the subagent definitions.
+  for (const rel of ['/.claude/settings.json', '/.claude/settings.local.json', '/.claude/agents/a.md']) {
+    const r = isWritablePath(H + rel);
+    assert.strictEqual(r.allowed, true, rel + ' is the operator\'s configuration and stays open: ' + JSON.stringify(r));
   }
 });
 

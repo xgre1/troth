@@ -166,7 +166,9 @@ test('TPW-7: hashline_edit refuses a protected destination before touching disk'
   // The child inherits process.env as it stands right now, so its own
   // path-policy will expand ~ to exactly this HOME.
   const childHome = process.env.HOME || os.homedir();
-  const hooks   = path.join(childHome, '.claude', 'settings.json');
+  // Hook scripts are code the host executes: the one agent-host path that
+  // stays closed to every partner tool (its configuration is open).
+  const hooks   = path.join(childHome, '.claude', 'hooks', 'x.mjs');
   const scratch = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'tpw-'));
   const benign  = path.join(scratch, 'benign.js');
   fs.writeFileSync(benign, 'const a = 1;\nconst b = 2;\n');
@@ -182,7 +184,7 @@ test('TPW-7: hashline_edit refuses a protected destination before touching disk'
 
     const blockedReply = await c.call('hashline_edit', { file_path: hooks, edits });
     assert.ok(/blocked_destination/.test(blockedReply),
-      'agent-host settings not refused: ' + blockedReply.slice(0, 200));
+      'agent-host hook script not refused: ' + blockedReply.slice(0, 200));
 
     // A symlink inside a permitted directory pointing at a protected file:
     // the shape a name-only check cannot see.

@@ -90,6 +90,13 @@ const BLOCKED_PREFIXES = Object.freeze([
   // on mcp-clients.json does not catch mcp-pending.json (different basename,
   // and prefix rules match from index 0). Pinned both ways by suite-18.
   { name: 'l4_config',          prefix: _expandHome('~/.troth/config.json'), why: 'L4 master config — operator-only' },
+  // Two more files of the substrate tree that decide what runs next: the
+  // proxy's own command line (what the service manager starts) and the
+  // profiles every wall is built from. The rest of the tree is written by
+  // troth's own tools; a stray file there changes nothing, so it is not
+  // refused (mcp-pending.json is even the partner's own staging file).
+  { name: 'troth_bin',          prefix: _expandHome('~/.troth/bin/'), why: 'the proxy\'s own command line — what the service manager starts' },
+  { name: 'sandbox_profiles',   prefix: _expandHome('~/.troth/sandbox-profiles/'), why: 'the profiles every wall is built from' },
   // The registry naming which of the operator's own folders the partner may
   // work in bare. A partner-written entry widens the partner's own walls, so
   // it belongs beside the other policy files: the operator adds a folder
@@ -128,17 +135,16 @@ const BLOCKED_PREFIXES = Object.freeze([
   { name: 'shell_zprofile',     prefix: _expandHome('~/.zprofile'),   why: 'shell init (zsh login) — persistence-implant anchor' },
   { name: 'shell_zlogin',       prefix: _expandHome('~/.zlogin'),     why: 'shell init (zsh login, post-rc) — persistence-implant anchor' },
   { name: 'shell_bash_login',   prefix: _expandHome('~/.bash_login'), why: 'shell init (bash login fallback) — persistence-implant anchor' },
-  // Agent-host config carries the same weight as a shell rc file: a hook
-  // entry in settings.json runs an arbitrary command on every tool use, so a
-  // single write buys persistent execution by exactly the reasoning that
-  // blocks ~/.zshenv above. The setup wizard still writes these, but it does
-  // so through the CLI after asking the operator, not through this layer.
-  { name: 'agent_host_settings',      prefix: _expandHome('~/.claude/settings.json'),        why: 'agent-host hooks — a hook entry executes an arbitrary command on every tool use' },
-  { name: 'agent_host_settings_tmp',  prefix: _expandHome('~/.claude/settings.json.tmp'),    why: 'agent-host hooks (atomic-write target)' },
-  { name: 'agent_host_settings_local', prefix: _expandHome('~/.claude/settings.local.json'), why: 'agent-host hooks (local override) — same execution reach' },
+  // Agent-host CODE carries the same weight as a shell rc file: hook scripts
+  // and plugin code are executed by the host, so a write there buys
+  // persistent execution by exactly the reasoning that blocks ~/.zshenv
+  // above. Host CONFIGURATION (settings.json, the permissions in it, the
+  // subagent definitions) is the operator's own, and changing it on the
+  // operator's word is ordinary partner work: it stays open. Plugin code
+  // changes through the host's own updater (`claude plugin update`), which
+  // runs as a command and never writes here by hand.
   { name: 'agent_host_hooks',         prefix: _expandHome('~/.claude/hooks/'),               why: 'agent-host hook scripts — written here, executed by the host' },
-  { name: 'agent_host_plugins',       prefix: _expandHome('~/.claude/plugins/'),             why: 'agent-host plugin install root — a plugin is code the host loads' },
-  { name: 'agent_host_agents',        prefix: _expandHome('~/.claude/agents/'),              why: 'agent-host subagent definitions — instructions the host executes unprompted' },
+  { name: 'agent_host_plugins',       prefix: _expandHome('~/.claude/plugins/'),             why: 'agent-host plugin install root — a plugin is code the host loads; it changes through `claude plugin update`' },
   // Whole fish startup tree: config.fish + conf.d/*.fish are ALL auto-sourced
   // at fish startup (we ship a conf.d drop-in ourselves — same reachability
   // proof as .zshenv).

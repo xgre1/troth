@@ -306,7 +306,12 @@ test('SBG-11: every startup file walled here is also walled on the tool road', (
   // resolve HOME at different moments by design, so an absolute comparison
   // measures when a module was required rather than what it covers.
   const blocked = policy.BLOCKED_PREFIXES.map((e) => e.prefix.replace(/\/$/, ''));
-  for (const rel of sb.PERSISTENCE_RELATIVE) {
+  // The agent-host CONFIGURATION (settings, subagent definitions) is walled
+  // in the kernel for code that runs walled (an install, the workspace) and
+  // open on the tool road, where the partner changes it on the operator's
+  // word; hook scripts and the plugin root stay closed on both.
+  const configuration = new Set(['.claude/settings.json', '.claude/settings.local.json', '.claude/agents']);
+  for (const rel of sb.PERSISTENCE_RELATIVE.filter((r) => !configuration.has(r))) {
     // A covering entry may name the file itself or a directory above it —
     // ~/.ssh/ already refuses every write beneath it, and a second spelling
     // of the same refusal would only give the two roads a reason to drift.
