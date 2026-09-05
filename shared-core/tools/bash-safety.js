@@ -57,7 +57,10 @@ const DANGEROUS_PATTERNS = Object.freeze([
   },
   {
     name: 'shutdown_or_reboot',
-    pattern: /\b(?:shutdown|reboot|halt|poweroff)\b(?!\s+--help)/,
+    // Matched only where a command begins (the start, after ; & | ( or a
+    // newline, or after sudo/exec): the same words inside a grep pattern,
+    // an echo or a commit message are text, and text is never refused.
+    pattern: /(?:^|[;&|(\n]\s*|\bsudo\s+(?:-\S+\s+)*|\bexec\s+)(?:shutdown|reboot|halt|poweroff)\b(?!\s+--help)/,
     why: 'shutdown/reboot is operator-deliberate; the autonomous partner has no business issuing it'
   },
   {
@@ -227,6 +230,18 @@ function _asPath(token) {
   return null;                                 // relative: not our business
 }
 
+// The same answer for a redirection target, with a relative name resolved
+// against the directory the command runs in when the caller names one.
+// Flags and unresolved variables stay out, as in _asPath.
+function _asPathFrom(token, cwd) {
+  const direct = _asPath(token);
+  if (direct) return direct;
+  if (!cwd || typeof cwd !== 'string') return null;
+  let t = String(token || '').replace(/^[A-Za-z_][A-Za-z0-9_]*=/, '');
+  if (!t || /\$/.test(t) || /^-/.test(t) || /^[|;&<>()]/.test(t)) return null;
+  return _fsPath.resolve(cwd, t);
+}
+
 // A leading backslash disables alias lookup and is otherwise a no-op, so
 // `\cp` runs cp. Matching on the raw token let one character hide every
 // write verb. Strip the escape before deciding what a token names.
@@ -304,7 +319,7 @@ function _segments(tokens) {
 // Every path the command points at, tagged with why we care. A path that is
 // merely READ is harmless on its own; it matters when the same segment can
 // also send it somewhere.
-function _reachedPaths(command) {
+function _reachedPaths(command, opts) {
   const found = [];
   for (const seg of _segments(_tokenize(command))) {
     const tokens = seg.tokens;
@@ -336,7 +351,10 @@ function _reachedPaths(command) {
       if (tok === '>' || tok === '>>') {
         let k = i + 1;
         while (tokens[k] === '|') k++;
-        const p = _asPath(tokens[k]);
+        // A relative target is resolved against the directory the command
+        // runs in when the caller names it: `echo x > landed.txt` inside the
+        // substrate tree reaches the same file as the absolute spelling.
+        const p = _asPathFrom(tokens[k], opts && opts.cwd);
         if (p) found.push({ path: p, how: 'write' });
         i = k;
         continue;
@@ -410,12 +428,43 @@ function _reachedPaths(command) {
       }
     }
   }
+  // Code handed to an interpreter on the command line (node -e, python -c,
+  // sh -c, osascript -e …) reaches whatever path it names as surely as a
+  // redirection does, and on the operator's open ground no kernel wall
+  // stands behind the tool road. Every absolute or home-relative path
+  // literal inside such code is a destination this road answers for.
+  for (const seg of _segments(_tokenize(command))) {
+    for (const p of _interpreterLiteralPaths(seg.tokens)) found.push({ path: p, how: 'write' });
+  }
   return found;
 }
 
-function _checkReachedPaths(command) {
+const _INTERPRETER_VERBS = /^(?:node|nodejs|deno|bun|python[0-9.]*|ruby|perl|php|osascript|bash|sh|zsh|dash|ksh)$/;
+const _INLINE_CODE_FLAGS = /^(?:-e|--eval|-p|--print|-c|-r|-E|eval)$/;
+const _PATH_LITERAL = /(?:~|\$\{?HOME\}?)\/[^\s'"`)\]};,]+|\/(?:Users|home|root|etc|private|Library|var|opt|usr)\/[^\s'"`)\]};,]+/g;
+
+function _interpreterLiteralPaths(tokens) {
+  const out = [];
+  if (!Array.isArray(tokens) || !tokens.length) return out;
+  const v = _verb(tokens[0]);
+  if (!_INTERPRETER_VERBS.test(v)) return out;
+  let inline = false;
+  for (let i = 1; i < tokens.length; i++) {
+    const t = String(tokens[i] || '');
+    if (_INLINE_CODE_FLAGS.test(t)) { inline = true; continue; }
+    if (!inline) continue;
+    const seen = t.match(_PATH_LITERAL) || [];
+    for (const lit of seen) {
+      const p = _asPath(lit.replace(/^\$\{?HOME\}?/, '$HOME').replace(/\\+$/, ''));
+      if (p) out.push(p);
+    }
+  }
+  return out;
+}
+
+function _checkReachedPaths(command, ctx) {
   let reached;
-  try { reached = _reachedPaths(command); }
+  try { reached = _reachedPaths(command, { cwd: ctx && ctx.cwd }); }
   catch (_) { return null; }            // a scanner bug must not block work
   for (const hit of reached) {
     let verdict;
@@ -450,7 +499,7 @@ function _checkReachedPaths(command) {
         ? 'this command can send ' + hit.path + ' off the machine: ' + verdict.detail
         : hit.how === 'read'
           ? 'reading ' + hit.path + ' is refused: ' + verdict.detail
-          : verdict.detail
+          : hit.path + ' is refused: ' + verdict.detail
     };
   }
   return null;
@@ -665,7 +714,7 @@ function isCommandSafe(command, ctx) {
   // Layer 3 — resolved destinations. Runs after the text patterns so their
   // named verdicts keep precedence on the shapes they already own, and
   // catches the same acts written in a spelling no pattern anticipated.
-  const reached = _checkReachedPaths(orders);
+  const reached = _checkReachedPaths(orders, ctx);
   if (reached) return reached;
 
   // Layer 4 — egress. Last, so the named verdicts above keep precedence: a
