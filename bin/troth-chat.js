@@ -974,9 +974,29 @@ function start() {
       lastLeadRows = leadRows;
       lastLeadLen = spinnerLead ? stripAnsi(fit(pad + spinnerLead, termWidth() - 1)).length : 0;
       lastDetailLen = (spinnerLead && spinnerDetail) ? stripAnsi(fit(pad + '  ' + spinnerDetail, termWidth() - 1)).length : 0;
+      // The panel never grows past the screen: text taller than the room is
+      // shown through a window that ends at the caret, and a marker row counts
+      // what lies outside it. A panel whose top scrolled into the terminal's
+      // history could not be erased on the next frame.
+      const screenRows = process.stdout.rows || 24;
+      const roomText = Math.max(1, screenRows - leadRows - 4);
+      const cRowAbs = cursor === 0 ? 0 : Math.floor((cursor - 1) / textW);
+      let winStart = 0, winEnd = rows.length;
+      if (rows.length > roomText) {
+        const cap = Math.max(1, roomText - 2);
+        winStart = Math.max(0, Math.min(cRowAbs - cap + 1, rows.length - cap));
+        winEnd = Math.min(rows.length, winStart + cap);
+      }
+      const above = winStart, below = rows.length - winEnd;
+      const marker = (n, where) => color(DIM, '… ' + n + ' more line' + (n === 1 ? '' : 's') + ' ' + where);
+      const drawn = [];
+      if (above > 0) drawn.push({ text: marker(above, 'above') });
+      for (let i = winStart; i < winEnd; i++) drawn.push({ text: rows[i] });
+      if (below > 0) drawn.push({ text: marker(below, 'below') });
       process.stdout.write(pad + color(DIM, '╭' + '─'.repeat(outer - 2) + '╮') + '\n');
-      for (const r of rows) {
-        process.stdout.write(pad + bar + ' ' + r + ' '.repeat(Math.max(0, textW - r.length)) + ' ' + bar + '\n');
+      for (const d of drawn) {
+        const vis = stripAnsi(d.text).length;
+        process.stdout.write(pad + bar + ' ' + d.text + ' '.repeat(Math.max(0, textW - vis)) + ' ' + bar + '\n');
       }
       process.stdout.write(pad + color(DIM, '╰' + '─'.repeat(outer - 2) + '╯') + '\n');
       // Choices sit under the panel and above the meter, drawn here rather than
@@ -988,7 +1008,7 @@ function start() {
       // selection, so arrowing past the edge scrolls the list, not the screen.
       let menuRows = 0;
       if (menuActive && menuItems.length) {
-        const room = Math.max(3, (process.stdout.rows || 24) - rows.length - 8);
+        const room = Math.max(3, (process.stdout.rows || 24) - drawn.length - 8);
         const cap  = Math.min(8, room, menuItems.length);
         const half = Math.floor(cap / 2);
         const start = Math.min(Math.max(0, menuSel - half), Math.max(0, menuItems.length - cap));
@@ -1026,7 +1046,7 @@ function start() {
       // Flush with the panel's own left edge: an extra space reads as a line
       // that has come loose from the box.
       process.stdout.write(fit(pad + meterText(), termWidth() - 1));
-      lastInputRows = leadRows + rows.length + 3 + menuRows;
+      lastInputRows = leadRows + drawn.length + 3 + menuRows;
       lastDrawW = termWidth();
 
       // Put the cursor back on the text row it belongs to. Row 0 is the top
@@ -1035,10 +1055,10 @@ function start() {
       let cRow, cCol;
       if (cursor === 0) { cRow = 0; cCol = 0; }
       else {
-        cRow = Math.floor((cursor - 1) / textW);
+        cRow = cRowAbs - winStart + (above > 0 ? 1 : 0);
         cCol = ((cursor - 1) % textW) + 1;
       }
-      const up = rows.length + 1 + menuRows - cRow;
+      const up = drawn.length + 1 + menuRows - cRow;
       if (up > 0) process.stdout.write('\x1b[' + up + 'A');
       lastCursorRow = leadRows + cRow + 1;
       lastCursorCol = BOX_MARGIN + 2 + cCol;

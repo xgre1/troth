@@ -80,12 +80,21 @@ function dockerUp() {
 const files = discover().sort();
 const needsDocker = new Set(['tests/host/host-seam.test.js']);
 const haveDocker = dockerUp();
+// The screen tests drive the chat in a real terminal; without tmux they are
+// reported as skipped, never as passed.
+const needsTmux = new Set(['tests/cli-screen.test.js']);
+const haveTmux = (() => { try { return spawnSync('tmux', ['-V'], { encoding: 'utf8', timeout: 5000 }).status === 0; } catch (_) { return false; } })();
 
 let pass = 0, fail = 0, skip = 0;
 const failed = [];
 for (const f of files) {
   if (needsDocker.has(f) && !haveDocker) {
     console.log('  ○ SKIP ' + f + ' (needs a running Docker daemon)');
+    skip++;
+    continue;
+  }
+  if (needsTmux.has(f) && !haveTmux) {
+    console.log('  ○ SKIP ' + f + ' (needs tmux for a real terminal)');
     skip++;
     continue;
   }
