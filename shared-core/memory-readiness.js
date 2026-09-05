@@ -226,7 +226,24 @@ function readiness() {
     out.indexing.pending_chats = 0;
   } catch (_) { /* fresh db */ }
 
+  out.summary = summarize(out);
   return out;
 }
 
-module.exports = { readiness };
+// One short line for a header or a status row: the stage and how much is
+// left, as numbers. The reasons above keep the full wording; this is the
+// same truth in the width of a banner.
+function summarize(out) {
+  const n = (v) => Number(v || 0).toLocaleString('en-US');
+  const ix = out.indexing || {};
+  let s;
+  if (out.stage === 'unavailable') s = 'memory: word matching only';
+  else if (out.stage === 'engine_downloading') s = 'memory engine downloading ' + Math.round(((out.embedder || {}).progress || 0) * 100) + '%';
+  else if (out.stage === 'indexing') s = 'memory indexing · ' + n(ix.recall_missing) + ' left of ' + n(ix.recall_total);
+  else s = 'memory ready · ' + n(ix.recall_total) + ' indexed';
+  if (out.paused && out.paused.paused) s += ' · paused by you';
+  else if (out.stage === 'indexing' && out.drain && !out.drain.alive) s += ' · no worker running';
+  return s;
+}
+
+module.exports = { readiness, summarize };

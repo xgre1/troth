@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Chat header: three rows beside a smaller mark, with the version, the engine
+  lane and the folder, and the memory state as numbers (indexed, left to
+  index, engine downloading, paused).
+- Chat: the lines a `/mcps` action prints are set off with a blank line before
+  and after, like a reply.
 - Chat: `/mcps` is a pick list. The servers troth reaches are rows (scope,
   transport, note, switched off); picking one offers Check, Switch off or on,
   and Remove (with a confirmation), each answered on one line from the

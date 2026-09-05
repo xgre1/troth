@@ -110,8 +110,8 @@ test('PAUSE-5: every surface that reports the drain knows about the pause', () =
   assert.ok(/paused by you/.test(block), 'and names a pause as a pause, not a stall: ' + block.slice(-260));
 
   const chat = fs.readFileSync(path.join(ROOT, 'bin', 'troth-chat.js'), 'utf8');
-  assert.ok(/readiness\(\)/.test(chat) && /reasons/.test(chat),
-    'the REPL banner renders readiness reasons rather than re-deriving a verdict of its own');
+  assert.ok(/readiness\(\)/.test(chat) && /\.summary\b/.test(chat),
+    'the REPL banner renders the readiness summary rather than re-deriving a verdict of its own');
 });
 
 test('QUEUE-1: the queue is searchable by the file AND by what was being asked', () => {

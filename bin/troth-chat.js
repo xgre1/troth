@@ -326,71 +326,49 @@ const WORDMARK = [
   ' ▀  ▀ ▀ ▀▀▀  ▀  ▀ ▀'
 ];
 
-// Banner-size mascot, sampled from the analytic geometry (see the brand source)
-// rather than drawn by hand. Half-blocks, two pixel rows per cell — the medium
-// the full sprite uses. Width 18 is the smallest sampling that keeps the ears,
-// the eyes and the spread of the wings.
-const MASCOT = {
-  open: [
-    '     █      █',
-    '    ▄█▄▄▄▄▄▄█▄',
-    '    █▀▀▀██▀▀▀█',
-    '  ▄▄█   ██   █▄▄',
-    ' ████████████████',
-    '   ▀█▀ ▀▀▀▀ ▀█▀'
-  ],
-  narrow: [
-    '     █      █',
-    '    ▄█▄▄▄▄▄▄█▄',
-    '    ██████████',
-    '  ▄▄█▄▄▄██▄▄▄█▄▄',
-    ' ████████████████',
-    '   ▀█▀ ▀▀▀▀ ▀█▀'
-  ],
-  happy: [
-    '     █      █',
-    '    ▄█▄▄▄▄▄▄█▄',
-    '    █▀▀████▀▀█',
-    '  ▄▄█▄█▄██▄█▄█▄▄',
-    ' ████████████████',
-    '   ▀█▀ ▀▀▀▀ ▀█▀'
-  ]
-};
-MASCOT.closed = MASCOT.narrow;   // at this sampling the two land on the same cells
-const MASCOT_W = 18;
+// The mark at banner size: three rows, a hand reduction of the 18-wide
+// sampling that keeps the ears, the eyes and the spread of the wings.
+// Half-blocks, two pixel rows per cell, one flat tone.
+const MASCOT = [
+  '  ▄█▄▄▄▄▄▄█▄',
+  '  █▀▀▀██▀▀▀█',
+  '▄▄█▄▄▄▄▄▄▄▄█▄▄'
+];
+const MASCOT_W = 14;
 
-function banner() {
-  const model = activeModel();
-  // Memory readiness is core-authored wording (memory-readiness.js — the same
-  // truth the app and the dashboard render). Direct require, no proxy hop: the
-  // embedder fields read DISK truth so a foreign process sees the same answer.
-  // Silent on any failure — a banner must never crash the chat.
-  let ready = '';
+// The lane pinned in the shared config, if any. Read the way spawnEntity()
+// reads it: the app's desktop-config.json first, then the proxy's config.json.
+function configuredPin() {
   try {
-    const _mr = require('../shared-core/memory-readiness.js').readiness();
-    ready = (_mr.stage === 'ready' && !(_mr.reasons && _mr.reasons.length))
-      ? 'memory ready · fully indexed'
-      : (_mr.reasons || []).join(' · ');
-  } catch (_) { /* no readiness line beats no REPL */ }
+    const home = process.env.HOME || require('os').homedir();
+    const read = (p) => { try { return JSON.parse(require('fs').readFileSync(p, 'utf8').replace(/^﻿/, '')); } catch (_) { return null; } };
+    const cfg = read(path.join(home, '.troth', 'desktop-config.json')) || read(path.join(home, '.troth', 'config.json')) || {};
+    return typeof cfg.engine_pin === 'string' ? cfg.engine_pin.trim() : '';
+  } catch (_) { return ''; }
+}
+
+// engine: the lane the chat answers from, named by the caller.
+function banner(engine) {
+  let version = '';
+  try { version = require(path.join(__dirname, '..', 'package.json')).version || ''; } catch (_) {}
+  // Memory readiness is core-authored (memory-readiness.js, the same truth the
+  // app and the dashboard read). Direct require, no proxy hop. Silent on any
+  // failure: a banner must never crash the chat.
+  let memory = '';
+  try { memory = require('../shared-core/memory-readiness.js').readiness().summary || ''; } catch (_) {}
 
   console.log('');
-  if (!isTTY) { console.log('  troth'); console.log(''); return; }
+  if (!isTTY) { console.log('  troth' + (version ? ' v' + version : '')); console.log(''); return; }
 
-  // The mascot is the mark; the name is set in type. An ASCII wordmark renders
-  // as CAPS, which is off-brand everywhere else the name appears. One flat tone
-  // on the face — lighting each row from a different stop of the ramp bands it
-  // into a staircase instead of metal — then the name beside it and the state
-  // under the name.
-  const face  = MASCOT.open;
+  // The mark on the left, three rows. Beside it the name and version, then the
+  // engine and the folder, then the memory line. Nothing wraps: what does not
+  // fit beside the mark is cut, so the lockup arrives whole.
   const tone  = steelCode(0.35);
-  // The name sits against the middle of the creature so the lockup reads as one
-  // object rather than a picture with a caption stuck to its top.
-  const lines = [];
-  lines[Math.max(0, Math.floor(face.length / 2) - 1)] = gradient('troth');
-  lines[Math.max(1, Math.floor(face.length / 2))] = ready ? color(DIM, ready) : '';
-  // The lockup must never wrap: a wrapped status line pushes the creature's
-  // own rows apart and the mark arrives broken. Anything that does not fit the
-  // window beside the face is cut rather than folded.
+  const lines = [
+    gradient('troth') + (version ? color(DIM, '  v' + version) : ''),
+    silverDim(engine || 'engine: auto') + color(DIM, ' · ' + homeShort(CWD)),
+    color(DIM, [memory, '/help for commands'].filter(Boolean).join(' · '))
+  ];
   const cols = process.stdout.columns || 80;
   const room = Math.max(0, cols - MASCOT_W - 7);
   const cut = (s) => {
@@ -399,12 +377,10 @@ function banner() {
     if (plain.length <= room) return s;
     return room > 1 ? color(DIM, plain.slice(0, room - 1) + '…') : '';
   };
-  for (let i = 0; i < face.length; i++) {
-    const left  = isTTY ? tone + face[i].padEnd(MASCOT_W) + RESET : face[i].padEnd(MASCOT_W);
-    const right = cut(lines[i] || '');
-    console.log(('  ' + left + '    ' + right).replace(/\s+$/, ''));
+  for (let i = 0; i < MASCOT.length; i++) {
+    const left = tone + MASCOT[i].padEnd(MASCOT_W) + RESET;
+    console.log(('  ' + left + '   ' + cut(lines[i] || '')).replace(/\s+$/, ''));
   }
-  if (model) console.log('  ' + ' '.repeat(MASCOT_W + 4) + cut(silverDim(model)));
   console.log('');
 }
 
@@ -796,7 +772,12 @@ function start() {
   // a terminal behaves once its screen is full. TROTH_FIXED_UI opts into a
   // scroll region instead; it interleaves with output on some terminals.
   if (isTTY) process.stdout.write('\x1b[2J\x1b[H');
-  banner();
+  // The lane the chat answers from: an explicit --llm or env wins, else the
+  // pin from the shared config, else the router picks.
+  const llmExplicit = !!process.env.TROTH_ENTITY_LLM || argv.some((a) => a === '--llm' || a.startsWith('--llm='));
+  const lane = (!llmExplicit && configuredPin()) || LLM_MODE;
+  const local = lane === 'llamacpp' || lane === 'ollama' || lane === 'local';
+  banner(local ? (activeModel() || 'local engine') : (facultyLabel(lane) || (lane === 'router' ? 'engine: auto' : lane)));
   // The composer sits toward the foot of the window. Safe only because the panel
   // is repainted as a whole frame and every transcript write lifts it first:
   // anchoring it while writing pieces of it lets one scroll put the erase a row
@@ -2004,14 +1985,14 @@ function start() {
       const active = json.active || [];
       const pending = json.pending || [];
       if (!active.length && !pending.length) {
-        out(color(DIM, '  ◦ no MCP servers yet · stage one in the dashboard, Settings > Integrations') + '\n');
+        out('\n' + color(DIM, '  ◦ no MCP servers yet · stage one in the dashboard, Settings > Integrations') + '\n\n');
         rl.prompt(); return;
       }
       const items = active.map((s) => ({ label: mcpRowLabel(s), value: s }));
       for (const p of pending) items.push({ label: p.name + '  staged · approve it in the dashboard, Settings > Integrations', value: null });
       rl.pick(items, (s) => { if (!s) { rl.prompt(); return; } openMcpActions(s); });
     }).catch((e) => {
-      out(color(RED, '  ✗ the dashboard did not answer (' + e.message + ') · is the proxy running?') + '\n');
+      out('\n' + color(RED, '  ✗ the dashboard did not answer (' + e.message + ') · is the proxy running?') + '\n\n');
       rl.prompt();
     });
   }
@@ -2035,21 +2016,22 @@ function start() {
         mcpAct('/api/mcp/enable', { name: s.name, enabled: !!s.disabled }, s.name + (s.disabled ? ' switched on' : ' switched off'));
         return;
       }
-      out(color(DIM, '  ◦ checking ' + s.name + '…') + '\n');
+      // Set off like a reply: a blank line before the check and after its result.
+      out('\n' + color(DIM, '  ◦ checking ' + s.name + '…') + '\n');
       mcpApi('POST', '/api/mcp/probe', { name: s.name }).then(({ json }) => {
         const r = json || {};
         const said = r.state === 'connected' ? s.name + ' · connected · ' + ((r.tools || []).length) + ' tools'
           : r.state === 'sign_in_needed' ? s.name + ' · sign-in needed' + (r.url ? ' · ' + r.url : '')
           : s.name + ' · ' + (r.state || 'unreachable') + (r.error ? ' · ' + r.error : '');
-        out(color(r.state === 'connected' ? DIM : RED, '  ◦ ' + said) + '\n');
+        out(color(r.state === 'connected' ? DIM : RED, '  ◦ ' + said) + '\n\n');
         rl.prompt();
-      }).catch((e) => { out(color(RED, '  ✗ ' + s.name + ' · ' + e.message) + '\n'); rl.prompt(); });
+      }).catch((e) => { out(color(RED, '  ✗ ' + s.name + ' · ' + e.message) + '\n\n'); rl.prompt(); });
     });
   }
   function mcpAct(route, body, said) {
     mcpApi('POST', route, body).then(({ status, json }) => {
-      if (status === 200) out(color(DIM, '  ◦ ' + said) + '\n');
-      else out(color(RED, '  ✗ ' + ((json && (json.reason || json.error)) || ('status ' + status))) + '\n');
+      if (status === 200) out('\n' + color(DIM, '  ◦ ' + said) + '\n\n');
+      else out('\n' + color(RED, '  ✗ ' + ((json && (json.reason || json.error)) || ('status ' + status))) + '\n\n');
       rl.prompt();
     }).catch((e) => { out(color(RED, '  ✗ ' + e.message) + '\n'); rl.prompt(); });
   }
