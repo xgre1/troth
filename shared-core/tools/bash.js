@@ -114,7 +114,7 @@ async function run(args, ctx) {
       const sandbox = require('./sandbox-runtime.js');
       const avail = sandbox.isAvailable();
       if (avail.available && avail.kind !== 'bare') {
-        const r = await sandbox.runInSandbox(command, { timeout_ms: timeout, cwd: ctx.cwd || null });
+        const r = await sandbox.runInSandbox(command, { timeout_ms: timeout, cwd: ctx.cwd || null, shouldCancel: typeof ctx.shouldCancel === 'function' ? ctx.shouldCancel : null });
         // Re-shape to the BashOutput contract callers expect.
         return {
           stdout:      r.stdout || '',
@@ -146,7 +146,7 @@ async function run(args, ctx) {
   }
 
   return new Promise((resolve) => {
-    const child = spawn('bash', ['-c', command], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('bash', ['-c', command], { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
 
     let stdout = '';
     let stderr = '';
@@ -166,12 +166,16 @@ async function run(args, ctx) {
       resolve(payload);
     }
 
+    const signalTree = (sig) => {
+      try { process.kill(-child.pid, sig); return; } catch (_) {}
+      try { child.kill(sig); } catch (_) {}
+    };
     function killNow() {
       if (done) return;
       interrupted = true;
       if (cancelPoll) { clearInterval(cancelPoll); cancelPoll = null; }
-      try { child.kill('SIGTERM'); } catch (_) {}
-      graceTimer = setTimeout(() => { try { child.kill('SIGKILL'); } catch (_) {} }, KILL_GRACE_MS);
+      signalTree('SIGTERM');
+      graceTimer = setTimeout(() => signalTree('SIGKILL'), KILL_GRACE_MS);
     }
 
     child.stdout.setEncoding('utf8');

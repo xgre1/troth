@@ -131,19 +131,21 @@ function runInSandbox(command, opts) {
 
   return new Promise((resolve) => {
     const started_at = Date.now();
-    const child = spawn(CLI, cliArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(CLI, cliArgs, { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     let stdout = '';
     let stderr = '';
     let interrupted = false;
     let done = false;
     let killTimer = null;
     let graceTimer = null;
+    let cancelPoll = null;
 
     function finish(payload) {
       if (done) return;
       done = true;
       if (killTimer)  clearTimeout(killTimer);
       if (graceTimer) clearTimeout(graceTimer);
+      if (cancelPoll) clearInterval(cancelPoll);
       resolve(Object.assign({
         sandboxed:    true,
         sandbox_kind: 'apple-container',
@@ -172,11 +174,24 @@ function runInSandbox(command, opts) {
       interrupted
     }));
 
-    killTimer = setTimeout(() => {
+    const signalTree = (sig) => {
+      try { process.kill(-child.pid, sig); return; } catch (_) {}
+      try { child.kill(sig); } catch (_) {}
+    };
+    const killNow = () => {
+      if (done) return;
       interrupted = true;
-      try { child.kill('SIGTERM'); } catch (_) {}
-      graceTimer = setTimeout(() => { try { child.kill('SIGKILL'); } catch (_) {} }, KILL_GRACE_MS);
-    }, timeout);
+      if (cancelPoll) { clearInterval(cancelPoll); cancelPoll = null; }
+      signalTree('SIGTERM');
+      graceTimer = setTimeout(() => signalTree('SIGKILL'), KILL_GRACE_MS);
+    };
+    killTimer = setTimeout(killNow, timeout);
+    if (typeof opts.shouldCancel === 'function') {
+      let asked = false;
+      try { asked = !!opts.shouldCancel(); } catch (_) { asked = false; }
+      if (asked) killNow();
+      else cancelPoll = setInterval(() => { let hit = false; try { hit = !!opts.shouldCancel(); } catch (_) { hit = false; } if (hit) killNow(); }, 250);
+    }
   });
 }
 

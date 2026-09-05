@@ -434,7 +434,8 @@ function runInSandbox(command, opts) {
     const child = spawn(jspec.exec, argv, {
       stdio: ['ignore', 'pipe', 'pipe'],
       cwd:   work,
-      env:   jspec.env
+      env:   jspec.env,
+      detached: true
     });
     let stdout = '';
     let stderr = '';
@@ -442,12 +443,14 @@ function runInSandbox(command, opts) {
     let done = false;
     let killTimer = null;
     let graceTimer = null;
+    let cancelPoll = null;
 
     function finish(payload) {
       if (done) return;
       done = true;
       if (killTimer)  clearTimeout(killTimer);
       if (graceTimer) clearTimeout(graceTimer);
+      if (cancelPoll) clearInterval(cancelPoll);
       resolve(Object.assign({
         sandboxed:    true,
         sandbox_kind: 'seatbelt',
@@ -472,11 +475,24 @@ function runInSandbox(command, opts) {
       exit_code: code, signal: signal || null, interrupted
     }));
 
-    killTimer = setTimeout(() => {
+    const signalTree = (sig) => {
+      try { process.kill(-child.pid, sig); return; } catch (_) {}
+      try { child.kill(sig); } catch (_) {}
+    };
+    const killNow = () => {
+      if (done) return;
       interrupted = true;
-      try { child.kill('SIGTERM'); } catch (_) {}
-      graceTimer = setTimeout(() => { try { child.kill('SIGKILL'); } catch (_) {} }, KILL_GRACE_MS);
-    }, timeout);
+      if (cancelPoll) { clearInterval(cancelPoll); cancelPoll = null; }
+      signalTree('SIGTERM');
+      graceTimer = setTimeout(() => signalTree('SIGKILL'), KILL_GRACE_MS);
+    };
+    killTimer = setTimeout(killNow, timeout);
+    if (typeof opts.shouldCancel === 'function') {
+      let asked = false;
+      try { asked = !!opts.shouldCancel(); } catch (_) { asked = false; }
+      if (asked) killNow();
+      else cancelPoll = setInterval(() => { let hit = false; try { hit = !!opts.shouldCancel(); } catch (_) { hit = false; } if (hit) killNow(); }, 250);
+    }
   });
 }
 
