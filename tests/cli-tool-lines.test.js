@@ -45,7 +45,7 @@ t('every tool is named in plain words, whatever the case of its name', () => {
 t('a tool rides the status row and never becomes a transcript line (source pin)', () => {
   const req = /case 'tool_request': \{([\s\S]*?)break;/.exec(src);
   assert.ok(req, 'tool_request case found');
-  assert.ok(/spinner\.update\(toolVerb\(/.test(req[1]), 'the verb goes to the status row');
+  assert.ok(/spinner\.update\(_verb, toolDetail\(msg\.name, _args, _verb\)\)/.test(req[1]), 'the verb and what the tool is on go to the status row');
   assert.ok(!/\bout\(/.test(req[1]), 'nothing is written to the transcript when a tool starts');
   const res = /case 'tool_result': \{([\s\S]*?)break;/.exec(src);
   assert.ok(res, 'tool_result case found');
@@ -74,7 +74,7 @@ t('a stop tells the daemon to cancel the turn it is running (source pin)', () =>
 });
 
 t('under the fixed layout the working state rides the status row and never grows the composer (source pin)', () => {
-  assert.ok(/function drawMeterRow\(lead\) \{\s*\n\s*if \(fixedUI\) \{ statusWork = lead; drawStatus\(\); redraw\(\); return; \}/.test(src), 'the lead goes to the status row');
+  assert.ok(/function drawMeterRow\(lead, detail\) \{\s*\n\s*if \(fixedUI\) \{ statusWork = lead; drawStatus\(\); redraw\(\); return; \}/.test(src), 'the lead goes to the status row');
   assert.ok(/statusWork \|\| null\]\.filter\(Boolean\)/.test(src), 'the status row shows it');
 });
 

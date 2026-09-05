@@ -554,6 +554,37 @@ function toolKind(name, args) {
   return map[v.split(/[\s:]/)[0]] || 'other';
 }
 
+// The line under the working verb: what the tool is actually on, whole and
+// discreet. The command as written, the file, the pattern, the query, the
+// address. Empty when the verb already says all of it.
+function toolDetail(name, args, verb) {
+  const a = args || {};
+  const n = String(name || '').toLowerCase();
+  const one = (s) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  let d = '';
+  switch (n) {
+    case 'bash': case 'run': case 'shell': d = one(a.command || a.cmd); break;
+    case 'read': case 'cached_read': case 'hashline_read': case 'write': case 'edit': case 'multiedit': case 'hashline_edit': case 'notebookedit':
+      d = one(a.file_path || a.path || a.notebook_path); break;
+    case 'grep': case 'cached_grep': d = one(a.pattern) + (a.path ? '  in ' + one(a.path) : ''); break;
+    case 'glob': d = one(a.pattern); break;
+    case 'websearch': case 'web_search': d = one(a.query || a.q); break;
+    case 'webfetch': case 'web_fetch': case 'browse': case 'browser_session': d = one(a.url || a.prompt); break;
+    case 'engram_search': case 'troth_recall': case 'recall': case 'dialogue_search': case 'dialogue_recent': d = one(a.query || a.q || a.text); break;
+    case 'engram_record': case 'troth_engram_record': d = one(a.statement); break;
+    case 'mcp_call': d = one(a.server) + (a.tool ? ' · ' + one(a.tool) : ''); break;
+    case 'tool_load': d = one(a.name); break;
+    case 'task': case 'agent': d = one(a.description || a.prompt); break;
+    default: {
+      const first = Object.keys(a).find((k) => typeof a[k] === 'string' && a[k].trim());
+      d = first ? one(a[first]) : '';
+    }
+  }
+  if (!d) return '';
+  if (d.length > 240) d = d.slice(0, 239) + '…';
+  return String(verb || '').includes(d) ? '' : d;
+}
+
 const fmtTok = (n) => {
   n = Number(n) || 0;
   if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + 'M';
@@ -570,7 +601,7 @@ const THINK_WORDS = ['thinking', 'reasoning', 'weighing', 'connecting', 'shaping
 // the step between frames is one ring of the same figure so no edge snaps.
 const SPINNER_FRAMES = ['·', '∙', '◦', '◇', '◈', '◆', '◈', '◇', '◦', '∙'];
 function createSpinner() {
-  let i = 0, label = null, timer = null, active = false, startedAt = 0;
+  let i = 0, label = null, detail = null, timer = null, active = false, startedAt = 0;
   let streamedChars = 0, wordSeed = 0;
   const draw = () => {
     if (!isTTY) return;
@@ -617,7 +648,7 @@ function createSpinner() {
       : sheen(frame + ' ' + clampVisible(word + '…', Math.max(room, 1))) + meta;
     // The working state lives in the composer's meter; a free-standing line
     // would mean tearing the panel down for the length of every turn.
-    if (meterWriter) { meterWriter(text); return; }
+    if (meterWriter) { meterWriter(text, detail ? color(DIM, clampVisible(detail, termCols() - 6)) : null); return; }
     if (fixedUI) {
       process.stdout.write('\x1b7\x1b[' + (termRows() - 4) + ';1H\x1b[2K  ' +
         text + '\x1b8');
@@ -646,9 +677,10 @@ function createSpinner() {
       if (!active) return;
       streamedChars += Math.max(0, nChars | 0);
     },
-    update(next) {
+    update(next, nextDetail) {
       if (!active) return;
       label = next;
+      detail = next ? (nextDetail || null) : null;
       draw();
     },
     stop() {
@@ -853,6 +885,7 @@ function start() {
     let lastDrawW = 0;
     let lastLeadRows = 0;
     let lastLeadLen = 0;
+    let lastDetailLen = 0;
     function termWidth() { return process.stdout.columns || 80; }
 
     function eraseInputAndMenu() {
@@ -903,6 +936,7 @@ function start() {
     // turn runs the spinner's frame is held here and repainted with the rest of
     // the block.
     let spinnerLead = null;
+    let spinnerDetail = null;
     function meterText() {
       const eng = /^(router|routing|any)$/i.test(statusEngine || '') ? '' : statusEngine;
       const bits = [
@@ -919,9 +953,10 @@ function start() {
     // the wrong row: the next erase begins a row too low and leaves a headless
     // panel with a second drawn beneath it. Whole-frame repaints carry no
     // absolute state, so a scroll costs a frame instead of the layout.
-    function drawMeterRow(lead) {
+    function drawMeterRow(lead, detail) {
       if (fixedUI) { statusWork = lead; drawStatus(); redraw(); return; }
       spinnerLead = lead;
+      spinnerDetail = lead ? (detail || null) : null;
       redraw();
     }
     function renderInput() {
@@ -942,9 +977,14 @@ function start() {
         process.stdout.write('\n');
         process.stdout.write(fit(pad + spinnerLead, termWidth() - 1) + '\n');
         leadRows = 2;
+        if (spinnerDetail) {
+          process.stdout.write(fit(pad + '  ' + spinnerDetail, termWidth() - 1) + '\n');
+          leadRows = 3;
+        }
       }
       lastLeadRows = leadRows;
       lastLeadLen = spinnerLead ? stripAnsi(fit(pad + spinnerLead, termWidth() - 1)).length : 0;
+      lastDetailLen = (spinnerLead && spinnerDetail) ? stripAnsi(fit(pad + '  ' + spinnerDetail, termWidth() - 1)).length : 0;
       process.stdout.write(pad + color(DIM, '╭' + '─'.repeat(outer - 2) + '╮') + '\n');
       for (const r of rows) {
         process.stdout.write(pad + bar + ' ' + r + ' '.repeat(Math.max(0, textW - r.length)) + ' ' + bar + '\n');
@@ -1093,7 +1133,7 @@ function start() {
         const rowsNow = (len) => Math.max(1, Math.ceil(len / newW));
         let up = 0;
         let logical = 0;
-        if (lastLeadRows) { up += 1 + rowsNow(lastLeadLen); logical += lastLeadRows; }
+        if (lastLeadRows) { up += 1 + rowsNow(lastLeadLen) + (lastLeadRows > 2 ? rowsNow(lastDetailLen) : 0); logical += lastLeadRows; }
         // The top border, then the text rows above the cursor's own.
         up += rowsNow(Math.max(0, lastDrawW - 2));
         logical += 1;
@@ -1462,7 +1502,11 @@ function start() {
           // never a ladder of every step.
           turnTools++;
           turnActions.push(toolKind(msg.name, msg.args || msg.input));
-          spinner.update(toolVerb(msg.name, msg.args || msg.input));
+          {
+            const _args = msg.args || msg.input;
+            const _verb = toolVerb(msg.name, _args);
+            spinner.update(_verb, toolDetail(msg.name, _args, _verb));
+          }
           break;
         }
         case 'tool_result': {
