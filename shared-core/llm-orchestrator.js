@@ -919,7 +919,14 @@ function makeOrchestrator(opts) {
         }
       }
       else if (turnText) lastNarration = turnText;
-      trace.push({ iter, text: turnText, tool_calls: pendingToolCalls && pendingToolCalls.length, finish_reason: finishReason });
+      trace.push({
+        iter, text: turnText, tool_calls: pendingToolCalls && pendingToolCalls.length, finish_reason: finishReason,
+        tools: (pendingToolCalls || []).map((tc) => {
+          let a = {}; try { a = tc.function && tc.function.arguments ? JSON.parse(tc.function.arguments) : {}; } catch (_) {}
+          const on = a.command || a.file_path || a.url || a.query || a.pattern || a.name || a.topic || '';
+          return (tc.function && tc.function.name) + (on ? ': ' + String(on).replace(/\s+/g, ' ').slice(0, 80) : '');
+        })
+      });
       // Remember THIS turn's finish reason for the truncation note. A turn that
       // is cut at 'length' but still emits tool_calls continues the loop, so a
       // later clean turn overwrites this and no false truncation note fires;

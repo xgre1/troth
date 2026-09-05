@@ -105,9 +105,13 @@ function buildSystemPrompt(opts) {
     sections.push(listToolLine(tools));
     sections.push(
       'Use tools when the task genuinely needs file inspection, code changes, search, or shell. ' +
-      'Read before Edit. Prefer hashline-tagged Edit (call Read with hashline=true first) when changing existing code - ' +
-      'whitespace-immune and fails fast on file drift. Use Bash for one-shot commands; long output auto-archives to disk ' +
-      'and is fetchable via Read. Tools are a capability, not a mandate - plenty of conversation needs no tool at all.'
+      'Read before Edit. Prefer hashline-tagged Edit (call Read with hashline=true first) when changing existing code. ' +
+      'Use Bash for one-shot commands; long output is archived and readable via Read. ' +
+      'Tools are a capability, not a mandate - plenty of conversation needs no tool at all.'
+    );
+    sections.push(
+      'Rules, past decisions and the dialogue come from rule_list, engram_search and dialogue_recent: ' +
+      'one call, never a file read or a command.'
     );
     // ── Act-first ──
     // A weak local model reads the hedge above plus the honesty guards and
