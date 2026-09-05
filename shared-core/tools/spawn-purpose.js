@@ -57,6 +57,11 @@ const PURPOSES = {
   // upkeep in a process beside its loop; argv is ours, it lives as long as
   // the proxy does, and it speaks to the proxy over its own stdin/stdout.
   'maintenance': { kind: 'trusted-plumbing' },
+  // The host's own plugin updater (`claude plugin update <name>@<market>`),
+  // run by the proxy when the installed plugin is behind this tree: argv is
+  // ours, the names come from the manifests in this checkout, and the host
+  // does the writing.
+  'plugin-update': { kind: 'trusted-plumbing' },
   // ground-walled purposes; adopters pick one consciously and the profile
   // tightens per purpose without touching call sites again.
   'inference':   { kind: 'ground', ground: 'confine' },

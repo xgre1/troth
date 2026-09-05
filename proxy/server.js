@@ -6541,6 +6541,21 @@ function cleanSiblingsAtBoot() {
 let _lastRoute = '';
 let _svcMemo = { v: null, at: 0 };
 server.listen(listenPort, BIND_HOST, () => {
+  // The host's plugin follows this checkout: when the installed version is
+  // behind the one this tree ships, the host's own updater runs from here
+  // (the one process every install keeps alive, with the operator's
+  // environment). TROTH_PLUGIN_UPDATE=0 leaves the host alone.
+  if (process.env.TROTH_PLUGIN_UPDATE !== '0') {
+    setTimeout(() => {
+      try {
+        require('./modules/plugin-update.js').checkAndUpdate({}).then((r) => {
+          global.__troth_plugin_update = r;
+          if (r.action === 'updated') log('Plugin: host updated to ' + r.installed + ' (sessions take it when they restart)');
+          else if (r.action === 'failed') log('Plugin: host update to ' + r.shipped + ' did not land (' + String(r.output || '').split('\n').pop() + ')');
+        }).catch(() => {});
+      } catch (_) { /* the host's plugin is optional */ }
+    }, 8000).unref();
+  }
   // The event loop's own watch: a freeze longer than half a second is logged
   // with the route in hand, so a slow handler is named instead of guessed.
   (function watchLoop() {
