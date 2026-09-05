@@ -115,11 +115,41 @@ function chatgptCheck(ctx) {
   return { name: 'ChatGPT lane', ok: false, detail: (j.status ? 'HTTP ' + j.status + ' ' : '') + (j.reason || 'refused') + wait };
 }
 
+// The database binding and the node that runs it: hooks, the CLI and the
+// proxy load better-sqlite3 with whatever `node` is first on the PATH, and a
+// binding built for one Node line refuses to load under another with a
+// NODE_MODULE_VERSION message. Every node on the PATH is tried, so the
+// one a hook will meet is the one reported.
+function nodeAbiCheck(ctx) {
+  var cp = require('child_process');
+  var binding = path.join(ctx.repoRoot, 'node_modules', 'better-sqlite3');
+  if (!fs.existsSync(binding)) return { name: 'Database binding', ok: false, detail: 'better-sqlite3 is not installed under this checkout: npm ci' };
+  var nodes = [];
+  try {
+    var w = cp.spawnSync('/bin/sh', ['-lc', 'which -a node'], { encoding: 'utf8', timeout: 8000 });
+    nodes = String(w.stdout || '').split('\n').map(function (s) { return s.trim(); }).filter(Boolean);
+  } catch (_) { nodes = []; }
+  if (nodes.indexOf(process.execPath) < 0) nodes.unshift(process.execPath);
+  var seen = {}, bad = [], good = [];
+  nodes.forEach(function (n) {
+    var real = n; try { real = fs.realpathSync(n); } catch (_) {}
+    if (seen[real]) return; seen[real] = true;
+    var r = cp.spawnSync(n, ['-e', 'require(process.argv[1]); process.stdout.write(process.versions.node)', binding], { encoding: 'utf8', timeout: 15000 });
+    var v = String(r.stdout || '').trim();
+    if (r.status === 0) { good.push('node ' + v + ' (' + n + ')'); return; }
+    var m = /NODE_MODULE_VERSION (\d+)[\s\S]*?requires NODE_MODULE_VERSION (\d+)/.exec(String(r.stderr || ''));
+    bad.push((m ? 'built for ABI ' + m[1] + ', this node wants ' + m[2] : 'refuses to load') + ' (' + n + ')');
+  });
+  if (!bad.length) return { name: 'Database binding', ok: true, detail: 'loads under ' + good.join(', ') };
+  return { name: 'Database binding', ok: false, detail: bad.join('; ') + (good.length ? '; loads under ' + good.join(', ') : '') + ' — rebuild for the node the hooks use: cd ' + ctx.repoRoot + ' && npm rebuild better-sqlite3' };
+}
+
 function seatChecks(ctx) {
   var out = [];
   var plug = pluginCheck(ctx);
   out.push({ name: plug.name, ok: plug.ok, detail: plug.detail });
   out.push(hookCheck(ctx, plug.installPath));
+  out.push(nodeAbiCheck(ctx));
   out = out.concat(proxyChecks(ctx));
   out.push(continuityCheck(ctx));
   var gpt = chatgptCheck(ctx);
@@ -127,4 +157,4 @@ function seatChecks(ctx) {
   return out;
 }
 
-module.exports = { seatChecks, pluginCheck, hookCheck, proxyChecks, continuityCheck, chatgptCheck };
+module.exports = { seatChecks, pluginCheck, hookCheck, nodeAbiCheck, proxyChecks, continuityCheck, chatgptCheck };
