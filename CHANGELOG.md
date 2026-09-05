@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Tool loop pacing: the same action repeated back to back with changing
+  results is a poll. From the third time it runs after a wait that grows (5,
+  15, 30, 60 s) and the result says so; the sixth closes the tools for the
+  turn and asks for the answer. Identical results are refused once, then the
+  tools close. A model that keeps calling after that ends the turn as
+  `repeat_limit` with a plain line. Following a job with `job_wait` is never a
+  repeat, and an edit followed by the same test command is work, not a poll.
 - Background jobs: a long-running command started with `run_in_background` on
   the shell tool becomes a job and answers at once with an id and a log.
   `job_wait` returns when the job ends or prints something new, `job_status`

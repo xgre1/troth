@@ -598,6 +598,8 @@ function makeOrchestrator(opts) {
       'engram_search', 'recall', 'dialogue_recent', 'dialogue_search',
       'chameleon_query', 'chameleon_list_scopes',
       'jobs_status', 'credential_list', 'api_services_list', 'web_allowlist_list',
+      // Following a background job is the sanctioned poll: never an action.
+      'job_wait', 'job_status',
       'github_get_repo', 'vercel_list_projects', 'notion_search',
       'email_search', 'email_open', 'email_wait_for',
       'sms_recent', 'totp_code'
@@ -615,6 +617,20 @@ function makeOrchestrator(opts) {
     // Per identical-call key: {hash, streak} of the last EXECUTED result —
     // how many consecutive runs of this exact call returned the same thing.
     const sideEffectLast = new Map();
+    // A poll: the same action again while its result keeps changing. From the
+    // third time it runs only after a wait, longer each time; the sixth closes
+    // the tools for the turn and asks for the answer. A refusal for identical
+    // results is given once; the second time the tools close as well. A model
+    // that keeps calling after that ends the turn as repeat_limit.
+    const POLL_WAITS_S = [5, 15, 30, 60];
+    const pollScale = Number(process.env.TROTH_POLL_WAIT_SCALE || 1) || 1;
+    const refusalCounts = new Map();
+    let answerOnly = false;
+    let answerOnlyTurns = 0;
+    // Back-to-back: the same action again with nothing else run in between.
+    // An edit followed by the same test command is work, never a poll.
+    let lastActionKey = null;
+    let lastActionRun = 0;
     // Anti-LARP: a cloud model wrote a local
     // schema.sql, got 'unknown downstream server: supabase' from the real
     // action, then told the operator the task was DONE. The model lying about
@@ -664,6 +680,9 @@ function makeOrchestrator(opts) {
       if (baseOptions.first_turn_tool_choice && Array.isArray(reqOptions.tools) && reqOptions.tools.length) {
         reqOptions.tool_choice = (iter === 0) ? baseOptions.first_turn_tool_choice : 'auto';
       }
+      // Tools closed for the turn: the next reply must be the answer (honored
+      // by the local transport; elsewhere the refusal text carries the ask).
+      if (answerOnly && Array.isArray(reqOptions.tools) && reqOptions.tools.length) reqOptions.tool_choice = 'none';
       const req = { messages, options: reqOptions };
       // Resilience: a single transient transport hiccup (a 5xx, a dropped SSE, a
       // refused connection) would abort the ENTIRE turn mid-task. Retry the SAME request a bounded number of times before
@@ -994,6 +1013,8 @@ function makeOrchestrator(opts) {
         if (ctx && typeof ctx === 'object' && typeof ctx.shouldCancel !== 'function') {
           try { ctx.shouldCancel = cancelHit; } catch (_) {}
         }
+        // Tools closed and still calling: one more chance to answer, then the turn ends.
+        if (answerOnly && ++answerOnlyTurns > 2) { aborted = true; abortReason = 'repeat_limit'; break; }
         for (const tc of pendingToolCalls) {
           // Cancel between tool executions: already-run tools stand (their
           // effects are real); the remaining calls in this batch are skipped
@@ -1020,18 +1041,48 @@ function makeOrchestrator(opts) {
           // 20-browser-windows case stays refused.
           const _stag = sideEffectLast.get(_tcKey);
           let _tcRefused = false;
-          if (_tcSeen > 2 && SIDE_EFFECT_DEDUP.has(_tcName) && _stag && _stag.streak >= 2) {
+          const _action = SIDE_EFFECT_DEDUP.has(_tcName);
+          const _consecutive = _action ? ((lastActionKey === _tcKey) ? lastActionRun + 1 : 1) : 0;
+          if (_action) { lastActionKey = _tcKey; lastActionRun = _consecutive; }
+          const _identical = _tcSeen > 2 && _action && _stag && _stag.streak >= 2;
+          const _poll = _consecutive >= 3 && !(_stag && _stag.streak >= 2);
+          if (answerOnly) {
             _tcRefused = true;
-            resultStr = JSON.stringify({
-              refused: 'identical_call_repeated',
-              detail: 'This exact ' + _tcName + ' call already ran ' + _stag.streak +
-                ' times this turn and returned the identical result each time. Running it ' +
-                'again will not change the outcome. Change the arguments, take a different ' +
-                'approach, or answer with what you have.'
-            });
+            resultStr = JSON.stringify({ refused: 'answer_now', detail: 'Tools are closed for this turn: answer now with what you have.' });
+          } else if (_identical || (_poll && _consecutive >= 6)) {
+            _tcRefused = true;
+            const _n = (refusalCounts.get(_tcKey) || 0) + 1;
+            refusalCounts.set(_tcKey, _n);
+            if (_identical && (_n === 1 || _consecutive < 4)) {
+              resultStr = JSON.stringify({
+                refused: 'identical_call_repeated',
+                detail: 'This exact ' + _tcName + ' call already ran ' + _stag.streak +
+                  ' times this turn and returned the identical result each time. Running it ' +
+                  'again will not change the outcome. Change the arguments, take a different ' +
+                  'approach, or answer with what you have.'
+              });
+            } else {
+              answerOnly = true;
+              trace.push({ iter, tools_closed: 'repeat_limit', tool: _tcName, times: _consecutive - 1 });
+              resultStr = JSON.stringify({
+                refused: 'repeat_limit',
+                detail: 'This exact ' + _tcName + ' call ran ' + (_consecutive - 1) + ' times back to back this turn' +
+                  (_identical ? ' with the identical result each time' : ' as a poll') + '. Tools are closed for this ' +
+                  'turn: answer now with what was done, what is still running and what you are waiting for. ' +
+                  'For a running job use job_wait next time.'
+              });
+            }
           } else {
-          try { resultStr = await tool_runner(tc, ctx); }
-          catch (e) { resultStr = JSON.stringify({ error: 'tool_runner_threw', detail: String(e && e.message || e) }); }
+            let _waited = 0;
+            if (_poll) {
+              _waited = POLL_WAITS_S[Math.min(_consecutive - 3, POLL_WAITS_S.length - 1)];
+              const until = Date.now() + _waited * 1000 * pollScale;
+              while (Date.now() < until && !cancelHit()) await new Promise((r) => setTimeout(r, Math.max(1, Math.min(200, until - Date.now()))));
+              trace.push({ iter, poll_wait_s: _waited, tool: _tcName });
+            }
+            try { resultStr = await tool_runner(tc, ctx); }
+            catch (e) { resultStr = JSON.stringify({ error: 'tool_runner_threw', detail: String(e && e.message || e) }); }
+            if (_waited) resultStr = _withNote(resultStr, 'This same call ran again after a ' + _waited + ' s wait; for a running job use job_wait instead of repeating a status command.');
           }
           if (_tcName === 'tool_load') {
             try {
@@ -1138,7 +1189,8 @@ function makeOrchestrator(opts) {
             .update(String((tc.function && tc.function.arguments) || ''))
             .update(String(resultContent || '').slice(0, 4096))
             .digest('hex').slice(0, 12);
-          loopTransitions.push({
+          // A wait on a job is neither progress nor a loop: the detector never sees it.
+          if (_tcName !== 'job_wait' && _tcName !== 'job_status') loopTransitions.push({
             step_name:       'agentic_loop',
             tool_invoked:    (tc.function && tc.function.name) || 'unknown',
             target_resource: String(target).slice(0, 200) + '#' + progressHash
@@ -1227,6 +1279,8 @@ function makeOrchestrator(opts) {
             ? '(Stopped — the machine slept for longer than this turn could be held open.)'
             : abortReason === 'timeout'
             ? '(Stopped — the model took too long to finish. Try again, or break the task into smaller steps.)'
+            : abortReason === 'repeat_limit'
+            ? '(Stopped — the same command kept being repeated with nothing new coming of it. Ask for a narrower step, or let a background job run and be followed with job_wait.)'
             : (abortReason && abortReason.indexOf('transport_') === 0)
                 ? '(Stopped — ' + transportCause(abortReason) + '.)'
                 : '(Stopped before finishing.)');
@@ -1294,6 +1348,17 @@ function wasSuspended(wallMs, idleMs) {
   const w = Number(wallMs), i = Number(idleMs);
   if (!Number.isFinite(w) || !Number.isFinite(i) || i <= 0) return false;
   return w > i * SUSPEND_FACTOR;
+}
+
+// A note the loop adds to a tool result. A JSON object result carries it as
+// a field, so the result stays parseable; any other shape gets it appended.
+function _withNote(resultStr, note) {
+  const s = typeof resultStr === 'string' ? resultStr : JSON.stringify(resultStr);
+  try {
+    const o = JSON.parse(s);
+    if (o && typeof o === 'object' && !Array.isArray(o)) { o.troth_note = note; return JSON.stringify(o); }
+  } catch (_) { /* not a JSON object */ }
+  return s + '\n' + note;
 }
 
 // The text a repeated call is recognised by: its arguments with the keys in
