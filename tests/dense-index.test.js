@@ -78,6 +78,21 @@ console.log('\n=== dense index ===\n');
     assert.strictEqual(index.isReady(), false);
   });
 
+  await t('a row written after the build reaches the dense arm before the next refresh', async () => {
+    rows = [row('a', 1, 10), row('b', 2, 20)];
+    index._resetForTests(); streamCalls = [];
+    await index.build();
+    rows.push(row('c', 3, 30));
+    const recall = require(path.join(__dirname, '..', 'shared-core', 'recall.js'));
+    const q = vec(3);
+    let qn = 0; for (let i = 0; i < DIM; i++) qn += q[i] * q[i];
+    const hits = recall._denseArm(q, Math.sqrt(qn), 'all', 5, {});
+    assert.strictEqual(hits[0].id, 'c', 'the newest row leads: ' + JSON.stringify(hits));
+    assert.deepStrictEqual(hits.map((h) => h.id).sort(), ['a', 'b', 'c']);
+    assert.deepStrictEqual(streamCalls, [0, 20], 'only the rows after the cursor are read live');
+    assert.strictEqual(index.stats().rows, 2, 'the index itself waits for its refresh');
+  });
+
   console.log('\ndense-index: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })();

@@ -791,18 +791,36 @@ function denseArm(qVec, qNorm, want, k, opts) {
     if (index) {
       if (index.isReady()) {
         const hits = index.search(qVec, k, (aud) => audienceOk(aud, want));
-        if (_phases) { const st = index.stats(); _phases.push('index_rows:' + st.rows + ' dims:' + JSON.stringify(st.dims) + ' q_dim:' + (qVec ? qVec.length : 0) + ' hits:' + hits.length); }
+        // The index takes new rows in once a minute; what was written after
+        // its cursor is read live, so a question about a moment ago is
+        // answered by the same arm.
+        const since = index.cursor();
+        const fresh = _scanDense(qVec, qNorm, want, k, since ? { since_created_at: since } : {});
+        if (_phases) { const st = index.stats(); _phases.push('index_rows:' + st.rows + ' dims:' + JSON.stringify(st.dims) + ' q_dim:' + (qVec ? qVec.length : 0) + ' hits:' + hits.length + ' fresh:' + fresh.length); }
         index.refresh().catch(() => {});
-        return hits;
+        if (!fresh.length) return hits;
+        const seen = new Set();
+        return hits.concat(fresh)
+          .filter((h) => (seen.has(h.id) ? false : (seen.add(h.id), true)))
+          .sort((a, b) => b.cos - a.cos)
+          .slice(0, k);
       }
+      // Until the index is built this process reads the corpus the slow way,
+      // so the first questions after a start are never blind.
       index.build().catch(() => {});
-      return [];
+      if (_phases) _phases.push('index_building');
     }
   }
+  return _scanDense(qVec, qNorm, want, k, {});
+}
+
+// Cosine over the ledger's recallable embeddings read live: the whole
+// corpus, or only the rows written after a cursor.
+function _scanDense(qVec, qNorm, want, k, streamOpts) {
   const top = [];
   let minCos = Infinity, full = false;
   let iter;
-  try { iter = state.streamRecallableEmbeddings(); } catch (_) { return []; }
+  try { iter = state.streamRecallableEmbeddings(streamOpts || {}); } catch (_) { return []; }
   let scanned = 0, dimSkip = 0;
   for (const row of iter) {
     scanned++;
@@ -1296,6 +1314,7 @@ module.exports = {
   // Exposed for diagnostics/tests of the individual arms (harmless — pure reads).
   recallSemantic, recallEpisodic, recallProcedural, buildFtsQuery,
   _recallClass,
+  _denseArm: denseArm,
   VALID_AUDIENCES,
   // exposed for tests + dedicated callers that want per-class behavior
   _recallIdentity:   recallIdentity,

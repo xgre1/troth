@@ -102,6 +102,9 @@ async function refresh() {
 }
 
 function isReady() { return _ready; }
+// The created_at of the newest row the index holds: rows after it are
+// still only in the ledger until the next refresh.
+function cursor() { return S.since; }
 
 function search(qVec, k, audienceOk) {
   if (!_ready || !qVec || !qVec.length) return [];
@@ -141,4 +144,4 @@ function stats() {
 
 function _resetForTests() { S = _empty(); _ready = false; _building = null; _builtAt = 0; _lastRefreshAt = 0; }
 
-module.exports = { build, refresh, isReady, search, stats, _resetForTests };
+module.exports = { build, refresh, isReady, search, stats, cursor, _resetForTests };
