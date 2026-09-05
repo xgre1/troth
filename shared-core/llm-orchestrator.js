@@ -997,8 +997,11 @@ function makeOrchestrator(opts) {
           if (onToolStart) { try { onToolStart(tc); } catch (_) {} }
           let resultStr = '';
           const _tcName = (tc.function && tc.function.name) || '';
+          // The key is the call's working arguments: a narration field such
+          // as `description` changes nothing about what runs and never makes
+          // a repeat a different call.
           const _tcKey = _tcName + '#' + require('crypto').createHash('sha1')
-            .update(String((tc.function && tc.function.arguments) || '')).digest('hex').slice(0, 12);
+            .update(_callKeyText(tc.function && tc.function.arguments)).digest('hex').slice(0, 12);
           const _tcSeen = (sideEffectCounts.get(_tcKey) || 0) + 1;
           sideEffectCounts.set(_tcKey, _tcSeen);
           // A repeat is only POINTLESS when the world stopped changing: the
@@ -1286,6 +1289,18 @@ function wasSuspended(wallMs, idleMs) {
   return w > i * SUSPEND_FACTOR;
 }
 
+// The text a repeated call is recognised by: its arguments with the keys in
+// one order and the narration field left out. Arguments that are not JSON
+// count as they are.
+function _callKeyText(args) {
+  const raw = typeof args === 'string' ? args : JSON.stringify(args == null ? {} : args);
+  let obj = null;
+  try { obj = JSON.parse(raw); } catch (_) { return String(raw || ''); }
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return String(raw || '');
+  const keys = Object.keys(obj).filter((k) => k !== 'description').sort();
+  return JSON.stringify(keys.map((k) => [k, obj[k]]));
+}
+
 // A result over the cap, cut so the model still reads whole things: a JSON
 // object whose bulk is one array keeps its first items whole and says how
 // many were left out; anything else keeps its first characters. Either way
@@ -1381,4 +1396,4 @@ function looksComplete(text) {
   return /[\.\!\?\u3002\uFF01\uFF1F]\s*$/.test(text);
 }
 
-module.exports = { makeOrchestrator, parseTextToolCalls, _honestStartFailure, _sanitizeStartError, wasSuspended, _toolErrorReason, _capToolResult };
+module.exports = { makeOrchestrator, parseTextToolCalls, _honestStartFailure, _sanitizeStartError, wasSuspended, _toolErrorReason, _capToolResult, _callKeyText };
