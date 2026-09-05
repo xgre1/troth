@@ -1034,6 +1034,9 @@ function makeOrchestrator(opts) {
             } catch (_) { /* a load that returned no schema changes nothing */ }
           }
           let resultContent = typeof resultStr === 'string' ? resultStr : JSON.stringify(resultStr);
+          // The verdict on the action is read from the whole result; the cap
+          // below shapes only what the model is shown.
+          const resultFull = resultContent;
           // STRUCTURAL secret wall: remember secret-shaped literals from
           // every tool result BEFORE truncation, so outbound reply text can be
           // redacted no matter what the model decides to echo (live find
@@ -1051,10 +1054,9 @@ function makeOrchestrator(opts) {
             ? Number(baseOptions.tool_result_max_chars)
             : 32000;
           if (resultContent.length > resultCap) {
-            trace.push({ iter, tool_result_truncated: { tool: (tc.function && tc.function.name) || 'unknown', kept: resultCap, total: resultContent.length } });
-            resultContent = resultContent.slice(0, resultCap) +
-              '\n\n[tool result truncated: showing first ' + resultCap + ' of ' +
-              resultContent.length + ' chars. Re-call with a narrower query/range if you need the rest.]';
+            const cut = _capToolResult(resultContent, resultCap);
+            trace.push({ iter, tool_result_truncated: Object.assign({ tool: (tc.function && tc.function.name) || 'unknown', total: resultContent.length }, cut.trace) });
+            resultContent = cut.text;
           }
           messages.push({
             role: 'tool',
@@ -1088,7 +1090,7 @@ function makeOrchestrator(opts) {
           // mechanism exists to prevent. The last real execution's verdict
           // (set or cleared below on ITS iteration) stays authoritative.
           if (SIDE_EFFECT_DEDUP.has(_tcName) && !_tcRefused) {
-            const _failReason = _toolErrorReason(resultContent);
+            const _failReason = _toolErrorReason(resultFull);
             if (_failReason) toolFailures.set(_tcKey, { name: _tcName, reason: _failReason, target });
             else {
               toolFailures.delete(_tcKey);
@@ -1284,6 +1286,35 @@ function wasSuspended(wallMs, idleMs) {
   return w > i * SUSPEND_FACTOR;
 }
 
+// A result over the cap, cut so the model still reads whole things: a JSON
+// object whose bulk is one array keeps its first items whole and says how
+// many were left out; anything else keeps its first characters. Either way
+// the text says what was cut and how to get the rest.
+function _capToolResult(full, cap) {
+  let obj = null;
+  try { obj = JSON.parse(full); } catch (_) { obj = null; }
+  if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+    let key = null, best = 0;
+    for (const k of Object.keys(obj)) {
+      if (Array.isArray(obj[k]) && obj[k].length > best) { best = obj[k].length; key = k; }
+    }
+    if (key && best > 1) {
+      const arr = obj[key];
+      const trial = (n) => JSON.stringify(Object.assign({}, obj, { [key]: arr.slice(0, n), _truncated: { field: key, kept: n, total: arr.length, note: 'the first ' + n + ' of ' + arr.length + ' ' + key + '; re-call with a narrower query/range for the rest' } }));
+      let lo = 1, hi = arr.length - 1, fit = 0;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (trial(mid).length <= cap) { fit = mid; lo = mid + 1; } else hi = mid - 1;
+      }
+      if (fit > 0) return { text: trial(fit), trace: { kept_items: fit, total_items: arr.length, field: key } };
+    }
+  }
+  return {
+    text: full.slice(0, cap) + '\n\n[tool result truncated: showing first ' + cap + ' of ' + full.length + ' chars. Re-call with a narrower query/range if you need the rest.]',
+    trace: { kept: cap }
+  };
+}
+
 function _toolErrorReason(content) {
   // Short failure reason if a tool result signals an error, else null.
   const s = String(content || '');
@@ -1320,7 +1351,11 @@ function _toolErrorReason(content) {
       if (!errLines.length || !FAIL_SHAPE.test(errLines.join(' '))) return null;
       return ('exit ' + obj.exitCode + ': ' + errLines[errLines.length - 1]).slice(0, 140);
     }
+    // A structured result that parsed and carries no error marker is a
+    // success: the words inside it are its data, never its verdict.
+    return null;
   }
+  if (Array.isArray(obj)) return null;
   // Plain-text failure shapes that side-effecting tools emit.
   if (FAIL_SHAPE.test(s)) {
     return s.replace(/\s+/g, ' ').trim().slice(0, 140);
@@ -1346,4 +1381,4 @@ function looksComplete(text) {
   return /[\.\!\?\u3002\uFF01\uFF1F]\s*$/.test(text);
 }
 
-module.exports = { makeOrchestrator, parseTextToolCalls, _honestStartFailure, _sanitizeStartError, wasSuspended };
+module.exports = { makeOrchestrator, parseTextToolCalls, _honestStartFailure, _sanitizeStartError, wasSuspended, _toolErrorReason, _capToolResult };
