@@ -1023,6 +1023,16 @@ function makeOrchestrator(opts) {
           try { resultStr = await tool_runner(tc, ctx); }
           catch (e) { resultStr = JSON.stringify({ error: 'tool_runner_threw', detail: String(e && e.message || e) }); }
           }
+          if (_tcName === 'tool_load') {
+            try {
+              const loaded = typeof resultStr === 'string' ? JSON.parse(resultStr) : resultStr;
+              const schema = loaded && loaded.schema;
+              const lname = schema && schema.function && schema.function.name;
+              if (lname && Array.isArray(baseOptions.tools) && !baseOptions.tools.some((t) => t && t.function && t.function.name === lname)) {
+                baseOptions.tools = baseOptions.tools.concat([schema]);
+              }
+            } catch (_) { /* a load that returned no schema changes nothing */ }
+          }
           let resultContent = typeof resultStr === 'string' ? resultStr : JSON.stringify(resultStr);
           // STRUCTURAL secret wall: remember secret-shaped literals from
           // every tool result BEFORE truncation, so outbound reply text can be

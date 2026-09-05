@@ -521,6 +521,7 @@ function toolVerb(name, args) {
     case 'engram_record': case 'troth_engram_record': return 'remembering';
     case 'engram_search': case 'troth_recall': case 'recall': return 'recalling';
     case 'dialogue_recent': case 'dialogue_search': return 'reading the dialogue';
+    case 'tool_load': return 'loading a tool' + (a.name ? ': ' + head(a.name, 40) : '');
     case 'mcp_call': {
       const srv = String(a.server || '');
       if (/^troth-(substrate|memory)$/.test(srv)) return /record|remember/.test(String(a.tool || '')) ? 'remembering' : 'consulting memory';

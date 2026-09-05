@@ -1869,7 +1869,7 @@ function main() {
         // before they can fire. Read-only tools always pass through.
         const runner = permission.wrapRunner(baseRunner);
         const existingTools = (action.options && Array.isArray(action.options.tools)) ? action.options.tools : [];
-        const tools = existingTools.length ? existingTools : toolRunner.unifiedToolsArray();
+        const tools = existingTools.length ? existingTools : toolRunner.coreToolsArray();
         // Tool-eager system prompt with anti-sycophancy + (optional)
         // audio-brevity. Caller can override via action.options.system_extra.
         //

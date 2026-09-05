@@ -39,13 +39,36 @@ const preActionContext = require('./pre-action-context.js');
 // names there; mcp-client comes second because mcp_* names are unlikely
 // to collide; substrate last for anything else.
 function unifiedRegistry() {
-  return Object.assign(
+  const base = Object.assign(
     {},
     substrate.REGISTRY || {},
     mcpClient.REGISTRY || {},
     worldly.REGISTRY || {}
   );
+  const deferred = Object.keys(base).filter((n) => !CORE_TOOL_NAMES.has(n)).sort();
+  base.tool_load = {
+    schema: {
+      type: 'function',
+      function: {
+        name: 'tool_load',
+        description: 'Load one more tool for the rest of this turn; it is then callable like any other. Tools not loaded yet: ' + deferred.join(', ') + '.',
+        parameters: { type: 'object', properties: { name: { type: 'string', description: 'the tool to load' } }, required: ['name'] }
+      }
+    },
+    run: async (args) => {
+      const name = String((args && args.name) || '').trim();
+      const entry = name && name !== 'tool_load' ? base[name] : null;
+      if (!entry || !entry.schema) return { ok: false, error: 'unknown_tool', name, available: deferred };
+      return { ok: true, loaded: name, schema: entry.schema };
+    }
+  };
+  return base;
 }
+
+const CORE_TOOL_NAMES = new Set(
+  String(process.env.TROTH_TOOLS_CORE || 'Bash,Read,Edit,Write,Grep,Glob,web_search,web_fetch,engram_record,engram_search,dialogue_recent,operator_request')
+    .split(',').map((s) => s.trim()).filter(Boolean)
+);
 
 // subsystem — audience-chain enforcement helpers, exported so unit tests
 // can verify behavior without re-requiring the entire registry (which
@@ -84,7 +107,7 @@ function unifiedToolsArray(filterNames) {
   const reg = unifiedRegistry();
   const names = Array.isArray(filterNames) && filterNames.length
     ? filterNames
-    : Object.keys(reg);
+    : Object.keys(reg).filter((n) => n !== 'tool_load');
   // faculty workstream (S2): in faculty emit-mode the LLM holds no action/authority
   // tool — those are excised here too, mirroring substrate-tools.toolsArray.
   const emit = substrate.facultyEmitModeOn();
@@ -95,6 +118,14 @@ function unifiedToolsArray(filterNames) {
     if (entry && entry.schema) out.push(entry.schema);
   }
   return out;
+}
+
+function coreToolsArray() {
+  if (process.env.TROTH_TOOLS_LAZY === '0') return unifiedToolsArray();
+  const reg = unifiedRegistry();
+  const names = Object.keys(reg).filter((n) => CORE_TOOL_NAMES.has(n));
+  names.push('tool_load');
+  return unifiedToolsArray(names);
 }
 
 // Make a tool_runner closure bound to an agent context. The closure
@@ -216,6 +247,8 @@ function makeRunner(baseCtx) {
 module.exports = {
   makeRunner,
   unifiedToolsArray,
+  coreToolsArray,
+  CORE_TOOL_NAMES,
   unifiedRegistry,
   // subsystem — exported for tests + future re-use (e.g. claude-proxy
   // injector that needs the same audience-chain semantics).
