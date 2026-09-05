@@ -1049,25 +1049,15 @@ const DETERMINISTIC_HANDLERS = {
     try { mcpClient = require('../tools/mcp-client.js'); }
     catch (e) { return { ok: false, error: 'mcp_client_unavailable', detail: e && e.message || String(e) }; }
 
-    // ACTIVE: global ~/.troth/mcp-clients.json merged with <cwd>/.mcp.json
-    // (project wins collisions). loadDownstream reads only those files (never
-    // the inert pending file) and returns {name: config}. It never throws.
-    let active = {};
-    try { active = mcpClient.loadDownstream(null, (ctx && ctx.cwd) || null) || {}; }
-    catch (_) { active = {}; }
-    // Normalize each active entry's transport WITHOUT touching its secrets:
-    // http/sse => 'http', anything with a command => 'stdio'. We read the
-    // shape key only, never the url or env values.
-    const activeRows = Object.keys(active).sort().map((name) => {
-      const cfg = active[name] || {};
-      const t = String(cfg.type || cfg.transport || '').toLowerCase();
-      const transport = (t === 'http' || t === 'sse') ? 'http' : 'stdio';
-      return { name, transport };
-    });
+    // ACTIVE: the same listing the dashboard and the app read (global registry
+    // plus the .mcp.json of the projects troth knows and of this cwd): name,
+    // where it comes from, transport, whether it is switched off, its note.
+    // Never the config itself, which may carry a url or $vault references.
+    let activeRows = [];
+    try { activeRows = mcpClient.listActiveServers({ cwd: (ctx && ctx.cwd) || null }) || []; }
+    catch (_) { activeRows = []; }
 
-    // PENDING: staged entries awaiting operator approval. listPendingServers
-    // returns {name, transport, config, note, requested_at}; we surface only
-    // name + note, never the config (which may carry $vault refs / a url).
+    // PENDING: staged entries awaiting operator approval; name and note only.
     let pending = [];
     try { pending = mcpClient.listPendingServers() || []; }
     catch (_) { pending = []; }
@@ -1077,7 +1067,8 @@ const DETERMINISTIC_HANDLERS = {
       lines.push('');
       lines.push('ACTIVE (' + activeRows.length + '):');
       for (const r of activeRows) {
-        lines.push('  - ' + r.name + '  [' + r.transport + ']');
+        const where = r.scope === 'project' ? 'project ' + (r.project || '') : 'general';
+        lines.push('  - ' + r.name + '  [' + (r.transport === 'http' || r.transport === 'sse' ? 'http' : 'stdio') + '] ' + where + (r.disabled ? '  (switched off)' : '') + (r.note ? '  - ' + r.note : ''));
       }
     } else {
       lines.push('');
@@ -1096,6 +1087,8 @@ const DETERMINISTIC_HANDLERS = {
       lines.push('');
       lines.push('PENDING: none awaiting approval.');
     }
+    lines.push('');
+    lines.push('Check a server, switch it off or on, remove it, or stage a new one: the dashboard, Settings > Integrations.');
     return { ok: true, text: lines.join('\n') };
   },
 

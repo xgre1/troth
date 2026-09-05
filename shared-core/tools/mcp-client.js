@@ -379,6 +379,8 @@ function listActiveServers(opts) {
       try { for (const d of gp.openedFolders()) dirs.push(d); } catch (_) {}
     } catch (_) {}
   }
+  // The directory the caller works in is a project too, opened or not.
+  if (opts && typeof opts.cwd === 'string' && opts.cwd) dirs.push(opts.cwd);
   const seen = new Set();
   for (const dir of dirs.sort()) {
     if (!dir || seen.has(dir)) continue;
