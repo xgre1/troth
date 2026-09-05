@@ -62,6 +62,25 @@ console.log('\n=== lazy tools ===\n');
     assert.ok(seen[1].includes('tool_load'), 'the door stays open');
     assert.ok(/loaded and ready/.test(res.text || ''), 'the turn finished with the engine text: ' + JSON.stringify(res).slice(0, 200));
   });
+
+  // The entity's own road: the runner behind the permission gate. The door
+  // and the rule listing are reads and pass; a write still waits for the
+  // operator's switch.
+  await t('the door and the listing pass the permission gate; a write still waits', async () => {
+    const perm = require(path.join(__dirname, '..', 'shared-core', 'tools', 'permission.js'));
+    const runner = perm.wrapRunner(tr.makeRunner({ agent_id: 'a', cwd: process.cwd(), user_id: 'u', conversation_id: null }));
+    const call = async (name, args) => {
+      const r = await runner({ id: 'c', type: 'function', function: { name, arguments: JSON.stringify(args) } }, { cwd: process.cwd(), agent_id: 'a', user_id: 'u' });
+      return JSON.parse(typeof r === 'string' ? r : JSON.stringify(r));
+    };
+    const door = await call('tool_load', { name: 'rule_list' });
+    assert.strictEqual(door.ok, true, JSON.stringify(door).slice(0, 200));
+    assert.strictEqual(door.schema.function.name, 'rule_list');
+    const rules = await call('rule_list', { topic: 'commit messages' });
+    assert.ok(Array.isArray(rules.items) && typeof rules.count === 'number', JSON.stringify(rules).slice(0, 200));
+    const write = await call('Write', { file_path: path.join(process.env.HOME, 'x.txt'), content: 'y' });
+    assert.strictEqual(write.error, 'requires_confirmation', JSON.stringify(write).slice(0, 200));
+  });
   console.log('\ntools-lazy: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })();

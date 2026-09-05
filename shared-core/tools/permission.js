@@ -47,8 +47,14 @@ const READ_ONLY = new Set([
   // (staged-registration header) + suite-18 MCPH-9..12 for the inertness proof.
   'mcp_register_request',
   // Substrate read-only (engram & dialogue queries don't mutate L1).
-  'engram_search', 'dialogue_recent',
-  'chameleon_query', 'chameleon_list_scopes'
+  'engram_search', 'dialogue_recent', 'dialogue_search', 'rule_list',
+  'chameleon_query', 'chameleon_list_scopes',
+  // Local listings: project structure, job state, the web allowlist and the
+  // configured service names. Reads only.
+  'code_file_map', 'code_who_calls', 'jobs_status', 'web_allowlist_list', 'api_services_list',
+  // The door: loads one tool's schema for the rest of the turn. Nothing runs
+  // through it; the tool it opens is judged by its own name when called.
+  'tool_load'
 ]);
 
 // Tools that need explicit auto-write to fire. Anything not in
