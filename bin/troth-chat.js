@@ -846,6 +846,12 @@ function start() {
     // erasing (rows - 1) from it would clear transcript lines above the panel.
     let lastCursorRow = 0;
     let lastCursorCol = 0;
+    // What the last frame was drawn with, so a resize can count the rows
+    // that frame occupies after the terminal reflows it: the width, and the
+    // working line above the box (its rows and its visible length).
+    let lastDrawW = 0;
+    let lastLeadRows = 0;
+    let lastLeadLen = 0;
     function termWidth() { return process.stdout.columns || 80; }
 
     function eraseInputAndMenu() {
@@ -936,6 +942,8 @@ function start() {
         process.stdout.write(fit(pad + spinnerLead, termWidth() - 1) + '\n');
         leadRows = 2;
       }
+      lastLeadRows = leadRows;
+      lastLeadLen = spinnerLead ? stripAnsi(fit(pad + spinnerLead, termWidth() - 1)).length : 0;
       process.stdout.write(pad + color(DIM, '╭' + '─'.repeat(outer - 2) + '╮') + '\n');
       for (const r of rows) {
         process.stdout.write(pad + bar + ' ' + r + ' '.repeat(Math.max(0, textW - r.length)) + ' ' + bar + '\n');
@@ -989,6 +997,7 @@ function start() {
       // that has come loose from the box.
       process.stdout.write(fit(pad + meterText(), termWidth() - 1));
       lastInputRows = leadRows + rows.length + 3 + menuRows;
+      lastDrawW = termWidth();
 
       // Put the cursor back on the text row it belongs to. Row 0 is the top
       // border, rows 1..n the text, row n+1 the bottom border, row n+2 the
@@ -1072,13 +1081,25 @@ function start() {
       renderInput();
       // Choices are drawn by renderInput, inside the composer block.
     }
-    // A resize reflows the rows the last frame occupied, so the count the
-    // erase relies on is wrong from then on and every repaint leaves a copy
-    // behind. The screen is cleared once and the composer painted fresh at
-    // the top; the transcript stays in the scrollback.
+    // A resize reflows the rows the last frame occupied: a row drawn wider
+    // than the new width wraps onto more rows, so the erase counts them the
+    // way the terminal now holds them, moves to the frame's first row and
+    // clears from there. The transcript above is left to the terminal.
     process.stdout.on('resize', () => {
       if (!process.stdout.isTTY || fixedUI) return;
-      process.stdout.write('\x1b[2J\x1b[H');
+      const newW = Math.max(1, termWidth());
+      if (lastInputRows > 0 || lastCursorRow > 0) {
+        const rowsNow = (len) => Math.max(1, Math.ceil(len / newW));
+        let up = 0;
+        let logical = 0;
+        if (lastLeadRows) { up += 1 + rowsNow(lastLeadLen); logical += lastLeadRows; }
+        // The top border, then the text rows above the cursor's own.
+        up += rowsNow(Math.max(0, lastDrawW - 2));
+        logical += 1;
+        for (let i = logical; i < lastCursorRow; i++) up += rowsNow(Math.max(0, lastDrawW - 2));
+        up += Math.floor(lastCursorCol / newW);
+        process.stdout.write((up > 0 ? '\x1b[' + up + 'A' : '') + '\r\x1b[J');
+      }
       lastCursorRow = 0; lastInputRows = 0; lastMenuRows = 0;
       redraw();
     });
