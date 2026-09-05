@@ -554,7 +554,7 @@ function toolVerb(name, args) {
 // The kind of act a tool is, for the turn's one-line summary.
 function toolKind(name, args) {
   const v = toolVerb(name, args);
-  if (v === 'reading the dialogue' || v === 'consulting memory') return 'recall';
+  if (v === 'reading the dialogue' || v === 'consulting memory' || v === 'reading your rules') return 'recall';
   if (v.startsWith('running /') || v === 'running a skill') return 'skill';
   const map = { reading: 'read', editing: 'edit', writing: 'write', searching: 'search', matching: 'search', running: 'run',
     fetching: 'web', browsing: 'web', delegating: 'delegate', recalling: 'recall', remembering: 'remember', drawing: 'draw', rendering: 'render' };
