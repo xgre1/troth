@@ -39,14 +39,14 @@ const schema = {
   type: 'function',
   function: {
     name: 'Bash',
-    description: 'Run a shell command via bash. Output is captured to stdout/stderr fields; the call returns when the command exits or the timeout fires (default 120 s, max 600 s). interrupted=true when killed by timeout. run_in_background and dangerouslyDisableSandbox are not implemented in this release.',
+    description: 'Run a shell command via bash. Output is captured to stdout/stderr fields; the call returns when the command exits or the timeout fires (default 120 s, max 600 s). interrupted=true when killed by timeout. For a long-running command pass run_in_background: it starts detached, returns a job id at once, and is followed with job_wait. dangerouslyDisableSandbox is not implemented in this release.',
     parameters: {
       type: 'object',
       properties: {
         command: { type: 'string', description: 'The command to execute via bash -c.' },
         timeout: { type: 'integer', description: 'Timeout in milliseconds (default 120000, max 600000).', minimum: 1, maximum: 600000 },
         description: { type: 'string', description: 'Active-voice description of what the command does (5-10 words for simple commands).' },
-        run_in_background: { type: 'boolean', description: 'Not implemented in v1.' },
+        run_in_background: { type: 'boolean', description: 'Start the command as a background job and return its id at once; follow it with job_wait, read it with job_status, end it with job_stop.' },
         dangerouslyDisableSandbox: { type: 'boolean', description: 'Not implemented in v1.' }
       },
       required: ['command']
@@ -68,7 +68,9 @@ async function run(args, ctx) {
     return { error: 'bad_args', detail: 'command (string, non-empty) is required' };
   }
   if (args.run_in_background) {
-    return { error: 'not_implemented', detail: 'background mode is not available in this Bash tool revision' };
+    // The job road: detached, logged, followed with job_wait. Same permission
+    // gate as a foreground command (it runs before this point on the command).
+    return require('./jobs.js').start(command, ctx);
   }
   if (args.dangerouslyDisableSandbox) {
     return { error: 'not_implemented', detail: 'sandbox override is not available' };

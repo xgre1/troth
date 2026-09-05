@@ -66,7 +66,7 @@ function unifiedRegistry() {
 }
 
 const CORE_TOOL_NAMES = new Set(
-  String(process.env.TROTH_TOOLS_CORE || 'Bash,Read,Edit,Write,Grep,Glob,web_search,web_fetch,engram_record,engram_search,dialogue_recent,rule_list,operator_request')
+  String(process.env.TROTH_TOOLS_CORE || 'Bash,Read,Edit,Write,Grep,Glob,web_search,web_fetch,engram_record,engram_search,dialogue_recent,rule_list,operator_request,job_wait,job_status,job_stop')
     .split(',').map((s) => s.trim()).filter(Boolean)
 );
 

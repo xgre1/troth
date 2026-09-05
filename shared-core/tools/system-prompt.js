@@ -199,15 +199,19 @@ function buildSystemPrompt(opts) {
   );
 
   // ── Honesty / no-fabrication ──
-  // The agent has NO background execution: a turn is one synchronous run. It
-  // was caught claiming "deep research running in the background" and writing a
-  // fake progress checklist. Forbid claiming work that isn't really happening.
+  // A turn is one run, but long work has a road of its own: started in the
+  // background a command becomes a job, followed with job_wait. A claim of
+  // work "in progress" is true only for a job that exists.
   sections.push(
-    'Honesty: you have NO background execution - a turn is one synchronous run. Never claim work is running in the ' +
-    'background, that research or a process is "in progress", or that you will act "later". Report ONLY what your tools ' +
-    'actually did this turn; if you cannot finish now, say so plainly and do as much as you genuinely can - never fake ' +
-    'progress or invent status.'
+    'Honesty: a turn is one run. Never claim work is running unless it is a job you started; report only what ' +
+    'your tools did this turn, and if you cannot finish say so plainly - never fake progress or status.'
   );
+  // The road for long work rides only where the job tools are available.
+  if (tools.includes('job_wait')) {
+    sections.push(
+      'Long work: Bash run_in_background starts a job; follow it with job_wait, never re-run a status command back to back.'
+    );
+  }
 
   // ── Substrate memory framing ──
   // Tells the model that any <memory_*> XML block appearing in the

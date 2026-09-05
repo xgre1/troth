@@ -476,7 +476,7 @@ function toolVerb(name, args) {
   const key = (mcp ? mcp[2] : n).toLowerCase();
   switch (key) {
     case 'bash': case 'run': case 'shell':
-      return cmd(a.command);
+      return a.run_in_background ? 'starting a job: ' + head(a.command, 40) : cmd(a.command);
     case 'read': case 'cached_read': case 'hashline_read':
       return a.file_path ? 'reading ' + base(a.file_path) : 'reading';
     case 'write':
@@ -500,6 +500,9 @@ function toolVerb(name, args) {
     case 'dialogue_recent': case 'dialogue_search': return 'reading the dialogue';
     case 'rule_list': return 'reading your rules';
     case 'rule_record': return 'noting a rule';
+    case 'job_wait':   return a.job_id ? 'waiting on ' + head(a.job_id, 12) : 'waiting on a job';
+    case 'job_status': return a.job_id ? 'checking ' + head(a.job_id, 12) : 'checking the jobs';
+    case 'job_stop':   return a.job_id ? 'stopping ' + head(a.job_id, 12) : 'stopping a job';
     case 'code_file_map': case 'code_who_calls': return 'mapping the code';
     case 'jobs_status': return 'checking the jobs';
     case 'web_allowlist_list': return 'checking the allowlist';

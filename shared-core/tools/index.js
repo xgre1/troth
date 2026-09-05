@@ -29,6 +29,7 @@ const webResearch = require('./web-research.js');
 const imageGen  = require('./image-gen.js');
 const videoGen  = require('./video-gen.js');
 const vaultCapture = require('../vault-capture.js');
+const jobsTool  = require('./jobs.js');
 
 const REGISTRY = {
   Read:  readTool,
@@ -37,6 +38,10 @@ const REGISTRY = {
   Bash:  bashTool,
   Grep:  grepTool,
   Glob:  globTool,
+  // Background jobs: a long command started detached, followed without re-running it.
+  job_wait:   jobsTool.job_wait,
+  job_status: jobsTool.job_status,
+  job_stop:   jobsTool.job_stop,
   // Provider-agnostic web research via the existing CDP browser (real Chrome,
   // sanitized extraction; no vendor API). Read-only — see permission.js. Lets
   // any native-tool-calling faculty (router/llamacpp/...) research the web;

@@ -182,6 +182,7 @@ module.exports = function run({ test }) {
     assert(!/engram_search|hashline/.test(sys), 'no phantom tool names');
     // The style + honesty guards are tool-independent and must survive.
     assert(/Style: direct, factual/.test(sys), 'style guard rides regardless of tools');
-    assert(/Honesty: you have NO background execution/.test(sys), 'honesty guard rides regardless of tools');
+    assert(/Honesty: a turn is one run/.test(sys), 'honesty guard rides regardless of tools');
+    assert(!/job_wait|run_in_background/.test(sys), 'the long-work road is not advertised without its tools');
   });
 };

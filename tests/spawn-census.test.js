@@ -48,6 +48,7 @@ const REGISTRY = {
   "shared-core/system-load.js": 1,
   "shared-core/text-extract.js": 3,
   "shared-core/tools/bash.js": 1,
+  "shared-core/tools/jobs.js": 1,
   "shared-core/tools/docker-sandbox.js": 2,
   "shared-core/tools/grep.js": 2,
   "shared-core/tools/mcp-client.js": 2,

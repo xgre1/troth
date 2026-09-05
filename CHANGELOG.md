@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Background jobs: a long-running command started with `run_in_background` on
+  the shell tool becomes a job and answers at once with an id and a log.
+  `job_wait` returns when the job ends or prints something new, `job_status`
+  reads it, `job_stop` ends it. Jobs outlive the reply and never the daemon:
+  the exit path stops them. The prompt names this road wherever the job tools
+  are available, so a partner follows long work instead of re-running a
+  status command.
 - Chat header: three rows beside a smaller mark, with the version, the engine
   lane and the folder, and the memory state as numbers (indexed, left to
   index, engine downloading, paused).

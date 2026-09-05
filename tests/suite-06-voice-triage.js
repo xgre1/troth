@@ -929,11 +929,15 @@ console.log('\nTools (Mode A):');
     assert.notStrictEqual(out.exitCode, 0, 'killed process must not report success');
   });
 
-  test('TOO-24: Bash returns not_implemented for run_in_background and sandbox toggles', async () => {
+  test('TOO-24: Bash starts a job for run_in_background; the sandbox toggle stays not_implemented', async () => {
     const bg = JSON.parse(await tools.dispatchToolCall(
-      { function: { name: 'Bash', arguments: { command: 'echo x', run_in_background: true } } }, {}
+      { function: { name: 'Bash', arguments: { command: 'sleep 20', run_in_background: true } } }, {}
     ));
-    assert.strictEqual(bg.error, 'not_implemented');
+    assert.ok(bg.ok && bg.job && /^job-\d+$/.test(bg.job.id), JSON.stringify(bg).slice(0, 200));
+    const stopped = JSON.parse(await tools.dispatchToolCall(
+      { function: { name: 'job_stop', arguments: { job_id: bg.job.id } } }, {}
+    ));
+    assert.ok(stopped.job && stopped.job.state === 'done', 'the job is stopped: ' + JSON.stringify(stopped).slice(0, 220));
     const sb = JSON.parse(await tools.dispatchToolCall(
       { function: { name: 'Bash', arguments: { command: 'echo x', dangerouslyDisableSandbox: true } } }, {}
     ));

@@ -34,6 +34,10 @@ t('every tool is named in plain words, whatever the case of its name', () => {
   assert.strictEqual(toolVerb('mcp__plugin_troth_troth-bash__run', { command: 'npm test' }), 'running npm test');
   assert.strictEqual(toolVerb('mcp__plugin_troth_troth-hashline__hashline_read', { file_path: '/x/y/server.js' }), 'reading server.js');
   assert.strictEqual(toolVerb('mcp__troth-substrate__troth_recall', {}), 'recalling');
+  assert.strictEqual(toolVerb('Bash', { command: 'python3 solver.py', run_in_background: true }), 'starting a job: python3 solver.py');
+  assert.strictEqual(toolVerb('job_wait', { job_id: 'job-2', seconds: 30 }), 'waiting on job-2');
+  assert.strictEqual(toolVerb('job_status', {}), 'checking the jobs');
+  assert.strictEqual(toolVerb('job_stop', { job_id: 'job-2' }), 'stopping job-2');
   assert.strictEqual(toolVerb('mcp_call', { server: 'troth-memory', tool: 'troth_fetch_action' }), 'consulting memory');
   assert.strictEqual(toolVerb('mcp_call', { server: 'troth-substrate', tool: 'troth_engram_record' }), 'remembering');
   assert.strictEqual(toolVerb('mcp_call', { server: 'stripe', tool: 'list_customers' }), 'calling stripe');

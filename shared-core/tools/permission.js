@@ -52,6 +52,8 @@ const READ_ONLY = new Set([
   // Local listings: project structure, job state, the web allowlist and the
   // configured service names. Reads only.
   'code_file_map', 'code_who_calls', 'jobs_status', 'web_allowlist_list', 'api_services_list',
+  // Jobs: waiting on or reading a background job changes nothing.
+  'job_status', 'job_wait',
   // The door: loads one tool's schema for the rest of the turn. Nothing runs
   // through it; the tool it opens is judged by its own name when called.
   'tool_load'
@@ -62,6 +64,8 @@ const READ_ONLY = new Set([
 // safety — a future tool added without classification still gates.
 const WRITE_OR_EXEC = new Set([
   'Write', 'Edit', 'Bash', 'mcp_call', 'engram_record',
+  // Ending a background job kills a process group: a side effect.
+  'job_stop',
   // image_generate WRITES a PNG to ~/.troth/images and does network egress to
   // chatgpt.com — not read-only. Classified WRITE so it gates behind auto-write
   // like any other side-effecting tool (rather than riding the unknown default).
