@@ -41,10 +41,19 @@ console.log('\n=== recall class arms beside the loop ===\n');
     const off = await ask();
     assert.ok(phases(off).some((p) => /^arms_off_loop/.test(p)), 'the off-loop phase is recorded: ' + JSON.stringify(phases(off)));
     assert.ok(off.length > 0 && on.length === off.length, 'same count: ' + on.length + ' vs ' + off.length);
-    assert.deepStrictEqual(off.map((x) => x.id), on.map((x) => x.id), 'same ids, same order');
-    // Episodic scores carry a recency term that moves with the clock, so two
-    // calls a moment apart differ in the third decimal; nothing else may.
-    off.forEach((x, i) => assert.ok(Math.abs(x.score - on[i].score) < 0.05, 'score ' + i + ': ' + x.score + ' vs ' + on[i].score));
+    // The same rows: episodic scores carry a recency term that moves with the
+    // clock, so two calls a moment apart differ in the third decimal, and
+    // rows that tie on score may swap places between the calls. Every row
+    // scores the same on both roads within that margin, and any two rows the
+    // loop set clearly apart keep their order on the worker.
+    const TIE = 0.05;
+    assert.deepStrictEqual(off.map((x) => x.id).sort(), on.map((x) => x.id).sort(), 'the same rows');
+    const onScore = new Map(on.map((x) => [x.id, x.score]));
+    for (const x of off) assert.ok(Math.abs(x.score - onScore.get(x.id)) < TIE, 'score of ' + x.id + ': ' + x.score + ' vs ' + onScore.get(x.id));
+    const offPos = new Map(off.map((x, i) => [x.id, i]));
+    for (let i = 0; i < on.length; i++) for (let j = i + 1; j < on.length; j++) {
+      if (on[i].score - on[j].score > TIE) assert.ok(offPos.get(on[i].id) < offPos.get(on[j].id), 'order kept for rows set apart: ' + on[i].id + ' before ' + on[j].id);
+    }
   });
   await t('a class arm answers by name on the worker', async () => {
     const o = { query: 'taxes June', audience: 'model_visible', limit: 5, cwd: CWD, topicTokens: new Set(), include_superseded: false, include_flagged: false };
