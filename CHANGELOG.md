@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Reasoning switch on both roads: the local transport sends `enable_thinking`
+  at the top level as well as under `chat_template_kwargs`, so MLX servers
+  read it too; the router road sends the switch on unless the caller turns it
+  off. The served fact records whether reasoning actually came back, and the
+  chat footer says "no reasoning" when a lane ran without it.
 - Turn budget: a long turn posts a progress line every 12 steps or 10
   minutes (steps, elapsed, the last tool). At 30 minutes the tools close and
   the answer is asked for; a model that keeps calling ends the turn as

@@ -2134,6 +2134,7 @@ function main() {
           kind: 'served',
           provider: res.served_by.provider || null,
           model: res.served_by.model || null,
+          reasoning: typeof res.served_by.reasoning === 'boolean' ? res.served_by.reasoning : null,
           host: res.served_by.host || null
         });
       }

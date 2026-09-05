@@ -1596,7 +1596,7 @@ function start() {
             .replace(/\.gguf$/i, '')
             .replace(/-(UD|MLX|GGUF|Q\d[A-Z0-9_]*).*$/i, '');
           const eng = /^(router|routing|any)$/i.test(raw) ? '' :
-            [raw, msg.host ? 'local' : null].filter(Boolean).join(' · ');
+            [raw, msg.host ? 'local' : null, msg.reasoning === false ? 'no reasoning' : null].filter(Boolean).join(' · ');
           if (eng) { statusEngine = eng; turnModel = eng; drawStatus(); }
           break;
         }

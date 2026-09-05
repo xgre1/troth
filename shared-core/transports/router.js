@@ -130,7 +130,10 @@ function makeRouterTransport(opts) {
         max_tokens: (req.options && req.options.max_tokens) ||
           parseInt(process.env.TROTH_ENTITY_MAX_TOKENS || '8192', 10),
         stream: false,
-        think: false,
+        // Reasoning stays on unless the caller turns it off; both spellings
+        // travel, whichever the provider behind the proxy reads.
+        think: !(req.options && req.options.enable_thinking === false),
+        enable_thinking: !(req.options && req.options.enable_thinking === false),
         messages: turns
       };
       if (systemParts.length) body.system = systemParts.join('\n\n');

@@ -291,6 +291,9 @@ function makeLlamaCppTransport(opts) {
         // stays internal. Caller can still override via
         // options.enable_thinking=false (e.g., voice latency mode where
         // the brevity guard makes reasoning overkill).
+        // The same switch in both places: llama.cpp reads it under
+        // chat_template_kwargs, the MLX servers read it at the top level.
+        enable_thinking: (req.options && req.options.enable_thinking === false) ? false : true,
         chat_template_kwargs: {
           enable_thinking: (req.options && req.options.enable_thinking === false) ? false : true
         }
@@ -451,6 +454,7 @@ function makeLlamaCppTransport(opts) {
         // fires.
         const toolCallAcc = [];
         let sentServed = false; // emit served_by once
+        let sentReasoning = false; // and once more when reasoning actually arrives
         function mergeToolCallDelta(d) {
           const idx = typeof d.index === 'number' ? d.index : 0;
           if (!toolCallAcc[idx]) toolCallAcc[idx] = { id: null, function: { name: '', arguments: '' } };
@@ -478,7 +482,7 @@ function makeLlamaCppTransport(opts) {
             // (msg.model from llama-server, else the resolved request model) +
             // host, so the UI shows the real local/custom/remote model and can
             // distinguish "On this Mac" from a remote box — not a config guess.
-            if (!sentServed) { sentServed = true; emit({ served_by: { provider: 'local', model: (msg && msg.model) || model, host: url.host } }); }
+            if (!sentServed) { sentServed = true; emit({ served_by: { provider: 'local', model: (msg && msg.model) || model, host: url.host, reasoning: false } }); }
             // Token accounting: some llama.cpp builds attach usage to the
             // final chunk (stream_options or server default) — pass it up.
             if (msg && msg.usage) {
@@ -516,6 +520,12 @@ function makeLlamaCppTransport(opts) {
             if (_DBG && delta) {
               if (typeof delta.content === 'string') { _dbgContentRaw += delta.content.length; if (_dbgSample.length < 400) _dbgSample += delta.content; }
               if (typeof delta.reasoning_content === 'string') _dbgReason += delta.reasoning_content.length;
+            }
+            // Reasoning seen: the served_by is said again with the fact, so the
+            // ledger and the surface know whether the model thought at all.
+            if (delta && !sentReasoning && ((typeof delta.reasoning_content === 'string' && delta.reasoning_content) || (typeof delta.content === 'string' && /<think>/.test(delta.content)))) {
+              sentReasoning = true;
+              emit({ served_by: { provider: 'local', model: (msg && msg.model) || model, host: url.host, reasoning: true } });
             }
             if (delta && typeof delta.content === 'string' && delta.content) {
               const clean = stripThink(delta.content, false);
