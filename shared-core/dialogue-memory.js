@@ -297,8 +297,62 @@ function renderTranscript(turns, opts) {
     blocks.unshift(b);
     used += b.length + 1;
   }
+  // The exchanges that no longer fit whole keep their spine: what the user
+  // asked, in order, and how each reply opened. A thread of twenty
+  // exchanges still knows what it is about at the twentieth, and the
+  // first exchange (where the thread began) is always kept. The digest
+  // takes a small share of the budget; the whole blocks give it room.
+  // Its share: a sixth of the budget, never less than room for the frame and
+  // one gist, never more than half.
+  const digestMax = opts.digest_chars != null
+    ? Math.max(0, opts.digest_chars)
+    : Math.min(3000, Math.max(450, Math.floor(maxChars * 0.15)), Math.floor(maxChars * 0.5));
+  const gist = (t) => {
+    const u = clean(t && t.user_text), a = clean(t && t.assistant_text);
+    const uCut = u.length > 220 ? u.slice(0, 219) + '…' : u;
+    const aCut = a.length > 180 ? a.slice(0, 179) + '…' : a;
+    return [uCut ? '  earlier user: ' + uCut : '', aCut ? '  earlier faculty: ' + aCut : ''].filter(Boolean).join('\n');
+  };
+  // The digest, its two marker lines included, must fit its own share; the
+  // whole blocks give it room, and when even one gist cannot fit, the
+  // elision is only named.
+  const headLine = (n) => '  Earlier in this thread (' + n + ' exchange' + (n === 1 ? '' : 's') + ', in order):';
+  const tailLine = '  …(those exchanges elided here, held whole in the substrate; the recent ones follow)…';
+  let digest = [];
+  if (elided && digestMax > 0) {
+    const frame = headLine(elided).length + 1 + tailLine.length + 1;
+    let size = frame;
+    const first = gist(turns[0]);
+    const chosen = [];
+    if (first && size + first.length + 1 <= digestMax) { chosen.push(first); size += first.length + 1; }
+    const rest = [];
+    for (let j = elided - 1; j >= 1; j--) {
+      const g = gist(turns[j]);
+      if (!g) continue;
+      if (size + g.length + 1 > digestMax) break;
+      rest.unshift(g);
+      size += g.length + 1;
+    }
+    digest = chosen.concat(rest);
+    if (digest.length) {
+      // Room for the digest comes from the oldest whole blocks; the latest
+      // exchange never moves.
+      while (used + size > budget && blocks.length > 1) {
+        const dropped = blocks.shift();
+        used -= dropped.length + 1;
+        elided++;
+      }
+      if (used + size > budget) digest = [];
+    }
+  }
   const lines = [header];
-  if (elided) lines.push('  …(earlier turns elided)…');
+  if (elided && digest.length) {
+    lines.push(headLine(elided));
+    for (const g of digest) lines.push(g);
+    lines.push(tailLine);
+  } else if (elided) {
+    lines.push('  …(earlier turns elided)…');
+  }
   return lines.concat(blocks).join('\n');
 }
 
