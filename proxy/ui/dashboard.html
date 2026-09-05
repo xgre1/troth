@@ -2941,6 +2941,14 @@ setInterval(function(){
       </div>
     </div>
 
+    <div class="settings-card full-width" data-settings-tab="mcp">
+      <div class="card-title">MCP servers troth reaches</div>
+      <div class="card-hint">The servers the agent can call through <code>mcp_call</code>. Each starts on its first call and stays up for the session. A server the agent asked for waits here until you approve it from your shell (approval signs with your operator key): <code>troth mcp approve &lt;name&gt;</code>.</div>
+      <div id="mcp-servers-active" style="margin-top:10px;font-family:var(--mono);font-size:11px;color:var(--text-muted);line-height:2;">checking…</div>
+      <div class="card-hint" style="margin-top:14px;color:var(--text-dim)">Waiting for your approval</div>
+      <div id="mcp-servers-pending" style="font-family:var(--mono);font-size:11px;color:var(--text-muted);line-height:2;">…</div>
+    </div>
+
   </div>
 </div>
 
@@ -6876,7 +6884,38 @@ function copyConnEnv() {
 // Reads /api/mcp/status to show whether the troth plugin is wired into
 // Claude Code, and POSTs /api/mcp/install for the one-click flow. Reuses
 // the dashboard's toast + .provider-dot conventions.
+// The servers the agent reaches through mcp_call: the active ones and the
+// ones waiting for the operator's approval. Reject is a plain write; approve
+// signs with the operator key and stays on the shell road.
+function loadMcpServers() {
+  var act = document.getElementById('mcp-servers-active');
+  var pend = document.getElementById('mcp-servers-pending');
+  if (!act || !pend) return;
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+  fetch('/api/mcp/servers').then(function (r) { return r.json(); }).then(function (d) {
+    var a = (d && d.active) || [];
+    var p = (d && d.pending) || [];
+    act.innerHTML = a.length
+      ? a.map(function (s) { return '<div><span style="color:var(--text)">' + esc(s.name) + '</span>  <span style="color:var(--text-dim)">' + esc(s.transport || 'stdio') + '</span>  <span style="color:var(--text-dim)">' + esc(s.command || '') + '</span></div>'; }).join('')
+      : '<div style="color:var(--text-dim)">none added yet — the agent asks for one with mcp_register_request, or you stage one with <code>troth mcp add</code></div>';
+    pend.innerHTML = p.length
+      ? p.map(function (s) {
+          var cmd = 'troth mcp approve ' + s.name;
+          return '<div><span style="color:var(--text)">' + esc(s.name) + '</span>  <span style="color:var(--text-dim)">' + esc(s.note || '') + '</span>'
+            + '  <code onclick="copyCmd(this)" title="copy" style="cursor:pointer">' + esc(cmd) + '</code>'
+            + '  <button class="btn" style="padding:2px 10px;font-size:11px" onclick="rejectMcpServer(\'' + esc(s.name).replace(/'/g, '') + '\')">Reject</button></div>';
+        }).join('')
+      : '<div style="color:var(--text-dim)">nothing waiting</div>';
+  }).catch(function () { act.textContent = 'the proxy did not answer'; pend.textContent = ''; });
+}
+function rejectMcpServer(name) {
+  fetch('/api/mcp/reject', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: name }) })
+    .then(function (r) { return r.json(); })
+    .then(function (d) { toast(d && d.ok ? 'rejected ' + name : 'refused: ' + ((d && (d.error || d.reason)) || 'unknown')); loadMcpServers(); })
+    .catch(function () { toast('the proxy did not answer'); });
+}
 function loadMcpStatus(includeTccId) {
+  try { loadMcpServers(); } catch (_) {}
   var dot = document.getElementById('mcp-status-dot');
   var txt = document.getElementById('mcp-status-text');
   if (!txt) return;
