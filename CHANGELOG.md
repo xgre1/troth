@@ -12,6 +12,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Dashboard, Settings > Integrations: the MCP servers troth reaches, each
+  with where it comes from (general, or a project's `.mcp.json`), its note,
+  a check that starts the server from the proxy and reports connected with
+  its tool count or the sign-in address, a switch that takes it out of the
+  agent's road and puts it back, remove, and a form that stages a new server
+  with the same checks the agent's own request passes. Approval stays on the
+  shell, signed with the operator key. `/mcps` reads the same listing.
+- `rule_list` takes a topic: this project's rules first, then the ones the
+  topic's words touch, then the newest; superseded rules dropped; each with
+  its scope and the day it was set; whole text while the budget lasts and
+  a count of what did not fit.
+- A maintenance task runs on request by name through the worker process
+  (`POST /api/maintenance/run`) and answers with its own notes.
+- The dense arm of recall reads rows written since the in-memory index
+  last took the ledger in, and reads the ledger directly while the index is
+  still building, so a question about a moment ago is answered.
 - In the chat, a reply is set for the terminal: headings, lists with hanging
   indents, numbered and ticked items, fenced code under a labelled rule,
   aligned tables, quotes, rules and inline marks, wrapped to a reading width
