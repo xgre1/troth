@@ -86,6 +86,11 @@ test('II-2: the wrap moves thin and confined ground into the jail, and leaves ev
     const deep = wj.installWrapFor('npm install', { kind: 'thin', root: home, ground: 'opened' }, sub);
     assert.ok(deep && deep.root === fs.realpathSync(proj),
       'the nearest project decides the jail, not the cwd or the opened root: ' + (deep && deep.root));
+    // The open partner ground (the default) moves an install into the jail
+    // the same way the thin and confined grounds do.
+    const open = wj.installWrapFor('npm install', { off: 'partner-ground', root: proj, ground: 'unopened' }, proj);
+    assert.ok(open && open.kind === 'install-jail' && open.root === fs.realpathSync(proj),
+      'the open partner ground jails an install: ' + JSON.stringify(open && { kind: open.kind, root: open.root }));
     for (const w of [{ kind: 'jail', root: proj }, { kind: 'home' }, { off: 'operator' }, null]) {
       assert.strictEqual(wj.installWrapFor('npm install', w, proj), null,
         'must not intercept for wrap ' + JSON.stringify(w));

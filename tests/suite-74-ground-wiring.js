@@ -92,50 +92,77 @@ test('GW-1: a folder the operator opened works as their own machine, and says no
   } finally { c.kill(); }
 });
 
-test('GW-2: opened ground cannot read partner project ground, so the interpreter road is closed too', async () => {
+test('GW-2: a command that names partner project ground runs inside that project\'s jail, from any ground', async () => {
   if (!live) return skip('sandbox-exec unavailable');
   const m = makeHome();
   const c = client(m.home, m.troth);
   const staged = path.join(m.ws, 'projA', 'staged.js');
+  const escaped = path.join(m.home, 'escaped-by-script.txt');
+  // Code from the workspace that tries to reach the operator's home.
+  fs.writeFileSync(staged, 'try { require("fs").writeFileSync(' + JSON.stringify(escaped) + ', "x") } catch (e) { console.log("kept in") }\nconsole.log(1)\n');
   try {
     await c.init();
+    // Reading it from the operator's own ground works: the command runs
+    // inside the project's jail, which reads its own project.
     const read = await c.run('cat ' + JSON.stringify(staged), m.opened);
-    assert.notStrictEqual(read.exit, 0, 'partner ground was readable from operator ground');
+    assert.strictEqual(read.exit, 0, 'partner ground was not readable through its jail: ' + read.text.slice(0, 200));
+    assert.ok(/partner project ground named/.test(read.note), 'the jail did not announce itself: ' + read.note);
+    // Running it never reaches the operator's environment: the script runs,
+    // its write outside the project does not land.
     const ran = await c.run('node ' + JSON.stringify(staged), m.opened);
-    assert.notStrictEqual(ran.exit, 0, 'partner ground ran through an interpreter');
+    assert.strictEqual(ran.exit, 0, 'the script did not run inside the jail: ' + ran.text.slice(0, 200));
+    assert.strictEqual(fs.existsSync(escaped), false, 'workspace code wrote into the operator\'s home');
+    // Copying it out is a write outside the project, and the jail refuses it.
     const copied = await c.run('cp ' + JSON.stringify(staged) + ' ' + JSON.stringify(path.join(m.opened, 'lifted.js')), m.opened);
     assert.notStrictEqual(copied.exit, 0, 'partner ground was copied out without review');
     assert.strictEqual(fs.existsSync(path.join(m.opened, 'lifted.js')), false);
   } finally { c.kill(); }
 });
 
-test('GW-3: undeclared ground scopes writes to the project, keeps reads open, and stays quiet until a write is actually refused', async () => {
+test('GW-3: undeclared ground is the operator\'s own machine by default, and the confined ground is a choice that scopes writes, keeps reads open and stays quiet until a write is refused', async () => {
   if (!live) return skip('sandbox-exec unavailable');
-  const m = makeHome();
-  const c = client(m.home, m.troth);
-  try {
-    await c.init();
-    const inside = await c.run('echo x > inside.txt && echo done', m.stranger);
-    assert.strictEqual(inside.exit, 0, 'work inside the folder must run: ' + inside.text.slice(0, 200));
-    // Nothing is said while nothing has gone wrong. A warning on every result
-    // is one the reader learns to skip, and it arrives with nothing to act on.
-    assert.strictEqual(inside.note, '', 'a wall announced itself before it did anything: ' + inside.note);
-
-    const escaped = path.join(m.home, 'escaped.txt');
-    const out = await c.run('echo x > ' + JSON.stringify(escaped), m.stranger);
-    assert.notStrictEqual(out.exit, 0, 'a write escaped the folder');
-    assert.strictEqual(fs.existsSync(escaped), false, 'and it must not have landed');
-    // Here it is worth saying, because it is the answer to the error above.
-    assert.ok(/writes here are scoped/.test(out.note),
-      'the refusal was left looking like an unexplained permission error: ' + out.note);
-    assert.ok(/troth open/.test(out.note), 'the refusal does not name the way through: ' + out.note);
-
-    const readOut = await c.run('ls ' + JSON.stringify(m.home) + ' >/dev/null && echo done', m.stranger);
-    assert.strictEqual(readOut.exit, 0, 'reads must stay open or exploring breaks');
-
-    const again = await c.run('echo again', m.stranger);
-    assert.strictEqual(again.note, '', 'a later ordinary command carried a note: ' + again.note);
-  } finally { c.kill(); }
+  // The default: the partner's own work runs with the operator's
+  // environment. Nothing is said, and a write into the operator's own tree
+  // lands.
+  {
+    const m = makeHome();
+    const c = client(m.home, m.troth);
+    try {
+      await c.init();
+      const inside = await c.run('echo x > inside.txt && echo done', m.stranger);
+      assert.strictEqual(inside.exit, 0, 'work inside the folder must run: ' + inside.text.slice(0, 200));
+      assert.strictEqual(inside.note, '', 'a wall announced itself on open ground: ' + inside.note);
+      const own = path.join(m.home, 'own.txt');
+      const out = await c.run('echo x > ' + JSON.stringify(own), m.stranger);
+      assert.strictEqual(out.exit, 0, 'a write into the operator\'s own tree was refused on open ground: ' + out.text.slice(0, 200));
+      assert.strictEqual(fs.existsSync(own), true, 'and it must have landed');
+      assert.strictEqual(out.note, '', 'open ground carried a note: ' + out.note);
+    } finally { c.kill(); }
+  }
+  // The choice: l4.sandbox.partner_ground = confine puts the OS walls around
+  // the working tree, exactly as before.
+  {
+    const m = makeHome();
+    fs.writeFileSync(path.join(m.troth, 'config.json'), JSON.stringify({ l4: { sandbox: { partner_ground: 'confine' } } }));
+    const c = client(m.home, m.troth);
+    try {
+      await c.init();
+      const inside = await c.run('echo x > inside.txt && echo done', m.stranger);
+      assert.strictEqual(inside.exit, 0, 'work inside the folder must run: ' + inside.text.slice(0, 200));
+      assert.strictEqual(inside.note, '', 'a wall announced itself before it did anything: ' + inside.note);
+      const escaped = path.join(m.home, 'escaped.txt');
+      const out = await c.run('echo x > ' + JSON.stringify(escaped), m.stranger);
+      assert.notStrictEqual(out.exit, 0, 'a write escaped the folder');
+      assert.strictEqual(fs.existsSync(escaped), false, 'and it must not have landed');
+      assert.ok(/writes here are scoped/.test(out.note),
+        'the refusal was left looking like an unexplained permission error: ' + out.note);
+      assert.ok(/troth open/.test(out.note), 'the refusal does not name the way through: ' + out.note);
+      const readOut = await c.run('ls ' + JSON.stringify(m.home) + ' >/dev/null && echo done', m.stranger);
+      assert.strictEqual(readOut.exit, 0, 'reads must stay open or exploring breaks');
+      const again = await c.run('echo again', m.stranger);
+      assert.strictEqual(again.note, '', 'a later ordinary command carried a note: ' + again.note);
+    } finally { c.kill(); }
+  }
 });
 
 test('GW-8: confinement follows the project, not the current directory', async () => {
@@ -145,6 +172,8 @@ test('GW-8: confinement follows the project, not the current directory', async (
   // which is the ordinary shape of working in a project rather than the
   // accident this layer exists to catch.
   const m = makeHome();
+  // Confinement is the operator's choice here; the default runs open.
+  fs.writeFileSync(path.join(m.troth, 'config.json'), JSON.stringify({ l4: { sandbox: { partner_ground: 'confine' } } }));
   const repo = path.join(m.home, 'code', 'navrepo');
   fs.mkdirSync(path.join(repo, 'src'), { recursive: true });
   fs.mkdirSync(path.join(repo, 'tests'), { recursive: true });
@@ -168,16 +197,32 @@ test('GW-8: confinement follows the project, not the current directory', async (
   } finally { c.kill(); }
 });
 
-test('GW-4: the directory tree holding the substrate takes no writes', async () => {
+test('GW-4: the files of the substrate tree that decide what runs next take no writes from a partner command', async () => {
   if (!live) return skip('sandbox-exec unavailable');
   const m = makeHome();
   const c = client(m.home, m.troth);
   try {
     await c.init();
-    const r = await c.run('echo x > landed.txt', m.troth);
-    assert.notStrictEqual(r.exit, 0, 'a write landed in the substrate directory');
-    assert.strictEqual(fs.existsSync(path.join(m.troth, 'landed.txt')), false);
-    assert.ok(/holds the substrate/.test(r.note), 'the refusal must explain itself: ' + r.note);
+    // The proxy's own command line, named by the working directory alone:
+    // the tool road resolves a relative target against the directory the
+    // command runs in. And the profiles every wall is built from, named
+    // outright. Neither is written; the refusal names the file.
+    const cases = [
+      ['echo x > bin/troth', path.join(m.troth, 'bin', 'troth')],
+      ['echo x > ' + JSON.stringify(path.join(m.troth, 'sandbox-profiles', 'x.sb')), path.join(m.troth, 'sandbox-profiles', 'x.sb')]
+    ];
+    for (const [cmd, file] of cases) {
+      const r = await c.run(cmd, m.troth);
+      assert.notStrictEqual(r.exit, 0, 'a write landed in the substrate tree: ' + cmd);
+      assert.strictEqual(fs.existsSync(file), false, 'and it must not have landed: ' + file);
+      assert.ok(/refused/.test(r.note) && r.note.includes(file), 'the refusal must name the file: ' + r.note);
+    }
+    // An ordinary file there changes nothing and is not refused; the
+    // workspace under it is partner project ground and stays open.
+    const plain = await c.run('echo x > landed.txt', m.troth);
+    assert.strictEqual(plain.exit, 0, 'an ordinary file in the substrate tree was refused: ' + plain.note);
+    const ok = await c.run('echo x > ' + JSON.stringify(path.join(m.ws, 'projA', 'note.txt')), m.opened);
+    assert.strictEqual(ok.exit, 0, 'a write into a workspace project was refused: ' + ok.text.slice(0, 200) + ' ' + ok.note);
   } finally { c.kill(); }
 });
 
@@ -224,9 +269,11 @@ test('GW-7: the directory a session starts in is opened ground, and nothing is w
     // the two apart, since confinement is exactly what would refuse it.
     const out = await c.run('echo x > ' + JSON.stringify(path.join(m.home, 'sibling.txt')) + ' && echo done', started);
     assert.strictEqual(out.exit, 0, 'the starting directory was confined rather than opened');
-    // Opened, not unwalled: partner ground stays unreadable.
+    // Opened, not unwalled: a command that names partner project ground runs
+    // inside that project's jail, and says so.
     const read = await c.run('cat ' + JSON.stringify(path.join(m.ws, 'projA', 'staged.js')), started);
-    assert.notStrictEqual(read.exit, 0, 'the starting directory ran with no wall at all');
+    assert.strictEqual(read.exit, 0, 'partner ground was not readable through its jail: ' + read.text.slice(0, 200));
+    assert.ok(/partner project ground named/.test(read.note), 'the starting directory ran workspace code with no wall at all: ' + read.note);
     assert.strictEqual(fs.readFileSync(registry, 'utf8'), before,
       'a session grant was persisted to the operator registry');
   } finally { c.kill(); }
@@ -282,11 +329,10 @@ test('GW-9: the shapes a real checkout actually takes still work end to end', as
     fs.mkdirSync(inner, { recursive: true });
     assert.strictEqual((await c.run('git init -q .', sup)).exit, 0);
     assert.strictEqual((await c.run('git init -q .', inner)).exit, 0);
-    // The scope is the nearest repository, so a vendored tree does not reach
-    // the project it sits in. That is the price of not letting one stray
-    // repository high in a tree join unrelated checkouts together.
-    assert.notStrictEqual((await c.run('echo x > ../../top.txt', inner)).exit, 0,
-      'a vendored tree reached the project above it');
+    // The operator's own tree is open ground: a vendored repository inside a
+    // project reaches the project above it, as the operator's own hands do.
+    assert.strictEqual((await c.run('echo x > ../../top.txt', inner)).exit, 0,
+      'a vendored tree was refused the project above it on open ground');
     assert.strictEqual((await c.run('echo x > own.txt', inner)).exit, 0,
       'work inside the vendored tree was refused');
   } finally { c.kill(); }
@@ -298,11 +344,11 @@ test('GW-10: a refusal caused by a machine-executed file explains that ground is
   const c = client(m.home, m.troth);
   try {
     await c.init();
-    // The interpreter road: the plain shell spelling is already refused by
-    // the text road with its own explanation, so the kernel — and this note
-    // — is what a filesystem call carried inside an interpreter argument
-    // meets. On opened ground the wall is thin, and `troth open` would not
-    // lift this refusal.
+    // The interpreter road: a filesystem call carried inside an interpreter
+    // argument names its destination in the command text, and the tool road
+    // reads it there. On the operator's open ground no kernel wall stands
+    // behind that road, so this is the refusal such a write meets; `troth
+    // open` would not lift it.
     const gitcfg = path.join(m.home, '.gitconfig');
     const viaNode = 'node -e ' + JSON.stringify(
       'require("fs").appendFileSync(' + JSON.stringify(gitcfg) + ', "x")');

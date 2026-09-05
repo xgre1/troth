@@ -74,6 +74,56 @@ function operatorWantsBare() {
   } catch { return false; }
 }
 
+// How the partner's own ground runs: 'open' (the operator's environment,
+// the default) or 'confine' (the OS walls around the working tree), from
+// ~/.troth/config.json l4.sandbox.partner_ground. Read fresh each call.
+function partnerGroundMode() {
+  try {
+    const serverDir = fileURLToPath(new URL('.', import.meta.url));
+    const l4 = require(serverDir + '../../../shared-core/l4-config.js');
+    const cfg = typeof l4.getL4Config === 'function' ? l4.getL4Config() : null;
+    const v = cfg && cfg.sandbox && cfg.sandbox.partner_ground;
+    return v === 'confine' ? 'confine' : 'open';
+  } catch { return 'open'; }
+}
+
+// A command that names partner project ground (a path under the workspace)
+// runs inside that project's jail, from whatever ground it was typed: the
+// code there came from outside and never runs with the operator's
+// environment. Returns the jail spec ({ kind:'jail', exec, args, env,
+// project, root, ground, via }), { refuse } when the path lies about where it
+// lands, { off } when this host has no jail to give, or null when no
+// workspace path is named or the ground is already a jail.
+const _WS_PATH_LITERAL = /(?:~|\$\{?HOME\}?)\/[^\s'"`)\];,]+|\/[^\s'"`)\];,]+/g;
+export function workspaceWrapFor(command, wrap, cwd, opts) {
+  if (!wrap || wrap.kind === 'jail' || wrap.off === 'operator') return null;
+  const gp = groundPolicy();
+  if (!gp || typeof gp.workspaceRoot !== 'function') return null;
+  const wsRoot = (opts && opts.workspaceRoot) || gp.workspaceRoot();
+  let realWs = null;
+  try { realWs = realpathSync(wsRoot); } catch { realWs = null; }
+  const home = process.env.HOME || homedir();
+  const lits = String(command || '').match(_WS_PATH_LITERAL) || [];
+  for (const lit of lits) {
+    const claimed = lit.replace(/\\+$/, '').replace(/^\$\{?HOME\}?/, home).replace(/^~/, home);
+    const cands = [claimed];
+    try { cands.push(realpathSync(claimed)); } catch { /* not there yet: the claimed path decides */ }
+    for (const c of cands) {
+      const root = [wsRoot, realWs].find((r) => r && under(c, r) && c !== r);
+      if (!root) continue;
+      const seg = c.slice(root.length + 1).split(sep)[0];
+      if (!seg) continue;
+      const project = pathResolve(root, seg);
+      const j = jailFor(project, wsRoot);
+      if (!j) return null;
+      if (j.refuse) return { refuse: j.refuse };
+      if (j.off) return { off: j.off, project, why: j.why };
+      return { kind: 'jail', exec: j.exec, args: j.args, env: j.env, project, root: project, ground: 'project', via: 'workspace-path' };
+    }
+  }
+  return null;
+}
+
 function under(child, parent) {
   return child === parent || child.startsWith(parent + sep);
 }
@@ -233,6 +283,15 @@ export function wrapFor(cwd, opts) {
   if (operatorWantsBare()) {
     return { off: 'operator', ground: c.ground, root, env: bareEnv() };
   }
+  // The partner's own work runs with the operator's environment: the walls
+  // are for what the partner brings in (a package install moves into the
+  // OS jail below, the workspace stays jailed), never for the work itself.
+  // An operator who wants the old confinement sets
+  // l4.sandbox.partner_ground to 'confine'.
+  if (!jailed && partnerGroundMode() !== 'confine') {
+    return { off: 'partner-ground', ground: c.ground, root, env: bareEnv(),
+             alsoWritable: Array.isArray(c.alsoWritable) ? c.alsoWritable : [] };
+  }
   if (!sb || typeof sb.jailSpawnSpec !== 'function') {
     return { off: 'unavailable', ground: c.ground, root, env: bareEnv(),
              why: 'no sandbox runtime on this host (platform: ' + process.platform + ')' };
@@ -278,7 +337,9 @@ function intercept() {
 // Returns { kind:'install-jail', exec, args, env, ground, root, manager }
 // or null when the command is not an intercepted install.
 export function installWrapFor(command, wrap, cwd, opts) {
-  if (!wrap || (wrap.kind !== 'thin' && wrap.kind !== 'confine')) return null;
+  // The install moves into the jail from every partner ground: the open one
+  // (the default), the thin one and the confined one alike.
+  if (!wrap || (wrap.off !== 'partner-ground' && wrap.kind !== 'thin' && wrap.kind !== 'confine')) return null;
   const ic = intercept();
   if (!ic) return null;
   const c = ic.classifyInstall(command);

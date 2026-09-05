@@ -30,7 +30,7 @@ import { resolve as pathResolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
 import { compressCommandOutput } from './compress.mjs';
-import { jailFor, wrapFor, installWrapFor } from './workspace-jail.mjs';
+import { jailFor, wrapFor, installWrapFor, workspaceWrapFor } from './workspace-jail.mjs';
 
 const require = createRequire(import.meta.url);
 const _greet = require(fileURLToPath(new URL('../../../shared-core/mcp-greeting.js', import.meta.url))).makeGreeter();
@@ -346,6 +346,10 @@ function runCommand(command, timeoutMs, overrideCwd) {
       cwdNote += noteOnce('off:operator:' + wrap.ground,
         '[troth-bash] sandbox OFF by operator config (l4.sandbox.runtime=bare):'
         + ' ' + wrap.ground + ' ground runs unsandboxed\n');
+    } else if (wrap && wrap.off === 'partner-ground') {
+      // The default: the partner's own work runs with the operator's
+      // environment, and only what it brings in (an install) is walled
+      // below. Nothing to announce.
     } else if (wrap && wrap.off) {
       // This host has no wall to give, or the kernel refuses to apply one —
       // which is the answer inside an existing sandbox. Announced for the
@@ -373,6 +377,21 @@ function runCommand(command, timeoutMs, overrideCwd) {
             : 'direct network (egress proxy unavailable)')
         + '; global/user-target installs are not intercepted and keep their ground\n';
     }
+    // A command that names partner project ground (a path under the
+    // workspace) runs inside that project's jail, whatever ground it was
+    // typed from: the code there came from outside, and it never runs with
+    // the operator's environment. Reads inside the project work as before.
+    const ww = iw ? null : workspaceWrapFor(command, wrap, effectiveCwd);
+    if (ww && ww.refuse) {
+      return resolve({
+        stdout: '', stderr: '[troth-bash] REFUSED: ' + ww.refuse + '\n',
+        exitCode: 126, signal: null, timedOut: false
+      });
+    }
+    if (ww && ww.exec) {
+      cwdNote += '[troth-bash] partner project ground named: ' + ww.project
+        + ' — this command runs inside that project\'s jail (reads and writes scoped there, home invisible)\n';
+    }
     // A photograph of the ground before every command — no judgment about
     // the command, because deciding which actions deserve one is exactly
     // the judgment the undo net removes. Synchronous on purpose: the photo
@@ -387,7 +406,7 @@ function runCommand(command, timeoutMs, overrideCwd) {
         undo.snapshot(photoDir, 'shell:' + g, { allowShallow: sanctioned });
       }
     } catch (e) { /* the net never becomes a gate */ }
-    const active = iw || wrap;
+    const active = iw || (ww && ww.exec ? ww : null) || wrap;
     // Confined ground and the substrate tree say nothing in advance. A
     // warning printed before anything has gone wrong is a line on every
     // result that the reader learns to skip, and it arrives when there is
@@ -748,7 +767,9 @@ async function handleTool(name, args) {
     // permission.js, on the l4_step path that does not ship — so the tool an
     // operator actually drives ran with the speed bump alone.
     if (safety) {
-      const verdict = safety.isCommandSafe(args.command || '', {});
+      // The directory the command will run in travels with it, so a relative
+      // destination is judged where it lands.
+      const verdict = safety.isCommandSafe(args.command || '', { cwd: args.cwd || cwd });
       if (!verdict.allowed) {
         return {
           content: [{

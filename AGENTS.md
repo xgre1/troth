@@ -31,6 +31,14 @@ Dashboard: `node bin/troth.js ui` (or `setup` on first run). The sidebar is
 five doors — Dashboard, Memory, Engines, Settings, Help — with the deep views
 under Advanced.
 
+Walls: your own work runs with the operator's environment. What you bring
+in runs walled: a package install moves into an OS jail scoped to the
+project, and a command that names code under `~/.troth/workspace` runs
+inside that project's jail. Destructive shapes (rm -rf on / or ~, pipe from
+the network into a shell, a write into a shell startup file or a hook
+script) are refused by name. The proxy keeps the Claude Code plugin at this
+checkout's version; open sessions take it when they restart.
+
 ## Memory
 
 Embeddings and reranking install themselves locally on first run — no provider
