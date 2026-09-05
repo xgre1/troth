@@ -73,5 +73,8 @@ opt-in, never yours to start.
 - `llms.txt` — full project map, integration surfaces, architecture pointers
 - `docs/SETUP_GUIDE.md` — the human-facing version of this file
 - `docs/HONEST-LIMITS.md` — what the substrate does not claim to solve
-- Contributors: `npm test` (unit), `npm run journey` (behaviour scenarios
-  against the shipped surfaces on a throwaway HOME)
+- Contributors: `npm ci` installs exactly what the lockfile says (`npm install`
+  under another npm rewrites it); `npm test` (unit), `npm run journey`
+  (behaviour scenarios against the shipped surfaces on a throwaway HOME).
+  Every test file keeps its run on a throwaway HOME on its own, so a single
+  file run directly never touches the operator's substrate.
