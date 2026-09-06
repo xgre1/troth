@@ -12,6 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The shell server says once, on the first command, when the walls it loaded
+  are older than the files in the checkout, and names the session restart
+  that takes the current ones.
 - Web search reads each engine's own result list: Brave and Startpage give
   the result title and address, and every engine's own navigation, footer and
   self-links stay out of the results. A page that is only a bot check counts

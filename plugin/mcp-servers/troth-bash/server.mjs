@@ -120,6 +120,33 @@ function noteOnce(key, text) {
   return text;
 }
 
+// A running server keeps the walls it loaded while the checkout under it can
+// move on. The files that decide walls are checked, at most once a minute, and
+// a change since load is said once, with the way through.
+const LOADED_AT = parseInt(process.env.TROTH_BASH_LOADED_AT || '', 10) || Date.now();
+const WALL_FILES = [
+  'server.mjs', 'workspace-jail.mjs',
+  '../../../shared-core/tools/ground-policy.js', '../../../shared-core/tools/sandbox-seatbelt.js',
+  '../../../shared-core/tools/sandbox-runtime.js', '../../../shared-core/tools/session-grants.js',
+  '../../../shared-core/tools/bash-safety.js', '../../../shared-core/tools/install-intercept.js',
+  '../../../shared-core/l4-config.js', '../../../shared-core/danger.js'
+];
+let _staleCheckedAt = 0;
+function staleNote() {
+  const now = Date.now();
+  if (now - _staleCheckedAt < 60000) return '';
+  _staleCheckedAt = now;
+  const changed = [];
+  const dir = fileURLToPath(new URL('.', import.meta.url));
+  for (const rel of WALL_FILES) {
+    try { if (statSync(dir + rel).mtimeMs > LOADED_AT) changed.push(rel.replace(/^(\.\.\/)+/, '')); } catch (_) {}
+  }
+  if (!changed.length) return '';
+  const at = new Date(LOADED_AT).toTimeString().slice(0, 5);
+  return noteOnce('stale-walls', '[troth-bash] this shell loaded its walls at ' + at + ' and the checkout changed since ('
+    + changed.join(', ') + '); a session restart takes the current ones\n');
+}
+
 const TOOLS = [
   {
     name: 'run',
@@ -315,7 +342,7 @@ function requireGrants() {
 function runCommand(command, timeoutMs, overrideCwd) {
   return new Promise((resolve) => {
     let effectiveCwd = overrideCwd || cwd;
-    let cwdNote = '';
+    let cwdNote = staleNote();
     if (!existsSync(effectiveCwd)) {
       // Self-heal instead of the misleading "spawn /bin/bash ENOENT": the
       // shell is fine, the directory is gone (removed worktree, unmounted
