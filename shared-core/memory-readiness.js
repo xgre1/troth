@@ -246,4 +246,36 @@ function summarize(out) {
   return s;
 }
 
-module.exports = { readiness, summarize };
+// The two facts that change under a person's hand or a worker's tick: the
+// pause and the drain heartbeat. A cached readiness answer carries the counts;
+// this reads these two again, in process, and rewrites the one reason line
+// that depends on them, so a poll never shows a stale button or a heartbeat
+// that has already landed.
+const _PAUSED_LINE = 'paused by you — nothing is being read or indexed until you resume; what arrives meanwhile is kept and waits';
+const _NO_DRAIN_LINE = 'no background worker has drained memory recently — it runs on idle while the proxy (troth start), the app, or the daemon is up; `troth service` keeps one up from login';
+function applyLive(out) {
+  if (!out || typeof out !== 'object') return out;
+  try { out.paused = require('./maintenance-gate.js').isPaused(); } catch (_) {}
+  out.drain = Object.assign({ alive: false, last_run_ts: null, last_notes: null }, out.drain || {});
+  try {
+    const state = require('./state.js');
+    const lr = state.lastBackgroundRun('embedding_backfill', 24 * 60 * 60 * 1000);
+    if (lr) {
+      out.drain.last_run_ts = lr.timestamp;
+      out.drain.last_notes = lr.notes || null;
+      out.drain.alive = (Date.now() - lr.timestamp) < 2 * 60 * 1000;
+    }
+  } catch (_) {}
+  const reasons = (Array.isArray(out.reasons) ? out.reasons : []).filter((s) => s !== _PAUSED_LINE && s !== _NO_DRAIN_LINE);
+  const ix = out.indexing || {};
+  if (out.paused && out.paused.paused) {
+    reasons.push(_PAUSED_LINE);
+  } else if (!out.drain.alive && out.stage !== 'unavailable'
+      && ((ix.recall_missing || 0) > 0 || (ix.archive_chunks || 0) > (ix.archive_embedded || 0))) {
+    reasons.push(_NO_DRAIN_LINE);
+  }
+  out.reasons = reasons;
+  return out;
+}
+
+module.exports = { readiness, summarize, applyLive };

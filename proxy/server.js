@@ -1726,6 +1726,10 @@ const server = http.createServer((req, res) => {
       let out = v;
       if (job === 'memory_readiness' && out && typeof out === 'object') {
         out = Object.assign({}, out);
+        // The memo answers at once with the last counts; the pause state and
+        // the drain heartbeat are read live so a button pressed a second ago
+        // and the first tick after boot show on the very next poll.
+        try { out = require('../shared-core/memory-readiness.js').applyLive(out); } catch (_) {}
         try {
           const w = global.__troth_maintenance;
           if (w) out.worker = { skipped_tasks: Array.isArray(w.skipped_tasks) ? w.skipped_tasks : [], last_tick_error: typeof w.last_tick_error === 'function' ? w.last_tick_error() : null, host: typeof w.status === 'function' ? w.status() : { process: w.process || 'inprocess', alive: true, pid: process.pid } };
@@ -1798,6 +1802,8 @@ const server = http.createServer((req, res) => {
         try {
           out = require('../shared-core/read-worker.js').peek('memory_readiness', 20000, 'memory_readiness', {}, { timeout_ms: 180000 })
              || require('../shared-core/memory-readiness.js').readiness();
+          // The memo holds counts; the pause and the drain heartbeat are read live.
+          try { if (out && typeof out === 'object') out = require('../shared-core/memory-readiness.js').applyLive(Object.assign({}, out)); } catch (_) {}
         }
         catch (e) { out = { stage: 'unavailable', error: String(e && e.message || e) }; }
         // The worker that keeps these numbers moving: what it set aside at
