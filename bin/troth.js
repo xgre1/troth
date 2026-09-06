@@ -1800,6 +1800,19 @@ if (command === "doctor") {
     checks.push({ name: "Memory hooks runtime", ok: false, detail: "could not probe `node` on PATH — recall hooks likely fail open in Claude Code" });
   }
 
+  // Optional native features. An npm that installs with dependency scripts
+  // off (npm 12's default) can leave a native unbuilt or absent; the core
+  // runs without them. Name what is missing and the one road to allow it.
+  try {
+    var _absent = [];
+    try { if (!require("../shared-core/ast-validate.js").available()) _absent.push("syntax gate for edits (tree-sitter)"); }
+    catch (_e) { _absent.push("syntax gate for edits (tree-sitter)"); }
+    try { require.resolve("node-llama-cpp"); } catch (_e) { _absent.push("in-process local model (node-llama-cpp; the llama-server road works without it)"); }
+    checks.push({ name: "Optional natives", ok: _absent.length === 0, detail: _absent.length === 0
+      ? "syntax gate and in-process local model present"
+      : "absent: " + _absent.join("; ") + ". The core runs without them. If your npm installs with dependency scripts off (npm 12 default), run `npm approve-scripts` in this tree, then `npm install`." });
+  } catch (_e) {}
+
   // Background drain heartbeat. Frozen readiness counts LOOK like slow
   // progress; the ledger says whether anyone is actually draining (the
   // proxy's maintenance worker or the entity daemon). Only a verdict when
