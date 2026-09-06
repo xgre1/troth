@@ -4869,14 +4869,14 @@ function wireAutosave() {
 }
 
 var CTXWIN_SOURCE = {
-  operator:  'you set this',
-  table:     'troth ships this number',
-  declared:  'declared in config',
+  operator:  'the number you set',
+  table:     'from the model table troth carries',
+  declared:  'from your config',
   endpoint:  'reported by the server',
   catalogue: 'published by the vendor',
   family:    'from the model family',
-  fallback:  'assumed, nothing reported it',
-  default:   'assumed, nothing published it'
+  fallback:  'assumed, the server reported none',
+  default:   'assumed, nothing published one'
 };
 
 document.addEventListener('change', function (ev) {
@@ -4902,12 +4902,12 @@ function refreshContextWindow(key, retried) {
       out.textContent = '';
       out.className = 'ctxwin' + (assumed ? ' ctxwin-assumed' : '');
       var label = document.createElement('span');
-      label.textContent = Number(j.window).toLocaleString() + ' tokens · ' +
+      label.textContent = 'Context window ' + Number(j.window).toLocaleString() + ' tokens per request · ' +
         (CTXWIN_SOURCE[j.source] || j.source);
       out.appendChild(label);
       var edit = document.createElement('button');
       edit.type = 'button';
-      edit.textContent = assumed ? 'set the real one' : 'override';
+      edit.textContent = assumed ? 'set the real one' : 'correct it';
       edit.onclick = function () { openContextWindowInput(key, model, j.window, out); };
       out.appendChild(edit);
     })
