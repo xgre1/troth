@@ -194,6 +194,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resized and the result says so; a job that fails carries the provider's
   own reason and never restarts on another key.
 
+### Changed
+- troth installs under npm 12's default settings: the substrate's SQLite
+  binding ships inside the package with no install script, one binary per
+  platform for every supported Node. node-pty is no longer pulled in.
+
 ### Fixed
 - The partner's browser gets collected when nobody uses it: the idle reaper
   recognises the agent's profile directory by its tail
