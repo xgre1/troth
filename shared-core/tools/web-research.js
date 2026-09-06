@@ -22,9 +22,30 @@ const cdpMod    = require('../perception/cdp-client.js');
 const NAV_WAIT_MS = () => parseInt(process.env.TROTH_WEB_NAV_WAIT_MS || '2800', 10) || 2800;
 const MAX_CHARS   = () => parseInt(process.env.TROTH_WEB_MAX_CHARS   || '60000', 10) || 60000;
 
+const CANCEL_POLL_MS = 100;
+
+function _cancelAsked(ctx) {
+  if (!ctx || typeof ctx.shouldCancel !== 'function') return false;
+  try { return !!ctx.shouldCancel(); } catch (_) { return false; }
+}
+
+function _cancelled() {
+  return { error: 'cancelled', interrupted: true, detail: 'the turn was stopped' };
+}
+
+async function _sleepUnlessCancelled(ms, ctx) {
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    if (_cancelAsked(ctx)) return false;
+    await new Promise((r) => setTimeout(r, Math.max(1, Math.min(CANCEL_POLL_MS, until - Date.now()))));
+  }
+  return !_cancelAsked(ctx);
+}
+
 // Run fn(session) against a CDP page, ensuring the daemon + cleaning up. Returns
 // fn's value, or a structured error envelope (never throws).
-async function _withPage(fn) {
+async function _withPage(fn, ctx) {
+  if (_cancelAsked(ctx)) return _cancelled();
   // HEADFUL by default. Measured  on a real Mac: in HEADLESS CDP every
   // mainstream SERP blocks us (Brave→CAPTCHA, Ecosia→Cloudflare, Startpage→Blocked,
   // Mojeek→403) — headless is the single strongest bot signal. The SAME engines
@@ -37,23 +58,39 @@ async function _withPage(fn) {
     return { error: 'browser_cdp_unavailable', detail: 'no Chrome/Chromium launchable — install Google Chrome / Chromium or set TROTH_BROWSER_BIN.' };
   }
   const host = process.env.TROTH_BROWSER_CDP_HOST || '127.0.0.1';
+  if (_cancelAsked(ctx)) return _cancelled();
   let session;
   try { session = await cdpMod.connectFirstPage(host, parseInt(port, 10)); }
   catch (e) { return { error: 'cdp_connect_failed', detail: String(e && e.message || e) }; }
+  // The stop reaches a page mid-load by closing the CDP session: every send
+  // still pending rejects at once (cdp-client's close handler), so a slow
+  // navigation or evaluate never runs out its own timeout after the turn
+  // was stopped.
+  let hit = false;
+  const watch = (ctx && typeof ctx.shouldCancel === 'function')
+    ? setInterval(() => {
+        if (hit || !_cancelAsked(ctx)) return;
+        hit = true;
+        try { session.close(); } catch (_) {}
+      }, CANCEL_POLL_MS)
+    : null;
   try {
     await session.send('Page.enable');
     await session.send('Runtime.enable');
-    return await fn(session);
+    const out = await fn(session);
+    return (hit || _cancelAsked(ctx)) ? _cancelled() : out;
   } catch (e) {
+    if (hit || _cancelAsked(ctx)) return _cancelled();
     return { error: 'cdp_op_failed', detail: String(e && e.message || e) };
   } finally {
+    if (watch) clearInterval(watch);
     try { session.close(); } catch (_) {}
   }
 }
 
-async function _navExtract(session, url, expr) {
+async function _navExtract(session, url, expr, ctx) {
   await session.send('Page.navigate', { url });
-  await new Promise((r) => setTimeout(r, NAV_WAIT_MS()));
+  if (!(await _sleepUnlessCancelled(NAV_WAIT_MS(), ctx))) throw new Error('cancelled');
   const r = await session.send('Runtime.evaluate', { expression: expr, returnByValue: true });
   return r && r.result && r.result.value;
 }
@@ -72,14 +109,14 @@ const fetchSchema = {
   },
 };
 
-async function runFetch(args) {
+async function runFetch(args, ctx) {
   args = args || {};
   const url = args.url;
   if (!url || typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
     return { error: 'bad_args', detail: 'url must be an absolute http:// or https:// URL' };
   }
   return _withPage(async (s) => {
-    const text = await _navExtract(s, url, 'document.body ? document.body.innerText : ""');
+    const text = await _navExtract(s, url, 'document.body ? document.body.innerText : ""', ctx);
     const content = String(text == null ? '' : text);
     // A page past the cap is cut, and the cut is SAID beside the content,
     // never written into it: a marker inside the text turned a cut JSON
@@ -102,7 +139,7 @@ async function runFetch(args) {
         (/^\s*[\[{]/.test(content) ? '. It is a JSON document, so this prefix does not parse: fetch a smaller resource or the specific fields you need.' : '.');
     }
     return out;
-  });
+  }, ctx);
 }
 
 // ── web_search (CDP → search engine results page) ─────────────────────────
@@ -155,7 +192,7 @@ function _searchExpr(limit) {
     'return JSON.stringify({title:document.title,snippet:(document.body?document.body.innerText:"").slice(0,300),results:out});})()';
 }
 
-async function runSearch(args) {
+async function runSearch(args, ctx) {
   args = args || {};
   const q = args.query || args.q;
   if (!q || typeof q !== 'string') return { error: 'bad_args', detail: 'query required' };
@@ -168,10 +205,11 @@ async function runSearch(args) {
   return _withPage(async (s) => {
     const tried = [];
     for (const eng of chain) {
+      if (_cancelAsked(ctx)) return _cancelled();
       const serp = eng.url.replace('{q}', encodeURIComponent(q));
       let data = {};
       try {
-        const raw = await _navExtract(s, serp, expr);
+        const raw = await _navExtract(s, serp, expr, ctx);
         try { data = JSON.parse(raw || '{}'); } catch (_) { data = {}; }
       } catch (_) { tried.push(eng.name + ':error'); continue; }
       const results = (data.results || []).filter((r) => r && r.url && /^https?:\/\//i.test(r.url));
@@ -187,7 +225,7 @@ async function runSearch(args) {
       error: 'all_engines_failed', query: q, tried,
       detail: 'Every sovereign SERP via the CDP browser was blocked/empty (' + tried.join(', ') + '). Most likely the browser is running HEADLESS — every mainstream SERP blocks headless CDP; the body must be HEADFUL (TROTH_BROWSER_HEADLESS=0). Or set TROTH_SEARCH_URL to a self-hosted SearXNG.',
     };
-  });
+  }, ctx);
 }
 
 module.exports = {
