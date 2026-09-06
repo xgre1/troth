@@ -109,8 +109,9 @@ async function dispatch(intent, capability, ctx) {
   catch (e) { return { ok: false, error: 'mcp_spawn_failed: ' + (e && e.message || String(e)) }; }
   let res;
   try {
-    res = await client.rpc(state, 'tools/call', { name: payload.tool, arguments: payload.args || {} });
+    res = await client.rpc(state, 'tools/call', { name: payload.tool, arguments: payload.args || {} }, ctx);
   } catch (e) {
+    if (e && e.message === 'cancelled') return { ok: false, error: 'cancelled', interrupted: true };
     return { ok: false, error: 'mcp_rpc_failed: ' + (e && e.message || String(e)) };
   }
   return {

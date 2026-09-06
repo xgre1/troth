@@ -157,6 +157,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own reason and never restarts on another key.
 
 ### Fixed
+- Stop reaches everything the turn started: a page still loading in the
+  browser (`web_fetch` / `web_search`) is dropped at once, a background job
+  the turn started ends with it, and an external MCP call stops waiting and
+  tells the server (`notifications/cancelled`). In the app, Stop also cancels
+  a message waiting behind the stopped turn, and leaving voice mode stops the
+  turn the way the chat's Esc does (before, a stop cut only the audio while
+  the browser or the job ran on to its own end).
 - Leaving the chat while a command runs stops the command: the entity's exit
   cancels every turn still running before it drains, so the command's process
   group is killed and nothing outlives the daemon (before, a `/quit` or a

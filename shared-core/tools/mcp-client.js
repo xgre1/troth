@@ -667,19 +667,43 @@ async function probe(name, opts) {
   return done({ state: 'unreachable', error: 'no answer within ' + Math.round(PROBE_MS / 1000) + ' s' + (live && live.stderr ? ': ' + live.stderr.trim().split('\n').slice(-3).join(' | ').slice(0, 300) : '') });
 }
 
-function rpc(state, method, params) {
+function rpc(state, method, params, ctx) {
   const id = state.nextId++;
+  const asked = () => {
+    if (!ctx || typeof ctx.shouldCancel !== 'function') return false;
+    try { return !!ctx.shouldCancel(); } catch (_) { return false; }
+  };
   return new Promise((resolve, reject) => {
+    let poll = null;
     let timer = setTimeout(() => {
       if (state.pending.has(id)) {
         state.pending.delete(id);
+        if (poll) clearInterval(poll);
         reject(new Error('mcp-client rpc timeout: ' + method));
       }
     }, RPC_TIMEOUT_MS);
     state.pending.set(id, {
-      resolve: (v) => { clearTimeout(timer); resolve(v); },
-      reject:  (e) => { clearTimeout(timer); reject(e); }
+      resolve: (v) => { clearTimeout(timer); if (poll) clearInterval(poll); resolve(v); },
+      reject:  (e) => { clearTimeout(timer); if (poll) clearInterval(poll); reject(e); }
     });
+    // A stopped turn stops waiting: the request is dropped from the pending
+    // map, the server gets notifications/cancelled for that id so it can drop
+    // the work too, and the caller sees `cancelled`. Only the turn's own
+    // stop hook (ctx.shouldCancel) does this; a call with no hook waits as
+    // before, up to the rpc timeout.
+    if (ctx && typeof ctx.shouldCancel === 'function') {
+      poll = setInterval(() => {
+        if (!state.pending.has(id) || !asked()) return;
+        state.pending.delete(id);
+        clearTimeout(timer);
+        clearInterval(poll);
+        try {
+          state.proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id, reason: 'operator_cancel' } }) + '\n');
+        } catch (_) {}
+        reject(new Error('cancelled'));
+      }, 100);
+      if (poll.unref) poll.unref();
+    }
     state.proc.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
   });
 }
