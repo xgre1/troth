@@ -31,6 +31,7 @@ const videoGen  = require('./video-gen.js');
 const vaultCapture = require('../vault-capture.js');
 const jobsTool  = require('./jobs.js');
 const taskTool  = require('./task.js');
+const diagnosticsTool = require('./diagnostics.js');
 
 const REGISTRY = {
   Read:  readTool,
@@ -65,7 +66,11 @@ const REGISTRY = {
   // A delegate turn: one brief answered by a child conversation, read-only,
   // on any wired engine. Its own gate judges the child's tools; the tool
   // itself changes nothing (see permission.js).
-  task: taskTool
+  task: taskTool,
+  // The project's own checkers (tsc, eslint, cargo check, ruff) on the files
+  // just edited, time-boxed through the spawn seam. Reads and reports; the
+  // checkers write nothing the model asked for (see permission.js).
+  diagnostics: diagnosticsTool
 };
 
 // ── Tool-result archiver ─────────────────────────────────────────────────

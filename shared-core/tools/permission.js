@@ -59,7 +59,9 @@ const READ_ONLY = new Set([
   'tool_load',
   // A delegate turn changes nothing by itself: the child conversation runs
   // its own gate with writes off, so the tool that starts it is a read.
-  'task'
+  'task',
+  // The project's checkers report; they change nothing the model named.
+  'diagnostics'
 ]);
 
 // Tools that need explicit auto-write to fire. Anything not in

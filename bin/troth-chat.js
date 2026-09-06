@@ -544,6 +544,7 @@ function toolVerb(name, args) {
     case 'job_status': return a.job_id ? 'checking ' + head(a.job_id, 12) : 'checking the jobs';
     case 'job_stop':   return a.job_id ? 'stopping ' + head(a.job_id, 12) : 'stopping a job';
     case 'code_file_map': case 'code_who_calls': return 'mapping the code';
+    case 'diagnostics': return 'checking the code';
     case 'jobs_status': return 'checking the jobs';
     case 'web_allowlist_list': return 'checking the allowlist';
     case 'api_services_list': return 'listing the services';
