@@ -30,6 +30,7 @@ const imageGen  = require('./image-gen.js');
 const videoGen  = require('./video-gen.js');
 const vaultCapture = require('../vault-capture.js');
 const jobsTool  = require('./jobs.js');
+const taskTool  = require('./task.js');
 
 const REGISTRY = {
   Read:  readTool,
@@ -60,7 +61,11 @@ const REGISTRY = {
   // WRITE — it stores a secret (see permission.js); the value never reaches
   // the model. In the proxy it captures in-process; elsewhere it reaches the
   // proxy over HTTP.
-  vault_capture: vaultCapture
+  vault_capture: vaultCapture,
+  // A delegate turn: one brief answered by a child conversation, read-only,
+  // on any wired engine. Its own gate judges the child's tools; the tool
+  // itself changes nothing (see permission.js).
+  task: taskTool
 };
 
 // ── Tool-result archiver ─────────────────────────────────────────────────

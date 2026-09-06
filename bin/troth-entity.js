@@ -1501,7 +1501,7 @@ function main() {
           const t = turnState();
           if (!delta) return;
           t.streamed_chars += String(delta).length;
-          emit({ kind: 'text_delta', content: String(delta) });
+          if (!t.task_child) emit({ kind: 'text_delta', content: String(delta) });
         }
       });
     } catch (e) {
@@ -1666,6 +1666,67 @@ function main() {
   const _activeTurns = new Map();
   const UNTAGGED_TURN_KEY = '\u0000untagged'; // cannot collide with a real pane id
 
+  // A delegate turn (the task tool). One brief runs as its own conversation,
+  // <parent>:task:<n>, on the named engine with a reduced tool set and writes
+  // off, and its text goes back to the parent's tool call. One delegate at a
+  // time per conversation; the parent's Stop and the time box both cancel it
+  // through the same registry a pane's Stop uses.
+  const _taskChildren = new Set();
+  let _taskSeq = 0;
+  async function spawnTaskTurn(req, parent) {
+    const parentKey = (parent && parent.conversation_id != null) ? String(parent.conversation_id) : 'cli';
+    if (_taskChildren.has(parentKey)) {
+      return { ok: false, error: 'busy', hint: 'one delegate at a time for this conversation; wait for it to finish' };
+    }
+    const brief = String((req && req.brief) || '').trim();
+    if (!brief) return { ok: false, error: 'missing_brief' };
+    const childId = parentKey + ':task:' + (++_taskSeq);
+    let engine = null;
+    if (req && req.engine) {
+      const r = engineOverride.resolveEngine(req.engine);
+      if (r.kind !== 'faculty') return { ok: false, error: 'unknown_engine', detail: '"' + req.engine + '" is not an engine word here' };
+      if (!orchestrators[r.faculty]) return { ok: false, error: 'engine_not_wired', detail: r.engine + ' (' + r.faculty + ') is not wired on this daemon' };
+      engineOverride.setFaculty(childId, r.engine, r.faculty, !!r.router_provider);
+      engine = r.engine;
+    }
+    const names = (req && Array.isArray(req.tool_names) && req.tool_names.length) ? req.tool_names : null;
+    const tools = names
+      ? toolRunner.unifiedToolsArray(names)
+      : toolRunner.coreToolsArray().filter((s) => !(s.function && s.function.name === 'task'));
+    const maxMs = Math.max(30000, Math.min(30 * 60000, Number(req && req.max_ms) || 10 * 60000));
+    const child = {
+      kind: 'llm',
+      prompt: brief,
+      options: { conversation_id: childId, workspace: parent.cwd, tools, auto_write: false, agentic: true, task_child: true, task_depth: 1 }
+    };
+    const cancelChild = (why) => { const s = _activeTurns.get(childId); if (s) s.cancel(why); };
+    const timer = setTimeout(() => cancelChild('task_timeout'), maxMs);
+    if (timer.unref) timer.unref();
+    const watch = setInterval(() => { if (parent.cancel_signal && parent.cancel_signal.cancelled) cancelChild('parent_cancel'); }, 500);
+    if (watch.unref) watch.unref();
+    _taskChildren.add(parentKey);
+    const t0 = Date.now();
+    try {
+      const res = await dispatch(child, {});
+      const ok = !!(res && res.status === 'ok');
+      return {
+        ok,
+        text: (res && typeof res.text === 'string') ? res.text : '',
+        status: res && res.status || null,
+        reason: res && res.reason || null,
+        engine: engine || (res && res.faculty) || null,
+        elapsed_ms: Date.now() - t0,
+        conversation_id: childId
+      };
+    } catch (e) {
+      return { ok: false, error: 'task_failed', detail: e && e.message || String(e), elapsed_ms: Date.now() - t0, conversation_id: childId };
+    } finally {
+      clearTimeout(timer);
+      clearInterval(watch);
+      _taskChildren.delete(parentKey);
+      if (engine) engineOverride.clear(childId);
+    }
+  }
   // dispatch() proper: establishes the per-turn context (tagging contract +
   // per-turn mutable state, see _turnCtx at module top) for the WHOLE async
   // tree of the turn, then runs the actual dispatch body. conversation_id
@@ -1747,6 +1808,9 @@ function main() {
       // Everything conversation-scoped in this branch reads/writes THIS
       // object, never module state.
       const _ts = turnState();
+      // A delegate turn (task tool): its text goes back to the parent's tool
+      // call, never to the surface, so streaming and the response frame stay off.
+      _ts.task_child = !!(action.options && action.options.task_child);
       // Per-turn workspace: a panel serving project X passes
       // options.workspace (absolute path). The turn's HANDS act there -
       // tool runner cwd, system prompt cwd, mcp project resolution - for
@@ -1948,6 +2012,10 @@ function main() {
           // project.mcp.json from ctx.cwd - both must see the turn's cwd.
           cwd: TURN_CWD,
           cancel_signal: _cancelSignal,
+          // The task tool: a delegate turn is a nested dispatch on its own
+          // conversation id. task_depth stops a delegate from delegating.
+          task_depth: (action.options && Number(action.options.task_depth)) || 0,
+          spawn_turn: (req) => spawnTaskTurn(req, { conversation_id: _ts.conversation_id, cwd: TURN_CWD, cancel_signal: _cancelSignal }),
           // Per-call auto_write opt-in: caller can set
           // action.options.auto_write=true (e.g. trusted CI workflows)
           // without flipping the global env. Plan mode (/mode plan) wins over
@@ -2142,7 +2210,7 @@ function main() {
       // truth and served_by stays null; surfaces fall back to the dispatch
       // event. Emitted before the response so the surface can attribute
       // the reply on arrival.
-      if (res && res.served_by) {
+      if (res && res.served_by && !_ts.task_child) {
         emit({
           kind: 'served',
           provider: res.served_by.provider || null,
@@ -2151,7 +2219,7 @@ function main() {
           host: res.served_by.host || null
         });
       }
-      emit({ kind: 'response', text: stripEnvelopeForDisplay(res.text), status: res.status, reason: res.reason, faculty: choice.faculty, elapsed_ms, usage: res.usage || null });
+      if (!_ts.task_child) emit({ kind: 'response', text: stripEnvelopeForDisplay(res.text), status: res.status, reason: res.reason, faculty: choice.faculty, elapsed_ms, usage: res.usage || null });
       // Deregister the cancel signal (idempotent with the agentic finally;
       // covers the compose() path). The === guard means a stale entry left
       // by a thrown compose turn is replaced by the pane's next turn.

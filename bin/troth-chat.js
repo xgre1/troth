@@ -534,7 +534,7 @@ function toolVerb(name, args) {
     case 'browse': case 'browser_session':
       return a.url ? 'browsing ' + host(a.url) : (a.action ? 'browsing: ' + head(a.action, 32) : 'browsing');
     case 'task': case 'agent':
-      return a.description ? 'delegating: ' + head(a.description, 44) : 'delegating';
+      return (a.brief || a.description) ? 'delegating: ' + head(a.brief || a.description, 44) + (a.engine ? ' · ' + a.engine : '') : 'delegating';
     case 'engram_record': case 'troth_engram_record': return 'remembering';
     case 'engram_search': case 'troth_recall': case 'recall': return 'recalling';
     case 'dialogue_recent': case 'dialogue_search': return 'reading the dialogue';
@@ -618,7 +618,7 @@ function toolDetail(name, args, verb) {
     case 'engram_record': case 'troth_engram_record': d = one(a.statement); break;
     case 'mcp_call': d = one(a.server) + (a.tool ? ' · ' + one(a.tool) : ''); break;
     case 'tool_load': d = one(a.name); break;
-    case 'task': case 'agent': d = one(a.description || a.prompt); break;
+    case 'task': case 'agent': d = one(a.brief || a.description || a.prompt); break;
     default: {
       const first = Object.keys(a).find((k) => typeof a[k] === 'string' && a[k].trim());
       d = first ? one(a[first]) : '';

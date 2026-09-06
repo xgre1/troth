@@ -56,7 +56,10 @@ const READ_ONLY = new Set([
   'job_status', 'job_wait',
   // The door: loads one tool's schema for the rest of the turn. Nothing runs
   // through it; the tool it opens is judged by its own name when called.
-  'tool_load'
+  'tool_load',
+  // A delegate turn changes nothing by itself: the child conversation runs
+  // its own gate with writes off, so the tool that starts it is a read.
+  'task'
 ]);
 
 // Tools that need explicit auto-write to fire. Anything not in
