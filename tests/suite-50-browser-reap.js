@@ -184,4 +184,24 @@ test('REAP-17: the sweep asks the daemon for the tail and hands it to the verdic
   assert.ok(/agentProfileTail\(\)/.test(src), 'the sweep asks the daemon');
   assert.ok(/agentProfileTail: _AGENT_TAIL/.test(src), 'and hands it to the verdict');
 });
+
+const { browserLeash } = require(path.join(ROOT, 'shared-core', 'browser-reap.js'));
+
+test('REAP-18: a browser showing only blank tabs goes after the standard idle time', () => {
+  const ms = browserLeash({ pages: [{ type: 'page', url: 'about:blank' }, { type: 'browser', url: '' }], idleMs: HOUR, mult: 4 });
+  assert.strictEqual(ms, HOUR);
+  assert.strictEqual(browserLeash({ pages: [], idleMs: HOUR, mult: 4 }), HOUR, 'no page at all is nothing to lose');
+});
+
+test('REAP-19: a browser with a page open keeps the longer leash, and so does one we could not read', () => {
+  assert.strictEqual(browserLeash({ pages: [{ type: 'page', url: 'https://docs.example/read' }], idleMs: HOUR, mult: 4 }), 4 * HOUR);
+  assert.strictEqual(browserLeash({ pages: null, idleMs: HOUR, mult: 4 }), 4 * HOUR, 'unknown counts as a page open');
+});
+
+test('REAP-20: the sweep reads the browser\'s pages and sizes the leash from them (source pin)', () => {
+  const src = require('fs').readFileSync(path.join(ROOT, 'proxy', 'server.js'), 'utf8');
+  assert.ok(/listTargets\('127\.0\.0\.1', t\.port\)/.test(src), 'the sweep asks the browser for its pages');
+  assert.ok(/browserLeash\(\{ pages: _pages/.test(src), 'and sizes the leash from them');
+  assert.ok(/idleMs: _leashMs/.test(src) && /if \(idleMs < _leashMs\) return;/.test(src), 'both checks use that leash');
+});
 };

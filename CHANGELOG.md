@@ -176,13 +176,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own reason and never restarts on another key.
 
 ### Fixed
-- The partner's browser opens minimised and gets collected when idle: a
-  headed launch minimises its window over CDP right away (it keeps loading
-  and searching while minimised; `TROTH_BROWSER_VISIBLE=1` keeps it in
-  view), and the idle reaper recognises the agent's profile directory by
-  its tail (`.troth/agent-browser-profile`) under any HOME, stamping a
-  first sighting so the idle clock starts (before, a browser started from a
-  scratch HOME counted as someone else's and sat on screen for days).
+- The partner's browser gets collected when nobody uses it: the idle reaper
+  recognises the agent's profile directory by its tail
+  (`.troth/agent-browser-profile`) under any HOME and stamps a first sighting
+  so the idle clock starts, and a browser showing nothing but a blank tab goes
+  after the standard idle time while one with a page open keeps the longer
+  leash (before, a browser started from a scratch HOME counted as someone
+  else's and sat on screen for days).
 - Stop reaches everything the turn started: a page still loading in the
   browser (`web_fetch` / `web_search`) is dropped at once, a background job
   the turn started ends with it, and an external MCP call stops waiting and

@@ -54,29 +54,6 @@ function agentProfileTail() {
   return path.join('.troth', 'agent-browser-profile');
 }
 
-// Minimise the browser window over CDP right after a headed launch, so the
-// agent's browser does not land on top of what the operator is doing. The
-// page keeps loading and running while minimised; only the window is out of
-// the way. Best effort: a browser that refuses is left as it is.
-async function hideWindow(host, port) {
-  const cdp = require('./cdp-client.js');
-  let browser = null;
-  try {
-    browser = await cdp.connectBrowser(host, port);
-    const res = await browser.send('Target.getTargets');
-    const page = ((res && res.targetInfos) || []).find((t) => t.type === 'page');
-    if (!page) return false;
-    const win = await browser.send('Browser.getWindowForTarget', { targetId: page.targetId });
-    if (!win || win.windowId == null) return false;
-    await browser.send('Browser.setWindowBounds', { windowId: win.windowId, bounds: { windowState: 'minimized' } });
-    return true;
-  } catch (_) {
-    return false;
-  } finally {
-    try { browser && browser.close(); } catch (_) {}
-  }
-}
-
 // The pre-hardening SHARED directory (agent and operator opt-in both used it,
 // usually on port 9222). Nothing launches it anymore; the reaper needs its
 // name to recognise an orphan of an older install — same single-source rule
@@ -207,9 +184,7 @@ async function ensure(opts) {
       if (h) {
         process.env.TROTH_BROWSER_CDP_PORT = String(port);
         process.env.TROTH_BROWSER_CDP_HOST = h;
-        const hide = !headless && !opts.visible && process.env.TROTH_BROWSER_VISIBLE !== '1';
-        const hidden = hide ? await hideWindow(h, port) : false;
-        return { ok: true, port, host: h, spawned: true, pid: child.pid, headless, hidden, bin };
+        return { ok: true, port, host: h, spawned: true, pid: child.pid, headless, bin };
       }
       await new Promise((r) => setTimeout(r, 400));
     }
@@ -219,4 +194,4 @@ async function ensure(opts) {
   return _spawning;
 }
 
-module.exports = { ensure, alive, aliveHost, findBrowser, hideWindow, DEFAULT_PORT, defaultProfileDir, legacyProfileDir, agentProfileTail };
+module.exports = { ensure, alive, aliveHost, findBrowser, DEFAULT_PORT, defaultProfileDir, legacyProfileDir, agentProfileTail };

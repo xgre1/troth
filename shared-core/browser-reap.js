@@ -74,4 +74,26 @@ function mayReapBrowser(o) {
   return { reap: true, reason: 'idle for ' + Math.round(idleFor / 60000) + ' minutes' };
 }
 
-module.exports = { mayReapBrowser };
+/**
+ * How long the agent's browser may sit idle before it is collected. A browser
+ * with a page open keeps the longer leash (someone may be reading it); one
+ * showing nothing but blank tabs has nothing to lose and goes after the
+ * standard idle time. Unknown pages (the target list could not be read)
+ * count as a page open.
+ * @param {object} o
+ * @param {Array|null} o.pages   the browser's page targets ({url}), null when unknown
+ * @param {number} o.idleMs      the standard idle time
+ * @param {number} o.mult        the longer leash, as a multiple of idleMs
+ * @returns {number} ms of idleness that allows a reap
+ */
+function browserLeash(o) {
+  const opts = o || {};
+  const base = opts.idleMs || 0;
+  const long = base * (opts.mult || 4);
+  if (!Array.isArray(opts.pages)) return long;
+  const pages = opts.pages.filter((p) => p && (p.type == null || p.type === 'page'));
+  const blank = pages.every((p) => /^(about:blank|chrome:\/\/newtab\/?)?$/.test(String(p.url || '')));
+  return blank ? base : long;
+}
+
+module.exports = { mayReapBrowser, browserLeash };

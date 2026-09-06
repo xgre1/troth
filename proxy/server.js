@@ -6746,7 +6746,7 @@ server.listen(listenPort, BIND_HOST, () => {
           // longer leash than a model server because a page an agent opened
           // may still be on the operator's screen.
           { port: parseInt(process.env.TROTH_BROWSER_CDP_PORT || '18222', 10), what: 'browser', pat: 'remote-debugging-port', mult: 4 }
-        ].forEach(function (t) {
+        ].forEach(async function (t) {
           var alive = '';
           var needle = t.pat === 'remote-debugging-port'
             ? 'remote-debugging-port=' + t.port
@@ -6755,6 +6755,7 @@ server.listen(listenPort, BIND_HOST, () => {
           if (!alive) return;
           var last = 0;
           try { last = parseInt(_fs.readFileSync(_pathI.join(_os.homedir(), '.troth', 'lastuse-' + t.port + '.txt'), 'utf8'), 10) || 0; } catch (_) { last = 0; }
+          var _leashMs = _idleMin * 60000 * (t.mult || 1);
           if (t.what === 'browser') {
             // The rules, and why the third one changed, are in browser-reap.js.
             // They live there rather than here because they are the part worth
@@ -6764,6 +6765,9 @@ server.listen(listenPort, BIND_HOST, () => {
               _lines = _cp.execSync('pgrep -fl "' + needle + '" || true', { encoding: 'utf8' })
                 .split('\n').filter(function (l) { return !!l; });
             } catch (_) { _lines = []; }
+            var _pages = null;
+            try { _pages = await require('../shared-core/perception/cdp-client.js').listTargets('127.0.0.1', t.port); } catch (_) { _pages = null; }
+            _leashMs = require('../shared-core/browser-reap.js').browserLeash({ pages: _pages, idleMs: _idleMin * 60000, mult: t.mult || 1 });
             if (!last && _lines.some(_wearsOursTail)) {
               try { _fs.writeFileSync(_pathI.join(_os.homedir(), '.troth', 'lastuse-' + t.port + '.txt'), String(Date.now())); } catch (_) {}
               return;
@@ -6772,7 +6776,7 @@ server.listen(listenPort, BIND_HOST, () => {
               port: t.port,
               lastUse: last,
               now: Date.now(),
-              idleMs: _idleMin * 60000 * (t.mult || 1),
+              idleMs: _leashMs,
               procLines: _lines,
               agentProfile: _AGENT_PROFILE,
               legacyProfile: _LEGACY_PROFILE,
@@ -6784,7 +6788,7 @@ server.listen(listenPort, BIND_HOST, () => {
             // call since stamping shipped: the strongest idle signal there is.
           }
           var idleMs = Date.now() - (last || 0);
-          if (idleMs < _idleMin * 60000 * (t.mult || 1)) return;
+          if (idleMs < _leashMs) return;
           try {
             // Ask first, insist after. A browser given SIGTERM flushes its
             // cookie store on the way out; one given SIGKILL loses whatever
