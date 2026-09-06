@@ -38,6 +38,10 @@ if (!process.env._TROTH_TEST_HOME) {
   // can without breaking the substrate isolation.
   if (realHome) process.env._TROTH_REAL_HOME = realHome;
 }
+// A daemon under test starts its browser observer whenever the port is in
+// the environment; no test reaches a browser on the machine that runs it.
+delete process.env.TROTH_BROWSER_CDP_PORT;
+delete process.env.TROTH_BROWSER_CDP_HOST;
 
 // Hermetic network guarantee: NO model/binary fetches from tests.
 // Without these, any embed attempt from a virgin home pulled the llama-server

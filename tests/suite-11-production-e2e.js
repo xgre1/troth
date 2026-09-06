@@ -126,6 +126,7 @@ test('E2E-1: daemon cold-boots on a virgin home, serves two conversations with n
   ], 90000);
 
   const kinds = events.map((e) => e.kind);
+  assert(!kinds.some((k) => /^browser_observer_/.test(k)), 'a test daemon reached a browser: ' + kinds.join(','));
   assert(kinds.includes('ready'), 'daemon must reach ready on a virgin home; got kinds: ' + kinds.slice(0, 10).join(','));
   assert(kinds.includes('stopped'), 'daemon must announce shutdown on stdin EOF (exit code ' + code + '; stderr tail: ' + String(stderr || '').slice(-400) + ')');
 
