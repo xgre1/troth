@@ -149,10 +149,18 @@ test('TBS-6: a no-port browse never auto-attaches to 9222', () => {
   // list, and falling back to port 9222 — must both be gone from the
   // no-port branch. 9222 may still be NAMED (comments, the explicit-port
   // error message); what it may not be is silently attached.
-  const src = fs.readFileSync(SERVER, 'utf8');
-  const start = src.indexOf('async function handleBrowse');
-  const end   = src.indexOf('let page;', start);
-  assert.ok(start > 0 && end > start, 'handleBrowse block located');
+  // The no-port branch lives in shared-core/tools/browse.js (resolveTarget),
+  // one road for this server and the troth CLI agent; the server's
+  // handleBrowse only wraps it, and that delegation is pinned too.
+  const wrapper = fs.readFileSync(SERVER, 'utf8');
+  const w0 = wrapper.indexOf('async function handleBrowse');
+  const w1 = wrapper.indexOf('async function handleTool', w0);
+  assert.ok(w0 > 0 && w1 > w0, 'handleBrowse block located');
+  assert.ok(/browse\.perform\(/.test(wrapper.slice(w0, w1)), 'the server delegates to the shared browse road');
+  const src = fs.readFileSync(path.join(ROOT, 'shared-core', 'tools', 'browse.js'), 'utf8');
+  const start = src.indexOf('async function resolveTarget');
+  const end   = src.indexOf('async function perform', start);
+  assert.ok(start > 0 && end > start, 'resolveTarget block located');
   const block = src.slice(start, end);
   assert.ok(!/candidates\.push\(\s*9222\s*\)/.test(block), '9222 is still an auto-attach candidate');
   // [^-] so the hyphenated flag spelling (--remote-debugging-port=9222) in

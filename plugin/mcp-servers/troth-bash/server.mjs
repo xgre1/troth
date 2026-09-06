@@ -560,94 +560,18 @@ function runCommand(command, timeoutMs, overrideCwd) {
 // This is the same road the journey tests drive (tests/journey/lib/browser.js),
 // exposed as a tool so any agent with troth mounted can look at real pages.
 async function handleBrowse(args) {
-  let cdp;
+  // The browse itself lives in shared-core/tools/browse.js, one road for
+  // this server and the troth CLI agent; this wraps its reply for MCP.
+  let browse;
   try {
     const serverDir = fileURLToPath(new URL('.', import.meta.url));
-    cdp = require(serverDir + '../../../shared-core/perception/cdp-client.js');
+    browse = require(serverDir + '../../../shared-core/tools/browse.js');
   } catch (e) {
-    return { isError: true, content: [{ type: 'text', text: 'cdp client unavailable: ' + (e && e.message || e) }] };
+    return { isError: true, content: [{ type: 'text', text: 'browse unavailable: ' + (e && e.message || e) }] };
   }
-  let host = args.host || '127.0.0.1';
-  let port = Number(args.port) || 0;
-  const explicit = port > 0;
-  if (!explicit) {
-    // No port asked: find or start the TROTH browser only — whatever a
-    // body/daemon already exported, then the private daemon port, then
-    // launch the daemon's Chrome. The operator's own debug browser (9222)
-    // is NOT a candidate here: the description promises "never your own
-    // session", and until this held, a no-port browse with a debug Chrome
-    // open landed inside the operator's authenticated session with
-    // arbitrary eval. 9222 is reachable only as an EXPLICIT port — the
-    // operator's opt-in — and explicit ports stay attach-only.
-    let daemon = null;
-    try {
-      const serverDir = fileURLToPath(new URL('.', import.meta.url));
-      daemon = require(serverDir + '../../../shared-core/perception/chromium-daemon.js');
-    } catch (_) {}
-    if (daemon) {
-      const candidates = [];
-      const envPort = parseInt(process.env.TROTH_BROWSER_CDP_PORT || '', 10);
-      if (envPort) candidates.push(envPort);
-      if (candidates.indexOf(daemon.DEFAULT_PORT) === -1) candidates.push(daemon.DEFAULT_PORT);
-      for (const c of candidates) {
-        const h = await daemon.aliveHost(c, 900);
-        if (h) { host = h; port = c; break; }
-      }
-      if (!port) {
-        const up = await daemon.ensure({});
-        if (up && up.ok) { host = up.host || host; port = up.port; }
-        else return { isError: true, content: [{ type: 'text', text:
-          'no browser to attach and could not start one: ' + ((up && (up.detail || up.error)) || 'unknown') }] };
-      }
-    }
-    // No daemon module on this install → there is no troth browser to use.
-    // Falling back to 9222 here would silently do what the no-port contract
-    // exists to prevent; say what is missing instead.
-    if (!port) {
-      return { isError: true, content: [{ type: 'text', text:
-        'no troth browser available on this install. To drive your OWN debug Chrome, start it with --remote-debugging-port=9222 and call browse with port 9222 explicitly.' }] };
-    }
-  }
-  let page;
-  try { page = await cdp.connectFirstPage(host, port); }
-  catch (e) {
-    return { isError: true, content: [{ type: 'text', text:
-      'no debuggable browser at ' + host + ':' + port + (explicit
-        ? ' - explicit ports are attach-only; start that browser yourself with --remote-debugging-port=' + port
-        : ' - and starting the troth browser did not yield a page') + '. Underlying: ' + (e && e.message || e) }] };
-  }
-  const out = {};
-  try {
-    await page.send('Page.enable', {});
-    await page.send('Runtime.enable', {});
-    if (args.url) {
-      await page.send('Page.navigate', { url: String(args.url) });
-      await new Promise((r) => setTimeout(r, Number(args.wait_ms) || 1200));
-    } else if (args.wait_ms) {
-      await new Promise((r) => setTimeout(r, Number(args.wait_ms)));
-    }
-    if (args.eval) {
-      const r = await page.send('Runtime.evaluate', {
-        expression: '(function(){ try { return JSON.stringify(' + args.eval + '); } catch (e) { return JSON.stringify({ __eval_error: String(e && e.message || e) }); } })()',
-        returnByValue: true, awaitPromise: true,
-      });
-      const v = r && r.result && r.result.value;
-      try { out.eval = JSON.parse(v); } catch (_) { out.eval = v; }
-    }
-    if (args.screenshot) {
-      const shot = await page.send('Page.captureScreenshot', { format: 'png' });
-      if (shot && shot.data) {
-        const file = pathResolve(cwd, String(args.screenshot));
-        writeFileSync(file, Buffer.from(shot.data, 'base64'));
-        out.screenshot = file;
-      } else { out.screenshot = null; }
-    }
-  } catch (e) {
-    try { page.close(); } catch (_) {}
-    return { isError: true, content: [{ type: 'text', text: 'browse failed: ' + (e && e.message || e) }] };
-  }
-  try { page.close(); } catch (_) {}
-  return { content: [{ type: 'text', text: JSON.stringify(out) }] };
+  const r = await browse.perform(args, cwd);
+  if (!r.ok) return { isError: true, content: [{ type: 'text', text: r.error }] };
+  return { content: [{ type: 'text', text: JSON.stringify(r.out) }] };
 }
 
 async function handleTool(name, args) {

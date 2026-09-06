@@ -33,6 +33,7 @@ const jobsTool  = require('./jobs.js');
 const taskTool  = require('./task.js');
 const diagnosticsTool = require('./diagnostics.js');
 const todoTool  = require('./todo.js');
+const browseTool = require('./browse.js');
 
 const REGISTRY = {
   Read:  readTool,
@@ -74,7 +75,11 @@ const REGISTRY = {
   diagnostics: diagnosticsTool,
   // The turn's own step list, kept with the conversation and shown under
   // the trail. Working state, not memory; nothing on disk (see permission.js).
-  todo_write: todoTool
+  todo_write: todoTool,
+  // A real Chrome page over CDP, the same road the Claude Code plugin
+  // drives. A call with url alone is a read; eval or screenshot is a write
+  // (permission.js asks per call).
+  browse: browseTool
 };
 
 // ── Tool-result archiver ─────────────────────────────────────────────────

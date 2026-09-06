@@ -90,12 +90,29 @@ function classify(toolName) {
   return 'unknown';   // default-deny for unclassified tools
 }
 
+// Some tools are a read or a write depending on the call: browse reads a
+// page with url alone and writes with eval (script runs in the page) or
+// screenshot (a file lands). The gate asks per call; classify() stays the
+// name-level answer everything else uses.
+function classifyCall(toolName, args) {
+  if (toolName === 'browse') {
+    try { return require('./browse.js').isWriteCall(args) ? 'write' : 'read'; } catch (_) { return 'write'; }
+  }
+  return classify(toolName);
+}
+
 function wrapRunner(innerRunner, policyOpts) {
   policyOpts = policyOpts || {};
   const allowEnv = process.env.TROTH_ENTITY_AUTO_WRITE === '1';
   return async function gatedRunner(toolCall, ctx) {
     const name = toolCall && toolCall.function && toolCall.function.name;
-    const kind = classify(name);
+    let args0 = {};
+    {
+      const raw = toolCall && toolCall.function && toolCall.function.arguments;
+      if (typeof raw === 'string') { try { args0 = JSON.parse(raw); } catch (_) { args0 = {}; } }
+      else if (raw && typeof raw === 'object') args0 = raw;
+    }
+    const kind = classifyCall(name, args0);
 
     // L4 Wall 2 — capability scope at the tool boundary.
     //
@@ -352,6 +369,7 @@ function wrapRunner(innerRunner, policyOpts) {
 
 module.exports = {
   classify,
+  classifyCall,
   wrapRunner,
   READ_ONLY,
   WRITE_OR_EXEC
