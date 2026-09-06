@@ -109,6 +109,9 @@ function start(command, ctx) {
     job.ended_at = Date.now();
     job.exit_code = typeof code === 'number' ? code : null;
     job.signal = signal || null;
+    if (typeof ctx.on_job_end === 'function') {
+      try { ctx.on_job_end(view(job)); } catch (_) {}
+    }
   });
   child.on('error', (e) => {
     job.ended_at = Date.now();

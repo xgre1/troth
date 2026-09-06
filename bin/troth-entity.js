@@ -1495,11 +1495,10 @@ function main() {
           emit(Object.assign({ kind: 'turn_progress' }, p || {}));
         },
         // Stream each text delta so the UI shows tokens flowing ("writing")
-        // instead of a frozen "Thinking" even on zero-tool turns. Voice turns
-        // suppress this (TTS reads the final reply, not partials).
+        // instead of a frozen "Thinking" even on zero-tool turns.
         onTextDelta: (delta) => {
           const t = turnState();
-          if (t.audio || !delta) return;
+          if (!delta) return;
           t.streamed_chars += String(delta).length;
           emit({ kind: 'text_delta', content: String(delta) });
         }
@@ -1945,9 +1944,9 @@ function main() {
           // Per-call auto_write opt-in: caller can set
           // action.options.auto_write=true (e.g. trusted CI workflows)
           // without flipping the global env.
-          auto_write: !!(action.options && action.options.auto_write)
+          auto_write: !!(action.options && action.options.auto_write),
+          on_job_end: (job) => emit({ kind: 'job_done', job, live: audio, conversation_id: _ts.conversation_id })
         });
-        // Voice turns suppress live token streaming (TTS reads the final reply).
         _ts.audio = audio;
         _ts.streamed_chars = 0;
         // Keep-alive heartbeat: a long-but-working turn (a silent claude_cli run,

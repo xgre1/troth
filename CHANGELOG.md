@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A job the partner started reports its end to the turn that started it,
+  with the same view `job_status` gives (state, exit code, the log tail).
 - Video has a preset: one active source (OpenRouter or Google AI), its key,
   the model, the quality, the length, the shape and the sound, set once on
   the Video card. A clip asked for in chat takes the preset unless the
