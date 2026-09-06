@@ -21,8 +21,8 @@
 // is denied by the profile, so a package cannot call the operator's own
 // services; scoping the public internet is the egress layer's job.
 import { homedir } from 'node:os';
-import { realpathSync } from 'node:fs';
-import { resolve as pathResolve, sep } from 'node:path';
+import { realpathSync, readFileSync } from 'node:fs';
+import { resolve as pathResolve, sep, join } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
@@ -77,14 +77,25 @@ function operatorWantsBare() {
 // How the partner's own ground runs: 'open' (the operator's environment,
 // the default) or 'confine' (the OS walls around the working tree), from
 // ~/.troth/config.json l4.sandbox.partner_ground. Read fresh each call.
-function partnerGroundMode() {
+// Two roads to the same key: the closed overlay's reader applies defaults
+// and validation where it exists; the file itself answers in a tree that
+// ships without it, so the choice means the same thing in both builds.
+export function partnerGroundFromConfigFile() {
+  try {
+    const home = process.env.HOME || homedir();
+    const raw = JSON.parse(readFileSync(join(home, '.troth', 'config.json'), 'utf8'));
+    const v = raw && raw.l4 && raw.l4.sandbox && raw.l4.sandbox.partner_ground;
+    return v === 'confine' ? 'confine' : 'open';
+  } catch { return 'open'; }
+}
+export function partnerGroundMode() {
   try {
     const serverDir = fileURLToPath(new URL('.', import.meta.url));
     const l4 = require(serverDir + '../../../shared-core/l4-config.js');
     const cfg = typeof l4.getL4Config === 'function' ? l4.getL4Config() : null;
     const v = cfg && cfg.sandbox && cfg.sandbox.partner_ground;
     return v === 'confine' ? 'confine' : 'open';
-  } catch { return 'open'; }
+  } catch { return partnerGroundFromConfigFile(); }
 }
 
 // A command that names partner project ground (a path under the workspace)
