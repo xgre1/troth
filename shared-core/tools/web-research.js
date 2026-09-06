@@ -88,6 +88,14 @@ async function _withPage(fn, ctx) {
   }
 }
 
+function _parse(raw) {
+  try { return JSON.parse(raw || '{}') || {}; } catch (_) { return {}; }
+}
+
+function _pageText(data) {
+  return (data.title || '') + ' ' + (data.snippet || '');
+}
+
 async function _navExtract(session, url, expr, ctx) {
   await session.send('Page.navigate', { url });
   if (!(await _sleepUnlessCancelled(NAV_WAIT_MS(), ctx))) throw new Error('cancelled');
@@ -170,22 +178,30 @@ const searchSchema = {
 // override the whole chain with a single backend via TROTH_SEARCH_URL ({q}
 // placeholder) — e.g. a self-hosted SearXNG. NO silent low-quality default: if
 // every engine fails we return an honest error (usually means HEADLESS).
+// `pick` names an engine's own result anchors (measured on its live markup);
+// an engine without one takes the generic road below.
 const ENGINE_CHAIN = [
-  { name: 'brave',      url: 'https://search.brave.com/search?q={q}' },
+  { name: 'brave',      url: 'https://search.brave.com/search?q={q}',         pick: '.result-body a[href^="http"], .result-content a[href^="http"]' },
   { name: 'ecosia',     url: 'https://www.ecosia.org/search?q={q}' },
-  { name: 'startpage',  url: 'https://www.startpage.com/sp/search?query={q}' },
+  { name: 'startpage',  url: 'https://www.startpage.com/sp/search?query={q}', pick: '.result a.result-link' },
   { name: 'marginalia', url: 'https://marginalia-search.com/search?query={q}' },
 ];
 // CAPTCHA / block / interstitial signatures — when present we skip to the next engine.
-const BLOCK_RE = /captcha|unusual traffic|are you (a )?robot|verify (you|that you| your)|not a robot|access denied|forbidden|rate.?limit|too many requests|cf-?challenge|cloudflare|just a moment|startpage blocked/i;
+const BLOCK_RE = /captcha|unusual traffic|are you (a )?robot|verify (you|that you| your)|verifying your request|not a robot|access denied|forbidden|rate.?limit|too many requests|cf-?challenge|cloudflare|just a moment|startpage blocked/i;
 
-// Generic external-result extraction (engine-agnostic) PLUS title+snippet so we
-// can detect a block page. innerText excludes scripts/hidden nodes = sanitization.
-function _searchExpr(limit) {
+// Result extraction PLUS title+snippet so we can detect a block page. With a
+// pick, the result's heading is the title; without one, every outbound link
+// counts except those in the page's header/nav/footer/aside and those on the
+// engine's own hosts (brand token = first word of the host).
+// innerText excludes scripts/hidden nodes = sanitization.
+function _searchExpr(limit, pick) {
   return '(function(){var host=location.host;' +
-    'var etok=(host.split(".").filter(function(p){return p.length>3&&p!=="search"&&p!=="www";})[0]||"");' +
-    'var seen={};var out=[];var as=document.querySelectorAll(\'a[href^="http"]\');' +
-    'for(var i=0;i<as.length;i++){var a=as[i];var href=a.href;var t=(a.innerText||"").trim();' +
+    'var etok=(host.split(".").filter(function(p){return p.length>3&&p!=="search"&&p!=="www";})[0]||"").split("-")[0];' +
+    'var seen={};var out=[];var as=document.querySelectorAll(' + JSON.stringify(pick || 'a[href^="http"]') + ');' +
+    'for(var i=0;i<as.length;i++){var a=as[i];var href=a.href;' +
+    (pick ? '' : 'if(a.closest("header,nav,footer,aside"))continue;') +
+    'var box=' + (pick ? 'a.closest(".result,.result-body")' : 'null') + ';var h=box&&box.querySelector("h1,h2,h3,.title");' +
+    'var t=((h&&h.innerText)||a.innerText||"").trim();' +
     'try{var u=new URL(href);if(u.host===host||(etok&&u.host.indexOf(etok)>=0)||/\\.(css|js|png|svg|ico|woff2?)$/i.test(u.pathname))continue;}catch(e){continue;}' +
     'if(!t||t.length<4)continue;if(seen[href])continue;seen[href]=1;' +
     'out.push({title:t.slice(0,140),url:href});if(out.length>=' + limit + ')break;}' +
@@ -201,7 +217,7 @@ async function runSearch(args, ctx) {
   const chain = override
     ? [{ name: 'custom', url: override.indexOf('{q}') >= 0 ? override : override + '{q}' }]
     : ENGINE_CHAIN;
-  const expr = _searchExpr(Math.max(limit, 8));
+  const want = Math.max(limit, 8);
   return _withPage(async (s) => {
     const tried = [];
     for (const eng of chain) {
@@ -209,11 +225,10 @@ async function runSearch(args, ctx) {
       const serp = eng.url.replace('{q}', encodeURIComponent(q));
       let data = {};
       try {
-        const raw = await _navExtract(s, serp, expr, ctx);
-        try { data = JSON.parse(raw || '{}'); } catch (_) { data = {}; }
+        data = _parse(await _navExtract(s, serp, _searchExpr(want, eng.pick), ctx));
       } catch (_) { tried.push(eng.name + ':error'); continue; }
       const results = (data.results || []).filter((r) => r && r.url && /^https?:\/\//i.test(r.url));
-      if (BLOCK_RE.test((data.title || '') + ' ' + (data.snippet || ''))) { tried.push(eng.name + ':blocked'); continue; }
+      if (BLOCK_RE.test(_pageText(data))) { tried.push(eng.name + ':blocked'); continue; }
       if (results.length < 2) { tried.push(eng.name + ':empty'); continue; }
       return {
         type: 'text', query: q, engine: eng.name, backend: 'cdp:' + eng.name,

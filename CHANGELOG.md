@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Web search reads each engine's own result list: Brave and Startpage give
+  the result title and address, and every engine's own navigation, footer and
+  self-links stay out of the results. A page that is only a bot check counts
+  as blocked, and the search moves to the next engine.
 - The partner introduces itself as troth; the agent identifier never appears
   as a name. An identity block may give it another name, and that wins.
 - The composer wraps what you type at spaces, never inside a word, and the
