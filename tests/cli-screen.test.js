@@ -208,6 +208,27 @@ console.log('\n=== chat composer on a real terminal ===\n');
       tmux(['send-keys', '-t', SES, '/quit', 'Enter']);
       await sleep(1500);
     });
+
+    await t('the composer and the echoed message wrap at spaces, never inside a word', async () => {
+      await startChat(60, 24, ENGINE_ENV);
+      const sentence = 'the composer must wrap this long sentence at the spaces between words and never cut a word in half when it reaches the edge of the box';
+      const words = new Set(sentence.split(' '));
+      const whole = (line) => line.trim().split(/\s+/).filter(Boolean).every((w) => words.has(w));
+      tmux(['send-keys', '-t', SES, sentence]);
+      await sleep(1200);
+      const rows = screen().split('\n').filter((l) => /^\s*│ .*│\s*$/.test(l)).map((l) => l.replace(/^\s*│ /, '').replace(/\s*│\s*$/, ''));
+      assert.ok(rows.length >= 3, 'the sentence spans rows: ' + JSON.stringify(rows));
+      assert.ok(rows.every(whole), 'every composer row holds whole words: ' + JSON.stringify(rows));
+      tmux(['send-keys', '-t', SES, 'Enter']);
+      await sleep(1500);
+      const echoed = screen(true).split('\n').filter((l) => /\b(composer|spaces|edge)\b/.test(l) && !/│/.test(l));
+      assert.ok(echoed.length >= 2, 'the echo spans rows: ' + JSON.stringify(echoed));
+      assert.ok(echoed.every(whole), 'every echoed row holds whole words: ' + JSON.stringify(echoed));
+      tmux(['send-keys', '-t', SES, 'Escape']);
+      await sleep(500);
+      tmux(['send-keys', '-t', SES, '/quit', 'Enter']);
+      await sleep(1500);
+    });
     proxy.close();
   } catch (e) {
     console.log('  ✗ the chat came up: ' + e.message); fail++;

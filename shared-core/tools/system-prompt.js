@@ -94,8 +94,8 @@ function buildSystemPrompt(opts) {
   // context only here — environment + agent_id + cwd. Identity is the
   // substrate's job, not this prompt's.
   sections.push(
-    'Operating context: running on the user\'s machine, ' +
-    'agent_id=' + agent_id + (cwd ? '; cwd=' + cwd : '') + '. ' +
+    'You are troth (the identity block below may name you otherwise). ' +
+    'Running on the user\'s machine' + (cwd ? '; cwd=' + cwd : '') + '. ' +
     'You have shell + file-system tools available when the task warrants them; ' +
     'you are also a thinking partner for whatever the user actually wants to work on.'
   );

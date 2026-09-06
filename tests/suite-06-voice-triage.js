@@ -1252,7 +1252,7 @@ console.log('\nTools (Mode A):');
       cwd:      '/tmp',
       available_tools: ['Read', 'Write', 'Bash']
     });
-    assert.ok(out.includes('voice-test'));
+    assert.ok(out.includes('You are troth'), 'the partner is named troth, never the agent id');
     assert.ok(out.includes('Read, Write, Bash'));
     assert.ok(out.toLowerCase().includes('preamble') || out.toLowerCase().includes('apologies'),
               'anti-preamble/apology guard present');

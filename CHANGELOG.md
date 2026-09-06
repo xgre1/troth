@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- The partner introduces itself as troth; the agent identifier never appears
+  as a name. An identity block may give it another name, and that wins.
+- The composer wraps what you type at spaces, never inside a word, and the
+  echoed message does the same. Every transcript row, trail lines included,
+  is held to the terminal's width the same way.
 - Chat replies never break mid-word at the edge: a code line longer than its
   box folds inside the box two cells deeper, and every rendered row is held
   to the terminal's width at print time, folding at a space with the

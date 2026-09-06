@@ -210,9 +210,37 @@ let meterWriter  = null;
 // fixed layout so the composer keeps one height for the whole turn.
 let statusWork = null;
 function out(s) {
+  const text = foldOut(s);
   if (hideComposer) hideComposer();
-  if (!fixedUI) { process.stdout.write(s); return; }
-  process.stdout.write('\x1b7\x1b[' + (termRows() - 4) + ';1H\x1b[2K' + s + '\x1b8');
+  if (!fixedUI) { process.stdout.write(text); return; }
+  process.stdout.write('\x1b7\x1b[' + (termRows() - 4) + ';1H\x1b[2K' + text + '\x1b8');
+}
+// Every transcript row held to the terminal's live width: a row wider than
+// the window folds at a space with its continuation indented under it.
+function foldOut(s) {
+  const raw = String(s == null ? '' : s);
+  if (!isTTY) return raw;
+  const md = require('../shared-core/tty-markdown.js');
+  const limit = Math.max(20, (process.stdout.columns || 80) - 1);
+  return raw.split('\n').map((line) => (line && md.visibleWidth(line) > limit) ? md.foldVisible(line, limit).join('\n') : line).join('\n');
+}
+// The composer's rows: contiguous slices of the text, each cut at the last
+// space that fits or hard at the width, so a word never splits at the edge.
+// starts[i] is the offset the row begins at, for the caret.
+function splitRows(text, w) {
+  const rows = [], starts = [];
+  const width = Math.max(1, w | 0);
+  let i = 0;
+  while (i < text.length) {
+    let end = Math.min(text.length, i + width);
+    if (end < text.length) {
+      const sp = text.lastIndexOf(' ', end - 1);
+      if (sp >= i + Math.floor(width / 3)) end = sp + 1;
+    }
+    rows.push(text.slice(i, end)); starts.push(i); i = end;
+  }
+  if (!rows.length) { rows.push(''); starts.push(0); }
+  return { rows, starts };
 }
 /** The operator's message as a soft block — slightly lifted background
  * instead of a prompt glyph (the app's user-bubble read, terminal-sized). */
@@ -1012,9 +1040,10 @@ function start() {
       const { outer, textW } = boxMetrics(W);
       const pad = ' '.repeat(BOX_MARGIN);
       const bar = color(DIM, '│');
-      const rows = [];
-      if (buffer.length === 0) rows.push('');
-      else for (let i = 0; i < buffer.length; i += textW) rows.push(buffer.substr(i, textW));
+      const split = splitRows(buffer, textW);
+      const rows = split.rows;
+      const rowStarts = split.starts;
+      const rowOf = (pos) => { let r = 0; for (let k = 0; k < rowStarts.length; k++) { if (rowStarts[k] <= pos) r = k; else break; } return r; };
 
       // The working line belongs to the CONVERSATION, above the composer — it
       // is the partner's turn happening, not a property of the input. It is
@@ -1040,7 +1069,7 @@ function start() {
       // history could not be erased on the next frame.
       const screenRows = termHeight();
       const roomText = Math.max(1, screenRows - leadRows - 4);
-      const cRowAbs = cursor === 0 ? 0 : Math.floor((cursor - 1) / textW);
+      const cRowAbs = cursor === 0 ? 0 : rowOf(cursor - 1);
       let winStart = 0, winEnd = rows.length;
       if (rows.length > roomText) {
         const cap = Math.max(1, roomText - 2);
@@ -1118,7 +1147,7 @@ function start() {
       if (cursor === 0) { cRow = 0; cCol = 0; }
       else {
         cRow = cRowAbs - winStart + (above > 0 ? 1 : 0);
-        cCol = ((cursor - 1) % textW) + 1;
+        cCol = cursor - rowStarts[cRowAbs];
       }
       let up = drawn.length + 1 + menuRows - cRow;
       const wNow = termWidth();
@@ -1281,10 +1310,7 @@ function start() {
       const visibleW = Math.max(1, w - PROMPT_W);
       if (fixedUI) {
         if (line.length > 0) {
-          const rows = [];
-          for (let i = 0; i < line.length; i += visibleW) {
-            rows.push('  ' + userBlock(line.substr(i, visibleW)));
-          }
+          const rows = splitRows(line, visibleW).rows.map((piece) => '  ' + userBlock(piece.replace(/\s+$/, '')));
           out('\n' + rows.join('\n') + '\n');
         }
       } else if (line.length === 0) {
@@ -1306,11 +1332,8 @@ function start() {
           /\/[^\n]*?\.(png|jpe?g|gif|webp|heic|pdf|mov|mp4|webm)\b/gi,
           (p) => '…/' + p.replace(/^.*\//, ''));
         const blockW = Math.max(1, visibleW - 4);
-        for (let i = 0; i < shown.length; i += blockW) {
-          // No glyph. Authorship is carried by colour alone: the operator's
-          // line is the lifted block, the partner's is the lighter type below.
-          // Marking both sides states the same thing twice.
-          process.stdout.write('  ' + userBlock(shown.substr(i, blockW)) + '\n');
+        for (const piece of splitRows(shown, blockW).rows) {
+          process.stdout.write('  ' + userBlock(piece.replace(/\s+$/, '')) + '\n');
         }
       }
       if (line && line !== history[history.length - 1]) history.push(line);
