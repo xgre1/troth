@@ -154,6 +154,20 @@ function start(command, ctx) {
     try { fs.appendFileSync(log_path, '\n[job failed to start: ' + (e && e.message || e) + ']\n'); } catch (_) {}
   });
   child.unref();
+  if (typeof ctx.shouldCancel === 'function') {
+    const poll = setInterval(() => {
+      if (job.ended_at) { clearInterval(poll); return; }
+      let asked = false;
+      try { asked = !!ctx.shouldCancel(); } catch (_) { asked = false; }
+      if (!asked) return;
+      clearInterval(poll);
+      job.stopped_by = 'operator_cancel';
+      signalTree(job, 'SIGTERM');
+      const t = setTimeout(() => { if (!job.ended_at) signalTree(job, 'SIGKILL'); }, KILL_GRACE_MS);
+      if (t.unref) t.unref();
+    }, POLL_MS);
+    if (poll.unref) poll.unref();
+  }
   return Object.assign({ ok: true, started: true, note: 'follow it with job_wait; it keeps running after this reply' }, { job: view(job) });
 }
 
