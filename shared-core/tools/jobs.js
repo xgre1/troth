@@ -6,9 +6,8 @@
 // runs on exit). Output goes to a log file under the state dir; a wait returns
 // when the job ends or the log grows, so a poll never has to be re-issued.
 //
-// Road: the same one a foreground command takes. An autonomous step under a
-// seatbelt jail starts the job inside that jail; a container jail cannot
-// detach a job and says so; everything else runs bare.
+// Road: bare. A job is the daemon's own work and runs with the operator's
+// environment, exactly like a foreground command.
 const { spawn } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -86,61 +85,25 @@ function signalTree(job, sig) {
   return false;
 }
 
-// Which road a foreground command would take for this ctx: mirrors bash.js.
-function road(ctx) {
-  if (!ctx || ctx.l4_step !== true) return { kind: 'bare' };
-  let mode = 'auto';
-  if (typeof ctx.l4_sandbox_mode === 'string') mode = ctx.l4_sandbox_mode;
-  else {
-    try {
-      const cfg = require('../l4-config.js').getL4Config();
-      if (cfg && cfg.sandbox && typeof cfg.sandbox.mode === 'string') mode = cfg.sandbox.mode;
-    } catch (_) { /* keep auto */ }
-  }
-  if (mode !== 'required' && mode !== 'auto') return { kind: 'bare' };
-  let avail = null;
-  try { avail = require('./sandbox-runtime.js').isAvailable(); } catch (_) { avail = null; }
-  if (!avail || !avail.available || avail.kind === 'bare') {
-    return mode === 'required' ? { kind: 'none', error: 'sandbox_unavailable' } : { kind: 'bare' };
-  }
-  return { kind: avail.kind };
-}
-
 function start(command, ctx) {
   ctx = ctx || {};
   if (typeof command !== 'string' || !command.trim()) {
     return { error: 'bad_args', detail: 'command (string, non-empty) is required' };
   }
-  const r = road(ctx);
-  if (r.kind === 'none') {
-    return { error: r.error, detail: 'l4.sandbox.mode=required and no sandbox runtime is available' };
-  }
-  if (r.kind === 'apple-container' || r.kind === 'docker') {
-    return { error: 'background_unavailable', detail: 'this step runs inside a container, which cannot hold a detached job; run the command in the foreground with a timeout' };
-  }
-  let exec = 'bash', args = ['-c', command], env = undefined, cwd = ctx.cwd || undefined;
-  if (r.kind === 'seatbelt') {
-    let spec;
-    try {
-      const seatbelt = require('./sandbox-seatbelt.js');
-      spec = seatbelt.jailSpawnSpec({ cwd: cwd ? fs.realpathSync(cwd) : process.cwd(), network: 'none', env: ctx.env });
-    } catch (e) { spec = { ok: false, error: e && e.message || String(e) }; }
-    if (!spec || !spec.ok) return { error: 'jail_setup_failed', detail: spec && spec.error || 'jail spec unavailable' };
-    exec = spec.exec; args = spec.args.concat(['/bin/bash', '-c', command]); env = spec.env; cwd = spec.work;
-  }
+  const cwd = ctx.cwd || undefined;
   const id = 'job-' + (++G.seq);
   const log_path = path.join(jobsDir(), id + '-' + process.pid + '.log');
   let fd;
   try { fd = fs.openSync(log_path, 'a'); } catch (e) { return { error: 'log_unwritable', detail: e && e.message || String(e) }; }
   let child;
   try {
-    child = spawn(exec, args, { stdio: ['ignore', fd, fd], detached: true, cwd, env });
+    child = spawn('bash', ['-c', command], { stdio: ['ignore', fd, fd], detached: true, cwd });
   } catch (e) {
     try { fs.closeSync(fd); } catch (_) {}
     return { error: 'spawn_failed', detail: e && e.message || String(e) };
   }
   try { fs.closeSync(fd); } catch (_) {}
-  const job = { id, pid: child.pid, command, started_at: Date.now(), ended_at: null, exit_code: null, signal: null, log_path, road: r.kind, stopped_by: null };
+  const job = { id, pid: child.pid, command, started_at: Date.now(), ended_at: null, exit_code: null, signal: null, log_path, road: 'bare', stopped_by: null };
   jobs.set(id, job);
   child.on('exit', (code, signal) => {
     job.ended_at = Date.now();
