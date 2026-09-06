@@ -370,7 +370,7 @@ console.log('\nPlugin hooks (behavior):');
 
     assert.strictEqual(byId[1].result.serverInfo.name, 'troth-cache');
     const toolNames = byId[2].result.tools.map(t => t.name);
-    assert.deepStrictEqual(toolNames, ['cached_read', 'cached_grep']);
+    assert.deepStrictEqual(toolNames, ['cached_read', 'cached_grep', 'cached_glob']);
 
     // The session's first result may lead with the one-shot [troth] greeting
     // block; the payload is whichever content block parses as JSON.

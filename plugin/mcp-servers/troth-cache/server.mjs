@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // troth-cache — MCP hard-serve for cacheable retrieval tools.
 //
-// Exposes `cached_read` and `cached_grep`. When the cache is warm (keyed on
+// Exposes `cached_read`, `cached_grep` and `cached_glob`. When the cache is warm (keyed on
 // tool+args+cwd+file-content-hash), the server returns the cached output
 // without running the underlying command. When cold, it executes the real
 // tool (fs.readFileSync for reads, ripgrep/grep for searches), populates
@@ -13,7 +13,8 @@
 // Scope intentionally narrow for v1:
 //   • cached_read  — fs.readFileSync (handles utf8 + lines)
 //   • cached_grep  — ripgrep preferred, grep fallback
-// Glob and read-only Bash will land once we have observed usage data.
+//   • cached_glob  — the shared Glob walk (newest first, capped at 100)
+// Read-only Bash will land once we have observed usage data.
 //
 // Why an MCP server at all when the plugin hooks already exist?
 //   • Hooks do SOFT serve — the tool still runs, we only inject context.
@@ -141,7 +142,7 @@ function recordCall(tool, hit, bytes, latencyMs, errMsg) {
 const SERVER_NAME    = 'troth-cache';
 const SERVER_VERSION = '0.1.0';
 
-// Per-tool on/off via ~/.troth/config.json → mcp.{cached_read,cached_grep}.
+// Per-tool on/off via ~/.troth/config.json → mcp.{cached_read,cached_grep,cached_glob}.
 // Read per-call so dashboard toggles apply without MCP restart. Default: on.
 const CONFIG_PATH = joinPath(homedir(), '.troth', 'config.json');
 function toolEnabled(name) {
@@ -182,6 +183,19 @@ const TOOLS = [
         pattern: { type: 'string' },
         path:    { type: 'string', description: 'Directory to search (defaults to cwd)' },
         glob:    { type: 'string', description: 'Optional file-glob filter' },
+        cwd:     { type: 'string' }
+      },
+      required: ['pattern']
+    }
+  },
+  {
+    name: 'cached_glob',
+    description: 'USE INSTEAD OF Glob. Drop-in replacement; cross-turn memoized; 0 backend tokens on hit. Newest first, capped at 100 (truncated=true when the cap was hit).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pattern: { type: 'string', description: 'Glob pattern, e.g. "**/*.ts" or "src/**/index.js"' },
+        path:    { type: 'string', description: 'Directory to search (defaults to cwd)' },
         cwd:     { type: 'string' }
       },
       required: ['pattern']
@@ -303,6 +317,60 @@ function doCachedGrep(args) {
   });
 }
 
+// A file listing is a read of the tree it walks: the root is judged first,
+// then every matched path on the way out, so a wide pattern cannot name a
+// file the read policy refuses. Keyed on pattern+path like grep (no
+// per-file hashing; the TTL bounds staleness); the walk itself is the
+// shared Glob tool, so the plugin and the CLI agent match the same way.
+function doCachedGlob(args) {
+  const pattern = args && args.pattern;
+  if (!pattern) return rpcError(-32602, 'missing pattern');
+  const cwd = resolveCwd(args);
+  const searchPath = args.path ? resolvePath(cwd, args.path) : cwd;
+  const rootV = readVerdict(searchPath);
+  if (!rootV.allowed) return refusal(rootV, searchPath);
+  const keep = (names) => {
+    const kept = [];
+    let withheld = 0;
+    for (const f of names) { if (readVerdict(resolvePath(f)).allowed) kept.push(f); else withheld++; }
+    return { kept, withheld };
+  };
+  const cacheInput = { tool_name: 'Glob', args: { pattern, path: searchPath }, cwd, file_hashes: [] };
+  const r = cache.lookup(cacheInput);
+  if (r.hit) {
+    const v = (r.value && typeof r.value === 'object') ? r.value : { filenames: [] };
+    const k = keep(Array.isArray(v.filenames) ? v.filenames : []);
+    return wrapContent({
+      cached: true,
+      key_prefix: r.key.slice(0, 8),
+      filenames: k.kept,
+      numFiles: k.kept.length,
+      truncated: !!v.truncated,
+      withheld: k.withheld,
+      output: k.kept.join('\n'),
+      source: 'troth-cache'
+    });
+  }
+  let res;
+  try { res = require(serverDir + '../../../shared-core/tools/glob.js').runSync({ pattern, path: searchPath }); }
+  catch (e) { return rpcError(-32603, 'glob failed: ' + (e && e.message || e)); }
+  if (res && res.error) return rpcError(-32602, 'glob ' + res.error + (res.path ? ': ' + res.path : '') + (res.detail ? ' - ' + res.detail : ''));
+  const filenames = Array.isArray(res && res.filenames) ? res.filenames : [];
+  const key = gc.computeKey(cacheInput);
+  cache.store({ key, tool_name: 'Glob', cwd, value: { filenames, truncated: !!(res && res.truncated) } });
+  const k = keep(filenames);
+  return wrapContent({
+    cached: false,
+    key_prefix: key.slice(0, 8),
+    filenames: k.kept,
+    numFiles: k.kept.length,
+    truncated: !!(res && res.truncated),
+    withheld: k.withheld,
+    output: k.kept.join('\n'),
+    source: 'fs'
+  });
+}
+
 function rgArgs(pattern, searchPath, glob) {
   const a = ['--no-heading', '--line-number', '--color', 'never'];
   if (glob) a.push('--glob', glob);
@@ -383,7 +451,7 @@ async function handleMethod(method, params) {
       serverInfo:      { name: SERVER_NAME, version: SERVER_VERSION },
       // Protocol-level contract for clients that surface it. Short on purpose.
       instructions:
-        'Prefer cached_read over Read and cached_grep over Grep when content ' +
+        'Prefer cached_read over Read, cached_grep over Grep and cached_glob over Glob when content ' +
         'may be retrieved again this session or later: hits cost zero backend ' +
         'tokens, misses fall through to a real read and populate the cache, ' +
         'and every cached_read is recorded in the substrate\'s read ledger ' +
@@ -407,6 +475,7 @@ async function handleMethod(method, params) {
     }
     if (toolName === 'cached_read') return _greet(instrument(toolName, () => doCachedRead(args)));
     if (toolName === 'cached_grep') return _greet(instrument(toolName, () => doCachedGrep(args)));
+    if (toolName === 'cached_glob') return _greet(instrument(toolName, () => doCachedGlob(args)));
     recordCall(toolName, false, 0, 0, 'unknown_tool');
     return rpcError(-32601, 'unknown tool: ' + toolName);
   }

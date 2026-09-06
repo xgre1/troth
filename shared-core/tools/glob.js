@@ -117,7 +117,7 @@ function walk(root, matches, regex, walkBudget) {
   return { abortedByBudget: false };
 }
 
-async function run(args, _ctx) {
+function runSync(args, _ctx) {
   args = args || {};
   const pattern = args.pattern;
   if (typeof pattern !== 'string' || !pattern) {
@@ -153,4 +153,8 @@ async function run(args, _ctx) {
   };
 }
 
-module.exports = { schema, run };
+// The tool loop awaits; the cache plugin serves inside a synchronous
+// handler. Same walk either way.
+async function run(args, ctx) { return runSync(args, ctx); }
+
+module.exports = { schema, run, runSync };
