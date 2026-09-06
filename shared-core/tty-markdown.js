@@ -210,7 +210,14 @@ function render(text, opts) {
       const label = lang ? ' ' + lang + ' ' : '';
       blank();
       out.push(P.dim('┄' + label + '┄'.repeat(Math.max(1, w - label.length - 1))));
-      for (const l of body) out.push(P.codeLine('  ' + l, w));
+      // A code line longer than the box folds inside it: the first piece at the
+      // code indent, the rest two cells deeper so the fold reads as one line.
+      for (const l of body) {
+        const first = Math.max(8, w - 2), rest = Math.max(8, w - 4);
+        if (l.length <= first) { out.push(P.codeLine('  ' + l, w)); continue; }
+        out.push(P.codeLine('  ' + l.slice(0, first), w));
+        for (let p = first; p < l.length; p += rest) out.push(P.codeLine('    ' + l.slice(p, p + rest), w));
+      }
       out.push(P.dim('┄'.repeat(w)));
       out.push('');
       continue;
@@ -274,4 +281,32 @@ function render(text, opts) {
   return out.join('\n');
 }
 
-module.exports = { render, tokenizeInline, wrapInline, stripAnsi, visibleWidth, PLAIN };
+// A rendered line held to the terminal's live width: folded at the last space
+// before the limit, else hard, with the continuation two cells deeper than the
+// line's own indent. Colour codes are carried, never counted.
+function foldVisible(line, width) {
+  const s = String(line == null ? '' : line);
+  const max = Math.max(8, width | 0);
+  if (visibleWidth(s) <= max) return [s];
+  const lead = (s.match(/^\s*/) || [''])[0].length;
+  const cont = ' '.repeat(lead + 2);
+  const outl = [];
+  let cur = '', vis = 0, lastSpace = -1, lastSpaceVis = 0, i = 0;
+  const limitOf = () => (outl.length ? max - cont.length : max);
+  const push = (piece) => { outl.push(outl.length ? cont + piece.replace(/^\s+/, '') : piece); };
+  while (i < s.length) {
+    if (s[i] === '\x1b') { const m = s.slice(i).match(/^\x1b\[[0-9;]*m/); if (m) { cur += m[0]; i += m[0].length; continue; } }
+    const ch = s[i]; i++;
+    if (vis >= limitOf()) {
+      if (lastSpace > 0 && lastSpaceVis > limitOf() / 2) { push(cur.slice(0, lastSpace)); cur = cur.slice(lastSpace); vis -= lastSpaceVis; }
+      else { push(cur); cur = ''; vis = 0; }
+      lastSpace = -1; lastSpaceVis = 0;
+    }
+    if (ch === ' ') { lastSpace = cur.length; lastSpaceVis = vis; }
+    cur += ch; vis += 1;
+  }
+  if (cur.replace(/^\s+/, '')) push(cur);
+  return outl.length ? outl : [s];
+}
+
+module.exports = { render, tokenizeInline, wrapInline, stripAnsi, visibleWidth, foldVisible, PLAIN };

@@ -427,6 +427,16 @@ function replyWidth() {
 function renderReply(text) {
   return require('../shared-core/tty-markdown.js').render(text || '', { tty: isTTY, width: replyWidth(), palette: REPLY_PALETTE });
 }
+// The reply, row by row, each row held to the terminal's width as it is at
+// print time: a row the renderer sized for a wider window folds at a space
+// instead of breaking mid-word at the edge.
+function printReply(text) {
+  const md = require('../shared-core/tty-markdown.js');
+  const limit = Math.max(20, (process.stdout.columns || 80) - 3);
+  for (const segment of renderReply(text).split('\n')) {
+    for (const piece of md.foldVisible(segment, limit)) out('  ' + piece + '\n');
+  }
+}
 
 // Map raw entity events → human action verbs. Keeps the spinner copy
 // in the user's vocabulary, not the substrate's.
@@ -1652,7 +1662,7 @@ function start() {
           // with the turn's own state left exactly as it was.
           if (sideSlashes > 0 && msg.faculty === 'deterministic') {
             sideSlashes--;
-            if (msg.text) for (const segment of renderReply(msg.text).split('\n')) out('  ' + segment + '\n');
+            if (msg.text) printReply(msg.text);
             break;
           }
           // A cancelled turn still finishes upstream and its reply still
@@ -1720,7 +1730,7 @@ function start() {
           // sentences wrap flush-left and visually detach from the ◇.
           // The reply, set for the terminal: headings, lists, code, tables and
           // inline marks in the partner's tone, wrapped to a reading width.
-          for (const segment of renderReply(msg.text).split('\n')) out('  ' + segment + '\n');
+          printReply(msg.text);
           // NOTHING under the reply (operator: stats belong to the live
           // working line only, like Claude Code). tools/tokens/time all
           // showed while the turn ran; the reply stays clean.

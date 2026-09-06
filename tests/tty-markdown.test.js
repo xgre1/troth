@@ -80,5 +80,25 @@ t('the palette owns the colours', () => {
   assert.strictEqual(s, '<b>[ ][plain]');
 });
 
+t('a code line longer than the box folds inside it, two cells deeper', () => {
+  const s = md.render('```text\nlow_(n-1)_bits(generator(seed, n)) == known_low_bits[n] && another(x, y)\n```\n', { tty: true, width: 40 });
+  const lines = s.split('\n').map(md.stripAnsi);
+  assert.ok(lines.every((l) => l.length <= 40), 'no row wider than the box: ' + JSON.stringify(lines));
+  assert.ok(lines.some((l) => /^    known_low_bits/.test(l)), 'the fold continues two cells deeper: ' + JSON.stringify(lines));
+});
+
+t('foldVisible holds a rendered row to the live width at a space, carrying the colour', () => {
+  const bold = '\x1b[1m3. Held-out validation, so that we never mistake noise for a «pattern» and more\x1b[0m';
+  const rows = md.foldVisible(bold, 50);
+  assert.strictEqual(rows.length, 2);
+  assert.ok(rows.every((r) => md.visibleWidth(r) <= 50), 'rows within the width');
+  assert.ok(/mistake$/.test(md.stripAnsi(rows[0])) || /never$/.test(md.stripAnsi(rows[0])), 'the fold lands on a word boundary: ' + md.stripAnsi(rows[0]));
+  assert.ok(/^  \S/.test(md.stripAnsi(rows[1])), 'the continuation is two cells in: ' + JSON.stringify(md.stripAnsi(rows[1])));
+  assert.ok(rows[0].startsWith('\x1b[1m'), 'the colour code stays on the first row');
+  assert.deepStrictEqual(md.foldVisible('short', 50), ['short']);
+  const hard = md.foldVisible('  low_(n-1)_bits(generator(seed,n))==known_low_bits[n]&&x', 30);
+  assert.ok(hard.length >= 2 && hard.every((r) => md.visibleWidth(r) <= 30), 'a row without spaces folds hard within the width');
+});
+
 console.log('\ntty-markdown: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

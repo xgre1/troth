@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Chat replies never break mid-word at the edge: a code line longer than its
+  box folds inside the box two cells deeper, and every rendered row is held
+  to the terminal's width at print time, folding at a space with the
+  continuation indented under the line.
 - Local engines: the generation budget travels as both `n_predict` and
   `max_tokens`, so an OpenAI-shaped server such as MLX applies it too, and it
   doubles to 8192 when reasoning is on so the answer has room after the
