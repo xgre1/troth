@@ -32,6 +32,7 @@ const vaultCapture = require('../vault-capture.js');
 const jobsTool  = require('./jobs.js');
 const taskTool  = require('./task.js');
 const diagnosticsTool = require('./diagnostics.js');
+const todoTool  = require('./todo.js');
 
 const REGISTRY = {
   Read:  readTool,
@@ -70,7 +71,10 @@ const REGISTRY = {
   // The project's own checkers (tsc, eslint, cargo check, ruff) on the files
   // just edited, time-boxed through the spawn seam. Reads and reports; the
   // checkers write nothing the model asked for (see permission.js).
-  diagnostics: diagnosticsTool
+  diagnostics: diagnosticsTool,
+  // The turn's own step list, kept with the conversation and shown under
+  // the trail. Working state, not memory; nothing on disk (see permission.js).
+  todo_write: todoTool
 };
 
 // ── Tool-result archiver ─────────────────────────────────────────────────

@@ -61,7 +61,9 @@ const READ_ONLY = new Set([
   // its own gate with writes off, so the tool that starts it is a read.
   'task',
   // The project's checkers report; they change nothing the model named.
-  'diagnostics'
+  'diagnostics',
+  // The step list is the turn's own working state; nothing outside it changes.
+  'todo_write'
 ]);
 
 // Tools that need explicit auto-write to fire. Anything not in

@@ -37,7 +37,9 @@ fs.writeFileSync(FAKE_ENGINE, [
   '  stream: async function* (req) {',
   '    const msgs = Array.isArray(req && req.messages) ? req.messages : [];',
   '    if (msgs.some((m) => m && m.role === "tool")) { yield { delta: "finished" }; yield { done: true }; return; }',
-  '    const last = msgs.filter((m) => m && m.role === "user").pop(); const cmd = /quick/.test(String(last && last.content || "")) ? "echo trail-ok" : "sleep 30 && echo ' + MARK + '"; yield { tool_calls: [{ id: "call_1", type: "function", function: { name: "Bash", arguments: JSON.stringify({ command: cmd }) } }] };',
+  '    const last = msgs.filter((m) => m && m.role === "user").pop(); const text = String(last && last.content || "");',
+  '    if (/plan it/.test(text)) { yield { tool_calls: [{ id: "call_1", type: "function", function: { name: "todo_write", arguments: JSON.stringify({ items: [{ text: "read the file", status: "doing" }, { text: "change the line", status: "pending" }, { text: "run the tests", status: "pending" }] }) } }] }; yield { done: true }; return; }',
+  '    const cmd = /quick/.test(text) ? "echo trail-ok" : "sleep 30 && echo ' + MARK + '"; yield { tool_calls: [{ id: "call_1", type: "function", function: { name: "Bash", arguments: JSON.stringify({ command: cmd }) } }] };',
   '    yield { done: true };',
   '  },',
   '  abort: () => {}',
@@ -205,6 +207,23 @@ console.log('\n=== chat composer on a real terminal ===\n');
       tmux(['send-keys', '-t', SES, 'C-o']);
       await sleep(800);
       assert.ok(/details on/.test(screen(true)), 'Ctrl-O says details are on: ' + screen(true).slice(-300));
+      tmux(['send-keys', '-t', SES, '/quit', 'Enter']);
+      await sleep(1500);
+    });
+
+    await t('a step list from the turn shows under the trail, every step with details on', async () => {
+      await startChat(110, 30, ENGINE_ENV);
+      tmux(['send-keys', '-t', SES, 'plan it please', 'Enter']);
+      let s = '';
+      for (let i = 0; i < 40 && !/finished/.test(s = screen(true)); i++) await sleep(500);
+      assert.ok(/finished/.test(s), 'the reply came: ' + s.slice(-400));
+      assert.ok(/◦ 0\/3 steps · read the file/.test(s), 'the step line names the count and the step in hand: ' + s.slice(-500));
+      assert.ok(!/▸ read the file/.test(s), 'details off: no step rows');
+      tmux(['send-keys', '-t', SES, 'C-o']);
+      await sleep(800);
+      tmux(['send-keys', '-t', SES, 'plan it again', 'Enter']);
+      for (let i = 0; i < 40 && !/finished[\s\S]*finished/.test(s = screen(true)); i++) await sleep(500);
+      assert.ok(/▸ read the file/.test(s) && /· change the line/.test(s) && /· run the tests/.test(s), 'details on: every step with its mark: ' + s.slice(-600));
       tmux(['send-keys', '-t', SES, '/quit', 'Enter']);
       await sleep(1500);
     });

@@ -1680,6 +1680,21 @@ function start() {
           spinner.update('thinking');
           break;
         }
+        case 'todo_updated': {
+          // The step list under the trail: one line with the count and the
+          // step in hand; every step with its mark when details are on.
+          const items = Array.isArray(msg.items) ? msg.items : [];
+          if (!items.length) break;
+          const cur = msg.current ? ' · ' + String(msg.current) : '';
+          out(color(DIM, '  ◦ ' + (msg.done || 0) + '/' + items.length + ' steps' + cur) + '\n');
+          if (detailMode) {
+            for (const it of items) {
+              const mark = it.status === 'done' ? '✓' : (it.status === 'doing' ? '▸' : '·');
+              out(color(DIM, '      ' + mark + ' ' + it.text) + '\n');
+            }
+          }
+          break;
+        }
         case 'turn_progress': {
           const mins = Math.round((msg.elapsed_ms || 0) / 60000);
           out(color(DIM, '  ◦ still working · ' + mins + ' min' + (msg.last_tool ? ' · last: ' + toolVerb(msg.last_tool, {}) : '')) + '\n');

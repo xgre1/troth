@@ -1673,6 +1673,19 @@ function main() {
   // through the same registry a pane's Stop uses.
   const _taskChildren = new Set();
   let _taskSeq = 0;
+
+  // The step list a turn keeps (todo_write): per conversation, for the life
+  // of the daemon. Working state, not memory. Each replace is announced as a
+  // todo_updated frame the surface draws under the trail.
+  const _todos = new Map();
+  function setTodo(conversationId, items, sum) {
+    const key = conversationId != null ? String(conversationId) : UNTAGGED_TURN_KEY;
+    const list = Array.isArray(items) ? items.map((i) => ({ text: String(i.text || ''), status: String(i.status || 'pending') })) : [];
+    if (list.length) _todos.set(key, list); else _todos.delete(key);
+    const s = sum || {};
+    emit({ kind: 'todo_updated', items: list, total: list.length, done: Number(s.done) || 0, current: s.current || null, all_done: !!s.all_done });
+    return { ok: true };
+  }
   async function spawnTaskTurn(req, parent) {
     const parentKey = (parent && parent.conversation_id != null) ? String(parent.conversation_id) : 'cli';
     if (_taskChildren.has(parentKey)) {
@@ -2016,6 +2029,9 @@ function main() {
           // conversation id. task_depth stops a delegate from delegating.
           task_depth: (action.options && Number(action.options.task_depth)) || 0,
           spawn_turn: (req) => spawnTaskTurn(req, { conversation_id: _ts.conversation_id, cwd: TURN_CWD, cancel_signal: _cancelSignal }),
+          // The step list (todo_write): kept with the conversation, announced
+          // to the surface as a tagged todo_updated frame.
+          todo_set: (items, sum) => setTodo(_ts.conversation_id, items, sum),
           // Per-call auto_write opt-in: caller can set
           // action.options.auto_write=true (e.g. trusted CI workflows)
           // without flipping the global env. Plan mode (/mode plan) wins over
