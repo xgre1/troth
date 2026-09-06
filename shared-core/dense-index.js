@@ -7,8 +7,9 @@
 // quantized to int8 with a per-row scale, and searched in a tight loop; new
 // rows join through a created_at cursor, deleted rows fall out at the next
 // rebuild, and a rebuild is assembled beside the live index and swapped in
-// whole. Building yields to the event loop between chunks, so a long-lived
-// process stays responsive while it warms.
+// whole. Building reads in finished chunks and yields to the event loop
+// between them, so a long-lived process stays responsive while it warms and
+// nothing else in it finds the database connection busy.
 'use strict';
 
 const state = require('./state.js');
@@ -63,15 +64,23 @@ function _addRow(S0, row) {
 
 function _yield() { return new Promise((r) => setImmediate(r)); }
 
+// Each chunk is one finished read: the statement completes before the loop
+// leaves the event loop, so nothing else in the process finds the connection
+// busy while the index warms.
 async function _load(T, since) {
-  let iter;
-  try { iter = state.streamRecallableEmbeddings(since ? { since_created_at: since } : {}); } catch (_) { return 0; }
   let n = 0;
-  for (const row of iter) {
-    _addRow(T, row); n++;
-    if (n % CHUNK === 0) await _yield();
+  let ca = since || 0;
+  let id = '￿';
+  while (true) {
+    let rows;
+    try { rows = state.listRecallableEmbeddings({ after_created_at: ca, after_id: id, limit: CHUNK }); } catch (_) { return n; }
+    if (!rows || !rows.length) return n;
+    for (const row of rows) { _addRow(T, row); n++; }
+    const last = rows[rows.length - 1];
+    ca = last.created_at; id = last.id;
+    if (rows.length < CHUNK) return n;
+    await _yield();
   }
-  return n;
 }
 
 function build() {

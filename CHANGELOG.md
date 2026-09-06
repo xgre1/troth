@@ -12,8 +12,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- A job the partner started reports its end to the turn that started it,
-  with the same view `job_status` gives (state, exit code, the log tail).
+- The partner keeps procedures: after a verified multi-step task it records
+  how the work was done with `decision_record` (the strategy, when it
+  applies, the steps), in the CLI as in the Claude Code plugin. A plain
+  statement asked to be procedural lands as semantic with the request kept
+  for audit, and recall keeps at most two procedures in a cut so the memory
+  a question is about is still heard.
+- The Claude Code plugin lists files through the cache: `cached_glob` is a
+  drop-in for Glob, memoized across turns like `cached_grep`, and it never
+  names a file the read policy refuses.
+- The troth CLI agent drives a real browser: `browse` navigates, evaluates
+  JS in the page and screenshots, on the troth browser or an explicitly
+  named debug port, the same road the Claude Code plugin uses. Navigation
+  is a read; eval and screenshot are writes and gate like every write.
+- A multi-step turn keeps a step list: `todo_write` names the steps and
+  marks them doing and done; the CLI shows `2/5 steps · <current>` under the
+  trail, and every step with details on.
+- The partner checks its work with the project's own tools: `diagnostics`
+  runs tsc, eslint, cargo check or ruff on the files just edited, from the
+  nearest project root, time-boxed, and reports every problem with file,
+  line and message. A project without a checker says so.
+- The partner can delegate: the `task` tool runs one self-contained brief as
+  a child conversation with its own context, a reduced tool set, no writes and,
+  when asked, another engine (`engine: local`, `chatgpt`, a router provider).
+  The child's answer comes back as the tool result; the CLI trail shows the
+  delegation. One delegate at a time per conversation, time-boxed, stopped
+  with the parent.
+- `/mode plan` puts one conversation in plan mode: the partner reads and
+  proposes while every tool that writes, runs a command or spends money
+  refuses and names `/mode build` as the way back. The CLI footer shows
+  `plan` while it is on; the choice survives a daemon restart.
+- The Claude Code plugin writes files through troth: `hashline_write` creates
+  a file or replaces one whole, validates the content before it touches disk
+  and records the write in the same ledger as every edit. Edits of code files
+  inside Claude Code are steered to it; memory files stay guarded.
+- The syntax check asks the project's own TypeScript for a second opinion on
+  TS and TSX, so valid code the built-in parser misreads is not refused.
 - Video has a preset: one active source (OpenRouter or Google AI), its key,
   the model, the quality, the length, the shape and the sound, set once on
   the Video card. A clip asked for in chat takes the preset unless the
@@ -200,6 +234,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   platform for every supported Node. node-pty is no longer pulled in.
 
 ### Fixed
+- The dense recall index warms in finished chunks and leaves the database
+  connection free between them, so the proxy keeps answering every other
+  request while the index builds.
 - Readiness shows a pause or a drain heartbeat on the very next poll: the
   counts stay cached, the pause state and the heartbeat are read live.
 - `/inspect` answers on every documented form, and says so in words when

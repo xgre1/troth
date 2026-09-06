@@ -3494,6 +3494,28 @@ function streamRecallableEmbeddings(opts) {
       AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'entity:%')
   `).iterate();
 }
+// The same rows, one finished read at a time: `limit` rows after the keyset
+// (after_created_at, after_id), ordered by created_at then id. Every call
+// runs a whole statement and returns, so a caller may leave the event loop
+// between calls without holding the connection open.
+function listRecallableEmbeddings(opts) {
+  const d = db();
+  const ca = (opts && Number(opts.after_created_at)) || 0;
+  const id = (opts && typeof opts.after_id === 'string') ? opts.after_id : '￿';
+  const limit = Math.max(1, Math.min(10000, (opts && Number(opts.limit)) || 2000));
+  return d.prepare(`
+    SELECT ee.engram_id AS id, ee.dim AS dim, ee.vector AS vector, ee.created_at AS created_at,
+           ar.memory_class AS memory_class, ar.audience AS audience
+    FROM engram_embeddings ee
+    JOIN action_records ar ON ar.id = ee.engram_id
+    WHERE (ee.created_at > ? OR (ee.created_at = ? AND ee.engram_id > ?))
+      AND ar.memory_class IN ('episodic','semantic','identity','procedural')
+      AND (ar.principal_id IS NULL OR ar.principal_id NOT IN ('bench','partner-loop-test'))
+      AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'entity:%')
+    ORDER BY ee.created_at, ee.engram_id
+    LIMIT ?
+  `).all(ca, ca, id, limit);
+}
 // Fetch full action rows for an id set — would build dense-hit result objects
 // (statement/class/recency) for engrams the dense arm surfaced but the lexical
 // pool never pulled.
@@ -3801,6 +3823,7 @@ const _exports = {
   pruneSessionLessons,
   listRecentMemories,
   streamRecallableEmbeddings,
+  listRecallableEmbeddings,
   getActionsByIds,
   close,
   isIncognito,  // exposed so callers (proxy server.js, hooks) can branch

@@ -19,10 +19,23 @@ function cosine(a, b) { let d = 0, na = 0, nb = 0; for (let i = 0; i < a.length;
 
 let rows = [];
 let streamCalls = [];
+let listCalls = [];
 state.streamRecallableEmbeddings = (opts) => {
   const since = (opts && opts.since_created_at) || 0;
   streamCalls.push(since);
   return rows.filter((r) => r.created_at > since)[Symbol.iterator]();
+};
+// Keyset pages over the rows, the way the ledger answers: after
+// (created_at, id), ordered, at most `limit` at a time.
+state.listRecallableEmbeddings = (opts) => {
+  const ca = (opts && opts.after_created_at) || 0;
+  const id = (opts && typeof opts.after_id === 'string') ? opts.after_id : '￿';
+  const limit = (opts && opts.limit) || 2000;
+  if (id === '￿') listCalls.push(ca);
+  return rows
+    .filter((r) => r.created_at > ca || (r.created_at === ca && r.id > id))
+    .sort((a, b) => (a.created_at - b.created_at) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .slice(0, limit);
 };
 const index = require(path.join(__dirname, '..', 'shared-core', 'dense-index.js'));
 
@@ -31,10 +44,11 @@ console.log('\n=== dense index ===\n');
 (async () => {
   await t('a build reads the stream once and ranks by cosine like the float scan', async () => {
     rows = []; for (let i = 0; i < 300; i++) rows.push(row('e' + i, i, 1000 + i));
-    index._resetForTests(); streamCalls = [];
+    index._resetForTests(); streamCalls = []; listCalls = [];
     const r = await index.build();
     assert.strictEqual(r.rows, 300);
-    assert.deepStrictEqual(streamCalls, [0]);
+    assert.deepStrictEqual(listCalls, [0]);
+    assert.deepStrictEqual(streamCalls, [], 'a build never holds a statement open');
     const q = vec(42);
     const hits = index.search(q, 5, null);
     const exact = rows.map((x) => ({ id: x.id, cos: cosine(q, new Float32Array(x.vector.buffer, x.vector.byteOffset, DIM)) })).sort((a, b) => b.cos - a.cos).slice(0, 5);
@@ -53,18 +67,18 @@ console.log('\n=== dense index ===\n');
 
   await t('new rows join through the cursor, without a full read', async () => {
     rows = [row('a', 1, 10), row('b', 2, 20)];
-    index._resetForTests(); streamCalls = [];
+    index._resetForTests(); streamCalls = []; listCalls = [];
     await index.build();
     rows.push(row('c', 3, 30));
     // the refresh window has not elapsed: nothing is read
     let r = await index.refresh();
     assert.strictEqual(r.rows, 0);
-    assert.deepStrictEqual(streamCalls, [0]);
+    assert.deepStrictEqual(listCalls, [0]);
     // force the window by moving the clock
     const realNow = Date.now; Date.now = () => realNow() + 61 * 1000;
     try { r = await index.refresh(); } finally { Date.now = realNow; }
     assert.strictEqual(r.rows, 1);
-    assert.deepStrictEqual(streamCalls, [0, 20], 'only rows after the last created_at are read');
+    assert.deepStrictEqual(listCalls, [0, 20], 'only rows after the last created_at are read');
     assert.strictEqual(index.search(vec(3), 1, null)[0].id, 'c');
     assert.strictEqual(index.stats().rows, 3);
   });
@@ -80,7 +94,7 @@ console.log('\n=== dense index ===\n');
 
   await t('a row written after the build reaches the dense arm before the next refresh', async () => {
     rows = [row('a', 1, 10), row('b', 2, 20)];
-    index._resetForTests(); streamCalls = [];
+    index._resetForTests(); streamCalls = []; listCalls = [];
     await index.build();
     rows.push(row('c', 3, 30));
     const recall = require(path.join(__dirname, '..', 'shared-core', 'recall.js'));
@@ -89,7 +103,8 @@ console.log('\n=== dense index ===\n');
     const hits = recall._denseArm(q, Math.sqrt(qn), 'all', 5, {});
     assert.strictEqual(hits[0].id, 'c', 'the newest row leads: ' + JSON.stringify(hits));
     assert.deepStrictEqual(hits.map((h) => h.id).sort(), ['a', 'b', 'c']);
-    assert.deepStrictEqual(streamCalls, [0, 20], 'only the rows after the cursor are read live');
+    assert.deepStrictEqual(listCalls, [0], 'the index read its rows once');
+    assert.deepStrictEqual(streamCalls, [20], 'only the rows after the cursor are read live');
     assert.strictEqual(index.stats().rows, 2, 'the index itself waits for its refresh');
   });
 
