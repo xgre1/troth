@@ -200,6 +200,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   platform for every supported Node. node-pty is no longer pulled in.
 
 ### Fixed
+- Readiness shows a pause or a drain heartbeat on the very next poll: the
+  counts stay cached, the pause state and the heartbeat are read live.
+- `/inspect` answers on every documented form, and says so in words when
+  no proxy is up.
 - The `confine` choice for the partner's own ground holds in every build:
   the shell wall reads it from the config file itself, so a tree that
   ships without the closed configuration reader puts the same walls up.
