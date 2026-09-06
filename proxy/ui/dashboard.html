@@ -1322,30 +1322,34 @@ body.op-on #op-row { color: var(--text-dim); }
 
     <div class="settings-card full-width">
       <div class="card-title">Video</div>
-      <div class="card-hint">Ask for a short clip in chat and your partner renders it. Saved to <code>~/.troth/videos</code>. Each clip costs a little, charged to the key that made it. Either source is enough.</div>
-      <div id="vid-sources" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-top:4px">
-        <div style="background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:10px;padding:16px 18px;">
-          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
-            <span style="font-size:13px;color:var(--text)">OpenRouter key</span>
-            <span id="vid-src-openrouter-dot" style="font-size:11px;color:var(--text-muted)">…</span>
-          </div>
-          <div id="vid-src-openrouter" style="margin-top:8px;font-size:11px;color:var(--text-muted);line-height:1.55">checking…</div>
-          <div id="vid-key-openrouter-row" style="display:none;margin-top:10px;gap:8px;align-items:center">
-            <input type="password" id="vid-key-openrouter" class="provider-input api-key" autocomplete="off" spellcheck="false" placeholder="sk-or-…" style="flex:1;min-width:0">
-            <button class="btn-mini" onclick="saveSourceKey('openrouter','vid-key-openrouter',this)">Save</button>
+      <div class="card-hint">Ask for a short clip in chat and your partner renders it. Saved to <code>~/.troth/videos</code>. Each clip costs a little, charged to the key that made it. One source is active at a time; the preset below is what a clip gets unless you say otherwise in chat.</div>
+      <div id="vid-preset" style="background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin-top:4px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px 16px;align-items:end">
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--text-muted)">Source
+          <select id="vid-source" class="routing-select" onchange="videoSourceChanged()"></select>
+        </label>
+        <div id="vid-key-row" style="display:none;flex-direction:column;gap:6px;font-size:11px;color:var(--text-muted)"><span id="vid-key-label">Key</span>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="password" id="vid-key" class="provider-input api-key" autocomplete="off" spellcheck="false" placeholder="" style="flex:1;min-width:0">
+            <button class="btn-mini" onclick="saveSourceKey(document.getElementById('vid-source').value,'vid-key',this)">Save</button>
           </div>
         </div>
-        <div style="background:rgba(0,0,0,0.25);border:1px solid var(--border);border-radius:10px;padding:16px 18px;">
-          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;">
-            <span style="font-size:13px;color:var(--text)">Google AI key</span>
-            <span id="vid-src-google-dot" style="font-size:11px;color:var(--text-muted)">…</span>
-          </div>
-          <div id="vid-src-google" style="margin-top:8px;font-size:11px;color:var(--text-muted);line-height:1.55">checking…</div>
-          <div id="vid-key-google-row" style="display:none;margin-top:10px;gap:8px;align-items:center">
-            <input type="password" id="vid-key-google" class="provider-input api-key" autocomplete="off" spellcheck="false" placeholder="AIza…" style="flex:1;min-width:0">
-            <button class="btn-mini" onclick="saveSourceKey('google_ai','vid-key-google',this)">Save</button>
-          </div>
-        </div>
+        <div id="vid-key-state" style="font-size:11px;color:var(--text-muted);align-self:center">checking…</div>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--text-muted)">Model
+          <select id="vid-model" class="routing-select" onchange="videoModelChanged()"></select>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--text-muted)">Quality
+          <select id="vid-res" class="routing-select"></select>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--text-muted)">Length
+          <select id="vid-sec" class="routing-select"></select>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--text-muted)">Shape
+          <select id="vid-aspect" class="routing-select"></select>
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:11px;color:var(--text-muted)">Sound
+          <select id="vid-audio" class="routing-select"><option value="on">on</option><option value="off">off</option></select>
+        </label>
+        <div style="display:flex;gap:10px;align-items:center"><button class="btn-mini" onclick="saveVideoPrefs(this)">Save preset</button><span id="vid-preset-state" style="font-size:11px;color:var(--text-muted)"></span></div>
       </div>
     </div>
 
@@ -5922,29 +5926,71 @@ function loadImageSources(){
   }).catch(function(){ state(gd, false); gg.textContent = 'Could not check — is the proxy up?'; });
 }
 
-// ── Video sources (Providers) ─────────────────────────────────────────
-// Reads /api/stats, the same source as the engine cards: the router mounts a
-// key kept in the env file onto its provider there, so an OpenRouter key that
-// never touches config.json still shows as ready.
+// ── Video preset (Providers) ──────────────────────────────────────────
+// One active source, its key, then the model and the clip preset. The
+// catalogue and the saved preset come from /api/video/models; the key state
+// comes from /api/stats, the same source as the engine cards.
+var _vidCat = null, _vidKeys = {};
+function _vidFill(sel, items, current){
+  if (!sel) return;
+  sel.innerHTML = '';
+  items.forEach(function(it){ var o = document.createElement('option'); o.value = it.value; o.textContent = it.label; sel.appendChild(o); });
+  if (current != null && items.some(function(it){ return String(it.value) === String(current); })) sel.value = String(current);
+}
+function _vidModelsFor(source){ return (_vidCat && _vidCat.models || []).filter(function(m){ return m.provider === source; }); }
+function _vidModel(){ var s = document.getElementById('vid-source'), m = document.getElementById('vid-model'); return _vidModelsFor(s && s.value).filter(function(x){ return x.id === (m && m.value); })[0] || null; }
 function loadVideoSources(){
-  var og = document.getElementById('vid-src-openrouter'), od = document.getElementById('vid-src-openrouter-dot');
-  var gg = document.getElementById('vid-src-google'), gd = document.getElementById('vid-src-google-dot');
-  if (!og || !gg) return;
-  function state(dotEl, on){ if (dotEl) dotEl.innerHTML = on ? '<span style="color:#9BC49B">● ready</span>' : '<span style="color:var(--text-muted)">○ off</span>'; }
-  fetch('/api/stats').then(function(r){ return r.json(); }).then(function(s){
-    var p = (s && s.providers) || {};
-    var orOn = !!(p.openrouter && p.openrouter.apiKey);
-    var gOn  = !!(p.google_ai && p.google_ai.apiKey);
-    var orRow = document.getElementById('vid-key-openrouter-row'), gRow = document.getElementById('vid-key-google-row');
-    if (orRow) orRow.style.display = orOn ? 'none' : 'flex';
-    if (gRow)  gRow.style.display  = gOn  ? 'none' : 'flex';
-    state(od, orOn);
-    og.textContent = orOn ? 'First choice. Seedance, Kling and Veo all run on this one key.'
-      : 'Paste an OpenRouter key here; Seedance, Kling and Veo all run on it.';
-    state(gd, gOn);
-    gg.textContent = gOn ? 'Backup source. The same key that draws images also renders Veo clips.'
-      : 'Backup source. Paste a Google AI key here; the same key draws images.';
-  }).catch(function(){ state(od, false); state(gd, false); og.textContent = gg.textContent = 'Could not check — is the proxy up?'; });
+  var src = document.getElementById('vid-source');
+  if (!src) return;
+  Promise.all([
+    fetch('/api/video/models').then(function(r){ return r.json(); }),
+    fetch('/api/stats').then(function(r){ return r.json(); }).catch(function(){ return {}; })
+  ]).then(function(both){
+    _vidCat = both[0] || {};
+    var p = (both[1] && both[1].providers) || {};
+    _vidKeys = { openrouter: !!(p.openrouter && p.openrouter.apiKey), google_ai: !!(p.google_ai && p.google_ai.apiKey) };
+    var prefs = _vidCat.prefs || {};
+    var source = prefs.provider || (_vidKeys.openrouter ? 'openrouter' : (_vidKeys.google_ai ? 'google_ai' : 'openrouter'));
+    _vidFill(src, (_vidCat.providers || []).map(function(x){ return { value: x.id, label: x.label }; }), source);
+    videoSourceChanged(prefs);
+  }).catch(function(){ var st = document.getElementById('vid-key-state'); if (st) st.textContent = 'Could not read the video catalogue — is the proxy up?'; });
+}
+function videoSourceChanged(prefs){
+  prefs = prefs || {};
+  var source = document.getElementById('vid-source').value;
+  var prov = ((_vidCat && _vidCat.providers) || []).filter(function(x){ return x.id === source; })[0] || {};
+  var on = !!_vidKeys[source];
+  var row = document.getElementById('vid-key-row'), st = document.getElementById('vid-key-state'), key = document.getElementById('vid-key');
+  if (row) row.style.display = on ? 'none' : 'flex';
+  if (key) key.placeholder = source === 'google_ai' ? 'AIza…' : 'sk-or-…';
+  var lab = document.getElementById('vid-key-label'); if (lab) lab.textContent = (prov.label || source) + ' key';
+  if (st) st.innerHTML = on ? '<span style="color:#9BC49B">● key ready</span>' : '<span style="color:var(--text-muted)">○ paste the ' + (prov.label || source) + ' key to render</span>';
+  var models = _vidModelsFor(source);
+  var want = (prefs.provider === source && prefs.model) ? prefs.model : (prov.default_model || (models[0] && models[0].id));
+  _vidFill(document.getElementById('vid-model'), models.map(function(m){ return { value: m.id, label: m.label }; }), want);
+  videoModelChanged(prefs);
+}
+function videoModelChanged(prefs){
+  prefs = prefs || {};
+  var m = _vidModel() || {};
+  var d = (_vidCat && _vidCat.defaults) || {};
+  var res = m.resolutions || (_vidCat && _vidCat.resolutions) || [];
+  _vidFill(document.getElementById('vid-res'), res.map(function(r){ return { value: r, label: r }; }), res.indexOf(prefs.resolution) >= 0 ? prefs.resolution : (res.indexOf(d.resolution) >= 0 ? d.resolution : res[res.length - 1]));
+  var secs = Array.isArray(m.seconds) ? m.seconds : [5, 8, 10, 15, 20, 30].filter(function(s){ return !m.seconds || (s >= m.seconds.min && s <= m.seconds.max); });
+  _vidFill(document.getElementById('vid-sec'), secs.map(function(s){ return { value: s, label: s + ' s' }; }), secs.indexOf(prefs.seconds) >= 0 ? prefs.seconds : (secs.indexOf(d.seconds) >= 0 ? d.seconds : secs[0]));
+  var asp = (_vidCat && _vidCat.aspects) || ['9:16', '16:9'];
+  _vidFill(document.getElementById('vid-aspect'), asp.map(function(a){ return { value: a, label: a }; }), asp.indexOf(prefs.aspect) >= 0 ? prefs.aspect : d.aspect);
+  var au = document.getElementById('vid-audio'); if (au) au.value = (prefs.audio === false || (prefs.audio == null && d.audio === false)) ? 'off' : 'on';
+}
+function saveVideoPrefs(btn){
+  if (!requireOperator()) return;
+  var g = function(id){ var el = document.getElementById(id); return el ? el.value : null; };
+  var video = { provider: g('vid-source'), model: g('vid-model'), resolution: g('vid-res'), duration_s: parseInt(g('vid-sec'), 10), aspect: g('vid-aspect'), audio: g('vid-audio') !== 'off' };
+  if (btn) btn.disabled = true;
+  fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ video: video }) })
+    .then(function(r){ if (!r.ok) throw new Error('http ' + r.status); toast('Video preset saved'); var st = document.getElementById('vid-preset-state'); if (st) st.textContent = 'saved'; })
+    .catch(function(e){ toast('Save failed: ' + (e && e.message || e)); })
+    .then(function(){ if (btn) btn.disabled = false; });
 }
 
 // A key typed inside the Images or Video card: one provider, the key only.

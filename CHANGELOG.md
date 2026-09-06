@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Video has a preset: one active source (OpenRouter or Google AI), its key,
+  the model, the quality, the length, the shape and the sound, set once on
+  the Video card. A clip asked for in chat takes the preset unless the
+  request says otherwise. The dashboard reads the catalogue from
+  `/api/video/models`; Seedance 2.5 leads the OpenRouter list.
 - The shell server says once, on the first command, when the walls it loaded
   are older than the files in the checkout, and names the session restart
   that takes the current ones.

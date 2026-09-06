@@ -3214,6 +3214,39 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === 'GET' && url === '/api/video/models') {
+    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
+    try {
+      const vg = require('../shared-core/tools/video-gen.js');
+      const LABEL = {
+        'bytedance/seedance-2.5': 'Seedance 2.5', 'bytedance/seedance-2.0': 'Seedance 2.0',
+        'bytedance/seedance-2.0-fast': 'Seedance 2.0 fast', 'bytedance/seedance-2.0-mini': 'Seedance 2.0 mini',
+        'alibaba/wan-3.0': 'Wan 3.0', 'minimax/hailuo-3-max': 'Hailuo 3 Max', 'minimax/hailuo-3': 'Hailuo 3',
+        'kwaivgi/kling-v3.0-pro': 'Kling 3.0 Pro', 'kwaivgi/kling-v3.0-std': 'Kling 3.0',
+        'google/veo-3.1': 'Veo 3.1', 'google/veo-3.1-fast': 'Veo 3.1 fast', 'google/veo-3.1-lite': 'Veo 3.1 lite'
+      };
+      const OFFER = {
+        openrouter: ['bytedance/seedance-2.5', 'alibaba/wan-3.0', 'minimax/hailuo-3-max', 'kwaivgi/kling-v3.0-pro', 'google/veo-3.1-fast'],
+        google_ai:  ['google/veo-3.1-fast', 'google/veo-3.1']
+      };
+      const models = [];
+      for (const provider of vg.PROVIDERS) {
+        for (const id of OFFER[provider] || []) {
+          const m = vg.MODELS[id] || {};
+          const sec = m.seconds || {};
+          models.push({ provider, id: provider === 'google_ai' ? id.replace(/^google\//, '') : id, label: LABEL[id] || id,
+            seconds: sec.only ? sec.only : (sec.min ? { min: sec.min, max: sec.max } : null),
+            resolutions: m.resolutions || vg.RESOLUTIONS, only8s: m.only8s || [] });
+        }
+      }
+      jsonResponse(res, 200, {
+        providers: vg.PROVIDERS.map((id) => ({ id, label: vg.PROVIDER_LABEL[id], default_model: id === 'google_ai' ? vg.DEFAULT_MODEL.google_ai : vg.DEFAULT_MODEL.openrouter })),
+        models, aspects: vg.ASPECTS, resolutions: vg.RESOLUTIONS, defaults: vg.DEFAULTS, prefs: vg.readVideoPrefs()
+      });
+    } catch (e) { jsonResponse(res, 500, { error: 'video_models_failed', detail: String(e && e.message || e) }); }
+    return;
+  }
+
   // ===== API: model catalog =====
   // The ONE curated model list per provider (proxy/modules/catalog.js).
   // Dashboard cards and the first-run onboarding render their model
@@ -4768,7 +4801,7 @@ const server = http.createServer((req, res) => {
           // `sync` rides the same list: the dashboard re-saves host/deviceId
           // without the token (redaction never round-trips it), and a shallow
           // assign would drop the stored deviceToken on every such save.
-          for (const _k of ['modules', 'modelLimits', 'keepalive', 'mcp', 'sync']) {
+          for (const _k of ['modules', 'modelLimits', 'keepalive', 'mcp', 'sync', 'video']) {
             if (safeNewConfig[_k] && current[_k] &&
                 typeof safeNewConfig[_k] === 'object' && !Array.isArray(safeNewConfig[_k])) {
               next[_k] = Object.assign({}, current[_k], safeNewConfig[_k]);

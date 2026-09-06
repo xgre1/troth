@@ -121,6 +121,20 @@ function readTrothConfig() {
   try { return JSON.parse(fs.readFileSync(cfgPath, 'utf8')) || {}; } catch (_) { return {}; }
 }
 
+function readVideoPrefs() {
+  const v = readTrothConfig().video;
+  const p = (v && typeof v === 'object') ? v : {};
+  const out = Object.assign({ provider: null, model: null }, DEFAULTS);
+  if (PROVIDERS.indexOf(p.provider) >= 0) out.provider = p.provider;
+  if (typeof p.model === 'string' && p.model.trim()) out.model = p.model.trim();
+  const d = Number(p.duration_s);
+  if (Number.isInteger(d) && d >= 3 && d <= 30) out.seconds = d;
+  if (ASPECTS.indexOf(p.aspect) >= 0) out.aspect = p.aspect;
+  if (RESOLUTIONS.indexOf(p.resolution) >= 0) out.resolution = p.resolution;
+  if (typeof p.audio === 'boolean') out.audio = p.audio;
+  return out;
+}
+
 // providers.<name>.apiKey from config, then the env names in order. The key
 // goes into a request header and nowhere else.
 function readProviderKey(name, envNames) {
@@ -206,7 +220,8 @@ function loadImage(imagePath) {
 function validate(args) {
   const prompt = args.prompt;
   if (!prompt || typeof prompt !== 'string' || !prompt.trim()) return badArgs('Provide a non-empty prompt string describing the clip.');
-  const out = { prompt: prompt.trim(), seconds: DEFAULTS.seconds, aspect: DEFAULTS.aspect, resolution: DEFAULTS.resolution, audio: DEFAULTS.audio, image: null, provider: null, model: null };
+  const prefs = readVideoPrefs();
+  const out = { prompt: prompt.trim(), seconds: prefs.seconds, aspect: prefs.aspect, resolution: prefs.resolution, audio: prefs.audio, image: null, provider: prefs.provider, model: prefs.model };
   if (args.duration_s != null) {
     const d = Number(args.duration_s);
     if (!Number.isInteger(d) || d < 3 || d > 30) return badArgs('duration_s must be a whole number of seconds from 3 to 30.');
@@ -237,6 +252,7 @@ function validate(args) {
     if (!img.ok) return img;
     out.image = img;
   }
+  if (args.model == null && out.provider !== prefs.provider) out.model = null;
   return out;
 }
 
@@ -703,4 +719,11 @@ module.exports = {
   POLL_INTERVAL_MS,
   POLL_CEILING_MS,
   opts,
+  readVideoPrefs,
+  PROVIDERS,
+  PROVIDER_LABEL,
+  ASPECTS,
+  RESOLUTIONS,
+  DEFAULTS,
+  validate,
 };
