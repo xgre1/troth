@@ -53,7 +53,8 @@ t('a tool rides the status row while it runs and leaves one trail line when it e
   assert.ok(!/\bout\(/.test(req[1]), 'nothing is written to the transcript when a tool starts');
   const res = /case 'tool_result': \{([\s\S]*?)break;/.exec(src);
   assert.ok(res, 'tool_result case found');
-  assert.strictEqual((res[1].match(/\bout\(/g) || []).length, 2, 'one trail line, plus the detail line behind Ctrl-O');
+  assert.ok(/if \(detailMode\) \{/.test(res[1]) && /⎿/.test(res[1]), 'the details box rides behind Ctrl-O, aligned under the line');
+  assert.ok(/'ran ' \+ oneLine\(started\.detail, 64\)/.test(res[1]), 'a generic verb names the command itself');
   assert.ok(/pastVerb\(verb\)/.test(res[1]) && /fmtDur\(took\)/.test(res[1]), 'the trail line is the verb in the past with its time');
   assert.ok(/spinner\.update\('thinking'/.test(res[1]), 'the working line says thinking between tools');
 });

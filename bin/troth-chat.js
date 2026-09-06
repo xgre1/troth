@@ -326,15 +326,16 @@ const WORDMARK = [
   ' ▀  ▀ ▀ ▀▀▀  ▀  ▀ ▀'
 ];
 
-// The mark at banner size: three rows, a hand reduction of the 18-wide
-// sampling that keeps the ears, the eyes and the spread of the wings.
-// Half-blocks, two pixel rows per cell, one flat tone.
+// The mark, sampled from the brand's creature geometry (the open face) at
+// twelve cells: half-blocks, two pixel rows per cell, coverage of half lights a cell.
 const MASCOT = [
-  '  ▄█▄▄▄▄▄▄█▄',
-  '  █▀▀▀██▀▀▀█',
-  '▄▄█▄▄▄▄▄▄▄▄█▄▄'
+  '   ▄    ▄',
+  '  ▄█▄▄▄▄█▄',
+  '  █  ██  █',
+  '███▄▄██▄▄███',
+  '▀▀█▀▀▀▀▀▀█▀▀'
 ];
-const MASCOT_W = 14;
+const MASCOT_W = 12;
 
 // The lane pinned in the shared config, if any. Read the way spawnEntity()
 // reads it: the app's desktop-config.json first, then the proxy's config.json.
@@ -379,7 +380,7 @@ function banner(engine) {
   };
   for (let i = 0; i < MASCOT.length; i++) {
     const left = tone + MASCOT[i].padEnd(MASCOT_W) + RESET;
-    console.log(('  ' + left + '   ' + cut(lines[i] || '')).replace(/\s+$/, ''));
+    console.log(('  ' + left + '   ' + cut(lines[i - 1] || '')).replace(/\s+$/, ''));
   }
   console.log('');
 }
@@ -1625,15 +1626,25 @@ function start() {
           if (started) toolStarts.delete(key);
           const verb = started ? started.verb : (msg.name ? toolVerb(msg.name, {}) : 'a tool');
           const took = typeof msg.ms === 'number' ? msg.ms : (started ? Date.now() - started.at : 0);
-          const why = msg.ok === false ? String(msg.why || 'failed').replace(/_/g, ' ') : null;
-          out(color(why ? RED : DIM, '  ◦ ' + pastVerb(verb) + ' · ' + fmtDur(took) + (why ? ' · ' + why : '')) + '\n');
-          if (detailMode && started && started.detail) out(color(DIM, '    ' + started.detail) + '\n');
-          spinner.update('thinking' + (turnTools ? ' · step ' + turnTools : ''));
+          const failed = msg.ok === false;
+          const oneLine = (s, w) => { const one = String(s || '').replace(/\s+/g, ' ').trim(); return one.length > w ? one.slice(0, w - 1) + '…' : one; };
+          const what = (verb === 'running a command' && started && started.detail) ? 'ran ' + oneLine(started.detail, 64) : pastVerb(verb);
+          out(color(failed ? RED : DIM, '  ◦ ' + what + ' · ' + fmtDur(took) + (failed ? ' · failed' : '')) + '\n');
+          if (detailMode) {
+            const W = Math.max(40, (process.stdout.columns || 80) - 8);
+            const wrap = (s) => { const rows = []; for (const raw of String(s || '').split('\n')) { let line = raw.replace(/\t/g, '  '); if (!line.trim()) continue; while (line.length > W) { rows.push(line.slice(0, W)); line = line.slice(W); } rows.push(line); } return rows; };
+            const box = [];
+            if (started && started.detail) box.push(...wrap(homeShort(started.detail)));
+            if (msg.preview) box.push(...wrap(msg.preview));
+            box.slice(0, 8).forEach((l, i) => out(color(DIM, (i === 0 ? '    ⎿ ' : '      ') + l) + '\n'));
+            if (box.length > 8) out(color(DIM, '      … ' + (box.length - 8) + ' more lines') + '\n');
+          }
+          spinner.update('thinking');
           break;
         }
         case 'turn_progress': {
           const mins = Math.round((msg.elapsed_ms || 0) / 60000);
-          out(color(DIM, '  ◦ still working · ' + (msg.steps || 0) + ' steps · ' + mins + ' min' + (msg.last_tool ? ' · last: ' + toolVerb(msg.last_tool, {}) : '')) + '\n');
+          out(color(DIM, '  ◦ still working · ' + mins + ' min' + (msg.last_tool ? ' · last: ' + toolVerb(msg.last_tool, {}) : '')) + '\n');
           break;
         }
         case 'response': {
@@ -1865,7 +1876,7 @@ function start() {
   rl.on('escape', () => { cancelInFlight(); });
   rl.on('detail', () => {
     detailMode = !detailMode;
-    out(color(DIM, '  ◦ details ' + (detailMode ? 'on: each finished tool also shows what it was on' : 'off')) + '\n');
+    out(color(DIM, '  ◦ details ' + (detailMode ? 'on' : 'off')) + '\n');
     rl.prompt();
   });
   rl.on('interrupt', () => {

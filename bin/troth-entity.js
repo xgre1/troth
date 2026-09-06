@@ -1487,6 +1487,7 @@ function main() {
           if (r && typeof r.ok === 'boolean') o.ok = r.ok;
           if (r && r.why) o.why = r.why;
           if (r && typeof r.chars === 'number') o.chars = r.chars;
+          if (r && typeof r.preview === 'string' && r.preview) o.preview = r.preview.slice(0, 400);
           emit(o);
         },
         // A long turn says so: the surface prints a progress line.

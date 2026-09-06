@@ -200,7 +200,7 @@ console.log('\n=== chat composer on a real terminal ===\n');
       for (let i = 0; i < 40 && !/finished/.test(s = screen(true)); i++) await sleep(500);
       assert.ok(/finished/.test(s), 'the reply came: ' + s.slice(-400));
       assert.ok(/◦ ran echo trail-ok · \d+(\.\d)?s/.test(s), 'the trail line names the command and its time: ' + s.slice(-500));
-      assert.ok(/still working · 1 steps/.test(s), 'the progress note printed: ' + s.slice(-500));
+      assert.ok(/still working · \d+ min/.test(s), 'the progress note printed: ' + s.slice(-500));
       assert.ok(/◦ ran 1 command/.test(s), 'the turn summary stays: ' + s.slice(-300));
       tmux(['send-keys', '-t', SES, 'C-o']);
       await sleep(800);

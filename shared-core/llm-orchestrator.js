@@ -1105,7 +1105,11 @@ function makeOrchestrator(opts) {
           if (onToolEnd) {
             const _res = typeof resultStr === 'string' ? resultStr : JSON.stringify(resultStr);
             const _why = _tcRefused ? 'refused' : _toolErrorReason(_res);
-            try { onToolEnd({ id: tc.id, name: _tcName, ms: Date.now() - _t0, ok: !_why, why: _why || null, chars: _res.length }); } catch (_) {}
+            let _pv = '';
+            try { const _o = JSON.parse(_res); _pv = [_o.stdout, _o.stderr, _o.content, _o.detail, _o.error, _o.refused, _o.message].filter((v) => typeof v === 'string' && v.trim()).join('\n'); } catch (_) { _pv = _res; }
+            _pv = String(_pv || '').replace(/\r/g, '').split('\n').filter((l) => l.trim()).slice(0, 6).join('\n').slice(0, 400);
+            try { _pv = require('./secret-redactor.js').redact(_pv); } catch (_) {}
+            try { onToolEnd({ id: tc.id, name: _tcName, ms: Date.now() - _t0, ok: !_why, why: _why || null, chars: _res.length, preview: _pv }); } catch (_) {}
           }
           if (_tcName === 'tool_load') {
             try {

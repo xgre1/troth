@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Chat trail: a shell tool's line names the command itself, a failed tool says
+  failed, and with details on (Ctrl-O) each finished tool shows a box under its
+  line, wrapped and aligned, with what it was on and the first lines of its
+  result. The working line says thinking between tools; the long-turn note
+  counts minutes.
+- Chat header: the mark is sampled from the brand's creature geometry at
+  twelve cells, with the name, engine and memory lines beside it.
 - Interactive turns reason by default: the entity's input gate and the app's
   chat payload leave the model's reasoning on unless the surface turns it off,
   so the model that works the tools thinks about their results.
