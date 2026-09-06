@@ -6723,6 +6723,14 @@ server.listen(listenPort, BIND_HOST, () => {
         try { _AGENT_PROFILE = require('../shared-core/perception/chromium-daemon.js').defaultProfileDir(); } catch (_) {}
         var _LEGACY_PROFILE = '';
         try { _LEGACY_PROFILE = require('../shared-core/perception/chromium-daemon.js').legacyProfileDir(); } catch (_) {}
+        var _AGENT_TAIL = '';
+        try { _AGENT_TAIL = require('../shared-core/perception/chromium-daemon.js').agentProfileTail(); } catch (_) {}
+        var _wearsOursTail = function (l) {
+          var i = l.indexOf('--user-data-dir=');
+          if (i === -1 || !_AGENT_TAIL) return false;
+          var v = l.slice(i + '--user-data-dir='.length).split(/\s/)[0];
+          return v === _AGENT_TAIL || v.slice(-(_AGENT_TAIL.length + 1)) === '/' + _AGENT_TAIL;
+        };
         // EVERY long-lived child the product can leave behind, not just the
         // two the operator happened to catch. A customer cannot diagnose a
         // hung daemon and has no reason to know these exist, so nothing may
@@ -6756,6 +6764,10 @@ server.listen(listenPort, BIND_HOST, () => {
               _lines = _cp.execSync('pgrep -fl "' + needle + '" || true', { encoding: 'utf8' })
                 .split('\n').filter(function (l) { return !!l; });
             } catch (_) { _lines = []; }
+            if (!last && _lines.some(_wearsOursTail)) {
+              try { _fs.writeFileSync(_pathI.join(_os.homedir(), '.troth', 'lastuse-' + t.port + '.txt'), String(Date.now())); } catch (_) {}
+              return;
+            }
             var _verdict = require('../shared-core/browser-reap.js').mayReapBrowser({
               port: t.port,
               lastUse: last,
@@ -6763,7 +6775,8 @@ server.listen(listenPort, BIND_HOST, () => {
               idleMs: _idleMin * 60000 * (t.mult || 1),
               procLines: _lines,
               agentProfile: _AGENT_PROFILE,
-              legacyProfile: _LEGACY_PROFILE
+              legacyProfile: _LEGACY_PROFILE,
+              agentProfileTail: _AGENT_TAIL
             });
             if (!_verdict.reap) return;
           } else {
@@ -6799,7 +6812,8 @@ server.listen(listenPort, BIND_HOST, () => {
           var _cfgPort = parseInt(process.env.TROTH_BROWSER_CDP_PORT || '18222', 10);
           var _wearsOurs = function (l) {
             return (!!_AGENT_PROFILE && l.indexOf('--user-data-dir=' + _AGENT_PROFILE) !== -1) ||
-                   (!!_LEGACY_PROFILE && l.indexOf('--user-data-dir=' + _LEGACY_PROFILE) !== -1);
+                   (!!_LEGACY_PROFILE && l.indexOf('--user-data-dir=' + _LEGACY_PROFILE) !== -1) ||
+                   _wearsOursTail(l);
           };
           var _orphans = {};
           _cp.execSync('pgrep -fl "remote-debugging-port=" || true', { encoding: 'utf8' })
@@ -6821,7 +6835,8 @@ server.listen(listenPort, BIND_HOST, () => {
               idleMs: _idleMin * 60000 * 4,
               procLines: _orphans[pk],
               agentProfile: _AGENT_PROFILE,
-              legacyProfile: _LEGACY_PROFILE
+              legacyProfile: _LEGACY_PROFILE,
+              agentProfileTail: _AGENT_TAIL
             });
             if (!v.reap) return;
             _orphans[pk].forEach(function (l) {

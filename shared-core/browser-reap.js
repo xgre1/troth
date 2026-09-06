@@ -42,6 +42,7 @@
  * @param {number} o.idleMs        how long counts as idle for this candidate
  * @param {string[]} o.procLines   `pgrep -fl` lines for the matching processes
  * @param {string} o.agentProfile  the agent browser's own user-data-dir
+ * @param {string} o.agentProfileTail  the last path segments every agent profile ends with, whatever HOME it sits under
  * @param {string} o.legacyProfile  the pre-hardening shared user-data-dir; wearing it is reapable on any port
  * @returns {{reap: boolean, reason: string}}
  */
@@ -55,7 +56,16 @@ function mayReapBrowser(o) {
   if (!opts.lastUse) return { reap: false, reason: 'never stamped — cannot know it is idle' };
 
   const profile = String(opts.agentProfile || '');
-  const ours = wearsLegacy || (!!profile && lines.some((l) => l.indexOf(profile) !== -1));
+  const tail = String(opts.agentProfileTail || '');
+  const wearsDir = (l, dir) => {
+    const i = l.indexOf('--user-data-dir=');
+    if (i === -1) return false;
+    const val = l.slice(i + '--user-data-dir='.length).split(/\s/)[0];
+    return val === dir || (!!tail && dir === tail && (val === tail || val.endsWith('/' + tail)));
+  };
+  const ours = wearsLegacy
+    || (!!profile && lines.some((l) => l.indexOf(profile) !== -1))
+    || (!!tail && lines.some((l) => wearsDir(l, tail)));
   const headed = lines.some((l) => l.indexOf('headless') === -1);
   if (headed && !ours) return { reap: false, reason: 'headed, and not ours' };
 

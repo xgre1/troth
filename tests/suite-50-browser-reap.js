@@ -152,4 +152,36 @@ test('REAP-13: launcher and reaper name the legacy directory once (source pin)',
   assert.ok(/legacyProfileDir\(\)/.test(src), 'the sweep asks the daemon rather than rebuilding the path');
   assert.ok(/legacyProfile: _LEGACY_PROFILE/.test(src), 'and hands it to the verdict');
 });
+
+const TAIL = '.troth/agent-browser-profile';
+const elsewhere = ['4716 /Applications/Chrome --remote-debugging-port=18222 --user-data-dir=/tmp/scratch-home/.troth/agent-browser-profile --no-first-run'];
+const lookalike = ['4717 /Applications/Chrome --remote-debugging-port=18222 --user-data-dir=/tmp/scratch-home/.troth/agent-browser-profile-old'];
+
+test('REAP-14: our profile under another HOME is still ours, and idle it is collected', () => {
+  // The daemon started from a scratch HOME names its profile the same way;
+  // the reaper under the real HOME must recognise it by that tail.
+  const v = ask({ lastUse: NOW - 48 * HOUR, procLines: elsewhere, agentProfileTail: TAIL });
+  assert.strictEqual(v.reap, true, 'the leaked case: ' + v.reason);
+});
+
+test('REAP-15: a directory that merely starts like ours is not ours', () => {
+  const v = ask({ lastUse: NOW - 48 * HOUR, procLines: lookalike, agentProfileTail: TAIL });
+  assert.strictEqual(v.reap, false, v.reason);
+  assert.ok(/not ours/.test(v.reason), v.reason);
+});
+
+test('REAP-16: without the tail rule wired, another HOME still reads as not ours', () => {
+  const v = ask({ lastUse: NOW - 48 * HOUR, procLines: elsewhere });
+  assert.strictEqual(v.reap, false, v.reason);
+});
+
+test('REAP-17: the sweep asks the daemon for the tail and hands it to the verdict (source pin)', () => {
+  const daemon = require(path.join(ROOT, 'shared-core', 'perception', 'chromium-daemon.js'));
+  assert.strictEqual(typeof daemon.agentProfileTail, 'function');
+  assert.ok(/agent-browser-profile$/.test(daemon.agentProfileTail()), daemon.agentProfileTail());
+  assert.ok(daemon.defaultProfileDir().endsWith(daemon.agentProfileTail()), 'the full path ends with the tail');
+  const src = require('fs').readFileSync(path.join(ROOT, 'proxy', 'server.js'), 'utf8');
+  assert.ok(/agentProfileTail\(\)/.test(src), 'the sweep asks the daemon');
+  assert.ok(/agentProfileTail: _AGENT_TAIL/.test(src), 'and hands it to the verdict');
+});
 };
