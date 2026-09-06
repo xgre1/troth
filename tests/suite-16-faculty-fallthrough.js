@@ -285,7 +285,7 @@ module.exports = ({ test, skip }) => {
       tool_runner: async () => JSON.stringify({ error: 'unknown downstream server: supabase' })
     });
     assert.strictEqual(res.status, 'ok');
-    assert.ok(/did NOT complete/.test(res.text), 'failure note present: ' + res.text);
+    assert.ok(/did not complete/.test(res.text), 'failure note present: ' + res.text);
     assert.ok(/mcp_call/.test(res.text) && /supabase/.test(res.text), 'names the failed action');
   });
 
@@ -312,7 +312,7 @@ module.exports = ({ test, skip }) => {
       tool_runner: async () => (++n === 1 ? JSON.stringify({ error: 'ENOENT' }) : 'wrote ok')
     });
     assert.strictEqual(res.status, 'ok');
-    assert.ok(!/did NOT complete/.test(res.text), 'recovered action must not raise a false note: ' + res.text);
+    assert.ok(!/did not complete/.test(res.text), 'recovered action must not raise a false note: ' + res.text);
   });
 
   test('LARP-3: a SUCCESSFUL Bash (exitCode 0) with stderr noise never raises a failure note', async () => {
@@ -342,7 +342,7 @@ module.exports = ({ test, skip }) => {
       })
     });
     assert.strictEqual(res.status, 'ok');
-    assert.ok(!/did NOT complete/.test(res.text), 'exit 0 is success no matter what stderr says: ' + res.text);
+    assert.ok(!/did not complete/.test(res.text), 'exit 0 is success no matter what stderr says: ' + res.text);
   });
 
   test('LARP-4: an interrupted Bash IS stapled — the exit metadata is the verdict both ways', async () => {
@@ -368,7 +368,7 @@ module.exports = ({ test, skip }) => {
       })
     });
     assert.strictEqual(res.status, 'ok');
-    assert.ok(/did NOT complete/.test(res.text), 'interrupted command must be stapled: ' + res.text);
+    assert.ok(/did not complete/.test(res.text), 'interrupted command must be stapled: ' + res.text);
     assert.ok(/interrupted before completion/.test(res.text), 'names the interruption');
   });
 
@@ -397,7 +397,7 @@ module.exports = ({ test, skip }) => {
       })
     });
     assert.strictEqual(res.status, 'ok');
-    assert.ok(/did NOT complete/.test(res.text), 'a real failure is still stapled: ' + res.text);
+    assert.ok(/did not complete/.test(res.text), 'a real failure is still stapled: ' + res.text);
     assert.ok(/NameError: name rd_varint is not defined/.test(res.text), 'the error line reaches the operator: ' + res.text);
     assert.ok(!/"stdout"/.test(res.text), 'the raw tool JSON must never be pasted: ' + res.text);
     assert.ok(!/d43c4dde17a574c1d718cc392914583d7a0967bf8552/.test(res.text), 'stdout must not leak into the note: ' + res.text);
@@ -597,7 +597,7 @@ module.exports = ({ test, skip }) => {
     });
     assert.strictEqual(res.status, 'ok');
     assert.strictEqual(executed.length, 3, 'every re-check against a changing world runs; got ' + executed.length);
-    assert.ok(!/did NOT complete/.test(res.text), 'no failure note on healthy verification: ' + res.text);
+    assert.ok(!/did not complete/.test(res.text), 'no failure note on healthy verification: ' + res.text);
   });
 
   test('LARP-5: a fetched PAGE mentioning "connection refused" is not a failed action (ok:true wins over text grep)', async () => {
@@ -624,7 +624,7 @@ module.exports = ({ test, skip }) => {
       })
     });
     assert.strictEqual(res.status, 'ok');
-    assert.ok(!/did NOT complete/.test(res.text), 'page content must not read as a failure: ' + res.text);
+    assert.ok(!/did not complete/.test(res.text), 'page content must not read as a failure: ' + res.text);
   });
 
   test('LARP-6: a dedup REFUSAL never staples an action that already completed', async () => {
@@ -655,7 +655,7 @@ module.exports = ({ test, skip }) => {
     });
     assert.strictEqual(res.status, 'ok');
     assert.strictEqual(executed.length, 2, 'stagnant repeat still refused; got ' + executed.length);
-    assert.ok(!/did NOT complete/.test(res.text), 'refusal of a pointless repeat is not a failed action: ' + res.text);
+    assert.ok(!/did not complete/.test(res.text), 'refusal of a pointless repeat is not a failed action: ' + res.text);
   });
 
   test('LARP-7: recovery with DIFFERENT args on the same file clears the stale failure (the hashline retry shape)', async () => {
@@ -690,7 +690,7 @@ module.exports = ({ test, skip }) => {
         : JSON.stringify({ filePath: '/proj/app.js', mode: 'hashline', strategy: 'hashline_tag' }))
     });
     assert.strictEqual(res.status, 'ok');
-    assert.ok(!/did NOT complete/.test(res.text), 'recovered-via-new-hashes must not staple: ' + res.text);
+    assert.ok(!/did not complete/.test(res.text), 'recovered-via-new-hashes must not staple: ' + res.text);
   });
 
   test('LARP-8: an iteration-capped turn says so — never a synthesized bare "Done."', async () => {
@@ -798,7 +798,7 @@ module.exports = ({ test, skip }) => {
         tool_runner: async () => JSON.stringify({ ok: false, reason: 'upstream_failed' })
       });
       assert.strictEqual(res.status, 'ok');
-      assert.ok(/did NOT complete/.test(res.text), toolName + ' failure must be stapled: ' + res.text);
+      assert.ok(/did not complete/.test(res.text), toolName + ' failure must be stapled: ' + res.text);
       assert.ok(new RegExp(toolName).test(res.text), 'names the failed tool ' + toolName);
     }
   });
@@ -825,7 +825,7 @@ module.exports = ({ test, skip }) => {
         tool_runner: async () => JSON.stringify({ error: 'not found' })
       });
       assert.strictEqual(res.status, 'ok');
-      assert.ok(!/did NOT complete/.test(res.text), 'a failed read is not a failed action: ' + toolName + ' -> ' + res.text);
+      assert.ok(!/did not complete/.test(res.text), 'a failed read is not a failed action: ' + toolName + ' -> ' + res.text);
     }
   });
 
@@ -868,7 +868,7 @@ module.exports = ({ test, skip }) => {
       tool_runner: async () => JSON.stringify({ error: 'path_policy_refusal', tool: 'Write', path: '/Users/op/.env.local', reason: 'blocked_system_path' })
     });
     assert.strictEqual(res.status, 'ok');
-    assert.ok(/did NOT complete/.test(res.text), 'refusal stapled');
+    assert.ok(/did not complete/.test(res.text), 'refusal stapled');
     assert.ok(/\/Users\/op\/\.env\.local/.test(res.text), 'the exact refused path is visible: ' + res.text);
   });
 
@@ -900,7 +900,7 @@ module.exports = ({ test, skip }) => {
       });
       assert.strictEqual(res.status, 'ok');
       assert.strictEqual(executed.length, 4, toolName + ': every identical poll runs; got ' + executed.length);
-      assert.ok(!/did NOT complete/.test(res.text), toolName + ': polling is not a failed action: ' + res.text);
+      assert.ok(!/did not complete/.test(res.text), toolName + ': polling is not a failed action: ' + res.text);
     }
   });
 

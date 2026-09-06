@@ -1797,6 +1797,7 @@ function main() {
       let _engineOverrideAnno = null;
       let _paneOverridePrefer = null;
       let _engineOverrideExempt = null; // faculty the pin fence must NOT strip
+      let _engineChosen = false; // the pane picked this faculty with /engine: a failed turn stays on it, never walks
       {
         // A tagged pane's id, else the turn-state id, else null for the CLI/voice
         // surface. We pass whatever we have (including null) straight to
@@ -1809,6 +1810,7 @@ function main() {
         if (_ov && _ov.faculty && orchestrators[_ov.faculty]) {
           action.options = Object.assign({}, action.options, { transport_hint: _ov.faculty });
           _engineOverrideExempt = _ov.faculty; // fence below skips this hint
+          _engineChosen = true;
           _engineOverrideAnno = _ov.engine || _ov.faculty;
         } else if (_ov && _ov.faculty && !orchestrators[_ov.faculty]) {
           // Override names an UNWIRED faculty (e.g. /model chatgpt with no codex
@@ -1985,7 +1987,7 @@ function main() {
               && (r.reason.indexOf('transport_') === 0
                   || ((r.reason === 'timeout' || r.reason === 'timeout_hard_ceiling')
                       && _ts.streamed_chars === 0));
-            if (_walkable(res)) {
+            if (_walkable(res) && !_engineChosen) {
               const tried = new Set([choice.faculty]);
               for (const alt of FACULTY_PRIORITY) {
                 if (!_walkable(res)) break;

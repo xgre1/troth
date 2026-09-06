@@ -12,6 +12,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Local engines: the generation budget travels as both `n_predict` and
+  `max_tokens`, so an OpenAI-shaped server such as MLX applies it too, and it
+  doubles to 8192 when reasoning is on so the answer has room after the
+  thinking.
+- An engine picked with `/engine` holds: a turn that fails on it is reported
+  on it and never handed to another engine by the fallback walk.
+- The end-of-turn note for tools that did not complete is in plain words:
+  which step and why, one clause each.
 - Chat trail: a shell tool's line names the command itself, a failed tool says
   failed, and with details on (Ctrl-O) each finished tool shows a box under its
   line, wrapped and aligned, with what it was on and the first lines of its

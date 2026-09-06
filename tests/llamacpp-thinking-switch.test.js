@@ -93,6 +93,21 @@ console.log('\n=== the reasoning switch on the local road ===\n');
     assert.ok(!/enable_thinking !== true\) event\.options\.enable_thinking = false/.test(src), 'no gate forces reasoning off');
   });
 
+  await t('the generation budget travels in both spellings and doubles when reasoning is on', async () => {
+    const on = await runOnce(false);
+    assert.strictEqual(on.body.max_tokens, on.body.n_predict, 'max_tokens equals n_predict');
+    assert.strictEqual(on.body.max_tokens, 8192);
+    const off = await runOnce(false, { enable_thinking: false });
+    assert.strictEqual(off.body.max_tokens, 4096);
+    assert.strictEqual(off.body.n_predict, 4096);
+  });
+
+  await t('a faculty picked with /engine is never walked away from (source pin on the entity)', async () => {
+    const src = fs.readFileSync(path.join(REPO, 'bin', 'troth-entity.js'), 'utf8');
+    assert.ok(/if \(_walkable\(res\) && !_engineChosen\) \{/.test(src), 'the fallback walk stays on the chosen faculty');
+    assert.ok(/_engineChosen = true;/.test(src), 'the override branch marks the choice');
+  });
+
   console.log('\nllamacpp-thinking-switch: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })();

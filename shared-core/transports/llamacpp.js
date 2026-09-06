@@ -237,6 +237,12 @@ function makeLlamaCppTransport(opts) {
       if (aborted) { ended = true; emit({ done: true, _abort_reason: 'aborted_pre_request' }); return; }
 
       const idSlot = await resolveSlot(host, req.options);
+      // Generation budget, sent in both spellings: n_predict for llama.cpp,
+      // max_tokens for the OpenAI-shaped servers (MLX). With reasoning on the
+      // visible answer needs room after the thinking, so the default doubles.
+      const _thinking = !(req.options && req.options.enable_thinking === false);
+      const _budget = (req.options && req.options.n_predict) ||
+        parseInt(process.env.TROTH_ENTITY_MAX_TOKENS || (_thinking ? '8192' : '4096'), 10);
       const bodyObj = {
         model,
         messages,
@@ -257,8 +263,8 @@ function makeLlamaCppTransport(opts) {
         // local fallback stays hardware-sized at 4096: a looping local model
         // pays its cap in wall-clock on the operator's own machine, and the
         // loop rescue below is the net, not the budget.
-        n_predict: (req.options && req.options.n_predict) ||
-          parseInt(process.env.TROTH_ENTITY_MAX_TOKENS || '4096', 10),
+        n_predict: _budget,
+        max_tokens: _budget,
         // Slot pinning: when the substrate wants the model's KV cache to
         // persist across calls (e.g., a back-and-forth with the same
         // agent), pinning to a specific slot id keeps the cache hot

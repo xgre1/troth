@@ -87,12 +87,12 @@ function turn(toolName, args, reply) {
   t('a long list answer is a completed action and the reply carries no staple', () => {
     assert.strictEqual(big.status, 'ok', big.reason);
     assert.ok(/Here are your rules/.test(big.text), big.text.slice(0, 200));
-    assert.ok(!/did NOT complete/.test(big.text), big.text.slice(-400));
+    assert.ok(!/did not complete/.test(big.text), big.text.slice(-400));
   });
   const refused = await orch.makeOrchestrator({ transport: turn('Write', { file_path: '/x/a.txt', content: 'hi' }, 'Saved it.'), timeout_ms: 5000 })
     .composeAgentic({ prompt: 'save', options: {} }, { tool_runner: async () => JSON.stringify({ ok: false, reason: 'path_policy_refusal' }) });
   t('a refused write still gets the staple', () => {
-    assert.ok(/did NOT complete/.test(refused.text), refused.text.slice(-300));
+    assert.ok(/did not complete/.test(refused.text), refused.text.slice(-300));
     assert.ok(/Write: path_policy_refusal/.test(refused.text), refused.text.slice(-300));
   });
   console.log('\ntool-result-judge: ' + pass + ' passed, ' + fail + ' failed');

@@ -546,11 +546,12 @@ function makeOrchestrator(opts) {
     const withFailureNote = (text) => {
       let out = String(text || '').trim();
       if (toolFailures.size) {
+        // Each failed step by its own name with its own error line: the operator
+        // sees exactly what did not happen, under a plain header.
         const lines = Array.from(toolFailures.values())
           .map((f) => '  - ' + f.name + ': ' + f.reason);
-        out += '\n\n---\n[' + toolFailures.size + ' action(s) did NOT complete this turn. ' +
-          'Anything above that claims they succeeded is not reliable:\n' +
-          lines.join('\n') + ']';
+        out += '\n\n---\nNot everything above went through. ' + (toolFailures.size === 1 ? 'One step' : toolFailures.size + ' steps') +
+          ' did not complete, and anything that leans on ' + (toolFailures.size === 1 ? 'it' : 'them') + ' is unverified:\n' + lines.join('\n');
       }
       if (lastTurnFinish && TRUNCATING_FINISH.has(lastTurnFinish)) {
         out += lastTurnFinish === 'content_filter'
