@@ -30,7 +30,7 @@ const classOf = (id) => { const r = state.getAction(id); let out = {}; try { out
     assert.ok(names.includes('decision_record'), 'decision_record is on the unified surface');
     const withIt = sp.buildSystemPrompt({ agent_id: 'p', cwd: '/no/such/ws', available_tools: names, audio: true });
     assert.ok(withIt.includes('Procedure capture:'), 'the capture line is present');
-    assert.ok(withIt.length <= sp.DEFAULT_MAX_CHARS, 'voice prompt fits the cap: ' + withIt.length + ' > ' + sp.DEFAULT_MAX_CHARS);
+    assert.ok(withIt.length <= sp.promptMaxChars(), 'voice prompt fits the cap: ' + withIt.length + ' > ' + sp.promptMaxChars());
     assert.ok(withIt.indexOf('(truncated)') === -1, 'nothing sliced');
     const without = sp.buildSystemPrompt({ agent_id: 'p', cwd: '/no/such/ws', available_tools: names.filter((n) => n !== 'decision_record') });
     assert.ok(!without.includes('Procedure capture:'), 'no tool, no ask');

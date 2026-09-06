@@ -26,6 +26,10 @@ seam has to say what it is a seam for; those modules are absent by design, not
 by accident, and nothing here depends on them to work. README's feature matrix
 lists which capabilities are which.
 
+The macOS app carries a small app tier inside its bundle: the engine side of
+its spoken conversation. Those files are not published here and are licensed
+with the app; the core reaches them through one seam and runs without them.
+
 ## Runtime-downloaded third-party artifacts
 
 troth fetches these onto the user's machine at runtime; each stays under its own

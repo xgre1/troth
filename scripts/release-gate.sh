@@ -52,7 +52,8 @@ derive_probes() {
   { git -C "$d" ls-files -o -i --exclude-standard 2>/dev/null
     git -C "$d" ls-files -o --exclude-standard 2>/dev/null; } \
     | grep -E '^(bin|shared-core|proxy|adapters|plugin|tools)/' \
-    | grep -vE 'node_modules|\.log$' | sort -u
+    | grep -vE 'node_modules|\.log$' \
+    | { if [ -r "$HOME/.troth/gate-app-tier" ]; then grep -vxF -f "$HOME/.troth/gate-app-tier"; else cat; fi; } | sort -u
 }
 
 CLOSED_PROBES=()
@@ -62,6 +63,19 @@ if [ -r "$HOME/.troth/gate-closed-probes" ]; then
     CLOSED_PROBES+=("$_p")
   done < "$HOME/.troth/gate-closed-probes"
 fi
+# The app tier: files the macOS app carries inside its bundle that the open
+# repository does not publish. The list is written by the app's install step;
+# absent list = empty tier, and the bundle must equal the repository exactly.
+APP_TIER=()
+APP_TIER_N=0
+if [ -r "$HOME/.troth/gate-app-tier" ]; then
+  while IFS= read -r _p; do
+    case "$_p" in ''|\#*) continue ;; esac
+    APP_TIER+=("$_p")
+    APP_TIER_N=$((APP_TIER_N+1))
+  done < "$HOME/.troth/gate-app-tier"
+fi
+in_app_tier() { printf '%s\n' "${APP_TIER[@]:-}" | grep -qxF "$1"; }
 # On a machine that carries the overlay, check the stored list against what is
 # actually on disk. A tree being gated is usually an export with no overlay in
 # it, so the derivation is only meaningful where the files live; when it is
@@ -542,19 +556,25 @@ print("\n".join(sorted(out)))' \
         const leaf = parts[parts.length - 1];
         if (!/\.[a-z0-9]{2,5}$/i.test(leaf)) continue;
         const abs = path.resolve(path.dirname(path.resolve(f)), ...parts);
-        if (!fs.existsSync(abs)) missing.add(f + " -> " + path.relative(process.cwd(), abs));
+        if (fs.existsSync(abs)) continue;
+        // A path the repository ignores on purpose is a file the code writes
+        // at run time (a results cache, a local log), never a missing asset.
+        const rel = path.relative(process.cwd(), abs);
+        let ignored = false;
+        try { cp.execSync("git check-ignore -q -- " + JSON.stringify(rel), { stdio: "ignore" }); ignored = true; } catch (_) {}
+        if (!ignored) missing.add(f + " -> " + rel);
       }
     }
     process.stdout.write([...missing].slice(0, 5).join("\n"));
   ' 2>/dev/null)
   # The open/closed seam is deliberate and documented in LICENSING.md: the
-  # engine names overlay modules and fails closed when they are absent. Those
-  # are the ONE class of missing path that is correct, so they are excluded by
-  # the same CLOSED_PROBES list the gate already uses. Without this the check
-  # passes on a machine that HAS the overlay and fails on the clone a stranger
-  # gets, which is backwards from what it is for.
+  # engine names overlay modules and fails closed when they are absent. Those,
+  # and the app tier's files, are the classes of missing path that are correct,
+  # so they are excluded by the same lists the gate already uses. Without this
+  # the check passes on a machine that HAS the overlay and fails on the clone a
+  # stranger gets, which is backwards from what it is for.
   local probes_re
-  probes_re=$(printf '%s\n' "${CLOSED_PROBES[@]}" | paste -sd'|' -)
+  probes_re=$(printf '%s\n' "${CLOSED_PROBES[@]:-}" "${APP_TIER[@]:-}" | grep -v '^$' | paste -sd'|' -)
   missing_ref=$(printf '%s\n' "$missing_ref" | grep -vE "(${probes_re})$" | grep -v '^$' | head -5)
   [ -z "$missing_ref" ] && pass "every literal path the code reads exists, or is a declared closed-tier seam" \
     || { fail "code reads files that are not in this repository:"; note "$missing_ref"; }
@@ -578,7 +598,7 @@ check_dmg() {
   #    a working-tree copy again.
   local extra=0 first=""
   while IFS= read -r f; do
-    git ls-files --error-unmatch "$f" >/dev/null 2>&1 || { extra=$((extra+1)); [ -z "$first" ] && first="$f"; }
+    git ls-files --error-unmatch "$f" >/dev/null 2>&1 || in_app_tier "$f" || { extra=$((extra+1)); [ -z "$first" ] && first="$f"; }
   done < <(cd "$core" 2>/dev/null && find bin shared-core proxy adapters plugin scripts tools -type f 2>/dev/null | grep -v node_modules)
 
   # 1b. The check above walks named directories under core/, so anything the
@@ -627,6 +647,13 @@ check_dmg() {
     || { fail "unexpected directory inside core/:"; note "$core_extra"; }
   [ "$extra" -eq 0 ] && pass "every bundled source file is published in the open repo" \
                      || fail "$extra bundled files are NOT in the open repo (first: $first)"
+  #    The app tier must be whole: a bundle missing one of its files ships an
+  #    app without the feature that file carries.
+  local tier_missing="" tp
+  for tp in "${APP_TIER[@]:-}"; do [ -n "$tp" ] && [ ! -e "$core/$tp" ] && tier_missing="$tier_missing $tp"; done
+  if [ "$APP_TIER_N" -gt 0 ]; then
+    [ -z "$tier_missing" ] && pass "the app tier is whole ($APP_TIER_N files)" || fail "app tier incomplete:$tier_missing"
+  fi
 
   # 2. Named closed modules, belt and braces.
   local cl=""
@@ -833,6 +860,11 @@ check_bundle_tree() {
   if [ "$total" -eq 0 ]; then fail "no closed-overlay probes to judge the bundle against"
   elif [ "$present" -eq 0 ]; then pass "no closed-overlay module inside the bundle ($total probed)"
   else fail "closed-overlay modules inside the bundle: $present"; fi
+  local tier_missing="" tp
+  for tp in "${APP_TIER[@]:-}"; do [ -n "$tp" ] && [ ! -e "$core/$tp" ] && tier_missing="$tier_missing $tp"; done
+  if [ "$APP_TIER_N" -gt 0 ]; then
+    [ -z "$tier_missing" ] && pass "the app tier is whole ($APP_TIER_N files)" || fail "app tier incomplete:$tier_missing"
+  fi
   local junk; junk=$(find "$core" \( -name '.env*' -o -name '*.db' -o -name '*.local.*' \) 2>/dev/null | head -3)
   [ -z "$junk" ] && pass "no databases or env files inside the bundle" \
     || { fail "databases or env files inside the bundle:"; note "$junk"; }

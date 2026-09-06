@@ -143,13 +143,14 @@ test('CG-8: the daemon prompt fits in BOTH modes, with a hand connected', () => 
     for (const audio of [false, true]) {
       const out = sp.buildSystemPrompt({ agent_id: 'partner', cwd: ws, available_tools: names, audio });
       const label = audio ? 'voice' : 'text';
-      assert.ok(out.length <= sp.DEFAULT_MAX_CHARS,
-        label + ' fits: ' + out.length + ' / ' + sp.DEFAULT_MAX_CHARS);
+      const cap = sp.promptMaxChars();
+      assert.ok(out.length <= cap,
+        label + ' fits: ' + out.length + ' / ' + cap);
       assert.ok(out.indexOf('(truncated)') === -1, label + ': nothing was sliced to make it fit');
       // A margin, not a coincidence — the hand-name list is dynamic and grows
       // with whatever the operator has connected.
-      assert.ok(sp.DEFAULT_MAX_CHARS - out.length >= 150,
-        label + ' keeps real headroom: ' + (sp.DEFAULT_MAX_CHARS - out.length) + ' chars');
+      assert.ok(cap - out.length >= 150,
+        label + ' keeps real headroom: ' + (cap - out.length) + ' chars');
     }
   } finally {
     if (saved === undefined) delete process.env.TROTH_MCP_CLIENTS_CONFIG;

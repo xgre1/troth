@@ -190,6 +190,11 @@ function makeOrchestrator(opts) {
   // that make zero tool calls. The caller (troth-entity) maps it to a text_delta
   // event the UI already consumes. Best-effort; never blocks the stream.
   const onTextDelta = typeof opts.onTextDelta === 'function' ? opts.onTextDelta : null;
+  // The short line a tool-calling round says, for a surface that speaks while
+  // the turn works. The app tier shapes what is said; absent, nothing is.
+  const onNarration = typeof opts.onNarration === 'function' ? opts.onNarration : null;
+  let _liveTalk = null;
+  try { _liveTalk = require('./app-ext.js').liveTalk || null; } catch (_) {}
   const timeout = opts.timeout_ms || DEFAULT_FRAGMENT_TIMEOUT_MS;
   // Absolute ceiling so a pathological never-ending stream can't run forever now
   // that the per-chunk timeout below is IDLE-based (resets on progress) instead
@@ -443,6 +448,10 @@ function makeOrchestrator(opts) {
     // fallback for the edge where the loop's LAST turn speaks and acts at
     // once (the answer would otherwise vanish into the trace).
     let lastNarration = '';
+    // A spoken turn streams what it says as it goes. The extension provides
+    // the stream; the core only drives it, and without one the round is
+    // flushed whole below.
+    let live = null;
     let toolCallsMade = false;
     let forcedAnswer = false;
     let repairs = 0;
@@ -711,6 +720,7 @@ function makeOrchestrator(opts) {
       let pendingToolCalls = null;
       let finishReason = null;
       let fatalReturn = null;
+      if (!live && _liveTalk && baseOptions.audio && onTextDelta && typeof _liveTalk.roundStream === 'function') live = _liveTalk.roundStream(onTextDelta);
       // `stream` MUST live in the iteration scope, not inside the attempt loop:
       // the loop-detector abort paths further down run AFTER this attempt loop
       // closes and still call maybeAbort(transport, stream). Declaring it inside
@@ -720,6 +730,7 @@ function makeOrchestrator(opts) {
       let stream = null;
       for (let attempt = 0; attempt <= MAX_TRANSIENT_RETRIES; attempt++) {
         turnText = ''; pendingToolCalls = null; finishReason = null;
+        if (live) live.reset();
         let retryThis = false;
         try { stream = await transport.stream(req); }
         catch (e) {
@@ -837,15 +848,11 @@ function makeOrchestrator(opts) {
             }
             if (chunk && chunk.delta) {
               turnText += String(chunk.delta);
-              // NOT streamed live in the agentic loop. Every round's text
-              // would paint the reply surface as it arrived, so the
-              // per-round plan preambles (codex models re-emit their
-              // manifest EVERY round) reached the operator no matter what
-              // the final assembly kept — the finalText routing alone fixed
-              // the stored reply while the screen showed all eight manifests
-              // (field-verified on two builds). The round buffers here and
-              // FLUSHES below only when it proves tool-free — the one round
-              // that speaks to the operator.
+              // Chat buffers the round and flushes it below only when it
+              // proves tool-free (codex models re-emit their plan manifest
+              // every round). A spoken turn's stream takes what it can say
+              // as the round is written and holds the rest for that flush.
+              if (live) live.onDelta(turnText);
             }
             if (chunk && chunk.usage) {
               _usage.seen = true;
@@ -945,14 +952,21 @@ function makeOrchestrator(opts) {
       // spoke and acted at once.
       if (turnText && !(pendingToolCalls && pendingToolCalls.length)) {
         finalText += turnText;
-        // The tool-free round is the one that speaks — flush its buffered
-        // text to the live surface now, redacted WHOLE (stronger than the
-        // old per-chunk redaction: a secret can no longer straddle chunks).
+        // The tool-free round is the one that speaks — flush what the live
+        // surface has not had yet, redacted whole so a secret cannot
+        // straddle chunks.
         if (onTextDelta) {
-          try { onTextDelta(require('./secret-redactor.js').redact(String(turnText))); } catch (_) {}
+          const rest = live ? live.unsent(turnText) : turnText;
+          if (rest.trim()) { try { onTextDelta(require('./secret-redactor.js').redact(String(rest))); } catch (_) {} }
         }
       }
-      else if (turnText) lastNarration = turnText;
+      else if (turnText) {
+        lastNarration = turnText;
+        if (live && onNarration) {
+          const say = live.roundLine(turnText);
+          if (say) { try { onNarration(require('./secret-redactor.js').redact(say)); } catch (_) {} }
+        }
+      }
       trace.push({
         iter, text: turnText, tool_calls: pendingToolCalls && pendingToolCalls.length, finish_reason: finishReason,
         tools: (pendingToolCalls || []).map((tc) => {

@@ -1447,6 +1447,15 @@ function main() {
       return lines.join('\n');
     };
   }
+  // Hooks the app tier adds to every turn (a surface that speaks while the
+  // turn works). Absent tier: the turn has only the hooks below.
+  const _liveHooks = (function () {
+    try {
+      const ext = require('../shared-core/app-ext.js');
+      const lt = ext && ext.liveTalk;
+      return lt && typeof lt.turnHooks === 'function' ? lt.turnHooks({ emit: (f) => emit(f), turnState: () => turnState() }) : null;
+    } catch (_) { return null; }
+  })();
   for (const name of facultyNames) {
     try {
       const tx = resolveTransport(name);
@@ -1496,13 +1505,18 @@ function main() {
           emit(Object.assign({ kind: 'turn_progress' }, p || {}));
         },
         // Stream each text delta so the UI shows tokens flowing ("writing")
-        // instead of a frozen "Thinking" even on zero-tool turns.
+        // instead of a frozen "Thinking". A spoken turn streams only when the
+        // extension that shapes spoken lines is present; otherwise the app
+        // reads the final reply.
         onTextDelta: (delta) => {
           const t = turnState();
-          if (!delta) return;
+          if (!delta || (t.audio && !_liveHooks)) return;
           t.streamed_chars += String(delta).length;
           if (!t.task_child) emit({ kind: 'text_delta', content: String(delta) });
-        }
+        },
+        // The line a tool-calling round says: the extension hands it to the
+        // surface that speaks; chat keeps it in the activity trace.
+        onNarration: _liveHooks ? _liveHooks.onNarration : null
       });
     } catch (e) {
       // Faculty failed to wire (missing env, bad module path) — skip but

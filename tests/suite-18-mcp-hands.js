@@ -855,12 +855,12 @@ module.exports = function run({ test, skip }) {
       writeJson(path.join(ws, '.mcp.json'), { mcpServers: { supabase: { type: 'http', url: 'https://mcp.supabase.com/mcp' } } });
       for (const [label, cwd] of [['no hands', '/no/such/workspace-xyz'], ['one hand', ws]]) {
         const out = sp.buildSystemPrompt({ agent_id: 'partner', cwd, available_tools: names, audio: true });
-        assert.ok(out.length <= sp.DEFAULT_MAX_CHARS,
-          label + ' prompt fits the cap; ' + out.length + ' > ' + sp.DEFAULT_MAX_CHARS);
+        assert.ok(out.length <= sp.promptMaxChars(),
+          label + ' prompt fits the cap; ' + out.length + ' > ' + sp.promptMaxChars());
         assert.ok(out.indexOf('(truncated)') === -1, label + ' prompt is not truncated');
         assert.ok(out.indexOf('call mcp_register_request with it') !== -1,
           label + ' prompt carries the registration sentence');
-        assert.ok(out.indexOf('AUDIO MODE') !== -1, label + ' prompt keeps the audio tail (nothing sliced)');
+        assert.ok(out.indexOf('Plain text only') !== -1, label + ' prompt keeps the voice section (nothing sliced)');
       }
     } finally {
       if (savedCfg === undefined) delete process.env.TROTH_MCP_CLIENTS_CONFIG;

@@ -1256,17 +1256,30 @@ console.log('\nTools (Mode A):');
     assert.ok(out.includes('Read, Write, Bash'));
     assert.ok(out.toLowerCase().includes('preamble') || out.toLowerCase().includes('apologies'),
               'anti-preamble/apology guard present');
-    // Default cap.
-    assert.ok(out.length <= sp.DEFAULT_MAX_CHARS);
+    // The cap the checkout runs under.
+    assert.ok(out.length <= sp.promptMaxChars());
   });
 
-  test('TOO-46: buildSystemPrompt audio mode adds TTS-friendly directive + drops markdown', () => {
+  test('TOO-46: buildSystemPrompt audio mode asks for plain spoken text and drops markdown', () => {
     const sp = require('../shared-core/tools/system-prompt.js');
     const out = sp.buildSystemPrompt({
       agent_id: 'voice', cwd: '/tmp', available_tools: ['Read'], audio: true
     });
-    assert.ok(out.includes('AUDIO MODE'));
+    assert.ok(out.includes('Plain text only'));
     assert.ok(out.toLowerCase().includes('no markdown'));
+    assert.ok(!out.includes('(truncated)'));
+    const text = sp.buildSystemPrompt({ agent_id: 'chat', cwd: '/tmp', available_tools: ['Read'], audio: false });
+    assert.ok(!text.includes('Plain text only'));
+  });
+
+  test('TOO-46c: the voice section survives the cap with the whole tool surface advertised', () => {
+    const sp = require('../shared-core/tools/system-prompt.js');
+    const tools = ['Read', 'Write', 'Edit', 'Bash', 'job_wait', 'job_status', 'job_stop', 'mcp_list', 'mcp_call', 'update_identity',
+      'web_search', 'web_fetch', 'code_who_calls', 'code_file_map', 'browse', 'image_generate', 'video_generate'];
+    while (tools.length < 41) tools.push('tool_number_' + tools.length + '_with_a_name');
+    const out = sp.buildSystemPrompt({ agent_id: 'voice', cwd: '/Users/you/Documents/some-project', available_tools: tools, audio: true });
+    assert.ok(!out.includes('(truncated)'), 'the voice section must never be sliced off by the cap: ' + out.length + ' chars');
+    assert.ok(out.includes('Plain text only'));
   });
 
   test('TOO-46b: buildSystemPrompt NAMES the configured MCP hands from the workspace .mcp.json (backbone-independent awareness)', () => {

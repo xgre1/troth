@@ -56,7 +56,12 @@
 // at 4,490 before them — 4,497 with, i.e. inside the cap and already slicing
 // the tail. Same failure this header has warned about four times; same answer.
 // 4500 -> 4800 restores a ~300-char margin against the dynamic hand-name list.
-const DEFAULT_MAX_CHARS = 4800;
+// The procedure-capture and plan-mode lines added ~300 chars: text mode with
+// one configured hand measures 4,794, six under the old cap. 4800 -> 5200
+// keeps a ~400-char margin. An extension may replace the brevity block with
+// a talk contract of its own, several times longer; it then names the cap
+// that keeps that tail whole (see promptMaxChars).
+const DEFAULT_MAX_CHARS = 5200;
 
 function listToolLine(toolNames) {
   if (!Array.isArray(toolNames) || !toolNames.length) return '';
@@ -67,6 +72,18 @@ function clamp(text, maxChars) {
   if (typeof text !== 'string') return '';
   if (text.length <= maxChars) return text;
   return text.slice(0, Math.max(0, maxChars - 16)) + '\n…(truncated)';
+}
+
+// The app tier, when this tree carries one. It may replace the voice section
+// and name the cap that keeps its longer tail whole.
+function extension() {
+  try { return require('../app-ext.js'); } catch (_) { return null; }
+}
+
+function promptMaxChars(ext) {
+  const e = ext === undefined ? extension() : ext;
+  const n = e && e.liveTalk && Number(e.liveTalk.PROMPT_MAX_CHARS);
+  return n > 0 ? n : DEFAULT_MAX_CHARS;
 }
 
 function buildSystemPrompt(opts) {
@@ -82,7 +99,8 @@ function buildSystemPrompt(opts) {
   // populated. See file header for rationale.
   const audio    = !!opts.audio;
   const profile  = opts.profile || null;
-  const maxChars = opts.max_chars || DEFAULT_MAX_CHARS;
+  const _ext     = extension();
+  const maxChars = opts.max_chars || promptMaxChars(_ext);
 
   const sections = [];
 
@@ -256,6 +274,7 @@ function buildSystemPrompt(opts) {
   // ── Voice-mode brevity ──
   if (audio) {
     sections.push(
+      (_ext && _ext.liveTalk && _ext.liveTalk.PROMPT_SECTION) ||
       'AUDIO MODE: replies will be spoken via TTS. Plain text only - no markdown, no code fences, no asterisks. ' +
       'Chitchat ≤25 words. Substantive answers ≤2 sentences unless the user explicitly asks for detail.'
     );
@@ -276,5 +295,6 @@ function buildSystemPrompt(opts) {
 
 module.exports = {
   buildSystemPrompt,
-  DEFAULT_MAX_CHARS
+  DEFAULT_MAX_CHARS,
+  promptMaxChars
 };
