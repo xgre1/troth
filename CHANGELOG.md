@@ -133,8 +133,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   across six pings, how long recall takes and which phase took it, whether
   the dense index is built, whether a short "ok" inside a thread keeps the
   thread, and whether the ChatGPT lane answers a probe.
-- A short acknowledgement inside a live thread ("ok", "ναι", "do it",
-  "ψάξε") continues that thread: the engine receives the thread's window
+- A short acknowledgement inside a live thread ("ok", "do it", "go on", or
+  the same words in the spoken language) continues that thread: the engine receives the thread's window
   with it. A greeting still mounts nothing. The window keeps the latest
   exchange whole; a reply that alone outgrows the budget keeps its opening
   and its end; older exchanges fill what remains, newest first.
