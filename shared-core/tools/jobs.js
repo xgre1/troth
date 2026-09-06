@@ -105,6 +105,9 @@ function start(command, ctx) {
   try { fs.closeSync(fd); } catch (_) {}
   const job = { id, pid: child.pid, command, started_at: Date.now(), ended_at: null, exit_code: null, signal: null, log_path, road: 'bare', stopped_by: null };
   jobs.set(id, job);
+  if (typeof ctx.on_job_start === 'function') {
+    try { ctx.on_job_start(view(job)); } catch (_) {}
+  }
   child.on('exit', (code, signal) => {
     job.ended_at = Date.now();
     job.exit_code = typeof code === 'number' ? code : null;

@@ -1945,6 +1945,7 @@ function main() {
           // action.options.auto_write=true (e.g. trusted CI workflows)
           // without flipping the global env.
           auto_write: !!(action.options && action.options.auto_write),
+          on_job_start: (job) => emit({ kind: 'job_started', job, live: audio, conversation_id: _ts.conversation_id }),
           on_job_end: (job) => emit({ kind: 'job_done', job, live: audio, conversation_id: _ts.conversation_id })
         });
         _ts.audio = audio;

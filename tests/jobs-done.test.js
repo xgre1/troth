@@ -20,11 +20,16 @@ console.log('\n=== a job reports its end ===\n');
 (async () => {
   await t('the turn that started a job hears its end with the exit code and the last lines', async () => {
     const ended = [];
-    const r = jobs.start('echo finished-line; exit 3', { cwd: process.cwd(), on_job_end: (j) => ended.push(j) });
+    const started = [];
+    const r = jobs.start('echo finished-line; exit 3', { cwd: process.cwd(), on_job_start: (j) => started.push(j), on_job_end: (j) => ended.push(j) });
     assert.ok(r.ok, JSON.stringify(r));
     assert.ok(await until(() => ended.length > 0, 5000), 'the end arrived');
     assert.strictEqual(ended.length, 1);
     assert.strictEqual(ended[0].id, r.job.id);
+    assert.strictEqual(started.length, 1, 'the start arrived');
+    assert.strictEqual(started[0].id, r.job.id);
+    assert.strictEqual(started[0].state, 'running');
+    assert.ok(/finished-line/.test(started[0].command));
     assert.strictEqual(ended[0].state, 'done');
     assert.strictEqual(ended[0].exit_code, 3);
     assert.ok(/finished-line/.test(ended[0].log_tail), ended[0].log_tail);
