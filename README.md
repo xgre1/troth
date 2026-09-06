@@ -207,7 +207,8 @@ Slash commands steer it without leaving the conversation:
 
 | Command | What it does |
 |---|---|
-| `/model` | pick the backbone for this conversation (`claude`, `kimi`, `chatgpt`, `local`, `auto`, or any configured BYOK router provider). A pinned engine that runs out fails fast with a named reason instead of silently stalling. |
+| `/engine` | pick the engine for this conversation (`claude`, `chatgpt`, `local`, `auto`, or any configured BYOK router provider). A pinned engine that runs out fails fast with a named reason instead of silently stalling. |
+| `/mode plan` | read and propose only: every tool that writes, runs a command or spends money refuses until `/mode build`. Per conversation, and it survives a restart. |
 | `/mcp` | connect and govern external MCP servers as tools ("hands"). Paste a server config, approve it, and it becomes a capability-scoped tool, gated by STVC (state-transition-validated cognition: checked against substrate state before the model is asked). Secrets are masked in the listing and nothing spawns until approved. |
 | `/help` | the available commands and the current engine. |
 

@@ -61,8 +61,8 @@ has the exact blocks).
 | Server | Tools | Purpose |
 |---|---|---|
 | **troth-bash** | `run`, `cd`, `pwd` | Sandboxed shell with command-aware compression (git log 65%, grep 75%+) + destructive-command refusal |
-| **troth-cache** | `cached_read`, `cached_grep` | Content-hash-keyed cache; 0 backend tokens on hit, identical correctness vs Read/Grep |
-| **troth-hashline** | `hashline_read`, `hashline_edit` | LINE#TAG-anchored edits, AST-validated for JS/TS/PY/JSON; whole batch rejected on any failure |
+| **troth-cache** | `cached_read`, `cached_grep`, `cached_glob` | Content-hash-keyed cache; 0 backend tokens on hit, identical correctness vs Read/Grep/Glob |
+| **troth-hashline** | `hashline_read`, `hashline_edit`, `hashline_write` | LINE#TAG-anchored edits and whole-file writes, AST-validated for JS/TS/PY/JSON; whole batch rejected on any failure |
 | **troth-router** | `mcp_list`, `mcp_describe`, `mcp_call` | Lazy-load heavy MCPs behind 3 compact tools (saves 9-15K tokens/turn per deferred server) |
 | **troth-substrate** | engram / chameleon / identity / dialogue / orchestrate | Substrate-as-mind surface: semantic recall, multi-axis query (entity+temporal+causal+semantic), corpus ingest, identity bootstrap, sub-agent dispatch |
 | **troth-memory** | GMP v0.1+v0.2 | Append-only ActionRecord ledger with typed-edge causal graph and TOON wire-format. Reference implementation of GMP. |
@@ -74,6 +74,7 @@ has the exact blocks).
 
 - `/research <question>` — delegate broad codebase exploration to the `troth-researcher` subagent so the parent's context stays lean.
 - `/hard <context>` — escape hatch for genuinely hard work: think longer, read more, sanity-check before writing.
+- `/mode plan` — this conversation reads and proposes only; writes and commands refuse until `/mode build`.
 
 ## Measure the wins
 

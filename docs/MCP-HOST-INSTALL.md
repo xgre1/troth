@@ -12,14 +12,14 @@
 
 ## The shape: a 4-server gateway, not dozens of loose tools
 
-Every install wires the same lean surface (~10 tools):
+Every install wires the same lean surface (~12 tools):
 
 | server | tools | what it is |
 |---|---|---|
 | `troth-router` | `mcp_list` / `mcp_describe` / `mcp_call` / `troth_image_generate` / `troth_video_generate` | the GATEWAY to the heavy servers |
 | `troth-bash` | `run` / `cd` / `pwd` | shell with persistent cwd, output compression, SQLite archive |
-| `troth-cache` | `cached_read` / `cached_grep` | content-hash read/grep cache |
-| `troth-hashline` | `hashline_read` / `hashline_edit` | drift-safe anchored editing |
+| `troth-cache` | `cached_read` / `cached_grep` / `cached_glob` | content-hash read, grep and file-listing cache |
+| `troth-hashline` | `hashline_read` / `hashline_edit` / `hashline_write` | drift-safe anchored editing, and whole-file writes validated before they land |
 
 The heavy servers (`troth-substrate` ~40 tools, `troth-memory` ~18,
 `troth-entity` 6; the substrate count varies slightly by build because a
