@@ -12,18 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Interactive turns reason by default: the entity's input gate and the app's
+  chat payload leave the model's reasoning on unless the surface turns it off,
+  so the model that works the tools thinks about their results.
 - Reasoning switch on both roads: the local transport sends `enable_thinking`
   at the top level as well as under `chat_template_kwargs`, so MLX servers
   read it too; the router road sends the switch on unless the caller turns it
   off. The served fact records whether reasoning actually came back, and the
   chat footer says "no reasoning" when a lane ran without it.
-- Turn budget: a long turn posts a progress line every 12 steps or 10
-  minutes (steps, elapsed, the last tool). At 30 minutes the tools close and
-  the answer is asked for; a model that keeps calling ends the turn as
-  `turn_budget` with a plain line. A step budget holds only when
-  `TROTH_TURN_BUDGET_STEPS` is set, so a default turn has no step cliff;
-  `TROTH_TURN_BUDGET_MIN`, `TROTH_TURN_PROGRESS_STEPS` and
-  `TROTH_TURN_PROGRESS_MIN` raise or lower the rest.
+- Progress line: a long turn posts a line every 12 steps or 10 minutes with
+  the step count, the elapsed time and the last tool; the turn runs on until
+  the model answers. `TROTH_TURN_PROGRESS_STEPS` and
+  `TROTH_TURN_PROGRESS_MIN` set the cadence.
 - Chat trail: every finished tool leaves one line, the verb in the past with
   its time and, when it failed or was refused, why. Between tools the working
   line says thinking and the step count. Ctrl-O turns details on, so each

@@ -1858,7 +1858,7 @@ function start() {
     if (n.recall) parts.push('recalled');
     if (n.remember) parts.push('remembered');
     if (n.other) parts.push(count(n.other, '1 more action', 'more actions'));
-    if (n.job) parts.push('followed ' + count(n.job, '1 job', 'jobs'));
+    if (n.job) parts.push('followed a job' + (n.job > 1 ? ' in ' + n.job + ' steps' : ''));
     const what = parts.length ? parts.join(', ') : turnTools + (turnTools === 1 ? ' tool' : ' tools');
     return what + (secs ? ' · ' + secs + 's' : '');
   }

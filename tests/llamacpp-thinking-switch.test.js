@@ -86,6 +86,13 @@ console.log('\n=== the reasoning switch on the local road ===\n');
     assert.ok(/enable_thinking:\s*!\(req\.options && req\.options\.enable_thinking === false\)/.test(src), 'the switch follows the caller');
   });
 
+  await t('an interactive turn reasons unless the surface turns it off (source pin on the entity gate)', async () => {
+    const src = fs.readFileSync(path.join(REPO, 'bin', 'troth-entity.js'), 'utf8');
+    assert.ok(/if \(event\.options\.enable_thinking !== false\) event\.options\.enable_thinking = true;/.test(src), 'the stdin gate defaults to on');
+    assert.ok(/enable_thinking: !\(payload && payload\.enable_thinking === false\)/.test(src), 'the app payload defaults to on');
+    assert.ok(!/enable_thinking !== true\) event\.options\.enable_thinking = false/.test(src), 'no gate forces reasoning off');
+  });
+
   console.log('\nllamacpp-thinking-switch: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })();

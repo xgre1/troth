@@ -2620,15 +2620,15 @@ function main() {
       // the IIFE and rely on stdin backpressure to keep ordering — troth-entity is
       // single-user by design, no concurrent turns in flight.
       if (event && event.type === 'user_input' && event.input && typeof event.input.text === 'string') {
-        // Interactive turns default to thinking OFF: on thinking models
-        // (Qwen3.6 etc.) hidden reasoning turned a one-word reply into a
-        // minute of silence while the transport strips the tokens anyway
-        // Per-event opt-back-in with
-        // options.enable_thinking === true. Autonomous/job actions never
-        // enter this user_input gate, so their behavior is untouched. Same
-        // option contract the voice latency path already uses.
+        // Interactive turns default to thinking ON: the model that works the
+        // tools reasons about their results, and a model without its
+        // reasoning polls and repeats instead of finishing. A surface that
+        // wants the latency of a bare reply (voice) passes
+        // options.enable_thinking === false explicitly. Autonomous/job actions
+        // never enter this user_input gate, so their behavior is untouched.
+        // Same option contract the voice latency path already uses.
         event.options = Object.assign({}, event.options || {});
-        if (event.options.enable_thinking !== true) event.options.enable_thinking = false;
+        if (event.options.enable_thinking !== false) event.options.enable_thinking = true;
         // Tagging contract for feeder-level frames: emits produced HERE
         // (slash resolution, deterministic replies, submit failures) happen
         // OUTSIDE the dispatch()-established turn context, so the
@@ -3199,11 +3199,11 @@ function main() {
             input:     { text },
             parent_id: null,
             // enable_thinking: same interactive default as the stdin gate
-            // (thinking OFF unless the payload opts in) — see the feeder.
+            // (thinking ON unless the payload turns it off) — see the feeder.
             options:   {
               agentic: true,
               auto_write: autoWrite,
-              enable_thinking: !!(payload && payload.enable_thinking === true),
+              enable_thinking: !(payload && payload.enable_thinking === false),
               source: 'control_channel.chat'
             }
           };

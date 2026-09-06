@@ -634,17 +634,12 @@ function makeOrchestrator(opts) {
     // An edit followed by the same test command is work, never a poll.
     let lastActionKey = null;
     let lastActionRun = 0;
-    // The turn's budget: a progress note every few steps or minutes, and past
-    // the budget the tools close and the answer is asked for. Time is the
-    // default budget; a step budget holds only when set, so a default turn
-    // has no step cliff. Env overrides hold for an operator who wants long runs.
-    const budgetSteps   = Math.max(0, parseInt(baseOptions.turn_budget_steps || process.env.TROTH_TURN_BUDGET_STEPS || '0', 10) || 0);
-    const budgetMs      = Math.max(1, Number(baseOptions.turn_budget_min || process.env.TROTH_TURN_BUDGET_MIN || 30) || 30) * 60000;
+    // A long turn says so: a progress note every few steps or minutes. The
+    // turn itself runs until the model answers.
     const progressSteps = Math.max(1, parseInt(baseOptions.turn_progress_steps || process.env.TROTH_TURN_PROGRESS_STEPS || '12', 10) || 12);
     const progressMs    = Math.max(0.1, Number(baseOptions.turn_progress_min || process.env.TROTH_TURN_PROGRESS_MIN || 10) || 10) * 60000;
     const loopStart = Date.now();
     let lastProgressAt = loopStart, lastProgressIter = 0, toolCallsSoFar = 0, lastToolName = null;
-    let budgetHit = false, closeReason = null;
     // Anti-LARP: a cloud model wrote a local
     // schema.sql, got 'unknown downstream server: supabase' from the real
     // action, then told the operator the task was DONE. The model lying about
@@ -676,13 +671,8 @@ function makeOrchestrator(opts) {
     for (let iter = 0; iter < max_iterations; iter++) {
       // Cancel between LLM calls / tool rounds - the cheap check point.
       if (cancelHit()) { aborted = true; abortReason = cancelReason(); break; }
-      // A long turn says so and, past its budget, stops with the answer.
       const _elapsed = Date.now() - loopStart;
-      if (!budgetHit && ((budgetSteps > 0 && iter >= budgetSteps) || _elapsed >= budgetMs)) {
-        budgetHit = true; answerOnly = true; closeReason = 'turn_budget';
-        trace.push({ iter, tools_closed: 'turn_budget', steps: iter, elapsed_ms: _elapsed });
-        messages.push({ role: 'user', content: 'Budget reached: ' + iter + ' steps, ' + Math.round(_elapsed / 60000) + ' min. Tools are closed for this turn. Answer now: what was done, what is still running, what you are waiting for.' });
-      } else if (onProgress && !budgetHit && iter > 0 && ((iter - lastProgressIter) >= progressSteps || (Date.now() - lastProgressAt) >= progressMs)) {
+      if (onProgress && iter > 0 && ((iter - lastProgressIter) >= progressSteps || (Date.now() - lastProgressAt) >= progressMs)) {
         lastProgressAt = Date.now(); lastProgressIter = iter;
         try { onProgress({ steps: iter, elapsed_ms: _elapsed, tool_calls: toolCallsSoFar, last_tool: lastToolName }); } catch (_) {}
       }
@@ -1038,7 +1028,7 @@ function makeOrchestrator(opts) {
           try { ctx.shouldCancel = cancelHit; } catch (_) {}
         }
         // Tools closed and still calling: one more chance to answer, then the turn ends.
-        if (answerOnly && ++answerOnlyTurns > 2) { aborted = true; abortReason = closeReason || 'repeat_limit'; break; }
+        if (answerOnly && ++answerOnlyTurns > 2) { aborted = true; abortReason = 'repeat_limit'; break; }
         for (const tc of pendingToolCalls) {
           // Cancel between tool executions: already-run tools stand (their
           // effects are real); the remaining calls in this batch are skipped
@@ -1088,7 +1078,7 @@ function makeOrchestrator(opts) {
                   'approach, or answer with what you have.'
               });
             } else {
-              answerOnly = true; closeReason = closeReason || 'repeat_limit';
+              answerOnly = true;
               trace.push({ iter, tools_closed: 'repeat_limit', tool: _tcName, times: _consecutive - 1 });
               resultStr = JSON.stringify({
                 refused: 'repeat_limit',
@@ -1314,8 +1304,6 @@ function makeOrchestrator(opts) {
             ? '(Stopped — the model took too long to finish. Try again, or break the task into smaller steps.)'
             : abortReason === 'repeat_limit'
             ? '(Stopped — the same command kept being repeated with nothing new coming of it. Ask for a narrower step, or let a background job run and be followed with job_wait.)'
-            : abortReason === 'turn_budget'
-            ? '(Stopped — the turn reached its budget of steps or minutes. Ask for the next step, or raise the budget in config.)'
             : (abortReason && abortReason.indexOf('transport_') === 0)
                 ? '(Stopped — ' + transportCause(abortReason) + '.)'
                 : '(Stopped before finishing.)');
