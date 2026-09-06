@@ -1,7 +1,7 @@
 # Honest limits — what troth solves, what it flags, and what nobody solves yet
 
 troth is substrate-as-mind: persistent identity, memory continuity,
-drift detection, compiled procedures, multi-axis retrieval. Real
+drift detection, kept procedures, multi-axis retrieval. Real
 mechanisms with measurable benchmarks
 ([`benchmarks/results/`](../benchmarks/results/)).
 
@@ -10,7 +10,7 @@ so users and contributors can decide whether the actual deliverables
 match what they need. Better to under-promise than to ship a "fake
 partner" experience.
 
-Audited against: 0.1.19 (2026-09-04). The release gate refuses to ship a
+Audited against: 0.1.21 (2026-09-06). The release gate refuses to ship a
 newer version until this line moves with it: an honesty page that stops
 being re-read stops being honest.
 
@@ -70,8 +70,10 @@ Different category of problem, all real and measurable:
   sees prior facts and decisions.
 - **Cross-surface identity** — voice and CLI and plugin share the same
   identity state via the substrate.
-- **Compiled procedures** — recurring tool-call sequences are detected
-  daily and surfaced as hints.
+- **Kept procedures** — how a verified multi-step task was done is
+  recorded as a procedure and recalled when the situation comes up again,
+  at most two per lookup. Recurring tool-call sequences are not detected on
+  their own: the compiler for that has no scheduled run in this tree.
 - **Multi-axis retrieval** — semantic + temporal + causal + entity
   signals are fused per lookup.
 - **Write-time integrity** — contradiction and duplicate flagging at
@@ -79,16 +81,19 @@ Different category of problem, all real and measurable:
 - **Always-present identity surface** — extracted facts are promoted
   as foundational context for each turn.
 - **Idle processing** — contradiction scans, drift detection, anchor
-  suggestions, and procedure detection run in the background.
+  suggestions run in the background where the entity daemon is started.
 - **Drift / sycophancy detection** — surfaced as insights after the
   fact (detection, not prevention — see "Conviction" above).
-- **Governed hands** — on macOS every shell command runs inside a
-  per-command kernel sandbox shaped to the ground it stands on; package
+- **Governed hands** — on macOS project ground and installs run inside a
+  per-command kernel sandbox shaped to the ground it stands on: project
+  ground is the project and its scratch, nothing else; package
   installs land in a jail that cannot see your home; everything a command
   or an edit stands to change is photographed for undo before it lands;
   publishing destinations can be guarded behind a gate that must pass on
   the exact tree being pushed. Prevention, not detection — the one place
-  on this page where that word applies.
+  on this page where that word applies. The partner's own ground runs with
+  your environment by default; `l4.sandbox.partner_ground = confine` puts the
+  same walls around the working tree.
 
 ---
 
@@ -120,7 +125,7 @@ but they measure specific properties:
 - **Single operator by design.** One substrate serves one person. There is
   no multi-tenant isolation inside a single `~/.troth`.
 - **Tested on macOS and Linux.** The full suite runs green on both in CI on
-  every push (Node 22). The kernel wall is macOS today; on Linux the same
+  every push (Node 22, 24 and 26). The kernel wall is macOS today; on Linux the same
   commands run behind the tool-layer guards.
 - **Version 0.1.x.** Interfaces can still move before 1.0.
 
@@ -132,7 +137,8 @@ but they measure specific properties:
 - You want substrate-backed memory continuity across sessions.
 - You work across multiple surfaces (CLI, voice, plugin) and want the
   same identity in all of them.
-- You want recurring workflows detected and surfaced.
+- You want the way a task was settled kept, and recalled the next time it
+  comes up.
 - You want drift and sycophancy detected so you can correct course.
 - You want a local-LLM-first stack with optional cloud fallback.
 - You want measurable benchmarks rather than marketing claims.
@@ -171,8 +177,11 @@ Docker up, or do not use `troth run` at all; nothing else in the open tree
 starts an unattended worker.
 
 The interactive shell is a different lane with a different answer. On macOS
-every command the partner's hands run is wrapped in a per-command kernel
-sandbox (Seatbelt): ssh key material and cloud credential stores are
+the partner's own ground runs with your environment unless you choose
+`confine`; project ground (a path under the workspace) and package installs
+are wrapped in a per-command kernel
+sandbox (Seatbelt) whichever ground the command was typed from: ssh key
+material and cloud credential stores are
 unreadable, the substrate and its policy files take no writes, and partner
 project ground is deny-default — the project and its scratch, nothing else.
 No prompt is involved and nothing depends on a judgment call at the moment
