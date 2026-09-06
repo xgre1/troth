@@ -76,6 +76,8 @@ About two minutes to the first reply if you have Node 22 and a subscription alre
 
 **Requirements:** Node.js >= 22 and, for the Claude engine, the Claude Code CLI (troth offers to install it on first run). The installer checks both and prints the fix when something is missing.
 
+Under npm 12, which installs with dependency scripts off by default, the core needs nothing allowed: the SQLite binding ships inside the package, one binary per platform for every supported Node. The optional natives (the syntax gate for edits, the in-process local model) load wherever a prebuilt exists; `troth doctor` names any that are absent and the one command that allows their scripts.
+
 <details>
 <summary>Debian/Ubuntu: install Node 22 first (stock <code>apt</code> ships Node 18)</summary>
 
