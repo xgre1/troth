@@ -68,7 +68,7 @@
     "THIRD-PARTY-LICENSES"
   ],
   "dependencies": {
-    "better-sqlite3": "^12.8.0"
+    "better-sqlite3": "^13.0.3"
   },
   "optionalDependencies": {
     "node-llama-cpp": "^3.18.1",
