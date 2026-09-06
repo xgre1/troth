@@ -376,6 +376,54 @@ const REGISTRY = {
     }
   },
 
+  // A procedure the partner learned: named strategy, when it applies, the
+  // step skeleton, the wrong turn, one example, provenance. Same composer
+  // as the MCP road (shared-core/decision-record.js), so the two surfaces
+  // write the same shape and recall reads them the same way.
+  decision_record: {
+    schema: {
+      type: 'function',
+      function: {
+        name: 'decision_record',
+        description: 'Record how a multi-step task was done once it succeeded and was verified (tests, a build, the operator\'s confirmation): a named strategy, the situation it applies to, the step skeleton, the wrong turn, one example, provenance. One record per situation; a newer one supersedes the older. Not for routine or unverified work. The statement is composed from a fixed template; do not pre-format.',
+        parameters: {
+          type: 'object',
+          properties: {
+            strategy:   { type: 'string', description: 'Short name of the strategy (at most 60 chars)' },
+            trigger:    { type: 'string', description: 'The situation shape where this applies; this line is the retrieval key' },
+            steps:      { type: 'array', items: { type: 'string' }, description: '2-7 moves of the skeleton; structure transfers, detail does not' },
+            contrast:   { type: 'object', properties: { mistake: { type: 'string' }, why: { type: 'string' }, correct: { type: 'string' } }, description: 'The wrong turn: what tempts, why it fails, the correct move' },
+            example:    { type: 'string', description: 'One concrete grounding instance (at most 240 chars)' },
+            provenance: { type: 'object', properties: { model: { type: 'string' }, verdict: { type: 'string', description: 'operator_confirmed | test_passed | critic_confirmed | unverified' } }, description: 'Who reasoned this and how it was verified' },
+            salience:   { type: 'number' }
+          },
+          required: ['strategy', 'trigger', 'steps', 'provenance']
+        }
+      }
+    },
+    run: async (args, ctx) => {
+      const composed = require('./decision-record.js').compose(args || {});
+      if (!composed.ok) return composed;
+      let embedding = null;
+      if (ctx.embedding_host) {
+        try { embedding = await engram.embedRequest(ctx.embedding_host, composed.statement); }
+        catch (_) { embedding = null; }
+      }
+      const id = engram.recordEngram({
+        agent_id: ctx.agent_id,
+        user_id:  ctx.user_id,
+        cwd:      ctx.cwd,
+        statement: composed.statement,
+        source:    'tool:decision_record',
+        salience:  typeof args.salience === 'number' ? args.salience : 1.2,
+        scope:     composed.scope,
+        embedding,
+        extra_output: { compact: composed.compact, provenance: args.provenance }
+      });
+      return { ok: !!id, id, scope: composed.scope, embedded: !!embedding };
+    }
+  },
+
   // The operator's standing rules. Same road as the MCP surface calls — one
   // implementation in shared-core/lesson.js — so the two registries cannot
   // drift into disagreeing about what a rule is or when to ask first.

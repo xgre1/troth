@@ -242,6 +242,17 @@ function buildSystemPrompt(opts) {
     );
   }
 
+  // The partner keeps what it learned to do, not only what it learned to
+  // know: once a multi-step task is verified, the way it was done is a
+  // procedure worth keeping. Only when the tool is in the inventory.
+  if (tools.includes('decision_record')) {
+    sections.push(
+      'Procedure capture: when a multi-step task succeeded and was verified (tests, a build, the operator\'s confirmation), ' +
+      'record how it was done with decision_record - the strategy, when it applies, the steps. One record per situation; ' +
+      'a newer one supersedes the older. Skip routine or unverified work.'
+    );
+  }
+
   // ── Voice-mode brevity ──
   if (audio) {
     sections.push(

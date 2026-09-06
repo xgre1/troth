@@ -97,6 +97,9 @@ function mcpClient(env) {
   });
 
   await t('live: a troth browser already alive answers a data: page title through the core tool (never started here)', async () => {
+    // Opt-in only: a test road must not take over a browser the operator is
+    // looking at. TROTH_BROWSE_LIVE=1 runs it against the troth browser.
+    if (process.env.TROTH_BROWSE_LIVE !== '1') skip('opt in with TROTH_BROWSE_LIVE=1');
     let daemon;
     try { daemon = require('../shared-core/perception/chromium-daemon.js'); } catch (_) { skip('no chromium daemon module'); }
     const envPort = parseInt(process.env.TROTH_BROWSER_CDP_PORT || '', 10);

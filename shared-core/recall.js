@@ -856,6 +856,24 @@ function _scanDense(qVec, qNorm, want, k, streamOpts) {
   return top;
 }
 
+// At most `max` rows of one class stay in place; the rest of that class move
+// behind everything else in their own order. Order among the kept rows is
+// unchanged, and a pool with nothing to move comes back as it was.
+const PROCEDURAL_PER_RECALL = 2;
+function _demoteClassBeyond(rows, cls, max) {
+  const kept = [];
+  const later = [];
+  let n = 0;
+  for (const r of rows) {
+    if (r && r.class === cls) {
+      if (n < max) { n++; kept.push(r); } else later.push(r);
+    } else {
+      kept.push(r);
+    }
+  }
+  return later.length ? kept.concat(later) : rows;
+}
+
 async function recall(opts) {
   opts = opts || {};
   const q = String(opts.query || '').trim();
@@ -1200,6 +1218,11 @@ async function recall(opts) {
       results = results.filter((r) => _inScope(r, byId.get(r.id), scope));
     } catch (_) { /* filter unavailable → unfiltered pool stands */ }
   }
+  // Procedures are recalled far more often per item than any other class
+  // (measured: 52 hits per procedural item against 5 to 11 elsewhere); left
+  // alone a run of them takes every slot from the memory the question was
+  // about. At most PROCEDURAL_PER_RECALL of them in the final cut.
+  results = _demoteClassBeyond(results, 'procedural', PROCEDURAL_PER_RECALL);
   // Collapse the (wider) candidate pool back to the requested `limit`.
   if (results.length > limit) {
     let convById = null;

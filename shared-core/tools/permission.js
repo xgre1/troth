@@ -71,6 +71,8 @@ const READ_ONLY = new Set([
 // safety — a future tool added without classification still gates.
 const WRITE_OR_EXEC = new Set([
   'Write', 'Edit', 'Bash', 'mcp_call', 'engram_record',
+  // A procedure record is a substrate write like any engram.
+  'decision_record',
   // Ending a background job kills a process group: a side effect.
   'job_stop',
   // image_generate WRITES a PNG to ~/.troth/images and does network egress to

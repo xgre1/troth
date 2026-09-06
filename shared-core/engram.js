@@ -334,9 +334,16 @@ function recordEngram(opts) {
     const audience = _hasHardDerivation
       ? _derivedAudience
       : (opts.audience || _derivedAudience);
+    // A procedure is a shape (WHEN and STEPS), not a label: a caller may ask
+    // for the procedural class, but a plain statement lands as semantic and
+    // the request stays visible for audit. decision:* scopes carry the shape
+    // by construction and are derived above.
+    const _askedProcedural = !_hasHardDerivation && (opts.memory_class || _derivedClass) === 'procedural' && !_isDecision;
+    const _procShape = /\bWHEN:/.test(statement) && /\bSTEPS:/.test(statement);
+    const _reclassified = _askedProcedural && !_procShape;
     const memory_class = _hasHardDerivation
       ? _derivedClass
-      : (opts.memory_class || _derivedClass);
+      : (_reclassified ? 'semantic' : (opts.memory_class || _derivedClass));
     // Capture caller request when it disagrees with the substrate's
     // hard-derived value — substrate still wins, but the request is
     // visible for audit (operator can see "module X tried to set audience
@@ -344,7 +351,8 @@ function recordEngram(opts) {
     const _requestedAudience = (_hasHardDerivation && opts.audience && opts.audience !== _derivedAudience)
       ? opts.audience : null;
     const _requestedClass = (_hasHardDerivation && opts.memory_class && opts.memory_class !== _derivedClass)
-      ? opts.memory_class : null;
+      ? opts.memory_class
+      : (_reclassified ? 'procedural' : null);
     // authority tier on facts.
     // 4-level enum, ordered strongest→weakest:
     //   operator_confirmed — explicit operator action (CLI, dashboard,
