@@ -49,10 +49,12 @@ try {
   const cfg = readJson(join(homedir(), '.troth', 'config.json'));
   if (cfg && cfg.features && cfg.features.edit_steer === false) allow();
 
-  // Only EXISTING targets prompt, so only those are steered. No path, or a
-  // brand-new file: leave it alone.
+  // Existing targets are steered to hashline_edit; a new CODE file is steered
+  // to hashline_write. No path, or a new file of another kind: leave it alone.
   const target = (payload.tool_input && payload.tool_input.file_path) || '';
-  if (!target || !existsSync(target)) allow();
+  if (!target) allow();
+  const isNew = !existsSync(target);
+  if (isNew && !/\.(m?js|cjs|jsx|ts|tsx|py|json)$/i.test(target)) allow();
 
   // troth-hashline must be verifiably wired in THIS session, else fail open —
   // steering to an absent tool would strand every edit.
@@ -81,13 +83,17 @@ try {
     hookSpecificOutput: {
       hookEventName: payload.hook_event_name || 'PreToolUse',
       permissionDecision: 'deny',
-      permissionDecisionReason:
-        'troth routes edits of existing files through troth-hashline. Call hashline_read ' +
-        '(file_path, optional start_line/end_line) to get LINE#TAG anchors, then hashline_edit ' +
-        '(file_path, edits[{op, pos, lines}]) to apply them. It runs without approval prompts, ' +
-        'is AST-validated for JS/TS/PY/JSON, and rejects stale anchors instead of clobbering. ' +
-        'Whole-file rewrites and new files: use troth-bash run with a quoted heredoc. ' +
-        '(Operator opt-out: TROTH_EDIT_STEER=0.)',
+      permissionDecisionReason: isNew
+        ? 'troth creates code files through troth-hashline. Call hashline_write (file_path, content) ' +
+          'to write the whole file: it is AST-validated for JS/TS/PY/JSON before it touches disk and ' +
+          'lands in the same ledger as every edit. For changes inside an existing file use hashline_read ' +
+          'then hashline_edit. (Operator opt-out: TROTH_EDIT_STEER=0.)'
+        : 'troth routes edits of existing files through troth-hashline. Call hashline_read ' +
+          '(file_path, optional start_line/end_line) to get LINE#TAG anchors, then hashline_edit ' +
+          '(file_path, edits[{op, pos, lines}]) to apply them. It runs without approval prompts, ' +
+          'is AST-validated for JS/TS/PY/JSON, and rejects stale anchors instead of clobbering. ' +
+          'Whole-file rewrites: hashline_write (file_path, content, overwrite:true). ' +
+          '(Operator opt-out: TROTH_EDIT_STEER=0.)',
     },
   });
 } catch {

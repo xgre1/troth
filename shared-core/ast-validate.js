@@ -22,6 +22,35 @@
 const path = require('path');
 const spawnPurpose = require('./tools/spawn-purpose.js');
 
+// Second opinion for TypeScript. The bundled tree-sitter grammar (0.23) rejects
+// valid shapes the compiler accepts (import("./x").T[] types, "&" in JSX text),
+// so when the edited project ships its own typescript we let the real parser
+// decide before refusing. Projects without typescript keep the grammar's verdict.
+const _tsByRoot = new Map();
+function _typescriptFor(filePath) {
+  let resolved = null;
+  try { resolved = require.resolve('typescript', { paths: [path.dirname(path.resolve(filePath))] }); }
+  catch (_) { return null; }
+  if (_tsByRoot.has(resolved)) return _tsByRoot.get(resolved);
+  let ts = null;
+  try { ts = require(resolved); } catch (_) { ts = null; }
+  if (!ts || typeof ts.createSourceFile !== 'function') ts = null;
+  _tsByRoot.set(resolved, ts);
+  return ts;
+}
+
+function _typescriptOpinion(filePath, content, lang) {
+  const ts = _typescriptFor(filePath);
+  if (!ts) return null;
+  try {
+    const kind = lang === 'tsx' ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+    const sf = ts.createSourceFile(path.basename(filePath), content, ts.ScriptTarget.Latest, true, kind);
+    const diags = Array.isArray(sf.parseDiagnostics) ? sf.parseDiagnostics : null;
+    if (!diags) return null;
+    return { clean: diags.length === 0, count: diags.length };
+  } catch (_) { return null; }
+}
+
 let _parsers = null;
 let _loadAttempted = false;
 function loadParsers() {
@@ -163,6 +192,10 @@ function validate(filePath, content) {
 
   const errors = findSyntaxErrors(tree, content, 3);
   if (!errors.length) return { ok: true, language: lang };
+  if (lang === 'ts' || lang === 'tsx') {
+    const second = _typescriptOpinion(filePath, content, lang);
+    if (second && second.clean) return { ok: true, language: lang, via: 'typescript' };
+  }
   return { ok: false, language: lang, errors };
 }
 

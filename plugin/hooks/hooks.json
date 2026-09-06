@@ -63,7 +63,7 @@
         ]
       },
       {
-        "matcher": "Write|Edit|MultiEdit|hashline_edit|Read|Grep|Glob|mcp__plugin_troth_troth-cache__cached_read|mcp__plugin_troth_troth-cache__cached_grep",
+        "matcher": "Write|Edit|MultiEdit|hashline_write|hashline_edit|Read|Grep|Glob|mcp__plugin_troth_troth-cache__cached_read|mcp__plugin_troth_troth-cache__cached_grep",
         "hooks": [
           {
             "type": "command",

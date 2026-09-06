@@ -260,6 +260,17 @@ console.log('\nPlugin hooks (behavior):');
       r.hookSpecificOutput && r.hookSpecificOutput.permissionDecision, 'deny',
       'a hashline edit of the global CLAUDE.md must be denied like any other'
     );
+    assert.match(String(entry.matcher), /hashline_write/,
+      'and the write road too, or a new file could carry memory past the guard: ' + entry.matcher);
+    const w = runHook('memory-md-guard.mjs', {
+      session_id: 'md-guard-6w',
+      tool_name: 'mcp__plugin_troth_troth-hashline__hashline_write',
+      tool_input: { file_path: pathMod2.join(os6.homedir(), '.claude/CLAUDE.md'), content: 'x' }
+    });
+    assert.strictEqual(
+      w.hookSpecificOutput && w.hookSpecificOutput.permissionDecision, 'deny',
+      'a hashline write of the global CLAUDE.md must be denied like any other'
+    );
   });
 
   test('cache-populate: PostToolUse stores Read tool_response so next probe hits', () => {

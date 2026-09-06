@@ -29,7 +29,7 @@
 
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { resolve, dirname, join } from 'node:path';
 
@@ -84,6 +84,19 @@ const TOOLS = [
       },
       required: ['file_path', 'edits']
     }
+  },
+  {
+    name: 'hashline_write',
+    description: 'Create a file, or replace one whole (overwrite:true). The content is AST-validated for JS/TS/PY/JSON before it touches disk and the write lands in the same ledger as hashline_edit. For changes inside an existing file use hashline_edit.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        file_path: { type: 'string', description: 'Absolute file path.' },
+        content:   { type: 'string', description: 'The whole file.' },
+        overwrite: { type: 'boolean', description: 'Replace an existing file. Default false: an existing file is refused.' }
+      },
+      required: ['file_path', 'content']
+    }
   }
 ];
 
@@ -99,6 +112,7 @@ async function handleTool(name, args) {
   try {
     if (name === 'hashline_read') return await handleRead(args);
     if (name === 'hashline_edit') return await handleEdit(args);
+    if (name === 'hashline_write') return await handleWrite(args);
     return errorReply({ error: 'unknown_tool', name });
   } catch (e) {
     return errorReply({ error: 'exception', message: String(e && e.message || e) });
@@ -317,6 +331,106 @@ function handleEdit(args) {
   }, null, 2));
 }
 
+// Whole-file write for new files (existing ones need overwrite:true so a stale
+// rewrite cannot clobber edits the agent never read). Same path policy, AST
+// gate and ledger as hashline_edit; the file lands only when the content parses.
+function handleWrite(args) {
+  const fp = args.file_path;
+  if (!fp) return errorReply({ error: 'missing_file_path' });
+  if (typeof args.content !== 'string') return errorReply({ error: 'missing_content', hint: 'content must be the whole file as a string' });
+  const abs = resolve(fp);
+  const dest = pathPolicy.isWritablePath(abs, {});
+  if (!dest.allowed) {
+    try {
+      state.recordHookEvent({
+        event: 'mcp.hashline_write',
+        tool: 'hashline_write',
+        decision: 'block',
+        reason: dest.reason,
+        metadata: JSON.stringify({ file: abs, pattern: dest.pattern, via: dest.via })
+      });
+    } catch (_) {}
+    return errorReply({
+      error: 'blocked_destination',
+      reason: dest.reason,
+      pattern: dest.pattern,
+      detail: dest.detail,
+      resolved: dest.via ? dest.path : undefined,
+      hint: 'This destination is operator-only by policy. Ask the operator to make the change themselves.'
+    });
+  }
+  const existed = existsSync(abs);
+  if (existed && args.overwrite !== true) {
+    return errorReply({ error: 'exists', path: abs, hint: 'The file is already there. Use hashline_edit for changes inside it, or pass overwrite:true to replace it whole.' });
+  }
+  const content = args.content;
+  const check = astValidate.validate(abs, content);
+  if (!check.ok && !check.skipped) {
+    try {
+      state.recordHookEvent({
+        event: 'mcp.hashline_write',
+        tool: 'hashline_write',
+        decision: 'block',
+        reason: 'ast_parse_failed',
+        metadata: JSON.stringify({ file: abs, errors: check.errors })
+      });
+    } catch (_) {}
+    return errorReply({
+      error: 'ast_parse_failed',
+      errors: check.errors,
+      hint: 'The content does not parse as ' + check.language + '. Fix the syntax and write again; nothing was written.'
+    });
+  }
+  let before = null;
+  if (existed) { try { before = readFileSync(abs, 'utf8'); } catch (_) { before = null; } }
+  try { mkdirSync(dirname(abs), { recursive: true }); } catch (_) {}
+  try { writeFileSync(abs, content); }
+  catch (e) { return errorReply({ error: 'write_failed', message: String(e.message) }); }
+  const lines = content.length ? content.split('\n').length : 0;
+  try {
+    state.recordHookEvent({
+      event: 'mcp.hashline_write',
+      tool: 'hashline_write',
+      decision: 'allow',
+      tokens_in: content.length / 4 | 0,
+      metadata: JSON.stringify({ file: abs, created: !existed, lines, ast_ok: !!check.ok, ast_skipped: !!check.skipped })
+    });
+    state.recordSavings('hashline_write_applied', 1, null, 'file=' + abs);
+  } catch (_) {}
+  try {
+    const actionRecord = require(serverDir + '../../../shared-core/action-record.js');
+    let entities = { ids: null, symbols: null };
+    try {
+      entities = require(serverDir + '../../../shared-core/code-graph.js')
+        .entitiesForFile(abs, process.env.GF_WATCH_DIR || process.cwd());
+    } catch (_) {}
+    const rec = actionRecord.create({
+      agent_id: 'claude-code',
+      session_id: null,
+      cwd: process.cwd(),
+      type: 'edit',
+      input: { file_path: abs, format: 'write', created: !existed, hash_before: before == null ? null : createHash('sha256').update(before).digest('hex') },
+      output: {
+        hash_after: createHash('sha256').update(content).digest('hex'),
+        lines_changed: lines,
+        codelens_entity_ids: entities.ids,
+        codelens_symbols: entities.symbols
+      },
+      verification: { ast: { ok: !!check.ok, skipped: !!check.skipped } }
+    });
+    if (actionRecord.validate(rec).ok) state.recordAction(rec, actionRecord.toSearchText(rec));
+  } catch (_) {}
+  return textReply(JSON.stringify({
+    ok: true,
+    file: abs,
+    created: !existed,
+    bytes: Buffer.byteLength(content),
+    lines,
+    ast_ok: !!check.ok,
+    ast_skipped: !!check.skipped
+  }, null, 2));
+}
+
 // ── MCP stdio loop ──────────────────────────────────────────────────────
 let inputBuffer = '';
 process.stdin.setEncoding('utf8');
@@ -358,7 +472,9 @@ async function handleUpstream(msg) {
           'content hash, so a stale or never-read line is rejected instead of ' +
           'mis-applied, and every edit is AST-validated before it touches ' +
           'disk. This replaces guess-based old_string editing; read first is ' +
-          'enforced by construction, not by convention.'
+          'enforced by construction, not by convention. For a new file, or a ' +
+          'file replaced whole, hashline_write: the same AST validation and the ' +
+          'same ledger, so nothing lands unread or unrecorded.'
       });
     } else if (msg.method === 'tools/list') {
       reply({ tools: TOOLS });
