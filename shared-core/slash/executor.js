@@ -1130,6 +1130,70 @@ const DETERMINISTIC_HANDLERS = {
   // (operator explicitness wins) and stamps an engine_override annotation on
   // the dispatch frame. Needs the conversation_id: the feeder threads it into
   // ctx (a tagless surface - voice/CLI - has no pane to scope, so we say so).
+  // /inspect [load|logs <grep>|probe [model]] — the machine and the lanes as
+  // the proxy sees them from outside the walls. Every form answers in text;
+  // a proxy that is not up is said, never thrown, so the command never errors
+  // on its own documented forms.
+  inspect: async (parsed, _ctx) => {
+    const args = (parsed.args_array || []).slice();
+    const form = String(args.shift() || 'load').toLowerCase();
+    const base = (process.env.TROTH_PROXY_URL || 'http://127.0.0.1:8000').replace(/\/+$/, '');
+    const getJson = (p) => new Promise((resolve) => {
+      let done = false;
+      const finish = (v) => { if (!done) { done = true; resolve(v); } };
+      try {
+        const http = require('http');
+        const req = http.get(base + p, { timeout: 3000 }, (res) => {
+          let body = '';
+          res.setEncoding('utf8');
+          res.on('data', (c) => { body += c; if (body.length > 200000) body = body.slice(0, 200000); });
+          res.on('end', () => { let j = null; try { j = JSON.parse(body); } catch (_) {} finish({ status: res.statusCode, json: j, text: body }); });
+        });
+        req.on('timeout', () => { try { req.destroy(); } catch (_) {} finish(null); });
+        req.on('error', () => finish(null));
+      } catch (_) { finish(null); }
+    });
+    const down = '✗ the proxy is not answering at ' + base + '. Start it with `troth start`, or point TROTH_PROXY_URL at it.';
+    const fmt = (n) => (typeof n === 'number' ? n.toLocaleString('en-US') : String(n == null ? '-' : n));
+    if (form === 'logs' || form === 'log') {
+      const q = args.join(' ').trim();
+      const r = await getJson('/api/logs?limit=40' + (q ? '&grep=' + encodeURIComponent(q) : ''));
+      if (!r) return { ok: true, text: down };
+      const lines = (r.json && (r.json.lines || r.json.entries)) || null;
+      const body = Array.isArray(lines) ? lines.slice(-40).map((l) => typeof l === 'string' ? l : JSON.stringify(l)).join('\n') : String(r.text || '').slice(-4000);
+      return { ok: true, text: 'proxy log' + (q ? ' matching "' + q + '"' : '') + ' (' + base + '):\n' + (body || '(nothing)') };
+    }
+    if (form === 'probe') {
+      const model = args[0] ? '?model=' + encodeURIComponent(args[0]) : '';
+      const r = await getJson('/api/providers/codex/probe' + model);
+      if (!r) return { ok: true, text: down };
+      const j = r.json || {};
+      const head = j.ok ? '✓ the ChatGPT lane answers' + (j.model ? ' (' + j.model + ')' : '') : '✗ the ChatGPT lane did not answer: ' + (j.status || r.status) + (j.reason ? ' · ' + j.reason : '') + (j.resets_in_seconds != null ? ' · resets in ' + Math.round(j.resets_in_seconds / 60) + ' min' : '');
+      return { ok: true, text: head };
+    }
+    const load = await getJson('/api/system/load');
+    const stats = await getJson('/api/stats');
+    if (!load && !stats) return { ok: true, text: down };
+    const lines = ['inspect (' + base + ')'];
+    if (stats && stats.json) {
+      const s = stats.json;
+      lines.push('proxy: ' + (s.version ? 'v' + s.version + ' · ' : '') + 'pid ' + fmt(s.pid) + ' · ' + fmt(s.requests) + ' requests · ' + fmt(s.errors) + ' errors');
+    }
+    if (load && load.json) {
+      const l = load.json;
+      const top = (l.top && (l.top.by_cpu || l.top)) || l.by_cpu || null;
+      if (Array.isArray(top) && top.length) {
+        lines.push('burning the machine:');
+        for (const p of top.slice(0, 6)) lines.push('  ' + (p.command || p.comm || p.name || '?').slice(0, 48) + '  ' + (p.cpu != null ? fmt(p.cpu) + '% cpu' : '') + (p.rss_mb != null ? '  ' + fmt(p.rss_mb) + ' MB' : ''));
+      } else if (typeof l === 'object') {
+        lines.push('load: ' + JSON.stringify(l).slice(0, 300));
+      }
+    } else if (load === null && stats) {
+      lines.push('system load: the proxy did not answer that road (macOS only, or an older proxy)');
+    }
+    lines.push('Forms: /inspect · /inspect logs <grep> · /inspect probe [model]');
+    return { ok: true, text: lines.join('\n') };
+  },
   // /mode plan|build — the per-conversation plan switch. The store is
   // shared-core/mode-override.js; the entity reads it at the tool-ctx build
   // and turns writes and commands off for that conversation while it is on.

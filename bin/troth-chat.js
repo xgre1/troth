@@ -873,7 +873,7 @@ function start() {
   // typed while a turn runs is a side question, answered beside the work
   // instead of waiting behind it. Mirrors the executor's deterministic set.
   const SLASH_DET = new Set(['goal', 'remember', 'refuse', 'invariants', 'forget', 'context',
-                             'dialogue-reset', 'agent', 'mcps', 'usage', 'engine', 'mode', 'help']);
+                             'dialogue-reset', 'agent', 'mcps', 'usage', 'engine', 'mode', 'inspect', 'help']);
   const SLASH_CMDS = (function () {
     try {
       const rows = require('../shared-core/slash/loader.js').skillSummaries(process.cwd()) || [];
@@ -891,7 +891,7 @@ function start() {
     } catch (_) { /* fall through to the static floor */ }
     return ['goal', 'remember', 'recall', 'forget', 'think', 'agent',
             'save', 'context', 'usage', 'dialogue-reset', 'init', 'help', 'quit',
-            'refuse', 'invariants', 'engine', 'mode', 'mcps'];
+            'refuse', 'invariants', 'engine', 'mode', 'inspect', 'mcps'];
   })();
 
   // Custom raw-mode input controller so we can pop an inline slash
