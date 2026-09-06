@@ -200,6 +200,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   platform for every supported Node. node-pty is no longer pulled in.
 
 ### Fixed
+- The `confine` choice for the partner's own ground holds in every build:
+  the shell wall reads it from the config file itself, so a tree that
+  ships without the closed configuration reader puts the same walls up.
 - The partner's browser gets collected when nobody uses it: the idle reaper
   recognises the agent's profile directory by its tail
   (`.troth/agent-browser-profile`) under any HOME and stamps a first sighting
