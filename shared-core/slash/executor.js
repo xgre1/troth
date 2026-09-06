@@ -1130,6 +1130,47 @@ const DETERMINISTIC_HANDLERS = {
   // (operator explicitness wins) and stamps an engine_override annotation on
   // the dispatch frame. Needs the conversation_id: the feeder threads it into
   // ctx (a tagless surface - voice/CLI - has no pane to scope, so we say so).
+  // /mode plan|build — the per-conversation plan switch. The store is
+  // shared-core/mode-override.js; the entity reads it at the tool-ctx build
+  // and turns writes and commands off for that conversation while it is on.
+  mode: async (parsed, ctx) => {
+    const mo = require('../mode-override.js');
+    const eo = require('../engine-override.js');
+    const convId = ctx && ctx.conversation_id != null ? ctx.conversation_id : null;
+    const scope = eo.isUntagged(convId) ? 'this terminal surface' : 'this pane';
+    const word = String((parsed.args_array || [])[0] || '').trim().toLowerCase();
+    if (!word) {
+      const cur = mo.get(convId) || mo.BUILD;
+      const line = cur === mo.PLAN
+        ? 'plan · reads and proposals only for ' + scope + ' (writes and commands off)'
+        : 'build · writes and commands on for ' + scope;
+      return {
+        ok: true,
+        text: line + '\nOptions: /mode plan · /mode build',
+        options: [
+          { value: '/mode plan',  label: 'plan',  note: 'read and propose, nothing changes', current: cur === mo.PLAN },
+          { value: '/mode build', label: 'build', note: 'writes and commands on',           current: cur !== mo.PLAN }
+        ]
+      };
+    }
+    if (word === mo.PLAN) {
+      mo.set(convId, mo.PLAN);
+      return {
+        ok: true,
+        text: '✓ plan · writes and commands are off for ' + scope + '; /mode build turns them back on',
+        side_effects: { mode_override: { conversation_id: convId, mode: mo.PLAN } }
+      };
+    }
+    if (word === mo.BUILD) {
+      mo.clear(convId);
+      return {
+        ok: true,
+        text: '✓ build · writes and commands are on for ' + scope,
+        side_effects: { mode_override: { conversation_id: convId, mode: mo.BUILD } }
+      };
+    }
+    return { ok: false, error: 'unknown_mode', detail: '/mode takes plan or build; bare /mode reports the current one' };
+  },
   engine: async (parsed, ctx) => {
     const eo = require('../engine-override.js');
     // A tagged pane threads a real conversation_id; the troth CLI and voice

@@ -116,6 +116,7 @@ const slashParser      = require('../shared-core/slash/parser.js');
 const slashLoader      = require('../shared-core/slash/loader.js');
 const slashExecutor    = require('../shared-core/slash/executor.js');
 const engineOverride   = require('../shared-core/engine-override.js');
+const modeOverride     = require('../shared-core/mode-override.js');
 const perceptionTail   = require('../shared-core/perception/perception-tail.js');
 
 // Mutable so a mid-session 'switch_agent' control event can rebind it.
@@ -1856,7 +1857,12 @@ function main() {
       }
       const choice = dispatcher.pick(action, view);
       const orch = orchestrators[choice.faculty] || orchestrators[Object.keys(orchestrators)[0]];
+      // Plan mode is per conversation, keyed like the engine override (a pane
+      // by its id, the CLI/voice surface by the shared bucket). Read once per
+      // turn: the dispatch frame, the prompt and the tool gate all use it.
+      const _modeNow = modeOverride.get((action.options && action.options.conversation_id != null) ? action.options.conversation_id : _ts.conversation_id);
       emit({ kind: 'dispatch', faculty: choice.faculty, rule: choice._rule,
+             ...(_modeNow === 'plan' ? { mode: 'plan' } : {}),
              ...(_engineOverrideAnno ? { engine_override: _engineOverrideAnno } : {}),
              ...(choice._hint_dropped ? { hint_dropped: choice._hint_dropped } : {}) });
       const t0 = Date.now();
@@ -1928,6 +1934,7 @@ function main() {
             systemExtra += block;
           }
         } catch (_) { /* never block a turn on standing-auth injection */ }
+        if (_modeNow === 'plan') systemExtra += '\n\n' + modeOverride.PLAN_PROMPT_LINE;
         const agenticAction = Object.assign({}, action, {
           options: Object.assign({}, action.options || {}, {
             tools,
@@ -1943,8 +1950,11 @@ function main() {
           cancel_signal: _cancelSignal,
           // Per-call auto_write opt-in: caller can set
           // action.options.auto_write=true (e.g. trusted CI workflows)
-          // without flipping the global env.
-          auto_write: !!(action.options && action.options.auto_write),
+          // without flipping the global env. Plan mode (/mode plan) wins over
+          // both: writes off, and the write tools named as forbidden with a
+          // reason that points the model at /mode build.
+          auto_write: _modeNow === 'plan' ? false : !!(action.options && action.options.auto_write),
+          ...(_modeNow === 'plan' ? { forbidden_tools: modeOverride.PLAN_FORBIDDEN_TOOLS, forbidden_hint: modeOverride.PLAN_FORBIDDEN_HINT } : {}),
           on_job_start: (job) => emit({ kind: 'job_started', job, live: audio, conversation_id: _ts.conversation_id }),
           on_job_end: (job) => emit({ kind: 'job_done', job, live: audio, conversation_id: _ts.conversation_id })
         });
@@ -2708,7 +2718,8 @@ function main() {
                 kind: 'slash_resolved',
                 name: parsed.name,
                 trace_engram_id: detRes.trace_engram_id,
-                deterministic: true
+                deterministic: true,
+                ...(detRes.side_effects && detRes.side_effects.mode_override ? { mode: detRes.side_effects.mode_override.mode } : {})
               }));
               emit(tagged(Object.assign({
                 kind: 'response',

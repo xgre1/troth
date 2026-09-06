@@ -122,6 +122,7 @@ const silverDim = (s) => isTTY ? steelCode(0.7) + s + RESET : s;
 // Plain sequential output remains the fallback for non-TTY / dumb terms.
 let fixedUI = false;
 let statusEngine = '';
+let statusMode = ''; // 'plan' while this conversation is in plan mode
 // The model reported for the turn in flight, if the provider named one. Kept
 // so the end of the turn does not replace a real model with its lane's label.
 let turnModel = null;
@@ -267,8 +268,8 @@ function drawStatus() {
   const w5 = (win5 && (win5.tin || win5.tout))
     ? color(DIM, '5h ↑' + fmtTok(win5.tin) + ' ↓' + fmtTok(win5.tout))
     : '';
-  const line = (eng || tot || w5 || statusWork)
-    ? '  ' + [eng ? silverDim(eng) : null, tot || null, w5 || null, statusWork || null].filter(Boolean).join(color(DIM, '  ·  '))
+  const line = (eng || statusMode || tot || w5 || statusWork)
+    ? '  ' + [eng ? silverDim(eng) : null, statusMode ? color(DIM, statusMode) : null, tot || null, w5 || null, statusWork || null].filter(Boolean).join(color(DIM, '  ·  '))
     : '';
   process.stdout.write('\x1b7\x1b[' + termRows() + ';1H\x1b[K' + line + '\x1b8');
 }
@@ -871,7 +872,7 @@ function start() {
   // typed while a turn runs is a side question, answered beside the work
   // instead of waiting behind it. Mirrors the executor's deterministic set.
   const SLASH_DET = new Set(['goal', 'remember', 'refuse', 'invariants', 'forget', 'context',
-                             'dialogue-reset', 'agent', 'mcps', 'usage', 'engine', 'help']);
+                             'dialogue-reset', 'agent', 'mcps', 'usage', 'engine', 'mode', 'help']);
   const SLASH_CMDS = (function () {
     try {
       const rows = require('../shared-core/slash/loader.js').skillSummaries(process.cwd()) || [];
@@ -889,7 +890,7 @@ function start() {
     } catch (_) { /* fall through to the static floor */ }
     return ['goal', 'remember', 'recall', 'forget', 'think', 'agent',
             'save', 'context', 'usage', 'dialogue-reset', 'init', 'help', 'quit',
-            'refuse', 'invariants', 'engine', 'mcps'];
+            'refuse', 'invariants', 'engine', 'mode', 'mcps'];
   })();
 
   // Custom raw-mode input controller so we can pop an inline slash
@@ -1596,6 +1597,7 @@ function start() {
         case 'slash_resolved':
           if (sideSlashes > 0) break;
           lastSlash = msg.name || null;
+          if (msg.mode) { statusMode = msg.mode === 'plan' ? 'plan' : ''; drawStatus(); }
           spinner.update(lastSlash ? 'running /' + lastSlash : 'running skill');
           break;
         case 'slash_unmatched':
@@ -1614,7 +1616,9 @@ function start() {
           // dispatch with the alternate faculty mid-turn. router/anthropic
           // resolve to null here; their serving/served events own the label.
           const lbl = facultyLabel(msg.faculty);
-          if (lbl) { statusEngine = lbl; drawStatus(); }
+          statusMode = msg.mode === 'plan' ? 'plan' : '';
+          if (lbl) statusEngine = lbl;
+          drawStatus();
           break;
         }
         case 'serving':

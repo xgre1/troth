@@ -117,7 +117,9 @@ function wrapRunner(innerRunner, policyOpts) {
           tool:  name,
           reason: 'tool_in_forbidden_set',
           forbidden_tools: ctx.forbidden_tools,
-          hint:  'This tool is explicitly forbidden for the current worker scope. Pick a different approach.'
+          // The caller may name the reason (plan mode says how to turn
+          // building back on); the generic worker-scope line is the fallback.
+          hint:  ctx.forbidden_hint ? String(ctx.forbidden_hint) : 'This tool is explicitly forbidden for the current worker scope. Pick a different approach.'
         });
       }
       if (Array.isArray(ctx.allowed_tools) && ctx.allowed_tools.indexOf(name) < 0) {
