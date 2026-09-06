@@ -564,7 +564,7 @@ function toolVerb(name, args) {
     case 'troth_image_generate': case 'image_generate': return 'drawing an image';
     case 'troth_video_generate': case 'video_generate': return 'rendering a video';
     case 'skill': return a.skill ? 'running /' + a.skill : 'running a skill';
-    case 'todowrite': return 'noting the plan';
+    case 'todowrite': case 'todo_write': return 'noting the plan';
     case 'askuserquestion': return 'asking you';
   }
   if (mcp) return 'using ' + key.replace(/_/g, ' ');
@@ -1014,6 +1014,7 @@ function start() {
       const eng = /^(router|routing|any)$/i.test(statusEngine || '') ? '' : statusEngine;
       const bits = [
         eng ? silverDim(eng) : (activeModel() ? silverDim(activeModel()) : null),
+        statusMode ? color(DIM, statusMode) : null,
         (sessTokIn || sessTokOut) ? color(DIM, '↑' + fmtTok(sessTokIn) + ' ↓' + fmtTok(sessTokOut)) : null,
         (win5 && (win5.tin || win5.tout)) ? color(DIM, '5h ↑' + fmtTok(win5.tin) + ' ↓' + fmtTok(win5.tout)) : null
       ].filter(Boolean);
