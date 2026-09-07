@@ -2156,11 +2156,11 @@ function queryActions(opts) {
   opts = opts || {};
   const where = [];
   const bind = {};
-  // With a scope prefix the scope index is the road; the unary plus keeps the
-  // planner off every other indexed column, each of which would walk far
-  // more rows (every row of a type, of a principal, of an agent) and read
-  // the scope out of the JSON of each.
-  const steerToScope = !!(opts.scope_prefix && String(opts.scope_prefix).replace(/[%_]/g, ''));
+  // With a scope prefix or an exact scope the scope index is the road; the
+  // unary plus keeps the planner off every other indexed column, each of
+  // which would walk far more rows (every row of a type, of a principal, of
+  // an agent) and read the scope out of the JSON of each.
+  const steerToScope = !!opts.scope || !!(opts.scope_prefix && String(opts.scope_prefix).replace(/[%_]/g, ''));
   const col = (name) => (steerToScope ? '+' + name : name);
   if (opts.type)         { where.push(col('type') + ' = @type');                 bind.type = opts.type; }
   if (opts.agent_id)     { where.push(col('agent_id') + ' = @agent_id');         bind.agent_id = opts.agent_id; }
