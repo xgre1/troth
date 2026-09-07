@@ -214,12 +214,27 @@ function _doRequest(targetUrl, opts, hopsLeft, chain) {
         });
       }
     });
+    // The turn's cancel reaches the request: a fetch in flight ends the
+    // moment the person stops the turn, instead of running to its timeout.
+    let cancelPoll = null;
+    if (typeof opts.shouldCancel === 'function') {
+      cancelPoll = setInterval(() => {
+        let hit = false;
+        try { hit = !!opts.shouldCancel(); } catch (_) { hit = false; }
+        if (!hit) return;
+        clearInterval(cancelPoll); cancelPoll = null;
+        try { req.destroy(new Error('cancelled')); } catch (_) {}
+      }, 100);
+      if (cancelPoll.unref) cancelPoll.unref();
+    }
     req.on('timeout', () => {
       try { req.destroy(new Error('timeout')); } catch (_) {}
     });
     req.on('error', (e) => {
+      if (cancelPoll) { clearInterval(cancelPoll); cancelPoll = null; }
       resolve({ ok: false, refused: false, error: e && e.message || String(e), url: targetUrl, redirected_chain: chain });
     });
+    req.on('close', () => { if (cancelPoll) { clearInterval(cancelPoll); cancelPoll = null; } });
     req.end();
   });
 }
@@ -230,7 +245,8 @@ async function fetchUrl(url, opts) {
                        ? opts.timeout_ms : DEFAULT_TIMEOUT_MS;
   const max_bytes  = typeof opts.max_bytes === 'number' && opts.max_bytes > 0 && opts.max_bytes <= 10 * 1024 * 1024
                        ? opts.max_bytes : DEFAULT_MAX_BYTES;
-  return _doRequest(url, { timeout_ms, max_bytes, extra_headers: opts.extra_headers }, MAX_REDIRECTS, [url]);
+  const shouldCancel = typeof opts.shouldCancel === 'function' ? opts.shouldCancel : null;
+  return _doRequest(url, { timeout_ms, max_bytes, extra_headers: opts.extra_headers, shouldCancel }, MAX_REDIRECTS, [url]);
 }
 
 module.exports = {

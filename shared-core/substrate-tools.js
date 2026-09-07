@@ -606,7 +606,9 @@ const REGISTRY = {
       // class) and passes it as a header. Value never enters LLM context.
       const fetchOpts = {
         max_bytes:  args.max_bytes,
-        timeout_ms: args.timeout_ms
+        timeout_ms: args.timeout_ms,
+        // A stopped turn ends the fetch with it.
+        shouldCancel: (ctx && typeof ctx.shouldCancel === 'function') ? ctx.shouldCancel : null
       };
       if (typeof args.auth_header_credential === 'string' && args.auth_header_credential.length) {
         const value = credentialVault.getCredentialValue(args.auth_header_credential, {

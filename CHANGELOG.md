@@ -244,6 +244,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   either.
 - A memory read by exact scope goes through the scope index instead of
   walking every commitment of its type.
+- A stopped turn ends a web fetch in flight with it, so the next words are
+  answered at once instead of after the fetch.
 - Readiness shows a pause or a drain heartbeat on the very next poll: the
   counts stay cached, the pause state and the heartbeat are read live.
 - `/inspect` answers on every documented form, and says so in words when
