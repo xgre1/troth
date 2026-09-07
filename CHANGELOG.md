@@ -237,9 +237,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An archived tool result is read by its exact path, with Read or with a
   Grep on that one file; a search across the substrate directory is still
   refused, and the archive note tells the engine which is which.
-- The dense recall index warms in finished chunks and leaves the database
-  connection free between them, so the proxy keeps answering every other
-  request while the index builds.
+- The dense recall index builds in about a second: each chunk is read
+  through the index order and the connection stays free between chunks.
+  The entity warms the index and the concern tokens at boot, off the turn
+  path, the way the proxy does, so a spoken turn is never held behind
+  either.
+- A memory read by exact scope goes through the scope index instead of
+  walking every commitment of its type.
 - Readiness shows a pause or a drain heartbeat on the very next poll: the
   counts stay cached, the pause state and the heartbeat are read live.
 - `/inspect` answers on every documented form, and says so in words when

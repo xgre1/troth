@@ -2338,6 +2338,23 @@ function main() {
     emit({ kind: 'dispatchers_bootstrap_failed', error: e && e.message || String(e) });
   }
 
+  // The dense index and the concern tokens warm here, so the first turn does
+  // not pay their reads. Both stay off the turn path: the index builds in
+  // finished chunks between turns and the tokens come from the read worker
+  // once a minute, the way the proxy already does it.
+  setTimeout(() => {
+    try { require('../shared-core/dense-index.js').build().catch(() => {}); } catch (_) {}
+    try {
+      const rw = require('../shared-core/read-worker.js');
+      const refreshConcerns = () => rw.run('concern_tokens', {}, { timeout_ms: 120000 })
+        .then((t) => { try { require('../shared-core/recall.js').setConcernTokens(t); } catch (_) {} })
+        .catch(() => {});
+      refreshConcerns();
+      const tc = setInterval(refreshConcerns, 60000);
+      if (tc.unref) tc.unref();
+    } catch (_) {}
+  }, 0);
+
   // Boot-time closed-extension hook (same guarded pattern as the other
   // _closedExt seams). Absent extension → nothing to register.
   try { if (_closedExt && _closedExt.onBoot) _closedExt.onBoot({ emit }); }
