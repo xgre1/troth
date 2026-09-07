@@ -3508,13 +3508,13 @@ function listRecallableEmbeddings(opts) {
            ar.memory_class AS memory_class, ar.audience AS audience
     FROM engram_embeddings ee
     JOIN action_records ar ON ar.id = ee.engram_id
-    WHERE (ee.created_at > ? OR (ee.created_at = ? AND ee.engram_id > ?))
+    WHERE (ee.created_at, ee.engram_id) > (?, ?)
       AND ar.memory_class IN ('episodic','semantic','identity','procedural')
       AND (ar.principal_id IS NULL OR ar.principal_id NOT IN ('bench','partner-loop-test'))
       AND (json_extract(ar.output,'$.scope') IS NULL OR json_extract(ar.output,'$.scope') NOT LIKE 'entity:%')
     ORDER BY ee.created_at, ee.engram_id
     LIMIT ?
-  `).all(ca, ca, id, limit);
+  `).all(ca, id, limit);
 }
 // Fetch full action rows for an id set — would build dense-hit result objects
 // (statement/class/recency) for engrams the dense arm surfaced but the lexical
