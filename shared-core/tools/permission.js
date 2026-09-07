@@ -235,10 +235,13 @@ function wrapRunner(innerRunner, policyOpts) {
           // Exact-target check first (resolves symlinks inside the policy);
           // then the ancestor case: pointing Grep/Glob AT ~/.troth (or any
           // directory inside it) sweeps the DB and credential stores into
-          // the scan — refused as a unit, with the honest road named.
+          // the scan - refused as a unit, with the honest road named. One
+          // regular file inside it (an archived tool result) is not a sweep:
+          // the policy already judged that file on its own.
           const verdict = policy.isReadablePath(_abs, ctx);
           const insideTroth = _abs === trothRoot || _abs.indexOf(trothRoot + p1.sep) === 0;
-          const dirSweep = insideTroth && name !== 'Read' && verdict.allowed;
+          const isRegularFile = (() => { try { return require('fs').statSync(_abs).isFile(); } catch (_) { return false; } })();
+          const dirSweep = insideTroth && name !== 'Read' && verdict.allowed && !isRegularFile;
           if (!verdict.allowed || dirSweep) {
             return JSON.stringify({
               error:   'path_policy_refusal',
@@ -247,7 +250,7 @@ function wrapRunner(innerRunner, policyOpts) {
               pattern: verdict.pattern || (dirSweep ? 'substrate_home' : null),
               path:    verdict.path || _abs,
               detail:  verdict.detail || (dirSweep ? 'the directory holds the substrate database and credential stores' : null),
-              hint:    'The substrate\'s contents are served through its own tools (troth_recall, engram/dialogue surfaces) with audience filtering — raw file access bypasses every policy. Do not retry this path.'
+              hint:    'The substrate\'s contents are served through its own tools (troth_recall, engram/dialogue surfaces) with audience filtering - raw file access bypasses every policy. An archived tool result is read by its exact archive_path with Read; never search or list the directory. Do not retry this path.'
             });
           }
         } catch (e) {

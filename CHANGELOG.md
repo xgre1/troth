@@ -234,6 +234,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   platform for every supported Node. node-pty is no longer pulled in.
 
 ### Fixed
+- An archived tool result is read by its exact path, with Read or with a
+  Grep on that one file; a search across the substrate directory is still
+  refused, and the archive note tells the engine which is which.
 - The dense recall index warms in finished chunks and leaves the database
   connection free between them, so the proxy keeps answering every other
   request while the index builds.

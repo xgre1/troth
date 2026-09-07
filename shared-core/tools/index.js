@@ -152,7 +152,7 @@ function maybeArchive(toolName, result) {
     });
   }
   out._archive = meta;
-  out._archive_hint = 'Full output saved to disk. Read({file_path:"' + meta.archive_path + '"}) to fetch the rest.';
+  out._archive_hint = 'Full output saved to disk. Read({file_path:"' + meta.archive_path + '"}) fetches the rest; a Grep on that exact file also works. Never search or list the directory it sits in.';
   return out;
 }
 
