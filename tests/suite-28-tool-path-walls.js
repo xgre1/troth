@@ -220,9 +220,9 @@ test('TPW-8: the destination wall is not ack-able, the speed bump still is', asy
     fs.mkdirSync(scratchDir, { recursive: true });
     const cmd = ['rm', '-rf', scratchDir].join(' ');
     const noAck = await c.call('run', { command: cmd });
-    assert.ok(/REFUSED/.test(noAck), 'speed bump did not ask for an ack');
+    assert.ok(/needs the operator's OK \(danger:rm_rf\)/.test(noAck), 'speed bump did not ask for the operator\'s OK: ' + noAck.slice(0, 200));
     const withAck = await c.call('run', { command: cmd, acknowledge_danger: true });
-    assert.ok(!/REFUSED/.test(withAck), 'ack no longer works for a legitimate destructive act');
+    assert.ok(!/REFUSED|needs the operator's OK/.test(withAck), 'the OK no longer works for a legitimate destructive act');
     assert.strictEqual(fs.existsSync(scratchDir), false, 'the acked command did not actually run');
   } finally { c.kill(); }
 });

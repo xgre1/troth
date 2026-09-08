@@ -85,6 +85,7 @@ require('./suite-76-install-intercept.js')({ test, skip });
 require('./suite-77-egress-proxy.js')({ test, skip });
 require('./suite-78-session-open.js')({ test, skip });
 require('./suite-79-guarded-remotes.js')({ test, skip });
+require('./suite-80-permission-road.js')({ test, skip });
 
 // --- SUMMARY ---
 flushAsyncTests().then(() => {

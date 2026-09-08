@@ -117,9 +117,9 @@ test('TBS-3: medium danger hits travel with the result instead of vanishing', as
   const msg = await callRun({ command: 'killall definitely-not-a-real-process-xyz-29' });
   const text = textOf(msg);
   assert.ok(/caution: kill_all_pattern \(medium\)/.test(text), 'medium classification travels: ' + text.slice(0, 200));
-  // And the wall on non-medium is unchanged: refused, with the ack path named.
+  // And the wall on non-medium is unchanged: it asks for the operator's OK and names the key.
   const refused = textOf(await callRun({ command: 'git reset --hard HEAD~3' }));
-  assert.ok(/REFUSED git_reset_hard/.test(refused), 'high severity still refuses without an ack');
+  assert.ok(/needs the operator's OK \(danger:git_reset_hard\)/.test(refused), 'high severity still asks for the OK: ' + refused.slice(0, 200));
 });
 
 test('TBS-4: TROTH_STVC_BYPASS is stripped from the partner shell env', async () => {

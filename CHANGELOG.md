@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A wall that stops a shell command asks for the operator's OK instead of
+  handing them the command: the refusal names what it needs and why, the
+  partner asks in plain words, and the answer comes back in `permission`
+  (once, this session, or always). "Always" is kept in `permissions.json`
+  under the substrate directory with the operator's words and the moment,
+  and is never asked again for that shape. Destructive shapes (rm -rf, force
+  push, DROP) and the roads a ground wall holds back (process information,
+  the unified log, a signal to the operator's own processes) all take this
+  road; with the OK the walled read runs outside the wall. Secrets keep no
+  permission road.
 - The partner keeps procedures: after a verified multi-step task it records
   how the work was done with `decision_record` (the strategy, when it
   applies, the steps), in the CLI as in the Claude Code plugin. A plain

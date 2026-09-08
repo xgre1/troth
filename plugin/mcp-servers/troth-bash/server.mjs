@@ -150,14 +150,15 @@ function staleNote() {
 const TOOLS = [
   {
     name: 'run',
-    description: 'USE INSTEAD OF Bash. Compresses output >4KB (git/grep/find-aware), archives raw to SQLite for recall. Persistent cwd.',
+    description: 'USE INSTEAD OF Bash. Compresses output >4KB (git/grep/find-aware), archives raw to SQLite for recall. Persistent cwd. A wall that stops a command names the OK it needs; ask the operator and carry the answer back in `permission`.',
     inputSchema: {
       type: 'object',
       properties: {
         command: { type: 'string', description: 'The shell command to run.' },
         timeout_ms: { type: 'integer', description: 'Per-call timeout in ms (default 120000).' },
         cwd: { type: 'string', description: 'Override working directory (persistent unless overridden).' },
-        acknowledge_danger: { type: 'boolean', description: 'Set to true ONLY when the caller has confirmed a destructive command (rm -rf, git push --force, DROP TABLE, etc.) is intentional.' }
+        acknowledge_danger: { type: 'boolean', description: 'A one-time OK for a destructive command (rm -rf, git push --force, DROP TABLE); the same as permission with scope once.' },
+        permission: { type: 'object', description: 'The operator\'s OK, carried back after a refusal that asked for it: { words: "<what the operator said>", scope: "once" | "session" | "always" }. "always" is kept in permissions.json and is never asked again for that shape.', properties: { words: { type: 'string' }, scope: { type: 'string', enum: ['once', 'session', 'always'] } } }
       },
       required: ['command']
     }
@@ -339,7 +340,25 @@ function requireGrants() {
   return _grantsMod;
 }
 
-function runCommand(command, timeoutMs, overrideCwd) {
+let _permsMod;
+function requirePermissions() {
+  if (_permsMod !== undefined) return _permsMod;
+  try { _permsMod = require(fileURLToPath(new URL('../../../shared-core/tools/permissions.js', import.meta.url))); }
+  catch (e) { _permsMod = null; }
+  return _permsMod;
+}
+
+// Whether a command run from `dir` stands behind a ground wall: the wall
+// carries an exec wrapper; opened, operator and switched-off ground do not.
+function groundIsWalled(dir) {
+  try {
+    const _grants = requireGrants();
+    const w = wrapFor(resolveDir(dir) || cwd, { sessionRoot: SESSION_ROOT, sessionOpens: _grants ? _grants.list() : [] });
+    return !!(w && w.exec && !w.off);
+  } catch (_) { return false; }
+}
+
+function runCommand(command, timeoutMs, overrideCwd, opts) {
   return new Promise((resolve) => {
     let effectiveCwd = overrideCwd || cwd;
     let cwdNote = staleNote();
@@ -433,7 +452,10 @@ function runCommand(command, timeoutMs, overrideCwd) {
         undo.snapshot(photoDir, 'shell:' + g, { allowShallow: sanctioned });
       }
     } catch (e) { /* the net never becomes a gate */ }
-    const active = iw || (ww && ww.exec ? ww : null) || wrap;
+    const active = (opts && opts.unwalled) ? null : (iw || (ww && ww.exec ? ww : null) || wrap);
+    if (opts && opts.unwalled) {
+      cwdNote += '[troth-bash] ran outside the ground wall with the operator\'s permission (' + opts.unwalled + ')\n';
+    }
     // Confined ground and the substrate tree say nothing in advance. A
     // warning printed before anything has gone wrong is a line on every
     // result that the reader learns to skip, and it arrives when there is
@@ -782,28 +804,75 @@ async function handleTool(name, args) {
     // hooks; those live in the agent loop, this lives in the tool
     // runtime so it catches direct `mcp__troth-bash__run` calls
     // that bypass hooks (e.g. via background agents).
+    // The operator's OK. A destructive shape or a road a ground wall holds
+    // back does not run and does not hand the operator a command: it names
+    // what it needs, the partner asks, and the answer comes back in
+    // `permission` (once, this session, or always). A standing permission
+    // answers without asking. acknowledge_danger=true still reads as a
+    // one-time OK.
     let caution = null;
-    if (danger && !args.acknowledge_danger) {
+    const perms = requirePermissions();
+    const answer = perms
+      ? perms.parseAnswer(args.permission || (args.acknowledge_danger ? true : null))
+      : { ok: !!args.acknowledge_danger, scope: 'once', words: 'acknowledged' };
+    const permitted = (key, purpose) => {
+      if (!perms) return answer.ok ? { scope: 'once', words: answer.words } : null;
+      const held = perms.standing(key);
+      if (held) return held;
+      if (answer.ok) return perms.grant(key, answer, purpose);
+      return null;
+    };
+    const noteUse = (key, p) => {
+      caution = (caution ? caution + '; ' : '') + 'permission ' + key + ' (' + p.scope + ')';
+    };
+    if (danger) {
       const hit = danger.classify(args.command || '');
       if (hit && hit.severity !== 'medium') {
-        return {
-          content: [{
-            type: 'text',
-            text:
-              '[troth-bash] REFUSED ' + hit.kind + ' (' + hit.severity + '). ' +
-              'Command matched destructive pattern: ' + hit.pattern + '. ' +
-              'If this is intentional, re-call with acknowledge_danger=true in the arguments.'
-          }],
-          isError: true
-        };
+        const key = perms ? perms.keyFor('danger', hit.kind) : 'danger:' + hit.kind;
+        const p = permitted(key, 'destructive command: ' + hit.kind);
+        if (!p) {
+          return {
+            content: [{
+              type: 'text',
+              text: perms
+                ? perms.needed(key, 'the command matches the destructive shape ' + hit.kind + ' (' + hit.pattern + ').', 'It runs only with the operator\'s OK.')
+                : '[troth-bash] REFUSED ' + hit.kind + ' (' + hit.severity + '). Command matched destructive pattern: ' + hit.pattern + '. If this is intentional, re-call with acknowledge_danger=true in the arguments.'
+            }],
+            isError: true
+          };
+        }
+        noteUse(key, p);
+      } else if (hit) {
+        // Medium hits (git branch -D, --no-verify, killall…) run without an
+        // OK — intent is plausibly legitimate — but their classification
+        // travels with the result, so neither the model nor the archive can
+        // say nobody knew.
+        caution = hit.kind + ' (' + hit.severity + '): matched ' + hit.pattern;
       }
-      // Medium hits (git branch -D, --no-verify, killall…) run without an
-      // ack — intent is plausibly legitimate — but their classification
-      // travels with the result, so neither the model nor the archive can
-      // say nobody knew.
-      if (hit) caution = hit.kind + ' (' + hit.severity + '): matched ' + hit.pattern;
     }
-    const res = await runCommand(args.command, Math.min(args.timeout_ms || 120000, MAX_CALL_TIMEOUT_MS), args.cwd);
+    // Ground roads. Reading the machine (ps, top, lsof...), the unified log
+    // and a signal to the operator's own processes do not run inside a
+    // ground wall. With the operator's OK for that road the command runs
+    // outside the wall, and the OK is kept by its scope.
+    let unwalled = null;
+    if (perms) {
+      const road = perms.roadFor(args.command || '');
+      if (road && groundIsWalled(args.cwd)) {
+        const key = perms.keyFor('ground', road);
+        const p = permitted(key, road + ' outside the ground wall');
+        if (!p) {
+          const what = road === 'unified-log'
+            ? 'the unified log (`log show`) does not run inside a ground wall.'
+            : road === 'signal'
+              ? 'a signal to a process (kill, killall, pkill) does not leave a ground wall.'
+              : 'process information (ps, top, lsof, pgrep...) does not run inside a ground wall.';
+          return { content: [{ type: 'text', text: perms.needed(key, what, 'With the operator\'s OK this command runs outside the wall.') }], isError: true };
+        }
+        unwalled = road;
+        noteUse(key, p);
+      }
+    }
+    const res = await runCommand(args.command, Math.min(args.timeout_ms || 120000, MAX_CALL_TIMEOUT_MS), args.cwd, { unwalled });
     let combined = res.stdout + (res.stderr ? '\n---\n' + res.stderr : '');
     // Redact BEFORE compression so every downstream consumer — the model,
     // tool_output_archive, the FTS index, the savings label — sees the same

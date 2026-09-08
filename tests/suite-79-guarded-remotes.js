@@ -162,9 +162,9 @@ test('GUARD-8: the list and the passes take no partner write on any road', () =>
 test('GUARD-9: the shell road wires the gate ahead of every ack, and the gate tool exists', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'plugin', 'mcp-servers', 'troth-bash', 'server.mjs'), 'utf8');
   const guardIx = src.indexOf('Guarded destinations: a push toward one');
-  const ackIx = src.indexOf('danger && !args.acknowledge_danger');
+  const ackIx = src.indexOf('const hit = danger.classify(args.command');
   assert.ok(guardIx > 0 && ackIx > 0 && guardIx < ackIx,
-    'the publish pre-flight runs before the ack-able speed bump');
+    'the publish pre-flight runs before the speed bump that asks for the OK');
   assert.ok(src.includes("name: 'run_gate'"), 'the gate road is a declared tool');
   const sp = require('../shared-core/tools/spawn-purpose.js');
   assert.strictEqual(sp.PURPOSES['publish-preflight'].kind, 'trusted-plumbing');
