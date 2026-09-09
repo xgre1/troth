@@ -46,6 +46,22 @@ entry, no key. Offer the operator a history import (dashboard → Memory →
 "Import your chat history"): Claude Code and Codex conversations already on the
 machine become recall. Additive; nothing is deleted.
 
+Identity is what the partner learns about the operator from what they say:
+their work, their constraints, what they like, and what happens to them. A
+small model reads it in the background. By default it reads only with a local
+model on this machine and otherwise waits, so nothing of the operator's plan
+is spent without their say. Ask the operator once: may Identity also use the
+engine they just set up, up to 400 short calls a day on its smallest model?
+Write their answer to `~/.troth/config.json`:
+
+```
+{ "identity": { "engine": "on", "model": "", "daily_turns": 400 } }
+```
+
+`"auto"` keeps it local only, `"off"` leaves only the plain patterns. The
+Memory page of the dashboard and `troth doctor` show which road it reads with
+and the day's count.
+
 ## Browser
 
 Once the plugin is mounted you have a `browse` tool (troth-bash server): a real

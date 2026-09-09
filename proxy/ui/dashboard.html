@@ -1051,6 +1051,21 @@ body.op-on #op-row { color: var(--text-dim); }
     <div id="providers-catalog-chips" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
   </div>
 
+  <!-- Identity's one setup question: may the passes that learn about the
+       operator use the engine set up here. The full card (model, cap) is on
+       the Memory page; this is the ask that belongs beside the engines. -->
+  <div class="settings-card full-width" id="identity-setup-card">
+    <div class="card-title" style="display:flex;align-items:baseline;gap:10px;"><span>Identity</span><span id="identity-state-setup" style="font-size:11px;color:var(--text-muted);font-weight:normal"></span></div>
+    <div class="card-hint">Your partner learns who you are from what you tell it, with a small model in the background. Free with a local model on this Mac. May it also use the engine you set up here, up to the daily cap of short calls on its smallest model? Model and cap live on the <a href="#" onclick="navigate('memory');return false;">Memory page</a>.</div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:8px;font-size:12px">
+      <select id="identity-engine-setup" class="routing-select" onchange="saveIdentitySetup()">
+        <option value="off">Off · patterns only</option>
+        <option value="auto">Local model only</option>
+        <option value="on">Use my engine</option>
+      </select>
+    </div>
+  </div>
+
   <div class="settings-grid app-owned">
 
     <div class="settings-card full-width">
@@ -3245,7 +3260,7 @@ function navigate(p, opts){
   if(p==='ai-setup') loadImageSources();
   if(p==='ai-setup') loadVideoSources();
   if(p==='health') loadHealth();
-  if(p==='ai-setup'){ loadConfig(); }
+  if(p==='ai-setup'){ loadConfig(); if (typeof loadIdentitySetup === 'function') loadIdentitySetup(); }
   if(p==='memory'){ loadMemoryHero(); loadStackCard(); if (typeof loadImportCard === 'function') loadImportCard(); if (typeof loadMemoryReadiness === 'function') loadMemoryReadiness(); if (typeof loadIdentityCard === 'function') loadIdentityCard(); if (typeof loadSystemLoad === 'function') loadSystemLoad(); loadRules(); }
   if(p==='substrate' && typeof loadRecords === 'function'){ loadRecordTypes(); loadRecords(0); }
   if(p==='substrate' && typeof loadCorpora === 'function') loadCorpora();
@@ -5654,6 +5669,33 @@ function saveIdentity(){
     .then(function () { loadIdentityCard(); })
     .catch(function () {});
 }
+// Identity's one question on the Engines page and in the first-run steps:
+// the same switch as the Memory card, engine only.
+function loadIdentitySetup(){
+  var sels = [document.getElementById('identity-engine-setup'), document.getElementById('identity-engine-onb')].filter(Boolean);
+  if (!sels.length) return;
+  fetch('/api/config').then(function (r) { return r.json(); }).then(function (cfg) {
+    var id = (cfg && cfg.identity && typeof cfg.identity === 'object') ? cfg.identity : {};
+    var engine = id.engine || 'auto';
+    sels.forEach(function (s) { s.value = engine; });
+    var provs = (cfg && cfg.providers) || {};
+    var enabled = Object.keys(provs).filter(function (k) { return provs[k] && provs[k].enabled && k !== 'local'; });
+    var localOn = !!(provs.local && provs.local.enabled);
+    var state = document.getElementById('identity-state-setup');
+    if (state) {
+      state.textContent = engine === 'off' ? 'patterns only'
+        : engine === 'on' ? (enabled.length ? 'your engine, smallest model' : 'no engine set up yet')
+        : (localOn ? 'local model only' : 'waiting for a local model');
+    }
+  }).catch(function () {});
+}
+function saveIdentitySetup(fromId){
+  var el = document.getElementById(fromId || 'identity-engine-setup');
+  var engine = (el && el.value) || 'auto';
+  fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ identity: { engine: engine } }) })
+    .then(function () { loadIdentitySetup(); if (typeof loadIdentityCard === 'function') loadIdentityCard(); })
+    .catch(function () {});
+}
 function loadMemoryReadiness(){
   var card = document.getElementById('intake-card');
   var el = document.getElementById('memory-readiness');
@@ -7666,6 +7708,13 @@ code.tob-c{background:var(--bg-code);border:1px solid var(--glass-border);border
       <span>Everyday turns stay on your hardware; cloud only for hard reasoning.</span></div>
     <div class="tob-tile" id="tob-ph" onclick="tobPrefer('hosted')"><b>Best quality first</b>
       <span>Every turn goes to your paid engine.</span></div>
+    <div class="tob-k">Identity</div>
+    <p style="color:var(--text-dim);font-size:12.5px;margin:0 0 6px">troth learns who you are from what you tell it, with a small model in the background. Free with a local model on this machine. May it also use the engine you set up, up to 400 short calls a day on its smallest model?</p>
+    <select id="identity-engine-onb" class="routing-select" onchange="saveIdentitySetup('identity-engine-onb')">
+      <option value="auto">Local model only</option>
+      <option value="on">Yes, use my engine</option>
+      <option value="off">Off · patterns only</option>
+    </select>
     <div class="tob-msg" id="tob-m5"></div>
     <div id="tob-costwarn"></div>
     <div class="tob-nav"><button class="tob-b" onclick="tobGo(3)">Continue</button></div>
@@ -7753,6 +7802,7 @@ code.tob-c{background:var(--bg-code);border:1px solid var(--glass-border);border
     // and the hub's engines live on its devices.
     if (hubMode && i === 2) i = 3;
     step = i;
+    if (i === 2 && typeof loadIdentitySetup === 'function') loadIdentitySetup();
     for (var s = 0; s < 4; s++) {
       var el = $('tob-s' + s); if (el) el.className = 'tob-step' + (s === i ? ' on' : '');
       var r = $('tob-r' + s); if (r) r.className = s < i ? 'done' : (s === i ? 'now' : '');
