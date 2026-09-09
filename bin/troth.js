@@ -2866,14 +2866,6 @@ if (command === "setup") {
       delete cfg.backendPort;
     }
 
-    // Identity: may the passes that learn about the operator use the engine
-    // set up here. Local only unless they say yes.
-    console.log("");
-    console.log("  Identity: troth learns who you are from what you say, with a small model in");
-    console.log("  the background. Free with a local model on this machine; otherwise it waits.");
-    var idAns = (await ask("  May it also use the engine you set up, up to 400 short calls a day on its smallest model? [y/N]: ")).trim().toLowerCase();
-    cfg.identity = { engine: (idAns === "y" || idAns === "yes") ? "on" : "auto", model: "", daily_turns: 400 };
-
     // The dashboard overlay keys off this: finishing here IS finishing
     // onboarding, and without the flag the browser ran the whole first-run
     // again for an operator who had just completed it in the terminal.
