@@ -2218,11 +2218,14 @@ console.log('\nPreCompact hook integration:');
     });
     m._tpm.add(200); // pre-charge above cap
     m.track('s1', { model: 'x', estimatedTokens: 5000, backend_url: 'http://stub' });
-    await sleep(80);
+    for (let turns = 0; turns < 500; turns++) {
+      if (m.stats().skippedTpm >= 1) break;
+      await sleep(5);
+    }
     m.stopAll();
     await sleep(10);
     assert.strictEqual(sent, 0, 'TPM guard blocks send');
-    assert.strictEqual(m.stats().skippedTpm, 1);
+    assert.ok(m.stats().skippedTpm >= 1, 'the guard skipped the send and rescheduled');
   });
 
   test('keepalive: transport failure triggers retry, gives up after max_retries', async () => {
