@@ -48,6 +48,7 @@ function readiness() {
     // no way to tell the difference — so it would either alarm them about
     // their own decision or stay silent about a real failure.
     paused: { paused: false, since: null },
+    identity: { engine: 'auto', model: '', daily_turns: 400, road: null, last_run_ts: null, budget: null },
     reasons: []
   };
 
@@ -98,6 +99,9 @@ function readiness() {
   } catch (_) {}
 
   try { out.paused = require('./maintenance-gate.js').isPaused(); } catch (_) {}
+  // Identity: where the passes that learn about the operator read, and what
+  // the day's reads on their engine have cost.
+  try { out.identity = require('./identity-engine.js').status(); } catch (_) {}
 
   if (out.embedder.unavailable) {
     out.stage = 'unavailable';

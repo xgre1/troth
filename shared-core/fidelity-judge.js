@@ -159,4 +159,4 @@ function makeJudge(adapters, opts) {
   };
 }
 
-module.exports = { orderJudgeChain, makeJudge, isFlashModel, CANDIDATES };
+module.exports = { orderJudgeChain, makeJudge, isFlashModel, CANDIDATES, providerForModel: _providerForModel };

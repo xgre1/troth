@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Identity, the passes that learn who the operator is from what they say, read
+  where the operator lets them: with a local model on this machine by default,
+  with the operator's own engine once opened to it, or with plain patterns
+  when switched off. The engine road takes the smallest model of each lane
+  (never the chat model) or the model the operator chose, under a daily cap
+  they set; turns a model has not read yet wait for one. The Memory page and
+  `troth doctor` show the road and the day's count; the Memory page offers
+  the switch, the model and the cap, and a door to the engines when none is
+  set up.
 - An image can start from another image: `image_generate` takes an
   `image_path` beside the prompt and the result keeps its subject, the same
   person or the same object, on the ChatGPT plan and on the Google AI key

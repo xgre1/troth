@@ -1361,31 +1361,18 @@ function makeLlamacppExtractor(cfg) {
   };
 }
 
-// The extractor as one call through the operator's own troth proxy
-// (/v1/messages, Anthropic shape). The proxy holds the credentials and
-// picks the engine from the model id and the routing pin; this process
-// never sees a key. Same contract as makeLlamacppExtractor.
+// The extractor as one call through the proxy's Identity reader: the proxy
+// holds the credentials, picks the lane and its smallest model (or the model
+// the operator chose); this process never sees a key. Same contract as
+// makeLlamacppExtractor.
 function makeProxyExtractor(cfg) {
   cfg = cfg || {};
   const host = String(cfg.host || ('http://127.0.0.1:' + (process.env.GF_PORT || '8000'))).replace(/\/+$/, '');
-  const model = cfg.model || process.env.TROTH_INSTANCE_EXTRACT_MODEL || 'claude-sonnet-5';
   const timeoutMs = cfg.timeout_ms || 120 * 1000;
+  const call = require('./question-shape.js').makeIdentityCall({ host, timeout_ms: timeoutMs, max_tokens: cfg.max_tokens || 2048 });
+  const lead = 'You extract structured memory from a user\'s own statements. Reply with the JSON object asked for and nothing else.\n\n';
   return async function llmCall(prompt) {
-    const body = {
-      model, max_tokens: cfg.max_tokens || 2048, stream: false,
-      system: 'You extract structured memory from a user\'s own statements. Reply with the JSON object asked for and nothing else.',
-      messages: [{ role: 'user', content: prompt }]
-    };
-    const res = await fetch(host + '/v1/messages', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'anthropic-version': '2023-06-01', 'x-troth-source': 'instance-extraction', 'x-troth-raw': '1' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs)
-    });
-    const text = await res.text();
-    if (res.status !== 200) throw new Error('extractor http ' + res.status + ': ' + text.slice(0, 200));
-    const j = JSON.parse(text);
-    return (Array.isArray(j.content) ? j.content : []).filter((b) => b && b.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('');
+    return call(lead + String(prompt));
   };
 }
 
@@ -1403,8 +1390,8 @@ function makeProxyExtractor(cfg) {
 let _budgetDay = null, _budgetUsed = 0;
 function _dayKey() { return new Date().toISOString().slice(0, 10); }
 function engineBudget() {
-  const cap = Number(process.env.TROTH_UNDERSTANDING_DAILY_TURNS);
-  const limit = Number.isFinite(cap) && cap >= 0 ? cap : 400;
+  let limit = 400;
+  try { limit = require('./identity-engine.js').settings().daily_turns; } catch (_) {}
   if (_budgetDay !== _dayKey()) { _budgetDay = _dayKey(); _budgetUsed = 0; }
   return { day: _budgetDay, limit, used: _budgetUsed, remaining: Math.max(0, limit - _budgetUsed) };
 }
@@ -1426,6 +1413,14 @@ async function makeExtractor(opts) {
   }
   if (String(process.env.TROTH_INSTANCE_EXTRACT_ENGINE || '') === '0') {
     return { road: 'none', llmCall: null, limit: null, reason: 'local engine unreachable; the engine road is off (TROTH_INSTANCE_EXTRACT_ENGINE=0)' };
+  }
+  let identity = { engine: 'auto' };
+  try { identity = require('./identity-engine.js').settings(); } catch (_) {}
+  if (identity.engine !== 'on') {
+    const reason = identity.engine === 'off'
+      ? 'Identity is off: no engine reads the turns'
+      : 'waiting for an engine: Identity reads with the local engine only';
+    return { road: 'none', llmCall: null, limit: null, reason };
   }
   const proxyHost = String(opts.proxy_host || ('http://127.0.0.1:' + (process.env.GF_PORT || '8000'))).replace(/\/+$/, '');
   if (await probe(proxyHost + '/health')) {
