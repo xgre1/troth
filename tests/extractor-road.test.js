@@ -25,6 +25,16 @@ console.log('\n=== extractor road ===\n');
   delete process.env.TROTH_INSTANCE_EXTRACT_ENGINE;
   delete process.env.TROTH_INSTANCE_EXTRACT_TURNS_PER_PASS;
 
+  await t('the engine road is off until the operator turns it on', async () => {
+    up.clear(); up.add('http://127.0.0.1:8000');
+    const r = await ic.makeExtractor({ probe, local_host: 'http://local:1234', proxy_host: 'http://127.0.0.1:8000' });
+    assert.strictEqual(r.road, 'none');
+    assert.ok(/engine road is off/.test(r.reason), r.reason);
+  });
+
+  // The cases below are about the road once the operator has turned it on.
+  process.env.TROTH_INSTANCE_EXTRACT_ENGINE = '1';
+
   await t('the local engine wins when it answers', async () => {
     up.clear(); up.add('http://local:1234');
     const r = await ic.makeExtractor({ probe, local_host: 'http://local:1234', proxy_host: 'http://127.0.0.1:8000' });
@@ -50,7 +60,7 @@ console.log('\n=== extractor road ===\n');
     const r = await ic.makeExtractor({ probe, local_host: 'http://local:1234', proxy_host: 'http://127.0.0.1:8000' });
     assert.strictEqual(r.road, 'none');
     assert.ok(/engine road is off/.test(r.reason), r.reason);
-    delete process.env.TROTH_INSTANCE_EXTRACT_ENGINE;
+    process.env.TROTH_INSTANCE_EXTRACT_ENGINE = '1';
   });
 
   await t('nothing reachable: the window is retained, with the reason', async () => {

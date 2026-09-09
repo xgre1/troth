@@ -38,12 +38,13 @@ const KINDS = ['visit', 'purchase', 'event', 'activity', 'possession'];
 const STATUSES = ['completed', 'planned', 'recurring', 'cancelled', 'owed'];
 const FIRST_RUN_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 
-// The distillation pass is part of the substrate, not an experiment: it runs
-// unless the operator turns it off. Where no extractor answers, the pass
-// keeps its window and retries on the next cadence, so a machine without a
-// local model pays a failed connection every ten minutes and loses nothing.
+// The distillation pass is off unless the operator turns it on with
+// TROTH_INSTANCE_CONSOLIDATION=1. Once on, where no extractor answers the
+// pass keeps its window and retries on the next cadence, so a machine
+// without a local model pays a failed connection every ten minutes and
+// loses nothing.
 function enabled() {
-  return process.env.TROTH_INSTANCE_CONSOLIDATION !== '0';
+  return process.env.TROTH_INSTANCE_CONSOLIDATION === '1';
 }
 
 // ── Extraction prompt ───────────────────────────────────────────────────
@@ -1394,7 +1395,7 @@ function makeProxyExtractor(cfg) {
 // else none (the window is retained and the next cadence retries). A user
 // without a local engine still gets a ledger; the cost is visible in the
 // proxy's usage ledger under the source instance-extraction.
-//   TROTH_INSTANCE_EXTRACT_ENGINE=0          never use the proxy road
+//   TROTH_INSTANCE_EXTRACT_ENGINE=1          use the proxy road (off by default)
 //   TROTH_INSTANCE_EXTRACT_TURNS_PER_PASS=N  turns per pass on the proxy road (default 60)
 // One daily budget for every reader that spends the operator's engine
 // (the typed-occurrence extractor and the self-fact reader): turns per UTC
@@ -1424,8 +1425,8 @@ async function makeExtractor(opts) {
   if (local && await probe(String(local).replace(/\/+$/, '') + '/health')) {
     return { road: 'local', llmCall: makeLlamacppExtractor({ host: local }), limit: Number(process.env.TROTH_INSTANCE_EXTRACT_LOCAL_TURNS) || 20 };
   }
-  if (String(process.env.TROTH_INSTANCE_EXTRACT_ENGINE || '') === '0') {
-    return { road: 'none', llmCall: null, limit: null, reason: 'local engine unreachable; the engine road is off (TROTH_INSTANCE_EXTRACT_ENGINE=0)' };
+  if (String(process.env.TROTH_INSTANCE_EXTRACT_ENGINE || '') !== '1') {
+    return { road: 'none', llmCall: null, limit: null, reason: 'local engine unreachable; the engine road is off (TROTH_INSTANCE_EXTRACT_ENGINE=1 turns it on)' };
   }
   const proxyHost = String(opts.proxy_host || ('http://127.0.0.1:' + (process.env.GF_PORT || '8000'))).replace(/\/+$/, '');
   if (await probe(proxyHost + '/health')) {

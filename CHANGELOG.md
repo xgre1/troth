@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- The background passes that distil dialogue into facts about the operator
+  and typed occurrences read with a model only where the operator asks for
+  it: `TROTH_SELF_FACT_LLM=1` for the facts, `TROTH_INSTANCE_CONSOLIDATION=1`
+  and `TROTH_INSTANCE_EXTRACT_ENGINE=1` for the occurrences. Left alone, no
+  engine is spent in the background and the plain patterns stand.
+
 ### Added
 - An image can start from another image: `image_generate` takes an
   `image_path` beside the prompt and the result keeps its subject, the same

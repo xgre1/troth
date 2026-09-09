@@ -178,13 +178,13 @@ await t('poisoning-safe by construction: instances invisible to model_visible re
   assert.ok(lifted.length >= 3, 'the count reader lifts them explicitly (audience:all): got ' + lifted.length);
 });
 
-await t('the pass runs by default and the operator can turn it off', () => {
+await t('the pass is off until the operator turns it on', () => {
   delete process.env.TROTH_INSTANCE_CONSOLIDATION;
-  assert.strictEqual(ic.enabled(), true, 'distillation is part of the substrate');
-  process.env.TROTH_INSTANCE_CONSOLIDATION = '0';
-  assert.strictEqual(ic.enabled(), false, 'and one variable turns it off');
+  assert.strictEqual(ic.enabled(), false, 'nothing distils on a fresh install');
   process.env.TROTH_INSTANCE_CONSOLIDATION = '1';
-  assert.strictEqual(ic.enabled(), true);
+  assert.strictEqual(ic.enabled(), true, 'and one variable turns it on');
+  process.env.TROTH_INSTANCE_CONSOLIDATION = '0';
+  assert.strictEqual(ic.enabled(), false);
   delete process.env.TROTH_INSTANCE_CONSOLIDATION;
 });
 

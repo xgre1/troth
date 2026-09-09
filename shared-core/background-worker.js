@@ -813,11 +813,13 @@ const _SELF_FACT_PROMPT = [
   'Answer with ONE JSON object {"facts":[{"kind":"role|constraint|skill|liking|effort|fact","what":"...","subject":"...","attribute":"pay|schedule|role|status|amount|location|contact|other"}]} and nothing else; an empty list when there is none.',
   '', 'Message: '
 ].join('\n');
-// The reader takes the local engine when it answers, else the operator's
-// engine through the proxy; the road is chosen on the first call. With
-// TROTH_SELF_FACT_LLM=0 the reader is off and the English patterns stand.
+// The reader is off unless the operator turns it on with
+// TROTH_SELF_FACT_LLM=1: no model reads the turns and the English patterns
+// in self-statements.js stand. Once on it takes the local engine when it
+// answers, else the operator's engine through the proxy; the road is chosen
+// on the first call.
 function _selfFactReader() {
-  if (process.env.TROTH_SELF_FACT_LLM === '0') return null;
+  if (process.env.TROTH_SELF_FACT_LLM !== '1') return null;
   const qs = require('./question-shape.js');
   const ic = require('./instance-consolidation.js');
   let pickP = null;
