@@ -1841,14 +1841,14 @@ if (command === "doctor") {
     }
   } catch (_e) { /* readiness probe is optional — doctor must finish */ }
 
-  // Identity: the passes that turn dialogue into facts about the operator
-  // and typed occurrences. They run in the proxy's maintenance worker (or
-  // the entity daemon); a memory whose ledger never grows is one nobody is
-  // understanding.
+  // The memory's understanding: the passes that turn dialogue into facts
+  // about the operator and typed occurrences. They run in the proxy's
+  // maintenance worker (or the entity daemon); a memory whose ledger never
+  // grows is one nobody is understanding.
   try {
     var _stU = require("../shared-core/state.js");
-    var _ieU = require("../shared-core/identity-engine.js");
-    var _idU = _ieU.status();
+    var _icU = require("../shared-core/instance-consolidation.js");
+    var _budU = _icU.engineBudget ? _icU.engineBudget() : null;
     var _tasksU = [["wm_consolidation", "facts about you"], ["instance_consolidation", "typed occurrences"]];
     var _partsU = [], _okU = true;
     for (var _ti = 0; _ti < _tasksU.length; _ti++) {
@@ -1861,12 +1861,12 @@ if (command === "doctor") {
       } else { _partsU.push(_tasksU[_ti][1] + ": never ran this week"); _okU = false; }
     }
     checks.push({
-      name: "Identity",
+      name: "Memory understanding",
       ok: _okU,
-      detail: "reads with " + _ieU.describe(_idU) + " · " + _partsU.join(" · ")
+      detail: _partsU.join(" · ") + (_budU ? " · engine budget today " + _budU.used + "/" + _budU.limit + " turns" : "")
         + (_okU ? "" : " — keep the proxy running (troth start) and it runs on idle; TROTH_UNDERSTANDING=0 turns it off")
     });
-  } catch (_e) { /* the Identity line is optional — doctor must finish */ }
+  } catch (_e) { /* the understanding line is optional — doctor must finish */ }
 
   // The machine's own telemetry: how long each hook took over the last day
   // and how often it ran past the budget the harness gives it, and which

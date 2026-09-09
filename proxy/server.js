@@ -1715,29 +1715,6 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Identity's reader: one small read through the lane the operator's engines
-  // offer, with the smallest model of that lane or the model they chose. Answers
-  // 409 while Identity is not open to the engine, so a pass spends nothing.
-  if (req.method === 'POST' && url === '/api/identity/read') {
-    if (!checkRemoteAuth(req)) { jsonResponse(res, 401, { error: 'unauthorized' }); return; }
-    let body = '';
-    req.on('data', c => body += c);
-    req.on('end', async () => {
-      try {
-        const j = JSON.parse(body || '{}');
-        const prompt = String(j.prompt || '');
-        if (!prompt.trim()) { jsonResponse(res, 400, { error: 'empty_prompt' }); return; }
-        const ie = require('../shared-core/identity-engine.js');
-        if (!ie.engineAllowed()) { jsonResponse(res, 409, { error: 'identity_engine_closed', hint: 'Identity reads with the local engine only; open it to your engine on the Memory page.' }); return; }
-        if (!global.__troth_identity_reader) global.__troth_identity_reader = require('./modules/router').makeIdentityReader({});
-        const out = await global.__troth_identity_reader(prompt, { max_tokens: Number(j.max_tokens) || 400 });
-        if (!out) { jsonResponse(res, 503, { error: 'no_engine_answered', hint: 'No enabled engine answered the read.' }); return; }
-        jsonResponse(res, 200, { text: out.text, provider: out.provider, model: out.model });
-      } catch (e) { jsonResponse(res, 500, { error: String(e && e.message || e) }); }
-    });
-    return;
-  }
-
   // The two answers the app polls hardest come from the read worker: the
   // first call waits for it without holding the loop, later calls get the
   // held answer while a fresh one is computed behind it.
@@ -4830,7 +4807,7 @@ const server = http.createServer((req, res) => {
           // `sync` rides the same list: the dashboard re-saves host/deviceId
           // without the token (redaction never round-trips it), and a shallow
           // assign would drop the stored deviceToken on every such save.
-          for (const _k of ['modules', 'modelLimits', 'keepalive', 'mcp', 'sync', 'video', 'identity']) {
+          for (const _k of ['modules', 'modelLimits', 'keepalive', 'mcp', 'sync', 'video']) {
             if (safeNewConfig[_k] && current[_k] &&
                 typeof safeNewConfig[_k] === 'object' && !Array.isArray(safeNewConfig[_k])) {
               next[_k] = Object.assign({}, current[_k], safeNewConfig[_k]);

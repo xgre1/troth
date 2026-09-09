@@ -221,26 +221,4 @@ function makeProxyShapeCall(cfg) {
   };
 }
 
-// The same one call through the proxy's Identity reader (/api/identity/read):
-// the proxy picks the lane and its smallest model, or the model the operator
-// chose, and answers 409 when Identity is not open to the engine.
-function makeIdentityCall(cfg) {
-  cfg = cfg || {};
-  const host = String(cfg.host || process.env.TROTH_PROXY_HOST || 'http://127.0.0.1:8000').replace(/\/+$/, '');
-  const timeoutMs = cfg.timeout_ms || 30000;
-  return async function llmCall(prompt) {
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), timeoutMs);
-    try {
-      const res = await fetch(host + '/api/identity/read', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, signal: ac.signal,
-        body: JSON.stringify({ prompt: String(prompt), max_tokens: cfg.max_tokens || 400 })
-      });
-      if (!res.ok) throw new Error('identity read http ' + res.status);
-      const j = await res.json();
-      return (j && typeof j.text === 'string') ? j.text : '';
-    } finally { clearTimeout(timer); }
-  };
-}
-
-module.exports = { shapeQuestion, shapeByPatterns, makeShapeCall, makeProxyShapeCall, makeIdentityCall, FAMILIES, ASKS, STATUS_ASKS, SCHEMA };
+module.exports = { shapeQuestion, shapeByPatterns, makeShapeCall, makeProxyShapeCall, FAMILIES, ASKS, STATUS_ASKS, SCHEMA };

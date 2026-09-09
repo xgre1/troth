@@ -814,12 +814,10 @@ const _SELF_FACT_PROMPT = [
   '', 'Message: '
 ].join('\n');
 // The reader takes the local engine when it answers, else the operator's
-// engine through the proxy's Identity reader once Identity is open to it;
-// otherwise it waits and the English patterns stand. The road is chosen on
-// the first call. With TROTH_SELF_FACT_LLM=0 the reader is off.
+// engine through the proxy; the road is chosen on the first call. With
+// TROTH_SELF_FACT_LLM=0 the reader is off and the English patterns stand.
 function _selfFactReader() {
   if (process.env.TROTH_SELF_FACT_LLM === '0') return null;
-  try { if (require('./identity-engine.js').patternsOnly()) return null; } catch (_) {}
   const qs = require('./question-shape.js');
   const ic = require('./instance-consolidation.js');
   let pickP = null;
@@ -829,12 +827,9 @@ function _selfFactReader() {
     const probe = async (url) => { try { const r = await fetch(url, { signal: AbortSignal.timeout(1500) }); return !!r.ok; } catch (_) { return false; } };
     if (host && await probe(String(host).replace(/\/+$/, '') + '/health')) return { road: 'local', call: qs.makeShapeCall({ host, timeout_ms: 8000 }) };
     if (String(process.env.TROTH_INSTANCE_EXTRACT_ENGINE || '') === '0') return { road: 'none', call: null };
-    let engineOpen = false;
-    try { engineOpen = require('./identity-engine.js').engineAllowed(); } catch (_) { engineOpen = false; }
-    if (!engineOpen) return { road: 'waiting', call: null };
     const proxy = 'http://127.0.0.1:' + (process.env.GF_PORT || '8000');
-    if (await probe(proxy + '/health')) return { road: 'engine', call: qs.makeIdentityCall({ host: proxy, timeout_ms: 20000 }) };
-    return { road: 'waiting', call: null };
+    if (await probe(proxy + '/health')) return { road: 'engine', call: qs.makeProxyShapeCall({ host: proxy, model: process.env.TROTH_INSTANCE_EXTRACT_MODEL || 'claude-sonnet-5', timeout_ms: 20000 }) };
+    return { road: 'none', call: null };
   };
   const readFacts = async function readFacts(text) {
     if (!pickP) pickP = pick();
@@ -842,9 +837,9 @@ function _selfFactReader() {
     readFacts.road = picked ? picked.road : 'none';
     if (!picked || !picked.call) return null;
     // The engine road spends the shared daily budget, one turn per read;
-    // when it is spent the patterns stand and the window waits for tomorrow.
+    // when it is spent the English patterns stand until the next day.
     if (picked.road === 'engine') {
-      if (ic.engineBudget().remaining <= 0) { readFacts.starved = true; return null; }
+      if (ic.engineBudget().remaining <= 0) return null;
       ic.spendEngine(1);
     }
     const out = await picked.call(_SELF_FACT_PROMPT + String(text).slice(0, 1200), { json_schema: _SELF_FACT_SCHEMA });
@@ -917,7 +912,6 @@ function _selfFactStands(what, kind, subject, attribute, source) {
 // what the operator said before it did.
 const WM_FLOOR_SCOPE = 'internal:wm_floor';
 const WM_CATCHUP_TURNS = () => { const n = Number(process.env.TROTH_UNDERSTANDING_CATCHUP_TURNS); return Number.isFinite(n) && n >= 0 ? n : 40; };
-const WM_RETAIN_MS = 7 * 24 * 60 * 60 * 1000;
 // Turns the hygiene pass asks the self-facts pass to read again.
 const WM_REREAD_SCOPE = 'internal:wm_reread';
 const taskWorkingMemoryConsolidation = {
@@ -1160,34 +1154,30 @@ const taskWorkingMemoryConsolidation = {
         });
       } catch (_) { /* the floor is best-effort; the next run reads the same slice again */ }
     }
-    const roadNow = (readFacts && readFacts.road) ? readFacts.road : road;
-    // A reader that is expected but absent (Identity waits for an engine, or
-    // the day's cap is spent) leaves the window in place for up to a week, so
-    // a model reads these turns once one answers; the patterns have had them
-    // already and what they found stands.
-    const waiting = roadNow === 'waiting' || !!(readFacts && readFacts.starved);
-    if (waiting) latestTs = Math.min(latestTs, Math.max(watermark, Date.now() - WM_RETAIN_MS));
     // Update watermark.
-    if (latestTs > watermark) {
-      try {
-        engram.recordEngram({
-          agent_id: ctx.agent_id || 'background-worker',
-          statement: 'processed_through: ' + latestTs,
-          // 'internal:' routes the row to substrate_internal/operational; a
-          // 'system:' prefix would surface it in /context as a memory.
-          scope: WM_WATERMARK_SCOPE,
-          source: 'background_worker.wm_consolidation',
-          source_authority: 'plr_evolved',
-          auto_verify: false,
-          salience: 0.1,
-          extra_output: lastMarkId ? { lifetime: { supersedes: [lastMarkId], reason: 'watermark_moved' } } : undefined
-        });
-      } catch (_) {}
-    }
+    try {
+      engram.recordEngram({
+        agent_id: ctx.agent_id || 'background-worker',
+        statement: 'processed_through: ' + latestTs,
+        //  renamed from 'system:wm_consolidation:watermark'.
+        // The 'system:' prefix doesn't match engram.js:_isInternal (which
+        // keys on 'internal:'), so the watermark was routed to
+        // model_visible/episodic and leaked into /context as
+        // "processed_through: <ms>" — pure bookkeeping noise the partner
+        // surfaced as a memory. 'internal:' routes it to
+        // substrate_internal/operational where it belongs.
+        scope: WM_WATERMARK_SCOPE,
+        source: 'background_worker.wm_consolidation',
+        source_authority: 'plr_evolved',
+        auto_verify: false,
+        salience: 0.1,
+        extra_output: lastMarkId ? { lifetime: { supersedes: [lastMarkId], reason: 'watermark_moved' } } : undefined
+      });
+    } catch (_) {}
     return {
       events: [],
-      notes: ['wm_consolidation (' + roadNow + '): scanned=' + newTurnCount + ' history=' + catchUp.length + ' promoted=' + promoted + ' superseded=' + superseded + ' skipped_dup=' + skippedDup + ' skipped_older=' + skippedOlder + ' skipped_remark=' + skippedRemark +
-              (waiting ? ' window retained' : '') + ' watermark→' + new Date(latestTs).toISOString()]
+      notes: ['wm_consolidation (' + road + '): scanned=' + newTurnCount + ' history=' + catchUp.length + ' promoted=' + promoted + ' superseded=' + superseded + ' skipped_dup=' + skippedDup + ' skipped_older=' + skippedOlder + ' skipped_remark=' + skippedRemark +
+              ' watermark→' + new Date(latestTs).toISOString()]
     };
   }
 };

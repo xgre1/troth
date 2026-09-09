@@ -24,8 +24,6 @@ console.log('\n=== extractor road ===\n');
   const probe = async (url) => [...up].some((u) => url.startsWith(u));
   delete process.env.TROTH_INSTANCE_EXTRACT_ENGINE;
   delete process.env.TROTH_INSTANCE_EXTRACT_TURNS_PER_PASS;
-  // The engine road opens only when Identity is open to the operator's engine.
-  process.env.TROTH_IDENTITY_ENGINE = 'on';
 
   await t('the local engine wins when it answers', async () => {
     up.clear(); up.add('http://local:1234');
@@ -53,15 +51,6 @@ console.log('\n=== extractor road ===\n');
     assert.strictEqual(r.road, 'none');
     assert.ok(/engine road is off/.test(r.reason), r.reason);
     delete process.env.TROTH_INSTANCE_EXTRACT_ENGINE;
-  });
-
-  await t('with Identity on the local engine only, the proxy is never asked and the window waits', async () => {
-    up.clear(); up.add('http://127.0.0.1:8000');
-    process.env.TROTH_IDENTITY_ENGINE = 'auto';
-    const r = await ic.makeExtractor({ probe, local_host: 'http://local:1234', proxy_host: 'http://127.0.0.1:8000' });
-    assert.strictEqual(r.road, 'none');
-    assert.ok(/waiting for an engine/.test(r.reason), r.reason);
-    process.env.TROTH_IDENTITY_ENGINE = 'on';
   });
 
   await t('nothing reachable: the window is retained, with the reason', async () => {

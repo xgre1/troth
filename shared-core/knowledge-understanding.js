@@ -45,14 +45,12 @@ function makeReader() {
     try { host = require('./transport-config.js').understandingHost(); } catch (_) { host = null; }
     const probe = async (url) => { try { const r = await fetch(url, { signal: AbortSignal.timeout(1500) }); return !!r.ok; } catch (_) { return false; } };
     if (host && await probe(String(host).replace(/\/+$/, '') + '/health')) return { road: 'local', call: qs.makeShapeCall({ host, timeout_ms: 20000 }) };
-    // The proxy engine reads once Identity is open to it (or the older
-    // `knowledge_engine` switch is on).
+    // The proxy engine reads only once `knowledge_engine` opens it to this pass.
     let engineOpen = false;
     try { engineOpen = require('./transport-config.js').flag('knowledge_engine'); } catch (_) { engineOpen = false; }
-    try { engineOpen = engineOpen || require('./identity-engine.js').engineAllowed(); } catch (_) {}
     if (!engineOpen) return { road: 'none', call: null };
     const proxy = 'http://127.0.0.1:' + (process.env.GF_PORT || '8000');
-    if (await probe(proxy + '/health')) return { road: 'engine', call: qs.makeIdentityCall({ host: proxy, timeout_ms: 30000 }) };
+    if (await probe(proxy + '/health')) return { road: 'engine', call: qs.makeProxyShapeCall({ host: proxy, model: process.env.TROTH_INSTANCE_EXTRACT_MODEL || 'claude-sonnet-5', timeout_ms: 30000 }) };
     return { road: 'none', call: null };
   };
   const read = async function read(text) {

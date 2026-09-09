@@ -951,23 +951,6 @@ body.op-on #op-row { color: var(--text-dim); }
     <div id="stack-rows"></div>
   </div>
 
-  <!-- Identity: the passes that learn who the operator is. The switch, the
-       model and the cap live here because this is where the cost lands. -->
-  <div class="settings-card full-width" id="identity-card">
-    <div class="card-title" style="display:flex;align-items:baseline;gap:10px;"><span>Identity</span><span id="identity-state" style="font-size:11px;color:var(--text-muted);font-weight:normal"></span></div>
-    <div class="card-hint">Your partner learns who you are from what you tell it: your work, your constraints, what you like, and what happens to you, like a visit or a purchase. It reads them with a small model in the background. Free with a local model on this Mac. With “use my engine” it makes short calls on the engine you pick, up to the daily cap, and never the model your chat uses.</div>
-    <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:8px;font-size:12px">
-      <select id="identity-engine" class="routing-select" onchange="saveIdentity()">
-        <option value="off">Off · patterns only</option>
-        <option value="auto">Local model only</option>
-        <option value="on">Use my engine</option>
-      </select>
-      <select id="identity-model" class="routing-select" onchange="saveIdentity()" style="display:none"></select>
-      <label id="identity-cap-wrap" style="display:none;align-items:center;gap:6px;color:var(--text-muted)">calls a day <input id="identity-cap" type="number" min="0" max="5000" step="50" class="provider-input" style="width:80px" onchange="saveIdentity()"></label>
-      <button class="btn" id="identity-setup" style="display:none" onclick="navigate('ai-setup')">Set up an engine</button>
-    </div>
-  </div>
-
   <div class="settings-card full-width" id="import-card">
     <div class="card-title">Import what is already on this machine</div>
     <div class="card-hint">Memory should not start empty — pull in the conversations and the Obsidian notes already here. Additive; nothing is deleted.</div>
@@ -3246,7 +3229,7 @@ function navigate(p, opts){
   if(p==='ai-setup') loadVideoSources();
   if(p==='health') loadHealth();
   if(p==='ai-setup'){ loadConfig(); }
-  if(p==='memory'){ loadMemoryHero(); loadStackCard(); if (typeof loadImportCard === 'function') loadImportCard(); if (typeof loadMemoryReadiness === 'function') loadMemoryReadiness(); if (typeof loadIdentityCard === 'function') loadIdentityCard(); if (typeof loadSystemLoad === 'function') loadSystemLoad(); loadRules(); }
+  if(p==='memory'){ loadMemoryHero(); loadStackCard(); if (typeof loadImportCard === 'function') loadImportCard(); if (typeof loadMemoryReadiness === 'function') loadMemoryReadiness(); if (typeof loadSystemLoad === 'function') loadSystemLoad(); loadRules(); }
   if(p==='substrate' && typeof loadRecords === 'function'){ loadRecordTypes(); loadRecords(0); }
   if(p==='substrate' && typeof loadCorpora === 'function') loadCorpora();
   if(p==='cli'){ loadCommands(); if(typeof setHelpTab==='function') setHelpTab(); }
@@ -5591,68 +5574,6 @@ function loadSystemLoad(){
       '<span>total ' + (s.total_rss_mb||0).toLocaleString() + ' MB</span></div>');
     el.innerHTML = rows.join('');
   }).catch(function(){ if (card) card.style.display = 'none'; });
-}
-// Identity: where the passes that learn about the operator read, and what a
-// day's reads cost. Reads config.json's identity block and the readiness
-// road; saves through /api/config like every other setting.
-function loadIdentityCard(){
-  var card = document.getElementById('identity-card');
-  if (!card) return;
-  Promise.all([
-    fetch('/api/config').then(function (r) { return r.json(); }).catch(function () { return {}; }),
-    fetch('/api/memory/readiness').then(function (r) { return r.json(); }).catch(function () { return {}; })
-  ]).then(function (all) {
-    var cfg = all[0] || {}, m = all[1] || {};
-    var id = (cfg.identity && typeof cfg.identity === 'object') ? cfg.identity : {};
-    var st = m.identity || {};
-    var engine = id.engine || st.engine || 'auto';
-    var sel = document.getElementById('identity-engine');
-    if (sel) sel.value = engine;
-    var provs = cfg.providers || {};
-    var enabled = Object.keys(provs).filter(function (k) { return provs[k] && provs[k].enabled && k !== 'local'; });
-    var localOn = !!(provs.local && provs.local.enabled);
-    var msel = document.getElementById('identity-model');
-    if (msel) {
-      msel.innerHTML = '';
-      var o0 = document.createElement('option'); o0.value = ''; o0.textContent = 'Auto · the smallest model of each engine'; msel.appendChild(o0);
-      enabled.forEach(function (k) {
-        var mdl = provs[k].model; if (!mdl) return;
-        var o = document.createElement('option'); o.value = mdl; o.textContent = mdl + ' · ' + k; msel.appendChild(o);
-      });
-      if (id.model) {
-        var have = false;
-        for (var i = 0; i < msel.options.length; i++) if (msel.options[i].value === id.model) have = true;
-        if (!have) { var ox = document.createElement('option'); ox.value = id.model; ox.textContent = id.model; msel.appendChild(ox); }
-        msel.value = id.model;
-      }
-      msel.style.display = engine === 'on' ? '' : 'none';
-    }
-    var capWrap = document.getElementById('identity-cap-wrap'), cap = document.getElementById('identity-cap');
-    if (cap) cap.value = (id.daily_turns != null ? id.daily_turns : (st.daily_turns != null ? st.daily_turns : 400));
-    if (capWrap) capWrap.style.display = engine === 'on' ? 'inline-flex' : 'none';
-    var setup = document.getElementById('identity-setup');
-    if (setup) setup.style.display = (!enabled.length && !localOn) ? '' : 'none';
-    var state = document.getElementById('identity-state');
-    if (state) {
-      var words;
-      var spend = st.budget ? ' · ' + st.budget.used + '/' + st.budget.limit + ' today' : '';
-      if (engine === 'off') words = 'patterns only';
-      else if (st.road === 'local') words = 'reading with the local model';
-      else if (st.road === 'engine') words = 'reading with your engine' + spend;
-      else if (engine === 'on') words = (enabled.length ? 'your engine' + spend : 'no engine set up');
-      else words = localOn ? 'waiting for the local model' : 'waiting for an engine';
-      state.textContent = words;
-    }
-  });
-}
-function saveIdentity(){
-  var engine = (document.getElementById('identity-engine') || {}).value || 'auto';
-  var model = (document.getElementById('identity-model') || {}).value || '';
-  var cap = Number((document.getElementById('identity-cap') || {}).value);
-  var payload = { identity: { engine: engine, model: model, daily_turns: (Number.isFinite(cap) && cap >= 0) ? cap : 400 } };
-  fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-    .then(function () { loadIdentityCard(); })
-    .catch(function () {});
 }
 function loadMemoryReadiness(){
   var card = document.getElementById('intake-card');

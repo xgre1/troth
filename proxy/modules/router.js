@@ -3657,45 +3657,6 @@ function makeFidelityJudge(opts) {
   return fjMod.makeJudge(adapters, Object.assign({}, opts, { pick: pick }));
 }
 
-// Identity's reader: the same lane adapters as the fidelity judge, ordered by
-// shared-core/identity-engine.js (the local engine first, the smallest model
-// of each lane, the flat-rate plans last), or pinned to the model the operator
-// chose. read(prompt, { max_tokens }) -> { text, provider, model } | null.
-function makeIdentityReader(opts) {
-  opts = opts || {};
-  var ieMod = require("../../shared-core/identity-engine.js");
-  function buildBody(prompt, maxTokens) {
-    return JSON.stringify({ model: "any", max_tokens: maxTokens || 400, stream: false, messages: [{ role: "user", content: String(prompt) }] });
-  }
-  function wrap(fn) { return function (body, model) { return Promise.resolve().then(function () { return fn(body, { model: model }); }).then(_judgeText).catch(function () { return null; }); }; }
-  function _withModel(bodyStr, model) {
-    if (!model) return bodyStr;
-    try { var b = JSON.parse(bodyStr); b.model = model; return JSON.stringify(b); } catch (e) { return bodyStr; }
-  }
-  var adapters = {
-    providers: function () { try { loadProviders(); } catch (e) {} return providers; },
-    isLocalAvailable: function () { try { return isLocalAvailable(); } catch (e) { return false; } },
-    buildBody: buildBody,
-    call: {
-      local:      function (body, model) { return forwardToLocal(null, body, providers.local.host, providers.local.port || 1234, { model: model }).then(_judgeText).catch(function () { return null; }); },
-      alibaba:    function (body, model) { return callAlibaba(body, { model: model }).then(_judgeText).catch(function () { return null; }); },
-      deepseek:   wrap(callDeepSeek),
-      deepinfra:  wrap(callDeepInfra),
-      nvidia:     wrap(callNvidia),
-      openrouter: wrap(callOpenRouter),
-      zai:        wrap(callZai),
-      moonshot:   wrap(callMoonshot),
-      xai:        wrap(callXai),
-      custom_openai: wrap(callCustomOpenai),
-      kimi_sub:   wrap(callKimiSub),
-      openai_sub: function (body) { return callOpenAISubscription(body, {}).then(_judgeText).catch(function () { return null; }); },
-      anthropic:  function (body, model) { return callAnthropic(_withModel(body, model), {}).then(_judgeText).catch(function () { return null; }); },
-      google_ai:  function (body, model) { return callGoogleAI(_withModel(body, model)).then(_judgeText).catch(function () { return null; }); }
-    }
-  };
-  return ieMod.makeReader(adapters, { max_tokens: opts.max_tokens });
-}
-
 // Auth-expiry hook. The entity daemon loads this module
 // IN-PROCESS, so a subscription 401/refresh failure can reach the operator's
 // surfaces directly — before this, it only hit the console while the chain
@@ -3737,4 +3698,3 @@ module.exports = { onAuthEvent: onAuthEvent, getEffectiveChain: getEffectiveChai
     localLeads: localLeads
   }
 };
-module.exports.makeIdentityReader = makeIdentityReader;

@@ -92,7 +92,7 @@ t('the daily engine budget counts, caps and resets by day', () => {
 
 t('the doctor has a line for it', () => {
   const doc = fs.readFileSync(path.join(__dirname, '..', 'bin', 'troth.js'), 'utf8');
-  assert.ok(/name: "Identity"/.test(doc));
+  assert.ok(/name: "Memory understanding"/.test(doc));
 });
 
 runAll().then(() => {
