@@ -105,6 +105,7 @@ test('IMG1: schema is an OpenAI function tool named image_generate with required
   assert.strictEqual(s.function.name, 'image_generate');
   assert.deepStrictEqual(s.function.parameters.required, ['prompt']);
   assert.ok(s.function.parameters.properties.prompt, 'prompt param present');
+  assert.ok(s.function.parameters.properties.image_path, 'image_path param present: an image can start from another image');
   // size is deliberately NOT advertised (endpoint 400s on unexpected params,
   // tools[0].size unverified live) - the run() pass-through stays covered by IMG2b.
   assert.strictEqual(s.function.parameters.properties.size, undefined, 'size param NOT advertised');
@@ -386,6 +387,66 @@ test('IMG10: 429 names its cause (free account vs a plan at its limit); auto mod
   assert.strictEqual(auto.ok, true, JSON.stringify(auto));
   assert.strictEqual(auto.source, 'google');
   assert.deepStrictEqual(lanes, ['chatgpt', 'google']);
+});
+
+test('IMG11: image_path rides the plan road as an input_image data URL and the result names it', async () => {
+  await Promise.resolve();
+  saveLiveToken();
+  const png = tinyPngBuffer();
+  const src = path.join(TMP_HOME, 'subject.png');
+  fs.writeFileSync(src, png);
+  const sink = {};
+  const sse = sseFrom([
+    { type: 'response.output_item.done', item: { type: 'image_generation_call', result: png.toString('base64') } },
+    { type: 'response.completed' },
+  ]);
+  const out = await imageGen.run({ prompt: 'blue background', image_path: src }, { _httpDriver: fakeDriver(sse, sink) });
+  assert.strictEqual(out.ok, true, JSON.stringify(out));
+  assert.strictEqual(out.input_image, src, 'the result names the image it started from');
+  const content = JSON.parse(sink.body).input[0].content;
+  assert.strictEqual(content.length, 2, 'text and image parts');
+  assert.strictEqual(content[0].type, 'input_text');
+  assert.strictEqual(content[1].type, 'input_image');
+  assert.strictEqual(content[1].image_url, 'data:image/png;base64,' + png.toString('base64'));
+});
+
+test('GEM4: image_path rides the google road as an inline image part beside the text', async () => {
+  await Promise.resolve();
+  const png = tinyPngBuffer();
+  const src = path.join(TMP_HOME, 'subject.jpg');
+  fs.writeFileSync(src, png);
+  const sink = {};
+  const fake = async (req) => {
+    Object.assign(sink, req);
+    return JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: png.toString('base64') } }] } }] });
+  };
+  const out = await imageGen.run({ prompt: 'blue background', image_path: src, source: 'google' }, { _httpDriver: fake, _googleKey: 'k4' });
+  assert.strictEqual(out.ok, true, JSON.stringify(out));
+  assert.strictEqual(out.input_image, src);
+  const parts = JSON.parse(sink.body).contents[0].parts;
+  assert.strictEqual(parts.length, 2, 'text and image parts');
+  assert.strictEqual(parts[0].text, 'blue background');
+  assert.deepStrictEqual(parts[1], { inlineData: { mimeType: 'image/jpeg', data: png.toString('base64') } });
+});
+
+test('IMG12: an image_path that is missing, of another type, or behind the read wall is refused before any network', async () => {
+  await Promise.resolve();
+  saveLiveToken();
+  let hit = false;
+  const driver = async () => { hit = true; return ''; };
+  const missing = await imageGen.run({ prompt: 'x', image_path: path.join(TMP_HOME, 'nope.png') }, { _httpDriver: driver });
+  assert.strictEqual(missing.ok, false);
+  assert.strictEqual(missing.error, 'bad_args', JSON.stringify(missing));
+  const txt = path.join(TMP_HOME, 'notes.txt');
+  fs.writeFileSync(txt, 'hello');
+  const wrong = await imageGen.run({ prompt: 'x', image_path: txt }, { _httpDriver: driver });
+  assert.strictEqual(wrong.error, 'unsupported_image', JSON.stringify(wrong));
+  fs.mkdirSync(path.join(TMP_HOME, '.ssh'), { recursive: true });
+  const key = path.join(TMP_HOME, '.ssh', 'id_ed25519.png');
+  fs.writeFileSync(key, tinyPngBuffer());
+  const secret = await imageGen.run({ prompt: 'x', image_path: key }, { _httpDriver: driver });
+  assert.strictEqual(secret.ok, false, 'a key file is not an image input: ' + JSON.stringify(secret));
+  assert.strictEqual(hit, false, 'no request left the process');
 });
 
 // Cleanup MUST run AFTER the async bodies above, not at registration time. This

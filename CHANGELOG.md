@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- An image can start from another image: `image_generate` takes an
+  `image_path` beside the prompt and the result keeps its subject, the same
+  person or the same object, on the ChatGPT plan and on the Google AI key
+  alike. PNG, JPEG or WebP up to 8 MB; a path the read wall refuses is
+  refused here too.
 - A wall that stops a shell command asks for the operator's OK instead of
   handing them the command: the refusal names what it needs and why, the
   partner asks in plain words, and the answer comes back in `permission`

@@ -35,6 +35,7 @@ const https = require('https');
 const crypto = require('crypto');
 
 const codexOAuth = require('../transports/codex-oauth.js');
+const pathPolicy = require('./path-policy.js');
 
 const IMAGES_DIR   = path.join((process.env.HOME || os.homedir()), '.troth', 'images');
 const CALL_TIMEOUT_MS = 180 * 1000;  // hard ceiling on the whole generate call
@@ -48,11 +49,12 @@ const schema = {
   type: 'function',
   function: {
     name: 'image_generate',
-    description: 'Generate an image from a text prompt using the operator\'s linked ChatGPT plan or their Google AI key, and save it under ~/.troth/images/. Returns the saved file path. Use when the user asks to create/draw/render an image.',
+    description: 'Generate an image from a text prompt using the operator\'s linked ChatGPT plan or their Google AI key, and save it under ~/.troth/images/. Returns the saved file path. Use when the user asks to create/draw/render an image, or to edit one: pass the image\'s path in image_path and the result keeps its subject.',
     parameters: {
       type: 'object',
       properties: {
-        prompt: { type: 'string', description: 'What to draw. A detailed natural-language description of the desired image.' },
+        prompt: { type: 'string', description: 'What to draw, or what to change when image_path is given. A detailed natural-language description.' },
+        image_path: { type: 'string', description: 'Optional. Path of an image to edit or to use as the reference: the result keeps its subject (the same person, the same object). PNG, JPEG or WebP, up to 8 MB.' },
         // size is NOT advertised: the ChatGPT-account endpoint 400s on
         // unexpected params and we have not live-verified tools[0].size.
         // buildImageBody still forwards it if a caller passes one, so
@@ -67,12 +69,14 @@ const schema = {
 // Build the Responses-API body for an image request: the normal shape PLUS the
 // image_generation tool. Model is resolved by the SAME guard chat uses so we
 // never hardcode a second model id. size rides in only when the caller set it.
-function buildImageBody(prompt, size, model) {
+function buildImageBody(prompt, size, model, image) {
+  const content = [{ type: 'input_text', text: String(prompt) }];
+  if (image) content.push({ type: 'input_image', image_url: 'data:' + image.mime + ';base64,' + image.b64, detail: 'auto' });
   const body = {
     model,
     instructions: '',
     input: [
-      { role: 'user', content: [{ type: 'input_text', text: String(prompt) }] }
+      { role: 'user', content }
     ],
     tools: [{ type: 'image_generation' }],
     stream: true,
@@ -80,6 +84,29 @@ function buildImageBody(prompt, size, model) {
   };
   if (size) body.tools[0].size = String(size);
   return JSON.stringify(body);
+}
+
+const INPUT_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
+const INPUT_IMAGE_MIMES = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
+
+// The image a call starts from. It passes the same read wall as every file
+// read (a key or a token file is refused here too), is capped at 8 MB so a
+// data URL stays inside what both endpoints accept, and travels as base64
+// with the mime its extension names.
+function loadInputImage(p) {
+  if (typeof p !== 'string' || !p.trim()) return { ok: false, error: 'bad_args', hint: 'image_path must be the path of a PNG, JPEG or WebP file.' };
+  const verdict = pathPolicy.isReadablePath(p.trim(), {});
+  if (!verdict.allowed) return { ok: false, error: 'bad_args', hint: 'image_path cannot be read: ' + (verdict.reason || 'refused') + '.', detail: verdict.detail || '' };
+  const abs = verdict.path;
+  const mime = INPUT_IMAGE_MIMES[path.extname(abs).toLowerCase()];
+  if (!mime) return { ok: false, error: 'unsupported_image', hint: 'image_path must be a PNG, JPEG or WebP file.', path: abs };
+  let st;
+  try { st = fs.statSync(abs); } catch (e) { return { ok: false, error: 'bad_args', hint: 'image_path does not exist or cannot be read: ' + abs, detail: String((e && e.message) || e) }; }
+  if (!st.isFile()) return { ok: false, error: 'bad_args', hint: 'image_path is not a file: ' + abs };
+  if (st.size > INPUT_IMAGE_MAX_BYTES) return { ok: false, error: 'image_too_large', hint: 'image_path is over 8 MB; scale it down first.', path: abs, bytes: st.size };
+  let b64;
+  try { b64 = fs.readFileSync(abs).toString('base64'); } catch (e) { return { ok: false, error: 'bad_args', hint: 'image_path cannot be read: ' + abs, detail: String((e && e.message) || e) }; }
+  return { ok: true, path: abs, mime, b64, bytes: st.size };
 }
 
 // ── Google AI (Gemini) source ──────────────────────────────────────────────
@@ -115,9 +142,11 @@ function resolveGoogleImageModel() {
     : GOOGLE_IMAGE_MODEL_DEFAULT;
 }
 
-function buildGeminiBody(prompt) {
+function buildGeminiBody(prompt, image) {
+  const parts = [{ text: String(prompt) }];
+  if (image) parts.push({ inlineData: { mimeType: image.mime, data: image.b64 } });
   return JSON.stringify({
-    contents: [{ parts: [{ text: String(prompt) }] }],
+    contents: [{ parts }],
     generationConfig: { responseModalities: ['TEXT', 'IMAGE'] }
   });
 }
@@ -277,6 +306,12 @@ async function run(args, ctx) {
   if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
     return { ok: false, error: 'bad_args', hint: 'Provide a non-empty prompt string describing the image.' };
   }
+  let image = null;
+  if (args.image_path !== undefined && args.image_path !== null && args.image_path !== '') {
+    const loaded = loadInputImage(args.image_path);
+    if (!loaded.ok) return loaded;
+    image = loaded;
+  }
   const explicit = (args.source === 'chatgpt' || args.source === 'google') ? args.source : null;
 
   // Source resolution. Probes are cheap and side-effect-free: a token
@@ -323,7 +358,7 @@ async function run(args, ctx) {
   const buildRequestFor = (src) => {
     if (src === 'chatgpt') {
       const model     = codexOAuth.resolveCodexModel((ctx.options && ctx.options.model), null);
-      const body      = buildImageBody(prompt, args.size, model);
+      const body      = buildImageBody(prompt, args.size, model, image);
       const sessionId = codexOAuth.newSessionId();
       const convId    = codexOAuth.newConversationId();
       return {
@@ -333,7 +368,7 @@ async function run(args, ctx) {
       };
     }
     const model = resolveGoogleImageModel();
-    const body  = buildGeminiBody(prompt);
+    const body  = buildGeminiBody(prompt, image);
     return {
       url: new URL(GOOGLE_IMAGE_BASE + '/models/' + encodeURIComponent(model) + ':generateContent'),
       headers: {
@@ -504,7 +539,7 @@ async function run(args, ctx) {
     return { ok: false, error: 'write_failed', hint: 'Could not save the image to ~/.troth/images. Check disk space and permissions.', detail: String((e && e.message) || e) };
   }
 
-  return {
+  const out = {
     ok: true,
     path: outPath,
     bytes: bytes.length,
@@ -513,6 +548,8 @@ async function run(args, ctx) {
       ? 'generated via ChatGPT plan (unofficial route)'
       : 'generated via Google AI key (Gemini)',
   };
+  if (image) out.input_image = image.path;
+  return out;
 }
 
 module.exports = {
@@ -520,6 +557,8 @@ module.exports = {
   run,
   // Exposed for tests.
   buildImageBody,
+  loadInputImage,
+  INPUT_IMAGE_MAX_BYTES,
   parseSseEvents,
   extractImageB64,
   extractStreamError,

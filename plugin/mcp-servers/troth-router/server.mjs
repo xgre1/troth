@@ -279,11 +279,12 @@ const OUR_TOOLS = [
   // token load stay exactly where they were.
   {
     name: 'troth_image_generate',
-    description: 'Generate an image from a text prompt using the operator\'s linked ChatGPT plan or their Google AI key, and save it as a PNG under ~/.troth/images/. Returns the saved file path. Use when the user asks to create, draw, render or edit an image. Slow (up to a few minutes) — tell the user it is running.',
+    description: 'Generate an image from a text prompt using the operator\'s linked ChatGPT plan or their Google AI key, and save it as a PNG under ~/.troth/images/. Returns the saved file path. Use when the user asks to create, draw or render an image, or to edit one: pass its path in image_path and the result keeps its subject. Slow (up to a few minutes) — tell the user it is running.',
     inputSchema: {
       type: 'object',
       properties: {
         prompt: { type: 'string', description: 'What to generate. Be specific: subject, style, composition.' },
+        image_path: { type: 'string', description: 'Optional. Path of an image to edit or to use as the reference: the result keeps its subject (the same person, the same object). PNG, JPEG or WebP, up to 8 MB.' },
         source: { type: 'string', enum: ['chatgpt', 'google'], description: 'Optional. Omit to pick automatically (plan first, key as fallback).' }
       },
       required: ['prompt']
